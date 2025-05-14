@@ -1,0 +1,103 @@
+[versions]
+# Gradle 플러그인
+agp = "8.9.1"                           # Android Gradle Plugin (최신 안정 버전)
+kotlin = "2.0.20"                        # Kotlin 버전 수정 (Kotlin 2.0.x로 변경)
+kotlinxSerialization = "1.7.20"          # JSON (Kotlin 2.0.x와 호환되는 버전으로 수정)
+kotlinxSerializationJson = "1.7.2"          # JSON (Kotlin 2.0.x와 호환되는 버전으로 수정)
+
+# AndroidX 및 필수 라이브러리
+coreKtx = "1.15.0"                      # AndroidX Core KTX (최신 안정 버전)
+appcompat = "1.7.0"                     # AppCompat (최신 안정 버전)
+activity = "1.9.3"                      # Activity 및 Activity Compose (최신 안정 버전)
+constraintlayout = "2.2.1"              # ConstraintLayout (최신 안정 버전)
+lifecycle = "2.8.7"                     # Lifecycle (최신 안정 버전, 안정성 이슈 없음)
+multidex = "2.0.1"                      # Multidex (최신 안정 버전)
+material = "1.12.0"                     # Google Material Design (최신 안정 버전)
+
+# Jetpack Compose
+composeBom = "2025.04.00"               # Compose BOM (최신 안정 버전, Material3 1.7.4 포함)
+composeCompiler = "1.6.2"               # Compose Compiler (Kotlin 2.0.0과 호환)
+compose = "1.7.8"                       # Compose Module (Compose BOM과 일치)
+composeMaterial3 = "1.3.2"              # Compose Material3(https://developer.android.com/jetpack/androidx/versions/all-channel?hl=ko 참조)
+navigationCompose = "2.8.9"
+
+# Media
+androidx-media = "1.6.0"
+vectordrawable = "1.1.0"
+
+# coil
+coil = "2.4.0"
+
+# JTransForm
+jtransforms = "3.1"
+
+# 코루틴
+kotlinxCoroutines = "1.10.2"            # kotlinx-coroutines (최신 안정 버전)
+
+# 테스트 라이브러리
+junit = "4.13.2"                        # JUnit (최신 안정 버전)
+junitVersion = "1.2.1"                  # AndroidX JUnit (최신 안정 버전)
+espressoCore = "3.6.1"                  # Espresso (최신 안정 버전)
+
+[libraries]
+# Kotlin
+kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
+
+# 코루틴
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+
+#JSON
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+
+# AndroidX
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
+androidx-activity = { module = "androidx.activity:activity", version.ref = "activity" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
+androidx-constraintlayout = { module = "androidx.constraintlayout:constraintlayout", version.ref = "constraintlayout" }
+androidx-multidex = { module = "androidx.multidex:multidex", version.ref = "multidex" }
+
+# Lifecycle
+androidx-lifecycle-viewmodel-ktx = { module = "androidx.lifecycle:lifecycle-viewmodel-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+
+# Google Material
+material = { module = "com.google.android.material:material", version.ref = "material" }
+
+# Jetpack Compose
+androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+androidx-compose-ui = { module = "androidx.compose.ui:ui", version.ref = "compose" }
+androidx-compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics", version.ref = "compose" }
+androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling", version.ref = "compose" }
+androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", version.ref = "compose" }
+androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest", version.ref = "compose" }
+androidx-compose-material3 = { module = "androidx.compose.material3:material3", version.ref = "composeMaterial3" }
+androidx-compose-animation = { module = "androidx.compose.animation:animation", version.ref = "compose" }
+androidx-compose-runtime = { module = "androidx.compose.runtime:runtime", version.ref = "compose" }
+androidx-compose-runtime-livedata = { module = "androidx.compose.runtime:runtime-livedata", version.ref = "compose" }
+androidx-compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended", version.ref = "compose" }
+androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
+
+# Media
+androidx-media = { group = "androidx.media", name = "media", version.ref = "androidx-media" }
+vectordrawable = { group = "androidx.vectordrawable", name = "vectordrawable", version.ref = "vectordrawable" }
+
+# Coil
+coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
+
+# JTransForms
+jtransforms = { group = "com.github.wendykierp", name = "JTransforms", version.ref = "jtransforms" }
+
+# 테스트
+junit = { module = "junit:junit", version.ref = "junit" }
+androidx-junit = { module = "androidx.test.ext:junit", version.ref = "junitVersion" }
+androidx-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espressoCore" }
+
+[plugins]
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+jetbrainsKotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlinx-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlinxSerialization" }
