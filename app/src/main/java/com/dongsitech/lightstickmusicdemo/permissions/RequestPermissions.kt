@@ -9,34 +9,35 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 
 @Composable
-fun PermissionRequester(
+fun RequestPermissions(
     permissions: Array<String>,
-    onAllGranted: () -> Unit,
-    onDenied: () -> Unit
+    onGranted: () -> Unit,
+    onDenied: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
+    // 권한 요청 런처
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         val allGranted = result.values.all { it }
         if (allGranted) {
-            onAllGranted()
+            onGranted()
         } else {
-            Toast.makeText(context, "필수 권한이 모두 허용되지 않았습니다.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "권한이 필요합니다.", Toast.LENGTH_SHORT).show()
             onDenied()
         }
     }
 
+    // 권한 상태 확인 후 자동 요청
     LaunchedEffect(Unit) {
         val allGranted = permissions.all {
             ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
         }
-
         if (allGranted) {
-            onAllGranted()
+            onGranted()
         } else {
-            permissionLauncher.launch(permissions)
+            launcher.launch(permissions)
         }
     }
 }

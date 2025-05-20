@@ -3,6 +3,8 @@ plugins {
     alias(libs.plugins.jetbrainsKotlinAndroid)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlinx.serialization)
+    alias(libs.plugins.hilt)
+    kotlin("kapt")
 }
 
 android {
@@ -33,6 +35,10 @@ android {
     buildFeatures {
         compose = true
         viewBinding = true
+    }
+
+    kapt {
+        correctErrorTypes = true
     }
 
     composeOptions {
@@ -99,6 +105,24 @@ dependencies {
 
     // JTransForms
     implementation(libs.jtransforms)
+
+    // TarsosDSP
+    implementation(libs.tarsosdsp.core)
+    implementation(libs.tarsosdsp.jvm)
+
+    // Hilt
+    implementation(libs.hilt.android)
+    kapt(libs.hilt.compiler)
+    implementation(libs.androidx.hilt.navigation.compose)
+
+    // Exo Player
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.dash)
+
+    // Media3
+    implementation(libs.media3.common)
+    implementation(libs.media3.ui)
+    implementation(libs.media3.ui.compose)
 
     // 테스트
     testImplementation(libs.junit)

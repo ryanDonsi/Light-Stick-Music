@@ -1,4 +1,4 @@
-package com.dongsitech.lightstickmusicdemo.ui
+package com.dongsitech.lightstickmusicdemo.ui.components
 
 import android.Manifest
 import android.bluetooth.BluetoothDevice
@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-fun DeviceItem(
+fun LightStickDeviceItem(
     device: BluetoothDevice,
     rssi: Int,
     onClick: () -> Unit

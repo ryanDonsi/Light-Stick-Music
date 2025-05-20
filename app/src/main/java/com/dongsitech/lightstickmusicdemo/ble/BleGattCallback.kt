@@ -9,7 +9,7 @@ import android.content.Context
 import android.util.Log
 import androidx.annotation.RequiresPermission
 
-class MyGattCallback(private val context: Context) : BluetoothGattCallback() {
+class BleGattCallback(private val context: Context) : BluetoothGattCallback() {
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
         super.onConnectionStateChange(gatt, status, newState)

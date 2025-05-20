@@ -4,48 +4,43 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.util.Base64
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
-import androidx.navigation.NavType
 import androidx.navigation.compose.*
-import androidx.navigation.navArgument
-import com.dongsitech.lightstickmusicdemo.ui.DeviceListScreen
-import com.dongsitech.lightstickmusicdemo.ui.LightStickScreen
+import com.dongsitech.lightstickmusicdemo.ui.LightStickListScreen
 import com.dongsitech.lightstickmusicdemo.ui.MusicPlayerScreen
 import com.dongsitech.lightstickmusicdemo.ui.theme.LightStickMusicPlayerDemoTheme
-import com.dongsitech.lightstickmusicdemo.viewmodel.DeviceListViewModel
-import com.dongsitech.lightstickmusicdemo.viewmodel.LightStickViewModel
+import com.dongsitech.lightstickmusicdemo.viewmodel.LightStickListViewModel
 import com.dongsitech.lightstickmusicdemo.viewmodel.MusicPlayerViewModel
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.core.app.ActivityCompat
+import androidx.media3.common.util.UnstableApi
+import com.dongsitech.lightstickmusicdemo.ble.BleGattManager
 
+@UnstableApi
 class MainActivity : ComponentActivity() {
-    private val deviceListViewModel: DeviceListViewModel by viewModels()
-    private val lightStickViewModel: LightStickViewModel by viewModels()
+    private val lightStickListViewModel: LightStickListViewModel by viewModels()
     private val musicPlayerViewModel: MusicPlayerViewModel by viewModels()
 
-    @androidx.annotation.RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         requestStoragePermissionIfNeeded()
+
+        BleGattManager.initialize(applicationContext)
 
         setContent {
             LightStickMusicPlayerDemoTheme {
@@ -55,7 +50,7 @@ class MainActivity : ComponentActivity() {
 
                 val bottomNavItems = listOf(
                     BottomNavItem("music", "음악", Icons.Default.MusicNote),
-                    BottomNavItem("deviceList", "디바이스", Icons.Default.Devices)
+                    BottomNavItem("deviceList", "응원방", Icons.Default.Devices)
                 )
 
                 Scaffold(
@@ -85,8 +80,7 @@ class MainActivity : ComponentActivity() {
                     AppNavigation(
                         navController = navController,
                         modifier = Modifier.padding(padding),
-                        deviceListViewModel = deviceListViewModel,
-                        lightStickViewModel = lightStickViewModel,
+                        lightStickListViewModel = lightStickListViewModel,
                         musicPlayerViewModel = musicPlayerViewModel
                     )
                 }
@@ -95,13 +89,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestStoragePermissionIfNeeded() {
-        val permission = when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
-                Manifest.permission.READ_MEDIA_AUDIO
-            }
-            else -> {
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            }
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_AUDIO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
         }
 
         if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
@@ -110,13 +101,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(UnstableApi::class)
 @Composable
-@androidx.annotation.RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
 fun AppNavigation(
     navController: NavHostController,
     modifier: Modifier = Modifier,
-    deviceListViewModel: DeviceListViewModel,
-    lightStickViewModel: LightStickViewModel,
+    lightStickListViewModel: LightStickListViewModel,
     musicPlayerViewModel: MusicPlayerViewModel
 ) {
     val context = LocalContext.current
@@ -131,8 +121,8 @@ fun AppNavigation(
         }
 
         composable("deviceList") {
-            DeviceListScreen(
-                viewModel = deviceListViewModel,
+            LightStickListScreen(
+                viewModel = lightStickListViewModel,
                 navController = navController,
                 onDeviceSelected = { device ->
                     val hasPermission = ContextCompat.checkSelfPermission(
@@ -140,56 +130,21 @@ fun AppNavigation(
                         Manifest.permission.BLUETOOTH_CONNECT
                     ) == PackageManager.PERMISSION_GRANTED
 
-                    if (hasPermission) {
-                        try {
-                            lightStickViewModel.connectToDevice(device, context)
-
-                            val deviceWrapper = DeviceWrapper(
-                                name = device.name ?: "Unnamed",
-                                address = device.address
-                            )
-                            val deviceJson = Json.encodeToString(deviceWrapper)
-                            val encodedDeviceJson = Base64.encodeToString(
-                                deviceJson.toByteArray(),
-                                Base64.URL_SAFE or Base64.NO_WRAP
-                            )
-
-                            navController.navigate("lightStick/$encodedDeviceJson")
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "블루투스 연결 중 오류 발생", Toast.LENGTH_LONG).show()
-                        }
-                    } else {
+                    if (!hasPermission) {
                         Toast.makeText(context, "BLUETOOTH_CONNECT 권한 없음", Toast.LENGTH_LONG).show()
+                        return@LightStickListScreen
+                    }
+
+                    val isConnected = BleGattManager.isConnected(device.address)
+                    if (isConnected) {
+                        BleGattManager.disconnectDevice(device.address)
+                        Toast.makeText(context, "연결 해제됨", Toast.LENGTH_SHORT).show()
+                    } else {
+                        BleGattManager.connectToDevice(device)
+                        Toast.makeText(context, "연결됨", Toast.LENGTH_SHORT).show()
                     }
                 }
             )
-        }
-
-        composable(
-            route = "lightStick/{device}",
-            arguments = listOf(navArgument("device") { type = NavType.StringType }),
-            enterTransition = { slideInHorizontally(initialOffsetX = { it }) },
-            exitTransition = { slideOutHorizontally(targetOffsetX = { -it }) }
-        ) { backStackEntry ->
-            val encodedJson = backStackEntry.arguments?.getString("device") ?: ""
-            val deviceWrapper = try {
-                val json = String(Base64.decode(encodedJson, Base64.URL_SAFE or Base64.NO_WRAP))
-                Json.decodeFromString<DeviceWrapper>(json)
-            } catch (e: Exception) {
-                null
-            }
-
-            if (deviceWrapper != null) {
-                LightStickScreen(
-                    viewModel = lightStickViewModel,
-                    deviceName = deviceWrapper.name,
-                    deviceAddress = deviceWrapper.address,
-                    navController = navController
-                )
-            } else {
-                Toast.makeText(context, "기기 정보를 불러오는 데 실패했습니다.", Toast.LENGTH_LONG).show()
-                navController.popBackStack()
-            }
         }
     }
 }
@@ -198,10 +153,4 @@ data class BottomNavItem(
     val route: String,
     val label: String,
     val icon: ImageVector
-)
-
-@kotlinx.serialization.Serializable
-data class DeviceWrapper(
-    val name: String,
-    val address: String
 )
