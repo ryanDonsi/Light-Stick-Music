@@ -1,6 +1,6 @@
 [versions]
 # Gradle 플러그인
-agp = "8.9.1"                           # Android Gradle Plugin (최신 안정 버전)
+agp = "8.13.1"                           # Android Gradle Plugin (최신 안정 버전)
 kotlin = "2.0.20"                        # Kotlin 버전 수정 (Kotlin 2.0.x로 변경)
 kotlinxSerialization = "1.7.20"          # JSON (Kotlin 2.0.x와 호환되는 버전으로 수정)
 kotlinxSerializationJson = "1.7.2"          # JSON (Kotlin 2.0.x와 호환되는 버전으로 수정)
@@ -43,6 +43,10 @@ media3 = "1.6.1"
 
 # 코루틴
 kotlinxCoroutines = "1.10.2"            # kotlinx-coroutines (최신 안정 버전)
+
+# Glide
+glide = "4.16.0"
+glideTransformations = "4.3.0"
 
 # 테스트 라이브러리
 junit = "4.13.2"                        # JUnit (최신 안정 버전)
@@ -115,6 +119,11 @@ media3-exoplayer-dash = { group = "androidx.media3", name = "media3-exoplayer-da
 media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
 media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 media3-ui-compose = { group = "androidx.media3", name = "media3-ui-compose", version.ref = "media3" }
+
+# Glide
+glide = { group = "com.github.bumptech.glide", name = "glide", version.ref = "glide" }
+glide-compiler = { group = "com.github.bumptech.glide", name = "compiler", version.ref = "glide" }
+glide-transformations = { group = "jp.wasabeef", name = "glide-transformations", version.ref = "glideTransformations" }
 
 # 테스트
 junit = { module = "junit:junit", version.ref = "junit" }

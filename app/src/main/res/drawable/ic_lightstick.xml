@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 헤드 -->
+    <path
+        android:pathData="M12,2.75a4.5,4.5 0 1,1 0,9a4.5,4.5 0 1,1 0,-9z"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.2"
+        android:fillColor="@android:color/transparent" />
+
+    <!-- 받침대 -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M8.5,10.75h7c0.5,0 0.5,2 0,2h-7c-0.5,0 -0.5,-2 0,-2z" />
+
+    <!-- 손잡이 -->
+    <path
+        android:pathData="M10.75,13.25h2.5v9.0h-2.5z"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="0.9" />
+
+    <!-- 버튼: 손잡이 상단으로 이동 (3/10 지점 = y=15.95) -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,15.95a0.6,0.6 0 1,1 0,1.2a0.6,0.6 0 1,1 0,-1.2z" />
+</vector>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

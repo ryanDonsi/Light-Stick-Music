@@ -1,33 +1,51 @@
 package com.dongsitech.lightstickmusicdemo.viewmodel
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Application
 import android.media.MediaMetadataRetriever
-import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.exoplayer.ExoPlayer
-import com.dongsitech.lightstickmusicdemo.ble.BleGattManager
+import com.dongsitech.lightstickmusicdemo.effect.EffectEngineController
+import com.dongsitech.lightstickmusicdemo.effect.MusicEffectManager
 import com.dongsitech.lightstickmusicdemo.model.MusicItem
 import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
-import com.dongsitech.lightstickmusicdemo.util.LedColorBand
-import com.dongsitech.lightstickmusicdemo.util.MyAudioProcessor
-import com.dongsitech.lightstickmusicdemo.util.MyPlaybackListener
+import com.dongsitech.lightstickmusicdemo.player.FftAudioProcessor
+import com.dongsitech.lightstickmusicdemo.player.createFftPlayer
+import com.dongsitech.lightstickmusicdemo.util.MusicPlayerCommandBus
+import com.dongsitech.lightstickmusicdemo.util.ServiceController
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
-import androidx.core.net.toUri
 
 @UnstableApi
 class MusicPlayerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context = application.applicationContext
+
+    // SDK와 독립된 이펙트 컨트롤러 직접 사용
+    private val effectEngine = EffectEngineController()
+
+    // FFT -> LED 전송 (컨트롤러가 내부에서 권한체크 + 전송)
+    val audioProcessor = FftAudioProcessor { band ->
+        if (PermissionUtils.hasPermission(context, Manifest.permission.BLUETOOTH_CONNECT)) {
+            try {
+                effectEngine.processFftEffect(band, context)
+            } catch (e: SecurityException) {
+                Log.e("BLE", "FFT effect send failed: ${e.message}")
+            }
+        }
+    }
+
+    val player = createFftPlayer(context, audioProcessor)
 
     private val _musicList = MutableStateFlow<List<MusicItem>>(emptyList())
     val musicList: StateFlow<List<MusicItem>> = _musicList.asStateFlow()
@@ -44,46 +62,37 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val _duration = MutableStateFlow(0)
     val duration: StateFlow<Int> = _duration.asStateFlow()
 
-    private val audioProcessor = MyAudioProcessor { band: LedColorBand ->
-        if (PermissionUtils.hasPermission(context, android.Manifest.permission.BLUETOOTH_CONNECT)) {
-            try {
-                BleGattManager.sendLedColorToAll(
-                    red = band.red.toByte(),
-                    green = band.green.toByte(),
-                    blue = band.blue.toByte(),
-                    transit = 10 // 1초 = 10프레임 선형 변화
-                )
-            } catch (e: SecurityException) {
-                Log.e("MusicPlayerViewModel", "SecurityException: $e")
-            }
-
-        }
-    }
-
-    private val player: ExoPlayer = ExoPlayer.Builder(context)
-        .build()
-        .apply {
-            // Media3에서는 직접 AudioProcessor를 삽입하는 API는 없고, setAudioSink도 없음
-            // 하지만 직접 DefaultAudioSink 설정하려면 별도 AudioSink 구현 필요
-            setHandleAudioBecomingNoisy(true)
-            addListener(MyPlaybackListener(audioProcessor))
-        }
+    private val effectDir = File(context.getExternalFilesDir(null), "effects").apply { mkdirs() }
 
     init {
-        loadMusic()
-        monitorPlayback()
-    }
+        // 앱 내부 이펙트 파일 매니저 초기화 (SDK 로더가 없을 때 폴백용)
+        MusicEffectManager.initialize(effectDir)
 
-    private fun monitorPlayback() {
+        effectEngine.reset()
+
         viewModelScope.launch {
-            while (true) {
-                if (player.isPlaying) {
-                    _currentPosition.value = player.currentPosition.toInt()
-                    _duration.value = player.duration.toInt()
+            // 플레이어 포지션 모니터링 루프
+            monitorPosition()
+        }
+
+        viewModelScope.launch {
+            MusicPlayerCommandBus.commands.collect { command ->
+                when (command) {
+                    is MusicPlayerCommandBus.Command.TogglePlay -> togglePlayPause()
+                    is MusicPlayerCommandBus.Command.Next -> playNext()
+                    is MusicPlayerCommandBus.Command.Previous -> playPrevious()
+                    is MusicPlayerCommandBus.Command.SeekTo -> seekTo(command.position)
                 }
-                delay(500)
             }
         }
+
+        loadMusic()
+
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) playNext()
+            }
+        })
     }
 
     fun loadMusic() {
@@ -99,7 +108,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             val sort = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
             val musicItems = mutableListOf<MusicItem>()
-
             resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
                 val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
@@ -109,6 +117,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     val path = cursor.getString(dataCol)
                     val title = cursor.getString(nameCol) ?: "Unknown"
                     val artist = cursor.getString(artistCol) ?: "Unknown"
+                    val musicId = File(path).nameWithoutExtension.hashCode()
 
                     val retriever = MediaMetadataRetriever()
                     retriever.setDataSource(path)
@@ -119,12 +128,24 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     }
                     retriever.release()
 
-                    musicItems.add(MusicItem(title, artist, path, art))
+                    val hasEffect = MusicEffectManager.hasEffectFor(musicId)
+                    musicItems.add(MusicItem(title, artist, path, art, hasEffect))
                 }
             }
 
             _musicList.value = musicItems
         }
+    }
+
+    fun updateNotificationProgress() {
+        val item = _nowPlaying.value ?: return
+        ServiceController.updateNotificationProgress(
+            context = context,
+            musicItem = item,
+            isPlaying = _isPlaying.value,
+            position = _currentPosition.value.toLong(),
+            duration = _duration.value.toLong()
+        )
     }
 
     fun playMusic(item: MusicItem) {
@@ -133,7 +154,21 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         _duration.value = 0
         _currentPosition.value = 0
 
-        val mediaItem = MediaItem.fromUri(item.filePath.toUri())
+        val musicId = File(item.filePath).nameWithoutExtension.hashCode()
+
+        // ✅ 이펙트 엔진 초기화 + .efx 로딩 (SDK 우선, 앱 폴백)
+        effectEngine.reset()
+        effectEngine.loadEffectsFor(musicId, context)
+
+        ServiceController.startMusicEffectService(
+            context = context,
+            musicItem = item,
+            isPlaying = true,
+            position = 0L,
+            duration = 0L
+        )
+
+        val mediaItem = MediaItem.fromUri(item.filePath)
         player.setMediaItem(mediaItem)
         player.prepare()
         player.play()
@@ -147,22 +182,62 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             player.play()
             _isPlaying.value = true
         }
+        updateNotificationProgress()
     }
 
     fun playNext() {
         val index = _musicList.value.indexOfFirst { it == _nowPlaying.value }
-        val next = _musicList.value.getOrNull(index + 1)
-        next?.let { playMusic(it) }
+        _musicList.value.getOrNull(index + 1)?.let { playMusic(it) }
     }
 
     fun playPrevious() {
         val index = _musicList.value.indexOfFirst { it == _nowPlaying.value }
-        val prev = _musicList.value.getOrNull(index - 1)
-        prev?.let { playMusic(it) }
+        _musicList.value.getOrNull(index - 1)?.let { playMusic(it) }
+    }
+
+    fun seekTo(position: Long) {
+        player.seekTo(position)
+        _currentPosition.value = position.toInt()
+        updateNotificationProgress()
+    }
+
+    /** Light Stick 단일 타깃 주소 설정 (디바이스 탭 시 호출) */
+    fun setTargetAddress(address: String?) {
+        effectEngine.setTargetAddress(address)
+    }
+
+    /** Lint-친화적으로 위치를 모니터링하며 타임라인 이펙트 전송 */
+    @SuppressLint("MissingPermission")
+    private fun monitorPosition() {
+        viewModelScope.launch {
+            var lastSecond = -1
+            while (true) {
+                val current = player.currentPosition.toInt()
+                val duration = player.duration.toInt()
+                _currentPosition.value = current
+                _duration.value = duration
+
+                if (player.isPlaying && current / 1000 != lastSecond) {
+                    // ✅ .efx 타임라인 구동
+                    try {
+                        effectEngine.processPosition(context, current)
+                    } catch (e: SecurityException) {
+                        Log.e("BLE", "processPosition() failed: ${e.message}")
+                    }
+                    updateNotificationProgress()
+                    lastSecond = current / 1000
+                }
+
+                // (참고) 필요 시 재생 상태를 SDK로 넘기고 싶다면 여기서 호출
+                // effectEngine.monitorPlaybackState(player.isPlaying) 같은 메서드를 추가/호출
+
+                delay(100)
+            }
+        }
     }
 
     override fun onCleared() {
-        super.onCleared()
         player.release()
+        super.onCleared()
     }
 }

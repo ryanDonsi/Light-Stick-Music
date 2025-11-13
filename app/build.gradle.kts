@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlinx.serialization)
     alias(libs.plugins.hilt)
+    id("kotlin-parcelize")
     kotlin("kapt")
 }
 
@@ -123,6 +124,15 @@ dependencies {
     implementation(libs.media3.common)
     implementation(libs.media3.ui)
     implementation(libs.media3.ui.compose)
+
+    // Glide
+    implementation(libs.glide)
+    kapt(libs.glide.compiler)
+
+    // Blur (Glide Transformation)
+    implementation(libs.glide.transformations)
+
+    implementation(files("libs/lightstick-ble-sdk-release-v.1.0.0.aar"))
 
     // 테스트
     testImplementation(libs.junit)
