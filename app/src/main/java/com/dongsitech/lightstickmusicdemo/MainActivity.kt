@@ -31,20 +31,20 @@ import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
 import com.dongsitech.lightstickmusicdemo.permissions.RequestPermissions
 import com.dongsitech.lightstickmusicdemo.R
 import androidx.media3.common.util.UnstableApi
-import io.lightstick.sdk.ble.BleSdk
-import io.lightstick.sdk.ble.model.ScanResult
+import com.lightstick.LSBluetooth
+import com.lightstick.device.Device
 
 @UnstableApi
 class MainActivity : ComponentActivity() {
     private val lightStickListViewModel: LightStickListViewModel by viewModels()
     private val musicPlayerViewModel: MusicPlayerViewModel by viewModels()
-    private val version by lazy { BleSdk.version() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // SDK init
-        BleSdk.initialize(applicationContext)
+        // SDK init (새 방식)
+        LSBluetooth.initialize(applicationContext)
+        lightStickListViewModel.initializeWithContext(applicationContext)
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
 
@@ -178,7 +178,7 @@ fun AppNavigation(
             LightStickListScreen(
                 viewModel = lightStickListViewModel,
                 navController = navController,
-                onDeviceSelected = { res: ScanResult ->
+                onDeviceSelected = { device: Device ->
                     // 권한 체크 (ViewModel 내부에서도 재확인하지만, UX 메시지 위해 한 번 더)
                     val hasPermission = PermissionUtils.hasPermission(
                         context,
@@ -192,7 +192,7 @@ fun AppNavigation(
 
                     // 주소만 넘겨 토글 (ViewModel은 주소 기반 연결/해제 처리)
                     @SuppressLint("MissingPermission")
-                    lightStickListViewModel.toggleConnection(context, res)
+                    lightStickListViewModel.toggleConnection(context, device)
                 }
             )
         }

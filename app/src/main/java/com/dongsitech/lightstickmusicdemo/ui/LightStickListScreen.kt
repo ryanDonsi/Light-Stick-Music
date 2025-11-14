@@ -40,14 +40,14 @@ import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
 import com.dongsitech.lightstickmusicdemo.permissions.RequestPermissions
 import com.dongsitech.lightstickmusicdemo.viewmodel.LightStickListViewModel
 import com.dongsitech.lightstickmusicdemo.ui.components.StretchPullRefreshContainer
-import io.lightstick.sdk.ble.model.ScanResult
+import com.lightstick.device.Device
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LightStickListScreen(
     viewModel: LightStickListViewModel,
     navController: NavController,
-    onDeviceSelected: (ScanResult) -> Unit
+    onDeviceSelected: (Device) -> Unit
 ) {
     val context = LocalContext.current
     val devices by viewModel.devices.collectAsState()
@@ -164,11 +164,11 @@ fun LightStickListScreen(
                             }
                         }
                     } else {
-                        items(devices, key = { it.address }) { res ->
-                            val address = res.address
-                            val rssi = res.rssi
+                        items(devices, key = { it.mac }) { device ->  // address → mac
+                            val address = device.mac  // address → mac
+                            val rssi = device.rssi
                             val isConnected = connectionStates[address] == true
-                            val name = res.name ?: "Unnamed Device"
+                            val name = device.name ?: "Unnamed Device"
 
                             Card(
                                 modifier = Modifier
@@ -222,7 +222,7 @@ fun LightStickListScreen(
                                         }
 
                                         Button(
-                                            onClick = { onDeviceSelected(res) },
+                                            onClick = { onDeviceSelected(device) },
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = if (isConnected) Color.Red else Color.Blue
                                             )

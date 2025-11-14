@@ -7,7 +7,10 @@ import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.dongsitech.lightstickmusicdemo.model.FrequencyBand
-import io.lightstick.sdk.ble.BleSdk
+import com.lightstick.LSBluetooth
+import com.lightstick.device.Device
+import com.lightstick.types.Color
+import com.lightstick.types.LSEffectPayload
 
 /**
  * Controls FFT/timeline-driven LED effects for a SINGLE Light Stick.
@@ -23,31 +26,53 @@ class EffectEngineController(
 ) {
     // ---------- Single-target management ----------
     @Volatile private var targetAddress: String? = null
+    @Volatile private var targetDevice: Device? = null
 
     /** Set/clear the current target device MAC address. */
-    fun setTargetAddress(address: String?) { targetAddress = address }
+    fun setTargetAddress(address: String?) {
+        targetAddress = address
+        targetDevice = null // 디바이스 객체는 다시 찾아야 함
+    }
 
     /** Read the current target address (may be null). */
     fun getTargetAddress(): String? = targetAddress
 
     /**
-     * Resolve a usable send target:
+     * Resolve a usable send target Device:
      * - If targetAddress is set AND connected → use it.
-     * - Else → use first of BleSdk.gattManager.getConnectedList(), or null if none.
+     * - Else → use first of LSBluetooth.connectedDevices(), or null if none.
      * Guarded by BLUETOOTH_CONNECT permission check.
      */
     @SuppressLint("MissingPermission")
-    private fun resolveTarget(context: Context): String? {
+    private fun resolveTarget(context: Context): Device? {
         if (!hasBleConnectPermission(context)) return null
-        val addr = targetAddress
-        return try {
-            when {
-                addr != null && BleSdk.gattManager.isConnected(addr) -> addr
-                else -> BleSdk.gattManager.getConnectedList().firstOrNull()
+
+        try {
+            val addr = targetAddress
+
+            // 캐시된 타겟이 있고 연결되어 있으면 사용
+            if (addr != null && targetDevice != null && targetDevice?.isConnected() == true) {
+                return targetDevice
             }
+
+            // 타겟 주소가 설정되어 있으면 해당 디바이스 찾기
+            if (addr != null) {
+                val devices = LSBluetooth.connectedDevices()
+                targetDevice = devices.find { it.mac == addr && it.isConnected() }
+                if (targetDevice != null) return targetDevice
+            }
+
+            // 타겟이 없으면 첫 번째 연결된 디바이스 사용
+            val firstConnected = LSBluetooth.connectedDevices().firstOrNull()
+            if (firstConnected != null) {
+                targetDevice = firstConnected
+                targetAddress = firstConnected.mac
+            }
+            return targetDevice
+
         } catch (t: Throwable) {
             Log.e("EffectEngineController", "resolveTarget() failed: ${t.message}")
-            null
+            return null
         }
     }
 
@@ -66,11 +91,12 @@ class EffectEngineController(
      * Prefer calling this overload (needs context) so that SDK loader를 시도할 수 있음.
      */
     fun loadEffectsFor(musicId: Int, context: Context) {
-        // 1) Try SDK loader via reflection: BleSdk.ledControlManager.loadEfxTimeline(context, musicId)
-        sdkTimeline = tryLoadTimelineViaSdk(context, musicId)
+        // 1) Try SDK loader via reflection (현재는 신 SDK에 해당 기능 없음)
+        // 나중에 SDK에 추가되면 활성화
+        sdkTimeline = null // tryLoadTimelineViaSdk(context, musicId)
 
         if (sdkTimeline.isNullOrEmpty()) {
-            // 2) Fallback: app loader (nullable → emptyList()로 병합)
+            // 2) Fallback: app loader
             loadedEffects = try {
                 MusicEffectManager.loadEffects(musicId) ?: emptyList()
             } catch (t: Throwable) {
@@ -79,7 +105,7 @@ class EffectEngineController(
             }
             Log.d("EffectEngineController", "App timeline items: ${loadedEffects.size}")
         } else {
-            loadedEffects = emptyList() // ensure app list empty when SDK list is present
+            loadedEffects = emptyList()
             Log.d("EffectEngineController", "SDK timeline items: ${sdkTimeline?.size}")
         }
 
@@ -106,15 +132,12 @@ class EffectEngineController(
         loadedEffects = emptyList()
         isEffectFileMode = false
         lastEffectIndex = -1
+        targetDevice = null
     }
 
     /**
      * Apply FFT-based effect for a single frame (called from the audio pipeline).
      * If a timeline is active, this is a no-op.
-     *
-     * Lint notes:
-     * - We check permission at the start
-     * - We add @SuppressLint("MissingPermission") to silence Lint after the check
      */
     @SuppressLint("MissingPermission")
     fun processFftEffect(band: FrequencyBand, context: Context) {
@@ -146,46 +169,23 @@ class EffectEngineController(
     /**
      * Drive timeline (.efx) effects by playback position (ms).
      * Sends each effect once when its start time is reached.
-     *
-     * Lint notes:
-     * - We check permission at the start
-     * - We add @SuppressLint("MissingPermission") to silence Lint after the check
      */
     @SuppressLint("MissingPermission")
     fun processPosition(context: Context, currentPositionMs: Int) {
         if (!hasBleConnectPermission(context)) return
 
-        // 1) SDK timeline path
-        sdkTimeline?.let { list ->
-            val addr = resolveTarget(context) ?: return@let
-            val next = list.getOrNull(lastEffectIndex + 1) ?: return@let
-            val nextStart = reflectStartTimeMs(next) ?: return@let
-            if (nextStart <= currentPositionMs) {
-                lastEffectIndex++
-                if (!reflectSendSdkPayload(addr, next)) {
-                    // Fallback: extract raw bytes if possible
-                    val bytes = reflectBytes(next)
-                    if (bytes != null) {
-                        try { BleSdk.ledControlManager.sendLedEffect(addr, bytes) }
-                        catch (t: Throwable) { Log.e("EffectEngineController", "sendLedEffect(bytes) failed: ${t.message}") }
-                    } else {
-                        Log.w("EffectEngineController", "No compatible SDK send nor bytes extractor.")
-                    }
-                }
-            }
-            return
-        }
-
-        // 2) App timeline path
+        // App timeline path (SDK timeline은 현재 미지원)
         if (loadedEffects.isNotEmpty()
             && lastEffectIndex + 1 < loadedEffects.size
             && loadedEffects[lastEffectIndex + 1].startTimeMs <= currentPositionMs
         ) {
-            val addr = resolveTarget(context) ?: return
+            val device = resolveTarget(context) ?: return
             lastEffectIndex++
             val payload = loadedEffects[lastEffectIndex].payload
+
             try {
-                BleSdk.ledControlManager.sendLedEffect(addr, payload)
+                // 신 SDK 방식: Device.sendEffect()
+                sendEffectToDevice(device, payload)
             } catch (e: SecurityException) {
                 Log.e("EffectEngineController", "BLE send failed (processPosition): ${e.message}")
             }
@@ -214,11 +214,7 @@ class EffectEngineController(
 
     /**
      * Send a color command to the single active target.
-     * If target is null/disconnected, uses the first actually-connected address.
-     *
-     * Lint notes:
-     * - Caller already checked permission
-     * - We keep @SuppressLint here to make Lint happy regardless of call graph inlining
+     * 신 SDK 방식: Device.sendColor() 사용
      */
     @SuppressLint("MissingPermission")
     private fun sendColorToTarget(
@@ -227,94 +223,35 @@ class EffectEngineController(
         transit: Byte
     ) {
         if (!hasBleConnectPermission(context)) return
-        val addr: String = resolveTarget(context) ?: return
+        val device = resolveTarget(context) ?: return
+
         try {
-            BleSdk.ledControlManager.sendLedColor(addr, r, g, b, transit)
+            val color = Color(
+                r.toInt() and 0xFF,
+                g.toInt() and 0xFF,
+                b.toInt() and 0xFF
+            )
+            device.sendColor(color, transit.toInt() and 0xFF)
         } catch (se: SecurityException) {
-            Log.e("EffectEngineController", "sendLedColor SecurityException ($addr): ${se.message}")
+            Log.e("EffectEngineController", "sendColor SecurityException: ${se.message}")
         } catch (t: Throwable) {
-            Log.e("EffectEngineController", "sendLedColor failed ($addr): ${t.message}")
+            Log.e("EffectEngineController", "sendColor failed: ${t.message}")
         }
     }
 
-    // ----------------- Reflection helpers (SDK timeline) -----------------
-
-    /** Try calling BleSdk.ledControlManager.loadEfxTimeline(context, musicId) via reflection. */
-    private fun tryLoadTimelineViaSdk(context: Context, musicId: Int): List<Any>? {
-        return try {
-            val mgr = BleSdk.ledControlManager
-            val m = mgr::class.java.methods.firstOrNull { method ->
-                method.name == "loadEfxTimeline" &&
-                        method.parameterTypes.size == 2 &&
-                        method.parameterTypes[0] == Context::class.java &&
-                        (method.parameterTypes[1] == Int::class.java || method.parameterTypes[1] == Integer.TYPE)
-            } ?: return null
-            val res = m.invoke(mgr, context, musicId) as? List<*>
-            @Suppress("UNCHECKED_CAST")
-            (res?.filterNotNull())
-        } catch (_: Throwable) {
-            null
+    /**
+     * Send effect payload to device.
+     * 신 SDK 방식: Device.sendEffect() 사용
+     */
+    @SuppressLint("MissingPermission")
+    private fun sendEffectToDevice(device: Device, payload: ByteArray) {
+        try {
+            // ByteArray를 LSEffectPayload로 변환
+            val effectPayload = LSEffectPayload.fromByteArray(payload)
+            device.sendEffect(effectPayload)
+        } catch (t: Throwable) {
+            Log.e("EffectEngineController", "sendEffect failed: ${t.message}")
         }
-    }
-
-    /** Reflectively get startTimeMs from an SDK LSEffectPayload-like object. */
-    private fun reflectStartTimeMs(obj: Any): Int? {
-        return try {
-            // Prefer getter
-            obj.javaClass.methods.firstOrNull { it.name == "getStartTimeMs" && it.parameterCount == 0 }
-                ?.let { (it.invoke(obj) as? Number)?.toInt() }
-                ?: run {
-                    // Try field
-                    val f = obj.javaClass.getDeclaredField("startTimeMs")
-                    f.isAccessible = true
-                    (f.get(obj) as? Number)?.toInt()
-                }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    /** Reflectively call BleSdk.ledControlManager.sendLedEffect(addr, payloadObj) if such overload exists. */
-    private fun reflectSendSdkPayload(addr: String, payloadObj: Any): Boolean {
-        return try {
-            val mgr = BleSdk.ledControlManager
-            val method = mgr::class.java.methods.firstOrNull { m ->
-                m.name == "sendLedEffect" &&
-                        m.parameterTypes.size == 2 &&
-                        m.parameterTypes[0] == String::class.java &&
-                        // second param class name contains LSEffectPayload
-                        m.parameterTypes[1].name.contains("LSEffectPayload")
-            } ?: return false
-            method.invoke(mgr, addr, payloadObj)
-            true
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
-    /** Try to extract raw bytes from an SDK payload via common names: bytes / payload / data. */
-    private fun reflectBytes(obj: Any): ByteArray? {
-        // getters
-        obj.javaClass.methods.firstOrNull { it.name == "getBytes" && it.parameterCount == 0 }?.let {
-            return it.invoke(obj) as? ByteArray
-        }
-        obj.javaClass.methods.firstOrNull { it.name == "getPayload" && it.parameterCount == 0 }?.let {
-            return it.invoke(obj) as? ByteArray
-        }
-        obj.javaClass.methods.firstOrNull { it.name == "getData" && it.parameterCount == 0 }?.let {
-            return it.invoke(obj) as? ByteArray
-        }
-        // fields
-        runCatching { obj.javaClass.getDeclaredField("bytes") }.getOrNull()?.let {
-            it.isAccessible = true; return it.get(obj) as? ByteArray
-        }
-        runCatching { obj.javaClass.getDeclaredField("payload") }.getOrNull()?.let {
-            it.isAccessible = true; return it.get(obj) as? ByteArray
-        }
-        runCatching { obj.javaClass.getDeclaredField("data") }.getOrNull()?.let {
-            it.isAccessible = true; return it.get(obj) as? ByteArray
-        }
-        return null
     }
 }
 

@@ -40,7 +40,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             try {
                 effectEngine.processFftEffect(band, context)
             } catch (e: SecurityException) {
-                Log.e("BLE", "FFT effect send failed: ${e.message}")
+                Log.e("MusicPlayerVM", "FFT effect send failed: ${e.message}")
             }
         }
     }
@@ -156,7 +156,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
         val musicId = File(item.filePath).nameWithoutExtension.hashCode()
 
-        // ✅ 이펙트 엔진 초기화 + .efx 로딩 (SDK 우선, 앱 폴백)
+        // ✅ 이펙트 엔진 초기화 + .efx 로딩
         effectEngine.reset()
         effectEngine.loadEffectsFor(musicId, context)
 
@@ -206,7 +206,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         effectEngine.setTargetAddress(address)
     }
 
-    /** Lint-친화적으로 위치를 모니터링하며 타임라인 이펙트 전송 */
+    /** 위치를 모니터링하며 타임라인 이펙트 전송 */
     @SuppressLint("MissingPermission")
     private fun monitorPosition() {
         viewModelScope.launch {
@@ -222,14 +222,11 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     try {
                         effectEngine.processPosition(context, current)
                     } catch (e: SecurityException) {
-                        Log.e("BLE", "processPosition() failed: ${e.message}")
+                        Log.e("MusicPlayerVM", "processPosition() failed: ${e.message}")
                     }
                     updateNotificationProgress()
                     lastSecond = current / 1000
                 }
-
-                // (참고) 필요 시 재생 상태를 SDK로 넘기고 싶다면 여기서 호출
-                // effectEngine.monitorPlaybackState(player.isPlaying) 같은 메서드를 추가/호출
 
                 delay(100)
             }
