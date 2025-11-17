@@ -1,13 +1,16 @@
 package com.dongsitech.lightstickmusicdemo.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -18,6 +21,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dongsitech.lightstickmusicdemo.viewmodel.EffectViewModel
@@ -33,9 +38,11 @@ fun EffectScreen(
     val selectedEffect by viewModel.selectedEffect.collectAsState()
     val currentSettings by viewModel.currentSettings.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
     var showSettingsDialog by remember { mutableStateOf(false) }
-    var showColorPicker by remember { mutableStateOf(false) }
+    var showForegroundColorPicker by remember { mutableStateOf(false) }
+    var showBackgroundColorPicker by remember { mutableStateOf(false) }
 
     // 사용 가능한 이펙트 목록
     val effects = remember {
@@ -59,18 +66,21 @@ fun EffectScreen(
             TopAppBar(
                 title = { Text("이펙트") },
                 actions = {
-                    // 색상 선택 버튼
-                    if (selectedEffect != null && selectedEffect !is EffectViewModel.UiEffectType.Off) {
-                        IconButton(onClick = { showColorPicker = true }) {
+                    // Foreground Color 선택 버튼 (EFFECT LIST 제외)
+                    if (selectedEffect != null &&
+                        selectedEffect !is EffectViewModel.UiEffectType.Off &&
+                        selectedEffect !is EffectViewModel.UiEffectType.EffectList) {
+                        IconButton(onClick = { showForegroundColorPicker = true }) {
                             Icon(
                                 imageVector = Icons.Default.Palette,
-                                contentDescription = "색상 선택"
+                                contentDescription = "전경색 선택"
                             )
                         }
                     }
 
-                    // 설정 버튼
-                    if (selectedEffect != null && selectedEffect !is EffectViewModel.UiEffectType.Off) {
+                    // 설정 버튼 (EFFECT LIST 제외)
+                    if (selectedEffect != null &&
+                        selectedEffect !is EffectViewModel.UiEffectType.EffectList) {
                         IconButton(onClick = { showSettingsDialog = true }) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
@@ -78,20 +88,53 @@ fun EffectScreen(
                             )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
+                }
             )
         }
-    ) { paddingValues ->
+    ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(padding)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item { Spacer(modifier = Modifier.height(4.dp)) }
+
+            // 에러 메시지 표시
+            errorMessage?.let { error ->
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = error,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = { viewModel.clearError() }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "닫기",
+                                    tint = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Broadcasting 옵션
             item {
                 Card(
@@ -109,15 +152,13 @@ fun EffectScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Broadcasting",
+                                text = "Broadcasting Mode",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = if (currentSettings.broadcasting)
-                                    "Master Mode (주변 재전파)"
-                                else
-                                    "Single Mode (단일 동작)",
+                                text = if (currentSettings.broadcasting) "Master Mode (주변 응원봉에 신호 재전파)"
+                                else "Single Mode (연결된 응원봉만 동작)",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -130,37 +171,7 @@ fun EffectScreen(
                 }
             }
 
-            // 현재 색상 표시
-            if (selectedEffect != null && selectedEffect !is EffectViewModel.UiEffectType.Off) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "현재 색상",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(currentSettings.color.toComposeColor())
-                            )
-                        }
-                    }
-                }
-            }
+
 
             // 이펙트 목록 헤더
             item {
@@ -174,12 +185,21 @@ fun EffectScreen(
 
             // 이펙트 목록
             items(effects) { effect ->
-                EffectCard(
-                    effect = effect,
-                    isSelected = selectedEffect == effect,
-                    isPlaying = isPlaying && selectedEffect == effect,
-                    onClick = { viewModel.selectEffect(context, effect) }
-                )
+                // currentSettings를 key로 사용하여 설정 변경 시 리컴포지션 트리거
+                key(effect, currentSettings) {
+                    EffectCard(
+                        effect = effect,
+                        isSelected = selectedEffect == effect,
+                        isPlaying = isPlaying && selectedEffect == effect,
+                        settings = if (selectedEffect == effect) {
+                            currentSettings  // 선택된 이펙트는 currentSettings 사용 (실시간)
+                        } else {
+                            viewModel.getEffectSettings(effect)  // 다른 이펙트는 저장된 설정
+                        },
+                        viewModel = viewModel,
+                        onClick = { viewModel.selectEffect(context, effect) }
+                    )
+                }
             }
 
             item {
@@ -188,15 +208,29 @@ fun EffectScreen(
         }
     }
 
-    // 색상 선택 다이얼로그
-    if (showColorPicker) {
+    // Foreground Color Picker
+    if (showForegroundColorPicker) {
         ColorPickerDialog(
+            title = "전경색 선택",
             currentColor = currentSettings.color,
             onColorSelected = { color ->
                 viewModel.updateColor(context, color)
-                showColorPicker = false
+                showForegroundColorPicker = false
             },
-            onDismiss = { showColorPicker = false }
+            onDismiss = { showForegroundColorPicker = false }
+        )
+    }
+
+    // Background Color Picker
+    if (showBackgroundColorPicker) {
+        ColorPickerDialog(
+            title = "배경색 선택",
+            currentColor = currentSettings.backgroundColor,
+            onColorSelected = { color ->
+                viewModel.updateBackgroundColor(context, color)
+                showBackgroundColorPicker = false
+            },
+            onDismiss = { showBackgroundColorPicker = false }
         )
     }
 
@@ -213,13 +247,68 @@ fun EffectScreen(
     }
 }
 
+/**
+ * 이펙트 카드
+ */
 @Composable
 fun EffectCard(
     effect: EffectViewModel.UiEffectType,
     isSelected: Boolean,
     isPlaying: Boolean,
+    settings: EffectViewModel.EffectSettings,
+    viewModel: EffectViewModel,
     onClick: () -> Unit
 ) {
+    // 해당 이펙트의 현재 설정값 (실시간 업데이트)
+    val effectSettings = if (isSelected) {
+        // 선택된 이펙트는 currentSettings 사용 (실시간 반영)
+        settings
+    } else {
+        // 선택되지 않은 이펙트는 저장된 설정 사용
+        remember(effect) { viewModel.getEffectSettings(effect) }
+    }
+
+    // 설정값 표시 문자열 생성
+    val settingsText = buildString {
+        // EFFECT LIST는 내부 프레임 사용이므로 설정값 표시 안 함
+        if (effect is EffectViewModel.UiEffectType.EffectList) {
+            append("내장 이펙트")
+            return@buildString
+        }
+
+        // 색상 정보
+        val colorHex = String.format(
+            "#%02X%02X%02X",
+            effectSettings.color.r,
+            effectSettings.color.g,
+            effectSettings.color.b
+        )
+        append("🎨 $colorHex")
+
+        when (effect) {
+            is EffectViewModel.UiEffectType.Strobe,
+            is EffectViewModel.UiEffectType.Blink,
+            is EffectViewModel.UiEffectType.Breath -> {
+                append(" | Period: ${effectSettings.period}")
+            }
+            is EffectViewModel.UiEffectType.On,
+            is EffectViewModel.UiEffectType.Off -> {
+                append(" | Transit: ${effectSettings.transit}")
+            }
+            else -> {}
+        }
+
+        // Random Color
+        if (effectSettings.randomColor) {
+            append(" | 🎲 Random")
+        }
+
+        // Random Delay
+        if (effectSettings.randomDelay > 0) {
+            append(" | ⏱ Delay: ${effectSettings.randomDelay}")
+        }
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -244,95 +333,207 @@ fun EffectCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = effect.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = effect.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    )
+                    // 색상 프리뷰 (EFFECT LIST 제외)
+                    if (effect !is EffectViewModel.UiEffectType.EffectList) {
+                        Box(
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(effectSettings.color.toComposeColor())
+                                .border(
+                                    0.5.dp,
+                                    MaterialTheme.colorScheme.outline,
+                                    androidx.compose.foundation.shape.CircleShape
+                                )
+                        )
+                    }
+                }
                 Text(
                     text = effect.description,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                // 설정값 표시
+                if (settingsText.isNotEmpty()) {
+                    Text(
+                        text = settingsText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isSelected)
+                            MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
 
             if (isSelected) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (isPlaying) {
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(ComposeColor.Red)
-                        )
-                    }
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Selected",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = if (isPlaying) "재생 중" else "선택됨",
+                    tint = if (isPlaying)
+                        MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.secondary
+                )
             }
         }
     }
 }
 
 /**
- * 색상 선택 다이얼로그 (SDK 프리셋 색상 사용)
+ * Color Picker Dialog (깔끔하게 개선)
  */
 @Composable
 fun ColorPickerDialog(
+    title: String = "색상 선택",
     currentColor: SdkColor,
     onColorSelected: (SdkColor) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val presetColors = remember {
-        listOf(
-            "Red" to Colors.RED,
-            "Green" to Colors.GREEN,
-            "Blue" to Colors.BLUE,
-            "Yellow" to Colors.YELLOW,
-            "Cyan" to Colors.CYAN,
-            "Magenta" to Colors.MAGENTA,
-            "Orange" to Colors.ORANGE,
-            "Purple" to Colors.PURPLE,
-            "Pink" to Colors.PINK,
-            "White" to Colors.WHITE
-        )
-    }
+    var red by remember { mutableStateOf(currentColor.r) }
+    var green by remember { mutableStateOf(currentColor.g) }
+    var blue by remember { mutableStateOf(currentColor.b) }
+
+    // 현재 선택된 색상 (실시간)
+    val selectedColor = SdkColor(red, green, blue)
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("색상 선택") },
+        title = { Text(title, style = MaterialTheme.typography.titleMedium) },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                presetColors.chunked(5).forEach { row ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        row.forEach { (name, color) ->
-                            Box(
-                                modifier = Modifier
-                                    .size(50.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(color.toComposeColor())
-                                    .clickable { onColorSelected(color) },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (currentColor == color) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "Selected",
-                                        tint = ComposeColor.White
-                                    )
-                                }
+                // 색상 미리보기 (크기 축소)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(ComposeColor(red, green, blue))
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.outline,
+                            RoundedCornerShape(8.dp)
+                        )
+                )
+
+                // RGB 슬라이더 (간결하게, 모두 회색)
+                CompactColorSlider(
+                    label = "R",
+                    value = red,
+                    onValueChange = { red = it }
+                )
+
+                CompactColorSlider(
+                    label = "G",
+                    value = green,
+                    onValueChange = { green = it }
+                )
+
+                CompactColorSlider(
+                    label = "B",
+                    value = blue,
+                    onValueChange = { blue = it }
+                )
+
+                // 프리셋 색상
+                Text(
+                    text = "프리셋",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+
+                val presetColors = listOf(
+                    Colors.RED, Colors.GREEN, Colors.BLUE, Colors.YELLOW, Colors.MAGENTA,
+                    Colors.CYAN, Colors.ORANGE, Colors.PURPLE, Colors.PINK, Colors.WHITE
+                )
+
+                // 프리셋 색상 그리드 (2줄, 크기 축소)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    presetColors.take(5).forEach { color ->
+                        val isSelected = selectedColor.r == color.r &&
+                                selectedColor.g == color.g &&
+                                selectedColor.b == color.b
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(color.toComposeColor())
+                                .border(
+                                    width = if (isSelected) 2.dp else 0.5.dp,
+                                    color = if (isSelected)
+                                        MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outline,
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .clickable {
+                                    red = color.r
+                                    green = color.g
+                                    blue = color.b
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = ComposeColor.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    presetColors.drop(5).forEach { color ->
+                        val isSelected = selectedColor.r == color.r &&
+                                selectedColor.g == color.g &&
+                                selectedColor.b == color.b
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(color.toComposeColor())
+                                .border(
+                                    width = if (isSelected) 2.dp else 0.5.dp,
+                                    color = if (isSelected)
+                                        MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outline,
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .clickable {
+                                    red = color.r
+                                    green = color.g
+                                    blue = color.b
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = ComposeColor.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
                         }
                     }
@@ -340,15 +541,111 @@ fun ColorPickerDialog(
             }
         },
         confirmButton = {
+            TextButton(onClick = {
+                onColorSelected(SdkColor(red, green, blue))
+            }) {
+                Text("선택")
+            }
+        },
+        dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("닫기")
+                Text("취소")
             }
         }
     )
 }
 
 /**
- * 이펙트 설정 다이얼로그
+ * 간결한 컬러 슬라이더 (회색 통일, 컴팩트한 크기)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CompactColorSlider(
+    label: String,
+    value: Int,
+    onValueChange: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.width(24.dp),
+            fontWeight = FontWeight.Medium
+        )
+
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onValueChange(it.toInt()) },
+            valueRange = 0f..255f,
+            modifier = Modifier
+                .weight(1f)
+                .height(20.dp), // 슬라이더 높이 축소
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.onSurface,
+                activeTrackColor = MaterialTheme.colorScheme.onSurface,
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+            ),
+            thumb = {
+                // Thumb 크기 축소
+                Box(
+                    modifier = Modifier
+                        .size(12.dp) // 기본 20dp에서 12dp로 축소
+                        .background(
+                            MaterialTheme.colorScheme.onSurface,
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        )
+                )
+            },
+            track = { sliderState ->
+                // Track 두께 축소
+                val fraction = sliderState.value / 255f
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp) // 기본 4dp 유지하되 명시적으로 설정
+                ) {
+                    // Inactive track
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp) // Track 두께 2dp로 축소
+                            .align(Alignment.Center)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(1.dp)
+                            )
+                    )
+                    // Active track
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .height(2.dp) // Track 두께 2dp로 축소
+                            .align(Alignment.CenterStart)
+                            .background(
+                                MaterialTheme.colorScheme.onSurface,
+                                RoundedCornerShape(1.dp)
+                            )
+                    )
+                }
+            }
+        )
+
+        Text(
+            text = value.toString(),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.End,
+            modifier = Modifier.width(32.dp)
+        )
+    }
+}
+
+/**
+ * 이펙트 설정 다이얼로그 (간결한 UI)
  */
 @Composable
 fun EffectSettingsDialog(
@@ -360,6 +657,7 @@ fun EffectSettingsDialog(
     var transit by remember { mutableStateOf(settings.transit) }
     var randomColor by remember { mutableStateOf(settings.randomColor) }
     var randomDelay by remember { mutableStateOf(settings.randomDelay) }
+    var broadcasting by remember { mutableStateOf(settings.broadcasting) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -367,70 +665,60 @@ fun EffectSettingsDialog(
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column {
-                    Text(
-                        text = "반복 주기: ${period}ms",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Slider(
-                        value = period.toFloat(),
-                        onValueChange = { period = it.toInt() },
-                        valueRange = 50f..5000f,
-                        steps = 49
-                    )
-                }
+                // Period
+                CompactSliderRow(
+                    label = "Period",
+                    value = period,
+                    onValueChange = { period = it },
+                    valueRange = 0f..255f
+                )
 
-                Column {
-                    Text(
-                        text = "전환 속도: $transit",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Slider(
-                        value = transit.toFloat(),
-                        onValueChange = { transit = it.toInt() },
-                        valueRange = 1f..50f,
-                        steps = 48
-                    )
-                }
+                // Transit
+                CompactSliderRow(
+                    label = "Transit",
+                    value = transit,
+                    onValueChange = { transit = it },
+                    valueRange = 0f..255f
+                )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("랜덤 색상")
-                    Switch(
-                        checked = randomColor,
-                        onCheckedChange = { randomColor = it }
-                    )
-                }
+                // Random Delay
+                CompactSliderRow(
+                    label = "Random Delay",
+                    value = randomDelay,
+                    onValueChange = { randomDelay = it },
+                    valueRange = 0f..255f
+                )
 
-                if (randomColor) {
-                    Column {
-                        Text(
-                            text = "랜덤 지연: ${randomDelay}ms",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Slider(
-                            value = randomDelay.toFloat(),
-                            onValueChange = { randomDelay = it.toInt() },
-                            valueRange = 0f..1000f,
-                            steps = 19
-                        )
-                    }
-                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // Random Color
+                CompactSwitchRow(
+                    label = "Random Color",
+                    checked = randomColor,
+                    onCheckedChange = { randomColor = it }
+                )
+
+                // Broadcasting
+                CompactSwitchRow(
+                    label = "Broadcasting",
+                    checked = broadcasting,
+                    onCheckedChange = { broadcasting = it }
+                )
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                onApply(settings.copy(
-                    period = period,
-                    transit = transit,
-                    randomColor = randomColor,
-                    randomDelay = randomDelay
-                ))
+                onApply(
+                    settings.copy(
+                        period = period,
+                        transit = transit,
+                        randomColor = randomColor,
+                        randomDelay = randomDelay,
+                        broadcasting = broadcasting
+                    )
+                )
             }) {
                 Text("적용")
             }
@@ -444,12 +732,128 @@ fun EffectSettingsDialog(
 }
 
 /**
+ * 간결한 슬라이더 행 (설정용, 컴팩트한 크기)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CompactSliderRow(
+    label: String,
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..255f
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.width(100.dp)
+        )
+
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onValueChange(it.toInt()) },
+            valueRange = valueRange,
+            modifier = Modifier
+                .weight(1f)
+                .height(20.dp), // 슬라이더 높이 축소
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+            ),
+            thumb = {
+                // Thumb 크기 축소
+                Box(
+                    modifier = Modifier
+                        .size(14.dp) // 작은 thumb
+                        .background(
+                            MaterialTheme.colorScheme.primary,
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        )
+                        .border(
+                            2.dp,
+                            MaterialTheme.colorScheme.surface,
+                            androidx.compose.foundation.shape.CircleShape
+                        )
+                )
+            },
+            track = { sliderState ->
+                // Track 두께 축소
+                val fraction = (sliderState.value - valueRange.start) /
+                        (valueRange.endInclusive - valueRange.start)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                ) {
+                    // Inactive track
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp) // Track 두께 3dp
+                            .align(Alignment.Center)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(1.5.dp)
+                            )
+                    )
+                    // Active track
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .height(3.dp) // Track 두께 3dp
+                            .align(Alignment.CenterStart)
+                            .background(
+                                MaterialTheme.colorScheme.primary,
+                                RoundedCornerShape(1.5.dp)
+                            )
+                    )
+                }
+            }
+        )
+
+        Text(
+            text = value.toString(),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.End,
+            modifier = Modifier.width(40.dp)
+        )
+    }
+}
+
+/**
+ * 간결한 스위치 행
+ */
+@Composable
+fun CompactSwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+/**
  * SDK Color를 Compose Color로 변환
  */
 fun SdkColor.toComposeColor(): ComposeColor {
-    return ComposeColor(
-        red = this.r / 255f,
-        green = this.g / 255f,
-        blue = this.b / 255f
-    )
+    return ComposeColor(this.r, this.g, this.b)
 }
