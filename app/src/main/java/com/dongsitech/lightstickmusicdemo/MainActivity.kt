@@ -22,9 +22,11 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
+import com.dongsitech.lightstickmusicdemo.ui.EffectScreen
 import com.dongsitech.lightstickmusicdemo.ui.LightStickListScreen
 import com.dongsitech.lightstickmusicdemo.ui.MusicPlayerScreen
 import com.dongsitech.lightstickmusicdemo.ui.theme.LightStickMusicPlayerDemoTheme
+import com.dongsitech.lightstickmusicdemo.viewmodel.EffectViewModel
 import com.dongsitech.lightstickmusicdemo.viewmodel.LightStickListViewModel
 import com.dongsitech.lightstickmusicdemo.viewmodel.MusicPlayerViewModel
 import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
@@ -38,11 +40,12 @@ import com.lightstick.device.Device
 class MainActivity : ComponentActivity() {
     private val lightStickListViewModel: LightStickListViewModel by viewModels()
     private val musicPlayerViewModel: MusicPlayerViewModel by viewModels()
+    private val effectViewModel: EffectViewModel by viewModels()  // ✅ EffectViewModel 추가
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // SDK init (새 방식)
+        // SDK init
         LSBluetooth.initialize(applicationContext)
         lightStickListViewModel.initializeWithContext(applicationContext)
 
@@ -143,7 +146,8 @@ class MainActivity : ComponentActivity() {
                         navController = navController,
                         modifier = Modifier.padding(padding),
                         lightStickListViewModel = lightStickListViewModel,
-                        musicPlayerViewModel = musicPlayerViewModel
+                        musicPlayerViewModel = musicPlayerViewModel,
+                        effectViewModel = effectViewModel  // ✅ EffectViewModel 전달
                     )
                 }
             }
@@ -157,7 +161,8 @@ fun AppNavigation(
     navController: NavHostController,
     modifier: Modifier = Modifier,
     lightStickListViewModel: LightStickListViewModel,
-    musicPlayerViewModel: MusicPlayerViewModel
+    musicPlayerViewModel: MusicPlayerViewModel,
+    effectViewModel: EffectViewModel  // ✅ EffectViewModel 파라미터 추가
 ) {
     val context = LocalContext.current
 
@@ -171,7 +176,8 @@ fun AppNavigation(
         }
 
         composable("effect") {
-            Text("Effect Screen")
+            // ✅ EffectScreen에 ViewModel 전달
+            EffectScreen(viewModel = effectViewModel)
         }
 
         composable("deviceList") {
@@ -179,7 +185,7 @@ fun AppNavigation(
                 viewModel = lightStickListViewModel,
                 navController = navController,
                 onDeviceSelected = { device: Device ->
-                    // 권한 체크 (ViewModel 내부에서도 재확인하지만, UX 메시지 위해 한 번 더)
+                    // 권한 체크
                     val hasPermission = PermissionUtils.hasPermission(
                         context,
                         Manifest.permission.BLUETOOTH_CONNECT

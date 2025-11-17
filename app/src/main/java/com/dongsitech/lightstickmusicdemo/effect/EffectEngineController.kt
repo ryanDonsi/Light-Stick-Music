@@ -14,11 +14,6 @@ import com.lightstick.types.LSEffectPayload
 
 /**
  * Controls FFT/timeline-driven LED effects for a SINGLE Light Stick.
- *
- * - Single target device (fallback to first actually-connected if target is null/disconnected)
- * - SDK-first .efx timeline loading (via reflection), app loader fallback
- * - Every BLE call is guarded by runtime permission check
- * - Lint-friendly: @SuppressLint("MissingPermission") on methods that perform BLE I/O
  */
 class EffectEngineController(
     private val ledColorMapper: LedColorMapper? = null,
@@ -138,10 +133,11 @@ class EffectEngineController(
     /**
      * Apply FFT-based effect for a single frame (called from the audio pipeline).
      * If a timeline is active, this is a no-op.
+     *
      */
     @SuppressLint("MissingPermission")
     fun processFftEffect(band: FrequencyBand, context: Context) {
-        if (isEffectFileMode) return
+        //if (isEffectFileMode) return
         if (!hasBleConnectPermission(context)) return
 
         try {
@@ -202,7 +198,10 @@ class EffectEngineController(
             Manifest.permission.BLUETOOTH_CONNECT
         ) == PackageManager.PERMISSION_GRANTED
 
-    /** Map FFT bands to a basic RGB and send to the single target device. */
+    /**
+     * Map FFT bands to a basic RGB and send to the single target device.
+     */
+    @SuppressLint("MissingPermission")
     private fun sendDefaultColor(context: Context, band: FrequencyBand) {
         val total = (band.bass + band.mid + band.treble).let { if (it <= 0f) 1e-6f else it }
         val r = ((band.bass   / total) * 255f).toInt().coerceIn(0, 255).toByte()
@@ -214,7 +213,6 @@ class EffectEngineController(
 
     /**
      * Send a color command to the single active target.
-     * 신 SDK 방식: Device.sendColor() 사용
      */
     @SuppressLint("MissingPermission")
     private fun sendColorToTarget(
@@ -231,7 +229,19 @@ class EffectEngineController(
                 g.toInt() and 0xFF,
                 b.toInt() and 0xFF
             )
-            device.sendColor(color, transit.toInt() and 0xFF)
+
+            device.sendColor(color = color, transit.toInt() and 0xFF)
+//
+//            // ✅ 수정: LSEffectPayload.Effects 사용
+//            val period = (transit.toInt() and 0xFF) * 10 // transit를 period로 변환
+//            val payload = LSEffectPayload.Effects.on(
+//                color = color,
+//                period = period.coerceIn(50, 1000), // 50ms ~ 1000ms
+//                randomColor = 0,
+//                randomDelay = 0
+//            )
+//            device.sendEffect(payload)
+
         } catch (se: SecurityException) {
             Log.e("EffectEngineController", "sendColor SecurityException: ${se.message}")
         } catch (t: Throwable) {
