@@ -284,7 +284,10 @@ class EffectViewModel : ViewModel() {
                     )
                 }
                 is UiEffectType.Off -> {
-                    LSEffectPayload.Effects.off()
+                    LSEffectPayload.Effects.off(
+                        period = settings.transit,
+                        randomDelay = settings.randomDelay
+                    )
                 }
                 is UiEffectType.Strobe -> {
                     LSEffectPayload.Effects.strobe(
