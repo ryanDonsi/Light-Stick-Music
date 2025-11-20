@@ -1,13 +1,25 @@
 package com.dongsitech.lightstickmusicdemo.viewmodel
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
+import com.dongsitech.lightstickmusicdemo.model.DeviceDetailInfo
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
+import com.lightstick.events.EventAction
+import com.lightstick.events.EventFilter
+import com.lightstick.events.EventRule
+import com.lightstick.events.EventTarget
+import com.lightstick.events.EventTrigger
+import com.lightstick.events.EventType
+import com.lightstick.types.Colors
+import com.lightstick.types.LSEffectPayload
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,104 +32,75 @@ import kotlinx.coroutines.launch
 /**
  * Light Stick 목록/스캔/연결 상태를 관리하는 ViewModel.
  *
- * - 스캔: LSBluetooth.startScan/stopScan 사용
- * - 디바이스 모델: SDK의 Device 사용
- * - 연결/해제: Device.connect()/disconnect() 호출
- * - 권한 체크: PermissionUtils.hasPermission(...) 사용
+ * - 모든 Permission 체크는 이 ViewModel에서만 수행
+ * - UI(Screen)에서는 단순히 함수만 호출
+ * - @SuppressLint("MissingPermission")로 경고 무시
  */
+@SuppressLint("MissingPermission")
 class LightStickListViewModel : ViewModel() {
 
+    companion object {
+        private const val TAG = "LightStickListVM"
+    }
+
     // ─────────────────────────────────────────────────────────────────────────────
-    // Devices (SDK Device로 직접 노출)
+    // State Flows
     // ─────────────────────────────────────────────────────────────────────────────
     private val _devices = MutableStateFlow<List<Device>>(emptyList())
     val devices: StateFlow<List<Device>> =
         _devices.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _isScanning = MutableStateFlow(false)
-    val isScanning: StateFlow<Boolean> = _isScanning
+    val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
-    private val _permissionGranted = MutableStateFlow(false)
-    val permissionGranted: StateFlow<Boolean> = _permissionGranted
-
-    // 주소별 연결 여부 스냅샷
     private val _connectionStates = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val connectionStates: StateFlow<Map<String, Boolean>> = _connectionStates.asStateFlow()
+
+    private val _deviceDetails = MutableStateFlow<Map<String, DeviceDetailInfo>>(emptyMap())
+    val deviceDetails: StateFlow<Map<String, DeviceDetailInfo>> = _deviceDetails.asStateFlow()
+
+    private val _otaProgress = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val otaProgress: StateFlow<Map<String, Int>> = _otaProgress.asStateFlow()
+
+    private val _otaInProgress = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val otaInProgress: StateFlow<Map<String, Boolean>> = _otaInProgress.asStateFlow()
+
+    private val _eventStates = MutableStateFlow<Map<String, Map<EventType, Boolean>>>(emptyMap())
+    val eventStates: StateFlow<Map<String, Map<EventType, Boolean>>> = _eventStates.asStateFlow()
 
     private val _connectedDeviceCount = MutableStateFlow(0)
     val connectedDeviceCount: StateFlow<Int> = _connectedDeviceCount.asStateFlow()
 
-    // Context를 저장하는 변수 (ApplicationContext 사용)
-    @Volatile
+    private val _permissionGranted = MutableStateFlow(false)
+    val permissionGranted: StateFlow<Boolean> = _permissionGranted.asStateFlow()
+
     private var appContext: Context? = null
 
-    companion object {
-        private var instance: LightStickListViewModel? = null
-        fun getInstance(): LightStickListViewModel? = instance
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Permission Helpers (Internal)
+    // ─────────────────────────────────────────────────────────────────────────────
+    private fun hasPermission(context: Context, permission: String): Boolean {
+        return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
 
-    init {
-        instance = this
+    private fun hasBluetoothScanPermission(context: Context): Boolean {
+        return hasPermission(context, Manifest.permission.BLUETOOTH_SCAN)
+    }
+
+    private fun hasBluetoothConnectPermission(context: Context): Boolean {
+        return hasPermission(context, Manifest.permission.BLUETOOTH_CONNECT)
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // Context 설정
+    // Initialization
     // ─────────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Context를 설정합니다.
-     * MainActivity.onCreate()에서 한 번 호출해야 합니다.
-     */
     fun initializeWithContext(context: Context) {
-        if (appContext != null) return // 이미 초기화됨
+        if (appContext != null) return
         appContext = context.applicationContext
 
-        // 초기 연결 개수 설정
-        updateConnectedCount()
-    }
-
-    /**
-     * 연결된 디바이스 개수를 업데이트합니다.
-     * 연결/해제 시 호출됩니다.
-     */
-    private fun updateConnectedCount() {
-        viewModelScope.launch {
-            try {
-                val ctx = appContext ?: return@launch
-                if (!PermissionUtils.hasPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT)) {
-                    return@launch
-                }
-
-                // SDK 메서드로 직접 개수 가져오기
-                _connectedDeviceCount.value = LSBluetooth.connectedCount()
-
-                // 연결 상태도 함께 업데이트
-                val connectedDevices = LSBluetooth.connectedDevices()
-                val connectedMacs = connectedDevices.map { it.mac }.toSet()
-
-                _connectionStates.update { prev ->
-                    val next = prev.toMutableMap()
-
-                    // 연결된 디바이스는 true
-                    connectedMacs.forEach { mac ->
-                        next[mac] = true
-                    }
-
-                    // 스캔된 디바이스 중 연결 안된 것들은 false
-                    _devices.value.forEach { device ->
-                        if (device.mac !in connectedMacs) {
-                            next[device.mac] = false
-                        }
-                    }
-
-                    next
-                }
-
-            } catch (se: SecurityException) {
-                Log.w("LightStickVM", "Permission error in updateConnectedCount: ${se.message}")
-            } catch (t: Throwable) {
-                Log.e("LightStickVM", "Error in updateConnectedCount: ${t.message}", t)
-            }
+        val ctx = appContext
+        if (ctx != null && hasBluetoothConnectPermission(ctx)) {
+            updateConnectedCount()
         }
     }
 
@@ -126,141 +109,514 @@ class LightStickListViewModel : ViewModel() {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // Scan
+    // Connected Count Update
     // ─────────────────────────────────────────────────────────────────────────────
+    private fun updateConnectedCount() {
+        viewModelScope.launch {
+            try {
+                val ctx = appContext ?: return@launch
+                if (!hasBluetoothConnectPermission(ctx)) return@launch
 
-    fun startScan(context: Context) {
-        if (_isScanning.value) return
-        if (!PermissionUtils.hasPermission(context, Manifest.permission.BLUETOOTH_SCAN)) return
+                _connectedDeviceCount.value = LSBluetooth.connectedCount()
 
-        _devices.value = emptyList()
-        _isScanning.value = true
+                val connectedDevices = LSBluetooth.connectedDevices()
+                val connectedMacs = connectedDevices.map { it.mac }.toSet()
 
-        try {
-            // 신 SDK 방식: 콜백으로 스캔 결과 수신
-            LSBluetooth.startScan { device ->
-                // ✅ null 체크 강화
-                try {
-                    // device의 필수 필드 검증
-                    if (device.mac.isBlank()) {
-                        Log.w("LightStickVM", "Skipping device with blank MAC")
-                        return@startScan
+                _connectionStates.update { prev ->
+                    val next = prev.toMutableMap()
+                    connectedMacs.forEach { mac -> next[mac] = true }
+                    _devices.value.forEach { device ->
+                        if (device.mac !in connectedMacs) {
+                            next[device.mac] = false
+                        }
                     }
-
-                    // 이름이 "LS"로 끝나는 기기만 필터링 (null 안전)
-                    val deviceName = device.name
-                    if (deviceName != null && deviceName.endsWith("LS")) {
-                        _devices.value = (_devices.value + device).distinctBy { it.mac }
-                    } else {
-                        Log.d("LightStickVM", "Filtered out device: mac=${device.mac}, name=$deviceName")
-                    }
-                } catch (e: Exception) {
-                    Log.e("LightStickVM", "Error processing scan result: ${e.message}", e)
+                    next
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in updateConnectedCount: ${e.message}", e)
             }
-        } catch (se: SecurityException) {
-            Log.w("LightStickVM", "startScan permission error: ${se.message}")
-            _isScanning.value = false
-            return
-        } catch (t: Throwable) {
-            Log.w("LightStickVM", "startScan error: ${t.message}", t)
-            _isScanning.value = false
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Scan Control
+    // ─────────────────────────────────────────────────────────────────────────────
+    fun startScan(context: Context) {
+        if (!hasBluetoothScanPermission(context)) {
+            Log.w(TAG, "⚠️ BLUETOOTH_SCAN 권한 없음")
             return
         }
 
-        // 3초 후 자동 종료
+        if (_isScanning.value) {
+            Log.d(TAG, "Already scanning")
+            return
+        }
+
+        _isScanning.value = true
+        _devices.value = emptyList()
+
+        LSBluetooth.startScan { device ->
+            if (device.name?.endsWith("LS") == true) {
+                Log.d(TAG, "📡 Device discovered: ${device.name} (${device.mac}), RSSI: ${device.rssi}")
+
+                val existingDevice = _devices.value.find { it.mac == device.mac }
+                if (existingDevice == null) {
+                    _devices.update { current ->
+                        (current + device).sortedWith(
+                            compareByDescending<Device> {
+                                try {
+                                    if (hasBluetoothConnectPermission(context)) {
+                                        it.isConnected()
+                                    } else false
+                                } catch (e: Exception) {
+                                    false
+                                }
+                            }.thenByDescending { it.rssi }
+                        )
+                    }
+                } else {
+                    _devices.update { current ->
+                        current.map { d ->
+                            if (d.mac == device.mac) device else d
+                        }.sortedWith(
+                            compareByDescending<Device> {
+                                try {
+                                    if (hasBluetoothConnectPermission(context)) {
+                                        it.isConnected()
+                                    } else false
+                                } catch (e: Exception) {
+                                    false
+                                }
+                            }.thenByDescending { it.rssi }
+                        )
+                    }
+                }
+            }
+        }
+
         viewModelScope.launch {
-            delay(3000)
-            stopScan(context)
-            // 스캔 종료 후 연결 상태 업데이트
-            updateConnectedCount()
+            delay(10_000)
+            if (_isScanning.value) {
+                stopScan(context)
+            }
         }
     }
 
     fun stopScan(context: Context) {
-        if (!PermissionUtils.hasPermission(context, Manifest.permission.BLUETOOTH_SCAN)) {
-            _isScanning.value = false
+        if (!hasBluetoothScanPermission(context)) {
+            Log.w(TAG, "⚠️ BLUETOOTH_SCAN 권한 없음")
             return
         }
 
-        try {
-            LSBluetooth.stopScan()
-        } catch (se: SecurityException) {
-            Log.w("LightStickVM", "stopScan permission error: ${se.message}")
-        } catch (t: Throwable) {
-            Log.w("LightStickVM", "stopScan error: ${t.message}")
-        }
+        if (!_isScanning.value) return
 
+        LSBluetooth.stopScan()
         _isScanning.value = false
+        Log.d(TAG, "🛑 Scan stopped")
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Connect / Disconnect
     // ─────────────────────────────────────────────────────────────────────────────
+    fun connect(context: Context, device: Device) {
+        if (!hasBluetoothConnectPermission(context)) {
+            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음")
+            return
+        }
 
-    /**
-     * 스캔 결과(Device)에서 바로 연결/해제 토글.
-     */
-    fun toggleConnection(context: Context, device: Device) {
-        toggleConnectionByAddress(context, device.mac)
+        viewModelScope.launch {
+            try {
+                Log.d(TAG, "🔗 연결 시도: ${device.mac}")
+
+                device.connect(
+                    onConnected = { controller ->
+                        Log.d(TAG, "✅ 연결 성공: ${controller.device.mac}")
+                        _connectionStates.update { it + (device.mac to true) }
+                        updateConnectedCount()
+
+                        // 연결 성공 연출
+                        viewModelScope.launch {
+                            try {
+                                repeat(3) {
+                                    controller.sendColor(Colors.WHITE, transition = 5)
+                                    delay(200)
+                                    controller.sendColor(Colors.BLACK, transition = 5)
+                                    delay(200)
+                                }
+                                controller.sendColor(Colors.WHITE, transition = 10)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "❌ 연결 연출 실패: ${e.message}")
+                            }
+                        }
+
+                        // Device 정보 가져오기
+                        viewModelScope.launch {
+                            delay(1000)
+                            Log.d(TAG, "📋 Starting to fetch device info for ${controller.device.mac}")
+                            fetchDeviceInfo(controller.device)
+                            delay(500)
+                            fetchBatteryLevel(controller.device)
+                            registerDeviceEventRules(controller.device)
+                        }
+                    },
+                    onFailed = { throwable ->
+                        Log.w(TAG, "❌ 연결 실패: ${device.mac} - ${throwable.message}")
+                        _connectionStates.update { it + (device.mac to false) }
+                        updateConnectedCount()
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ connect error", e)
+            }
+        }
     }
 
-    /**
-     * 주소(mac) 기반 연결/해제 토글.
-     */
-    fun toggleConnectionByAddress(context: Context, address: String) {
-        if (!PermissionUtils.hasPermission(context, Manifest.permission.BLUETOOTH_CONNECT)) {
-            Log.w("LightStickVM", "BLUETOOTH_CONNECT permission not granted")
+    fun disconnect(device: Device) {
+        val ctx = appContext
+        if (ctx == null || !hasBluetoothConnectPermission(ctx)) {
+            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                Log.d(TAG, "🔌 연결 해제: ${device.mac}")
+                device.disconnect()
+                _connectionStates.update { it + (device.mac to false) }
+                updateConnectedCount()
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ disconnect error", e)
+            }
+        }
+    }
+
+    fun toggleConnection(context: Context, device: Device) {
+        if (!hasBluetoothConnectPermission(context)) {
+            Log.w(TAG, "BLUETOOTH_CONNECT permission not granted")
             return
         }
 
         try {
-            // 신 SDK에서는 Device 객체를 찾아서 connect/disconnect 호출
-            val device = _devices.value.find { it.mac == address }
-            if (device == null) {
-                Log.w("LightStickVM", "Device not found: $address")
-                return
+            val isConnected = try {
+                device.isConnected()
+            } catch (e: Exception) {
+                Log.w(TAG, "Exception checking connection state: ${e.message}")
+                false
             }
 
-            // 연결 상태 확인 후 토글
-            if (device.isConnected()) {
-                // 연결 해제
-                device.disconnect()
-                _connectionStates.update { it + (address to false) }
-                Log.d("LightStickVM", "Disconnected: $address")
-
-                // 연결 해제 후 개수 업데이트
-                updateConnectedCount()
+            if (isConnected) {
+                disconnect(device)
+                Log.d(TAG, "Disconnected: ${device.mac}")
             } else {
-                // 연결 시작
-                device.connect(
-                    onConnected = { controller ->
-                        Log.d("LightStickVM", "Connected: $address")
-                        _connectionStates.update { it + (address to true) }
-
-                        // 연결 성공 후 개수 업데이트
-                        updateConnectedCount()
-                    },
-                    onFailed = { error ->
-                        Log.w("LightStickVM", "Connection failed: $address - ${error.message}")
-                        _connectionStates.update { it + (address to false) }
-                    }
-                )
+                connect(context, device)
             }
-        } catch (se: SecurityException) {
-            Log.w("LightStickVM", "toggleConnection permission error: ${se.message}")
         } catch (t: Throwable) {
-            Log.w("LightStickVM", "toggleConnection error: ${t.message}", t)
+            Log.w(TAG, "toggleConnection error: ${t.message}", t)
         }
     }
 
-    /**
-     * 외부에서 수동으로 연결 상태를 업데이트할 때 사용 (선택적).
-     */
-    fun updateConnectionState(address: String, connected: Boolean) {
-        _connectionStates.update { map ->
-            map.toMutableMap().apply { this[address] = connected }
+    fun toggleConnectionByAddress(context: Context, address: String) {
+        if (!hasBluetoothConnectPermission(context)) {
+            Log.w(TAG, "BLUETOOTH_CONNECT permission not granted")
+            return
         }
-        updateConnectedCount()
+
+        val device = _devices.value.find { it.mac == address }
+        if (device == null) {
+            Log.w(TAG, "Device not found: $address")
+            return
+        }
+
+        toggleConnection(context, device)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Device Info
+    // ─────────────────────────────────────────────────────────────────────────────
+    private fun fetchDeviceInfo(device: Device) {
+        val ctx = appContext
+        if (ctx == null || !hasBluetoothConnectPermission(ctx)) {
+            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val isConnected = try {
+                    device.isConnected()
+                } catch (e: Exception) {
+                    false
+                }
+
+                if (!isConnected) {
+                    Log.w(TAG, "⚠️ Device not connected: ${device.mac}")
+                    return@launch
+                }
+
+                Log.d(TAG, "📋 Device is connected, reading device info for ${device.mac}")
+
+                var deviceName: String? = null
+                var modelNumber: String? = null
+                var firmwareRevision: String? = null
+                var manufacturer: String? = null
+
+                device.readDeviceName { result ->
+                    result.onSuccess { name ->
+                        deviceName = name
+                        Log.d(TAG, "📋 Device Name: $name")
+                        updateDeviceInfoInMap(device.mac, deviceName, modelNumber, firmwareRevision, manufacturer)
+                    }.onFailure { error ->
+                        Log.w(TAG, "⚠️ readDeviceName failed: ${error.message}")
+                    }
+                }
+
+                device.readModelNumber { result ->
+                    result.onSuccess { model ->
+                        modelNumber = model
+                        Log.d(TAG, "📋 Model Number: $model")
+                        updateDeviceInfoInMap(device.mac, deviceName, modelNumber, firmwareRevision, manufacturer)
+                    }.onFailure { error ->
+                        Log.w(TAG, "⚠️ readModelNumber failed: ${error.message}")
+                    }
+                }
+
+                device.readFirmwareRevision { result ->
+                    result.onSuccess { fw ->
+                        firmwareRevision = fw
+                        Log.d(TAG, "📋 Firmware Revision: $fw")
+                        updateDeviceInfoInMap(device.mac, deviceName, modelNumber, firmwareRevision, manufacturer)
+                    }.onFailure { error ->
+                        Log.w(TAG, "⚠️ readFirmwareRevision failed: ${error.message}")
+                    }
+                }
+
+                device.readManufacturer { result ->
+                    result.onSuccess { mfr ->
+                        manufacturer = mfr
+                        Log.d(TAG, "📋 Manufacturer: $mfr")
+                        updateDeviceInfoInMap(device.mac, deviceName, modelNumber, firmwareRevision, manufacturer)
+                    }.onFailure { error ->
+                        Log.w(TAG, "⚠️ readManufacturer failed: ${error.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ fetchDeviceInfo error", e)
+            }
+        }
+    }
+
+    private fun updateDeviceInfoInMap(
+        mac: String,
+        deviceName: String?,
+        modelNumber: String?,
+        firmwareRevision: String?,
+        manufacturer: String?
+    ) {
+        _deviceDetails.update { currentMap ->
+            val existing = currentMap[mac]
+            val deviceInfo = com.lightstick.device.dto.DeviceInfo(
+                deviceName = deviceName,
+                modelNumber = modelNumber,
+                firmwareRevision = firmwareRevision,
+                manufacturer = manufacturer
+            )
+
+            if (existing != null) {
+                currentMap + (mac to existing.copy(deviceInfo = deviceInfo))
+            } else {
+                val device = _devices.value.find { it.mac == mac }
+                currentMap + (mac to DeviceDetailInfo(
+                    mac = mac,
+                    name = device?.name,
+                    rssi = device?.rssi,
+                    isConnected = true,
+                    deviceInfo = deviceInfo
+                ))
+            }
+        }
+    }
+
+    private fun fetchBatteryLevel(device: Device) {
+        val ctx = appContext
+        if (ctx == null || !hasBluetoothConnectPermission(ctx)) {
+            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val isConnected = try {
+                    device.isConnected()
+                } catch (e: Exception) {
+                    false
+                }
+
+                if (!isConnected) {
+                    Log.w(TAG, "⚠️ Device not connected for battery read: ${device.mac}")
+                    return@launch
+                }
+
+                Log.d(TAG, "🔋 Device is connected, requesting battery level for ${device.mac}")
+
+                device.readBattery { result ->
+                    result.onSuccess { level ->
+                        Log.d(TAG, "🔋 Battery Level Success: $level% for ${device.mac}")
+                        _deviceDetails.update { currentMap ->
+                            val existing = currentMap[device.mac]
+                            if (existing != null) {
+                                currentMap + (device.mac to existing.copy(batteryLevel = level))
+                            } else {
+                                currentMap + (device.mac to DeviceDetailInfo(
+                                    mac = device.mac,
+                                    name = device.name,
+                                    rssi = device.rssi,
+                                    isConnected = true,
+                                    batteryLevel = level
+                                ))
+                            }
+                        }
+                    }.onFailure { error ->
+                        Log.w(TAG, "⚠️ readBattery failed for ${device.mac}: ${error.message}", error)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ fetchBatteryLevel error", e)
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // OTA
+    // ─────────────────────────────────────────────────────────────────────────────
+    fun startOta(context: Context, device: Device, firmwareUri: Uri) {
+        if (!hasBluetoothConnectPermission(context)) {
+            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val firmwareBytes = context.contentResolver.openInputStream(firmwareUri)?.use { input ->
+                    input.readBytes()
+                } ?: run {
+                    Log.e(TAG, "❌ Failed to read firmware file")
+                    return@launch
+                }
+
+                Log.d(TAG, "📦 Starting OTA for ${device.mac}, size: ${firmwareBytes.size} bytes")
+
+                _otaInProgress.update { it + (device.mac to true) }
+                _otaProgress.update { it + (device.mac to 0) }
+
+                device.startOta(
+                    firmware = firmwareBytes,
+                    onProgress = { progress ->
+                        Log.d(TAG, "📊 OTA Progress for ${device.mac}: $progress%")
+                        _otaProgress.update { it + (device.mac to progress) }
+                    },
+                    onResult = { result ->
+                        result.onSuccess {
+                            Log.d(TAG, "✅ OTA completed for ${device.mac}")
+                            _otaInProgress.update { it + (device.mac to false) }
+                            _otaProgress.update { it + (device.mac to 100) }
+                        }.onFailure { error ->
+                            Log.e(TAG, "❌ OTA failed for ${device.mac}: ${error.message}")
+                            _otaInProgress.update { it + (device.mac to false) }
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ startOta error", e)
+                _otaInProgress.update { it + (device.mac to false) }
+            }
+        }
+    }
+
+    fun abortOta(device: Device) {
+        val ctx = appContext
+        if (ctx == null || !hasBluetoothConnectPermission(ctx)) {
+            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                Log.d(TAG, "🛑 Aborting OTA for ${device.mac}")
+                device.abortOta()
+                _otaInProgress.update { it + (device.mac to false) }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ abortOta error", e)
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Events
+    // ─────────────────────────────────────────────────────────────────────────────
+    private fun registerDeviceEventRules(device: Device) {
+        val callRule = EventRule(
+            id = "call-${device.mac}",
+            trigger = EventTrigger(
+                type = EventType.CALL_RINGING,
+                filter = EventFilter()
+            ),
+            action = EventAction.SendEffectFrame(
+                bytes16 = LSEffectPayload.Effects.blink(Colors.CYAN, period = 4).toByteArray()
+            ),
+            target = EventTarget.THIS_DEVICE,
+            stopAfterMatch = false
+        )
+
+        val smsRule = EventRule(
+            id = "sms-${device.mac}",
+            trigger = EventTrigger(
+                type = EventType.SMS_RECEIVED,
+                filter = EventFilter()
+            ),
+            action = EventAction.SendEffectFrame(
+                bytes16 = LSEffectPayload.Effects.blink(Colors.GREEN, period = 6).toByteArray()
+            ),
+            target = EventTarget.THIS_DEVICE,
+            stopAfterMatch = true
+        )
+
+        device.registerEventRules(listOf(callRule, smsRule))
+
+        _eventStates.update { states ->
+            val deviceStates = states[device.mac]?.toMutableMap() ?: mutableMapOf()
+            deviceStates[EventType.CALL_RINGING] = false
+            deviceStates[EventType.SMS_RECEIVED] = false
+            states + (device.mac to deviceStates)
+        }
+
+        Log.d(TAG, "✅ Event rules registered for ${device.mac}: 2 rules")
+    }
+
+    fun toggleCallEvent(device: Device, enabled: Boolean) {
+        _eventStates.update { states ->
+            val deviceStates = states[device.mac]?.toMutableMap() ?: mutableMapOf()
+            deviceStates[EventType.CALL_RINGING] = enabled
+            states + (device.mac to deviceStates)
+        }
+
+        if (enabled) {
+            Log.d(TAG, "✅ CALL event enabled for ${device.mac}")
+        } else {
+            Log.d(TAG, "🔕 CALL event disabled for ${device.mac}")
+        }
+    }
+
+    fun toggleSmsEvent(device: Device, enabled: Boolean) {
+        _eventStates.update { states ->
+            val deviceStates = states[device.mac]?.toMutableMap() ?: mutableMapOf()
+            deviceStates[EventType.SMS_RECEIVED] = enabled
+            states + (device.mac to deviceStates)
+        }
+
+        if (enabled) {
+            Log.d(TAG, "✅ SMS event enabled for ${device.mac}")
+        } else {
+            Log.d(TAG, "🔕 SMS event disabled for ${device.mac}")
+        }
     }
 }

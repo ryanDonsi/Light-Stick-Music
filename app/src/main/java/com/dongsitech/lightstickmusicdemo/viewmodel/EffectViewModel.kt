@@ -277,21 +277,21 @@ class EffectViewModel : ViewModel() {
             val payload = when (_selectedEffect.value) {
                 is UiEffectType.On -> {
                     LSEffectPayload.Effects.on(
-                        color = if (settings.randomColor) generateRandomColor() else settings.color,
-                        period = settings.transit,
+                        color = settings.color,
+                        transit = settings.transit,
                         randomColor = if (settings.randomColor) 1 else 0,
                         randomDelay = settings.randomDelay
                     )
                 }
                 is UiEffectType.Off -> {
                     LSEffectPayload.Effects.off(
-                        period = settings.transit,
+                        transit = settings.transit,
                         randomDelay = settings.randomDelay
                     )
                 }
                 is UiEffectType.Strobe -> {
                     LSEffectPayload.Effects.strobe(
-                        color = if (settings.randomColor) generateRandomColor() else settings.color,
+                        color = settings.color,
                         period = settings.period,
                         randomColor = if (settings.randomColor) 1 else 0,
                         randomDelay = settings.randomDelay
@@ -299,7 +299,7 @@ class EffectViewModel : ViewModel() {
                 }
                 is UiEffectType.Blink -> {
                     LSEffectPayload.Effects.blink(
-                        color = if (settings.randomColor) generateRandomColor() else settings.color,
+                        color = settings.color,
                         period = settings.period,
                         randomColor = if (settings.randomColor) 1 else 0,
                         randomDelay = settings.randomDelay
@@ -307,24 +307,24 @@ class EffectViewModel : ViewModel() {
                 }
                 is UiEffectType.Breath -> {
                     LSEffectPayload.Effects.breath(
-                        color = if (settings.randomColor) generateRandomColor() else settings.color,
+                        color = settings.color,
                         period = settings.period,
                         randomColor = if (settings.randomColor) 1 else 0,
                         randomDelay = settings.randomDelay
                     )
                 }
                 is UiEffectType.EffectList -> {
-                    // 랜덤 프리셋 색상
-                    val presetColors = listOf(
-                        Colors.RED, Colors.GREEN, Colors.BLUE,
-                        Colors.YELLOW, Colors.MAGENTA, Colors.CYAN
-                    )
-                    LSEffectPayload.Effects.on(
-                        color = presetColors.random(),
-                        period = 100,
-                        randomColor = 0,
-                        randomDelay = 0
-                    )
+                    // 랜덤 프리셋 색상(추후 Effect List로 생성)
+//                    val presetColors = listOf(
+//                        Colors.RED, Colors.GREEN, Colors.BLUE,
+//                        Colors.YELLOW, Colors.MAGENTA, Colors.CYAN
+//                    )
+//                    LSEffectPayload.Effects.on(
+//                        color = presetColors.random(),
+//                        transit = 100,
+//                        randomColor = 0,
+//                        randomDelay = 0
+//                    )
                 }
                 null -> return
             }

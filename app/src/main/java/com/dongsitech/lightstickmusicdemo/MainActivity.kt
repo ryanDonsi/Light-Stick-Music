@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity() {
 
                 val bottomNavItems = listOf(
                     BottomNavItem("music", "음악", R.drawable.ic_music_note),
-                    BottomNavItem("effect", "이펙트", R.drawable.ic_lightstick),
+                    BottomNavItem("effect", "이펙트", R.drawable.ic_bolt),
                     BottomNavItem("deviceList", "응원봉", R.drawable.ic_lightstick)
                 )
 
