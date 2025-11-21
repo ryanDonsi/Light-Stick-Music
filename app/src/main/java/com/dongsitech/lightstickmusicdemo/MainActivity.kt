@@ -147,7 +147,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.padding(padding),
                         lightStickListViewModel = lightStickListViewModel,
                         musicPlayerViewModel = musicPlayerViewModel,
-                        effectViewModel = effectViewModel  // ✅ EffectViewModel 전달
+                        effectViewModel = effectViewModel
                     )
                 }
             }
@@ -162,7 +162,7 @@ fun AppNavigation(
     modifier: Modifier = Modifier,
     lightStickListViewModel: LightStickListViewModel,
     musicPlayerViewModel: MusicPlayerViewModel,
-    effectViewModel: EffectViewModel  // ✅ EffectViewModel 파라미터 추가
+    effectViewModel: EffectViewModel
 ) {
     val context = LocalContext.current
 
@@ -176,7 +176,6 @@ fun AppNavigation(
         }
 
         composable("effect") {
-            // ✅ EffectScreen에 ViewModel 전달
             EffectScreen(viewModel = effectViewModel)
         }
 

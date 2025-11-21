@@ -2,16 +2,17 @@ package com.dongsitech.lightstickmusicdemo.viewmodel
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Application
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import androidx.annotation.RequiresPermission
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
 import com.lightstick.LSBluetooth
 import com.lightstick.types.Color
 import com.lightstick.types.Colors
-import com.lightstick.types.EffectType
 import com.lightstick.types.LSEffectPayload
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -25,19 +26,27 @@ import kotlinx.coroutines.launch
  * Effect 화면의 ViewModel
  *
  * ✅ 개선 사항:
+ * - SharedPreferences를 사용한 설정 영구 저장 추가
+ * - 앱 재시작 시 마지막 설정 자동 로드
  * - Period 값 유효성 검사 강화 (0~255 범위 엄격 적용)
  * - Background Color 설정 추가
  * - 사용자 입력 실시간 유효성 검사
  * - 에러 메시지 표시 기능
  */
-class EffectViewModel : ViewModel() {
+class EffectViewModel(application: Application) : AndroidViewModel(application) {
+
+    companion object {
+        private const val PREFS_NAME = "effect_settings"
+    }
+
+    private val prefs: SharedPreferences = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     // UI 표시용 이펙트 타입
     sealed class UiEffectType(val displayName: String, val description: String) {
         data object On : UiEffectType("ON", "LED를 선택한 색상으로 켭니다")
-        data object Off : UiEffectType("OFF", "LED를 천천히 끕니다")
-        data object Strobe : UiEffectType("STROBE", "빠르게 깜빡이는 효과 (period: 0~255)")
-        data object Blink : UiEffectType("BLINK", "천천히 깜빡이는 효과 (period: 0~255)")
+        data object Off : UiEffectType("OFF", "LED를 끕니다")
+        data object Strobe : UiEffectType("STROBE", "플래시 터지는 효과 (period: 0~255)")
+        data object Blink : UiEffectType("BLINK", "깜빡이는 효과 (period: 0~255)")
         data object Breath : UiEffectType("BREATH", "숨쉬듯 밝아졌다 어두워지는 효과 (period: 0~255)")
         data class EffectList(val number: Int, val subName: String = "") :
             UiEffectType("EFFECT LIST $number${if (subName.isNotEmpty()) " ($subName)" else ""}",
@@ -50,11 +59,11 @@ class EffectViewModel : ViewModel() {
         var broadcasting: Boolean = false,
         var color: Color = Colors.WHITE,              // Foreground Color
         var backgroundColor: Color = Colors.BLACK,   // Background Color
-        var period: Int = 10,                        // 0~255 범위
+        var period: Int = 0,                        // 0~255 범위
         var transit: Int = 0,                       // 0~255 범위
         var randomColor: Boolean = false,
         var randomDelay: Int = 0,                    // 0~255 범위
-        var fade: Int = 0                            // 0~255 범위
+        var fade: Int = 100                            // 0~255 범위
     )
 
     // 현재 선택된 이펙트
@@ -79,6 +88,11 @@ class EffectViewModel : ViewModel() {
     // 재생 Job
     private var playbackJob: Job? = null
 
+    init {
+        // 앱 시작 시 저장된 설정 불러오기
+        loadAllSettings()
+    }
+
     /**
      * 이펙트의 고유 키 생성
      */
@@ -94,13 +108,122 @@ class EffectViewModel : ViewModel() {
     }
 
     /**
+     * SharedPreferences에서 모든 설정 불러오기
+     */
+    private fun loadAllSettings() {
+        try {
+            // 미리 정의된 이펙트 키 목록
+            val effectKeys = listOf(
+                "ON",
+                "OFF",
+                "STROBE",
+                "BLINK",
+                "BREATH",
+                "EFFECT_LIST_1",
+                "EFFECT_LIST_2",
+                "EFFECT_LIST_3",
+                "EFFECT_LIST_4",
+                "EFFECT_LIST_5",
+                "EFFECT_LIST_6"
+            )
+
+            effectKeys.forEach { effectKey ->
+                val settings = loadSettings(effectKey)
+                if (settings != null) {
+                    effectSettingsMap[effectKey] = settings
+                    Log.d("EffectViewModel", "Loaded settings for $effectKey")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("EffectViewModel", "Failed to load settings: ${e.message}")
+        }
+    }
+
+    /**
+     * 특정 이펙트의 설정을 SharedPreferences에서 불러오기
+     */
+    private fun loadSettings(effectKey: String): EffectSettings? {
+        try {
+            val prefix = "effect_${effectKey}_"
+
+            // 저장된 데이터가 있는지 확인
+            if (!prefs.contains("${prefix}color_r")) {
+                return null
+            }
+
+            // 색상 정보 불러오기
+            val colorR = prefs.getInt("${prefix}color_r", 255)
+            val colorG = prefs.getInt("${prefix}color_g", 255)
+            val colorB = prefs.getInt("${prefix}color_b", 255)
+            val color = Color(colorR, colorG, colorB)
+
+            val bgColorR = prefs.getInt("${prefix}bgcolor_r", 0)
+            val bgColorG = prefs.getInt("${prefix}bgcolor_g", 0)
+            val bgColorB = prefs.getInt("${prefix}bgcolor_b", 0)
+            val backgroundColor = Color(bgColorR, bgColorG, bgColorB)
+
+            // 나머지 설정 불러오기
+            val period = prefs.getInt("${prefix}period", 10)
+            val transit = prefs.getInt("${prefix}transit", 0)
+            val randomColor = prefs.getBoolean("${prefix}random_color", false)
+            val randomDelay = prefs.getInt("${prefix}random_delay", 0)
+            val broadcasting = prefs.getBoolean("${prefix}broadcasting", false)
+            val fade = prefs.getInt("${prefix}fade", 0)
+
+            // UiEffectType 복원
+            val uiType = when (effectKey) {
+                "ON" -> UiEffectType.On
+                "OFF" -> UiEffectType.Off
+                "STROBE" -> UiEffectType.Strobe
+                "BLINK" -> UiEffectType.Blink
+                "BREATH" -> UiEffectType.Breath
+                else -> {
+                    if (effectKey.startsWith("EFFECT_LIST_")) {
+                        val number = effectKey.removePrefix("EFFECT_LIST_").toIntOrNull() ?: 1
+                        UiEffectType.EffectList(number)
+                    } else {
+                        return null
+                    }
+                }
+            }
+
+            return EffectSettings(
+                uiType = uiType,
+                color = color,
+                backgroundColor = backgroundColor,
+                period = period,
+                transit = transit,
+                randomColor = randomColor,
+                randomDelay = randomDelay,
+                broadcasting = broadcasting,
+                fade = fade
+            )
+        } catch (e: Exception) {
+            Log.e("EffectViewModel", "Failed to load settings for $effectKey: ${e.message}")
+            return null
+        }
+    }
+
+    /**
      * 이펙트의 저장된 설정 가져오기 (없으면 기본값 생성)
      */
     private fun getOrCreateSettings(effect: UiEffectType): EffectSettings {
         val key = getEffectKey(effect)
-        return effectSettingsMap.getOrPut(key) {
-            createDefaultSettings(effect)
+
+        // 이미 메모리에 로드된 설정이 있으면 반환
+        effectSettingsMap[key]?.let { return it }
+
+        // SharedPreferences에서 로드 시도
+        val loadedSettings = loadSettings(key)
+        if (loadedSettings != null) {
+            effectSettingsMap[key] = loadedSettings
+            return loadedSettings
         }
+
+        // 저장된 설정이 없으면 기본값 생성 후 저장
+        val defaultSettings = createDefaultSettings(effect)
+        effectSettingsMap[key] = defaultSettings
+        return defaultSettings
     }
 
     /**
@@ -111,14 +234,11 @@ class EffectViewModel : ViewModel() {
             is UiEffectType.On -> EffectSettings(
                 uiType = effect,
                 color = Colors.WHITE,
-                period = 0,
-                transit = 10
+                transit = 0
             )
             is UiEffectType.Off -> EffectSettings(
                 uiType = effect,
-                color = Colors.BLACK,
-                period = 0,
-                transit = 10
+                transit = 0
             )
             is UiEffectType.Strobe -> EffectSettings(
                 uiType = effect,
@@ -149,7 +269,47 @@ class EffectViewModel : ViewModel() {
     private fun saveCurrentSettings() {
         _selectedEffect.value?.let { effect ->
             val key = getEffectKey(effect)
-            effectSettingsMap[key] = _currentSettings.value.copy()
+            val settings = _currentSettings.value.copy()
+
+            // 메모리에 저장
+            effectSettingsMap[key] = settings
+
+            // SharedPreferences에 저장
+            saveSettingsToPrefs(key, settings)
+
+            Log.d("EffectViewModel", "Settings saved for $key")
+        }
+    }
+
+    /**
+     * 설정을 SharedPreferences에 저장
+     */
+    private fun saveSettingsToPrefs(effectKey: String, settings: EffectSettings) {
+        try {
+            val prefix = "effect_${effectKey}_"
+
+            prefs.edit().apply {
+                // 색상 정보 저장
+                putInt("${prefix}color_r", settings.color.r and 0xFF)
+                putInt("${prefix}color_g", settings.color.g and 0xFF)
+                putInt("${prefix}color_b", settings.color.b and 0xFF)
+
+                putInt("${prefix}bgcolor_r", settings.backgroundColor.r and 0xFF)
+                putInt("${prefix}bgcolor_g", settings.backgroundColor.g and 0xFF)
+                putInt("${prefix}bgcolor_b", settings.backgroundColor.b and 0xFF)
+
+                // 나머지 설정 저장
+                putInt("${prefix}period", settings.period)
+                putInt("${prefix}transit", settings.transit)
+                putBoolean("${prefix}random_color", settings.randomColor)
+                putInt("${prefix}random_delay", settings.randomDelay)
+                putBoolean("${prefix}broadcasting", settings.broadcasting)
+                putInt("${prefix}fade", settings.fade)
+
+                apply()
+            }
+        } catch (e: Exception) {
+            Log.e("EffectViewModel", "Failed to save settings for $effectKey: ${e.message}")
         }
     }
 
@@ -190,13 +350,6 @@ class EffectViewModel : ViewModel() {
     }
 
     /**
-     * 이펙트별 기본값 설정 (더 이상 사용 안 함 - createDefaultSettings로 대체)
-     */
-    private fun setDefaultsForEffect(effect: UiEffectType) {
-        // 이제 getOrCreateSettings에서 처리하므로 비워둠
-    }
-
-    /**
      * 이펙트 재생 시작
      */
     @SuppressLint("MissingPermission")
@@ -204,6 +357,7 @@ class EffectViewModel : ViewModel() {
         _isPlaying.value = true
         _errorMessage.value = null
 
+        playbackJob?.cancel()
         playbackJob = viewModelScope.launch {
             while (isActive && _isPlaying.value) {
                 try {
@@ -386,49 +540,6 @@ class EffectViewModel : ViewModel() {
     // ------------------------------------------------------------------------
 
     /**
-     * Period 값 업데이트
-     */
-    @SuppressLint("MissingPermission")
-    fun updatePeriod(context: Context, value: Int) {
-        _currentSettings.value = _currentSettings.value.copy(period = value)
-        saveCurrentSettings() // 설정 저장
-        _errorMessage.value = null
-
-        // 재생 중이면 즉시 적용
-        if (_isPlaying.value) {
-            viewModelScope.launch {
-                try {
-                    sendEffectToDevices()
-                } catch (e: IllegalArgumentException) {
-                    _errorMessage.value = "설정값 오류: ${e.message}"
-                } catch (e: Exception) {
-                    Log.e("EffectViewModel", "Failed to apply period: ${e.message}")
-                }
-            }
-        }
-    }
-
-    /**
-     * Transit 값 업데이트
-     */
-    @SuppressLint("MissingPermission")
-    fun updateTransit(context: Context, value: Int) {
-        _currentSettings.value = _currentSettings.value.copy(transit = value)
-        saveCurrentSettings() // 설정 저장
-        _errorMessage.value = null
-    }
-
-    /**
-     * Random Delay 값 업데이트
-     */
-    @SuppressLint("MissingPermission")
-    fun updateRandomDelay(context: Context, value: Int) {
-        _currentSettings.value = _currentSettings.value.copy(randomDelay = value)
-        saveCurrentSettings() // 설정 저장
-        _errorMessage.value = null
-    }
-
-    /**
      * Foreground Color 업데이트
      */
     @SuppressLint("MissingPermission")
@@ -470,17 +581,6 @@ class EffectViewModel : ViewModel() {
                 }
             }
         }
-    }
-
-    /**
-     * Random Color 토글
-     */
-    @SuppressLint("MissingPermission")
-    fun toggleRandomColor(context: Context) {
-        _currentSettings.value = _currentSettings.value.copy(
-            randomColor = !_currentSettings.value.randomColor
-        )
-        saveCurrentSettings() // 설정 저장
     }
 
     /**
@@ -555,17 +655,6 @@ class EffectViewModel : ViewModel() {
             context,
             Manifest.permission.BLUETOOTH_CONNECT
         )
-    }
-
-    /**
-     * 랜덤 색상 생성 (SDK 프리셋 사용)
-     */
-    private fun generateRandomColor(): Color {
-        val presetColors = listOf(
-            Colors.RED, Colors.GREEN, Colors.BLUE, Colors.YELLOW,
-            Colors.MAGENTA, Colors.CYAN, Colors.ORANGE, Colors.PURPLE, Colors.PINK
-        )
-        return presetColors.random()
     }
 
     override fun onCleared() {

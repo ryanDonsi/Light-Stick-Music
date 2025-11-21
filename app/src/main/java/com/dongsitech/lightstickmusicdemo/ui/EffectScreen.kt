@@ -317,7 +317,6 @@ fun EffectCard(
             effectSettings.color.b
         )
 
-
         when (effect) {
             is EffectViewModel.UiEffectType.Strobe,
             is EffectViewModel.UiEffectType.Blink,
@@ -453,9 +452,9 @@ fun ColorPickerDialog(
     onColorSelected: (SdkColor) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var red by remember { mutableStateOf(currentColor.r) }
-    var green by remember { mutableStateOf(currentColor.g) }
-    var blue by remember { mutableStateOf(currentColor.b) }
+    var red by remember { mutableIntStateOf(currentColor.r) }
+    var green by remember { mutableIntStateOf(currentColor.g) }
+    var blue by remember { mutableIntStateOf(currentColor.b) }
 
     // 현재 선택된 색상 (실시간)
     val selectedColor = SdkColor(red, green, blue)
@@ -707,10 +706,10 @@ fun EffectSettingsDialog(
     onDismiss: () -> Unit,
     onApply: (EffectViewModel.EffectSettings) -> Unit
 ) {
-    var period by remember { mutableStateOf(settings.period) }
-    var transit by remember { mutableStateOf(settings.transit) }
+    var period by remember { mutableIntStateOf(settings.period) }
+    var transit by remember { mutableIntStateOf(settings.transit) }
     var randomColor by remember { mutableStateOf(settings.randomColor) }
-    var randomDelay by remember { mutableStateOf(settings.randomDelay) }
+    var randomDelay by remember { mutableIntStateOf(settings.randomDelay) }
     var broadcasting by remember { mutableStateOf(settings.broadcasting) }
 
     AlertDialog(
@@ -721,22 +720,32 @@ fun EffectSettingsDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Period
-                CompactSliderRow(
-                    label = "Period",
-                    value = period,
-                    onValueChange = { period = it },
-                    valueRange = 0f..255f
-                )
+                when(settings.uiType) {
+                    is EffectViewModel.UiEffectType.Strobe,
+                    is EffectViewModel.UiEffectType.Blink,
+                    is EffectViewModel.UiEffectType.Breath -> {
+                        // Period
+                        CompactSliderRow(
+                            label = "Period",
+                            value = period,
+                            onValueChange = { period = it },
+                            valueRange = 0f..255f
+                        )
+                    }
 
-                // Transit
-                CompactSliderRow(
-                    label = "Transit",
-                    value = transit,
-                    onValueChange = { transit = it },
-                    valueRange = 0f..255f
-                )
+                    is EffectViewModel.UiEffectType.On,
+                    is EffectViewModel.UiEffectType.Off -> {
+                        // Transit
+                        CompactSliderRow(
+                            label = "Transit",
+                            value = transit,
+                            onValueChange = { transit = it },
+                            valueRange = 0f..255f
+                        )
+                    }
 
+                    else -> {}
+                }
                 // Random Delay
                 CompactSliderRow(
                     label = "Random Delay",
@@ -744,22 +753,16 @@ fun EffectSettingsDialog(
                     onValueChange = { randomDelay = it },
                     valueRange = 0f..255f
                 )
+                if(settings.uiType !is EffectViewModel.UiEffectType.Off) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                // Random Color
-                CompactSwitchRow(
-                    label = "Random Color",
-                    checked = randomColor,
-                    onCheckedChange = { randomColor = it }
-                )
-
-                // Broadcasting
-                CompactSwitchRow(
-                    label = "Broadcasting",
-                    checked = broadcasting,
-                    onCheckedChange = { broadcasting = it }
-                )
+                    // Random Color
+                    CompactSwitchRow(
+                        label = "Random Color",
+                        checked = randomColor,
+                        onCheckedChange = { randomColor = it }
+                    )
+                }
             }
         },
         confirmButton = {
