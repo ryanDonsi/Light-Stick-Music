@@ -561,7 +561,7 @@ class LightStickListViewModel : ViewModel() {
                 filter = EventFilter()
             ),
             action = EventAction.SendEffectFrame(
-                bytes16 = LSEffectPayload.Effects.blink(Colors.CYAN, period = 4).toByteArray()
+                bytes20 = LSEffectPayload.Effects.blink(Colors.CYAN, period = 4).toByteArray()
             ),
             target = EventTarget.THIS_DEVICE,
             stopAfterMatch = false
@@ -574,7 +574,7 @@ class LightStickListViewModel : ViewModel() {
                 filter = EventFilter()
             ),
             action = EventAction.SendEffectFrame(
-                bytes16 = LSEffectPayload.Effects.blink(Colors.GREEN, period = 6).toByteArray()
+                bytes20 = LSEffectPayload.Effects.blink(Colors.GREEN, period = 6).toByteArray()
             ),
             target = EventTarget.THIS_DEVICE,
             stopAfterMatch = true

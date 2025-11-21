@@ -280,51 +280,59 @@ class EffectViewModel : ViewModel() {
                         color = settings.color,
                         transit = settings.transit,
                         randomColor = if (settings.randomColor) 1 else 0,
-                        randomDelay = settings.randomDelay
+                        randomDelay = settings.randomDelay,
+                        broadcasting = if (settings.broadcasting) 1 else 0
                     )
                 }
                 is UiEffectType.Off -> {
                     LSEffectPayload.Effects.off(
                         transit = settings.transit,
-                        randomDelay = settings.randomDelay
+                        randomDelay = settings.randomDelay,
+                        broadcasting = if (settings.broadcasting) 1 else 0
                     )
                 }
                 is UiEffectType.Strobe -> {
                     LSEffectPayload.Effects.strobe(
                         color = settings.color,
+                        backgroundColor = settings.backgroundColor,
                         period = settings.period,
                         randomColor = if (settings.randomColor) 1 else 0,
-                        randomDelay = settings.randomDelay
+                        randomDelay = settings.randomDelay,
+                        broadcasting = if (settings.broadcasting) 1 else 0
                     )
                 }
                 is UiEffectType.Blink -> {
                     LSEffectPayload.Effects.blink(
                         color = settings.color,
+                        backgroundColor = settings.backgroundColor,
                         period = settings.period,
                         randomColor = if (settings.randomColor) 1 else 0,
-                        randomDelay = settings.randomDelay
+                        randomDelay = settings.randomDelay,
+                        broadcasting = if (settings.broadcasting) 1 else 0
                     )
                 }
                 is UiEffectType.Breath -> {
                     LSEffectPayload.Effects.breath(
                         color = settings.color,
+                        backgroundColor = settings.backgroundColor,
                         period = settings.period,
                         randomColor = if (settings.randomColor) 1 else 0,
-                        randomDelay = settings.randomDelay
+                        randomDelay = settings.randomDelay,
+                        broadcasting = if (settings.broadcasting) 1 else 0
                     )
                 }
                 is UiEffectType.EffectList -> {
                     // 랜덤 프리셋 색상(추후 Effect List로 생성)
-//                    val presetColors = listOf(
-//                        Colors.RED, Colors.GREEN, Colors.BLUE,
-//                        Colors.YELLOW, Colors.MAGENTA, Colors.CYAN
-//                    )
-//                    LSEffectPayload.Effects.on(
-//                        color = presetColors.random(),
-//                        transit = 100,
-//                        randomColor = 0,
-//                        randomDelay = 0
-//                    )
+                    val presetColors = listOf(
+                        Colors.RED, Colors.GREEN, Colors.BLUE,
+                        Colors.YELLOW, Colors.MAGENTA, Colors.CYAN
+                    )
+                    LSEffectPayload.Effects.on(
+                        color = presetColors.random(),
+                        transit = 100,
+                        randomColor = 0,
+                        randomDelay = 0
+                    )
                 }
                 null -> return
             }
@@ -332,6 +340,9 @@ class EffectViewModel : ViewModel() {
             // 모든 디바이스에 전송
             devices.forEach { device ->
                 try {
+                    Log.d("EffectViewModel", "Sending Effect to ${device.mac}: payload=0x${
+                        payload.toByteArray().joinToString(" ") { "%02X".format(it) }
+                    }")
                     device.sendEffect(payload)
                 } catch (e: Exception) {
                     Log.e("EffectViewModel", "Failed to send to ${device.mac}: ${e.message}")
@@ -446,6 +457,19 @@ class EffectViewModel : ViewModel() {
     fun updateBackgroundColor(context: Context, color: Color) {
         _currentSettings.value = _currentSettings.value.copy(backgroundColor = color)
         saveCurrentSettings() // 설정 저장
+
+        // 재생 중이면 즉시 적용
+        if (_isPlaying.value) {
+            viewModelScope.launch {
+                try {
+                    sendEffectToDevices()
+                } catch (e: IllegalArgumentException) {
+                    _errorMessage.value = "색상 설정 오류: ${e.message}"
+                } catch (e: Exception) {
+                    Log.e("EffectViewModel", "Failed to apply color: ${e.message}")
+                }
+            }
+        }
     }
 
     /**
@@ -468,6 +492,19 @@ class EffectViewModel : ViewModel() {
             broadcasting = !_currentSettings.value.broadcasting
         )
         saveCurrentSettings() // 설정 저장
+
+        // 재생 중이면 즉시 적용
+        if (_isPlaying.value) {
+            viewModelScope.launch {
+                try {
+                    sendEffectToDevices()
+                } catch (e: IllegalArgumentException) {
+                    _errorMessage.value = "설정값 오류: ${e.message}"
+                } catch (e: Exception) {
+                    Log.e("EffectViewModel", "Failed to apply settings: ${e.message}")
+                }
+            }
+        }
     }
 
     /**

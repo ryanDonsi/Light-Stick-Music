@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dongsitech.lightstickmusicdemo.viewmodel.EffectViewModel
 import com.lightstick.types.Color as SdkColor
@@ -71,13 +73,43 @@ fun EffectScreen(
                         selectedEffect !is EffectViewModel.UiEffectType.Off &&
                         selectedEffect !is EffectViewModel.UiEffectType.EffectList) {
                         IconButton(onClick = { showForegroundColorPicker = true }) {
-                            Icon(
-                                imageVector = Icons.Default.Palette,
-                                contentDescription = "전경색 선택"
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Palette,
+                                    contentDescription = "전경색 선택"
+                                )
+                                Text(
+                                    text = "FG",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp
+                                )
+                            }
                         }
                     }
 
+                    // BG Color 버튼 (Strobe, Blink, Breath에서만 표시)
+                    if (selectedEffect is EffectViewModel.UiEffectType.Strobe ||
+                        selectedEffect is EffectViewModel.UiEffectType.Blink ||
+                        selectedEffect is EffectViewModel.UiEffectType.Breath) {
+                        IconButton(onClick = { showBackgroundColorPicker = true }) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Palette,
+                                    contentDescription = "배경색 선택"
+                                )
+                                Text(
+                                    text = "BG",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+                    
                     // 설정 버튼 (EFFECT LIST 제외)
                     if (selectedEffect != null &&
                         selectedEffect !is EffectViewModel.UiEffectType.EffectList) {
@@ -88,9 +120,11 @@ fun EffectScreen(
                             )
                         }
                     }
-                }
+                },
+                windowInsets = WindowInsets(0)
             )
-        }
+        },
+        contentWindowInsets = WindowInsets(0)
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -272,7 +306,6 @@ fun EffectCard(
     val settingsText = buildString {
         // EFFECT LIST는 내부 프레임 사용이므로 설정값 표시 안 함
         if (effect is EffectViewModel.UiEffectType.EffectList) {
-            append("내장 이펙트")
             return@buildString
         }
 
@@ -283,17 +316,21 @@ fun EffectCard(
             effectSettings.color.g,
             effectSettings.color.b
         )
-        append("🎨 $colorHex")
+
 
         when (effect) {
             is EffectViewModel.UiEffectType.Strobe,
             is EffectViewModel.UiEffectType.Blink,
             is EffectViewModel.UiEffectType.Breath -> {
+                append("🎨 $colorHex")
                 append(" | Period: ${effectSettings.period}")
             }
-            is EffectViewModel.UiEffectType.On,
-            is EffectViewModel.UiEffectType.Off -> {
+            is EffectViewModel.UiEffectType.On -> {
+                append("🎨 $colorHex")
                 append(" | Transit: ${effectSettings.transit}")
+            }
+            is EffectViewModel.UiEffectType.Off -> {
+                append("Transit: ${effectSettings.transit}")
             }
             else -> {}
         }
@@ -342,8 +379,10 @@ fun EffectCard(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                     )
+
                     // 색상 프리뷰 (EFFECT LIST 제외)
-                    if (effect !is EffectViewModel.UiEffectType.EffectList) {
+                    if (effect !is EffectViewModel.UiEffectType.EffectList &&
+                        effect !is EffectViewModel.UiEffectType.Off) {
                         Box(
                             modifier = Modifier
                                 .size(16.dp)
@@ -355,6 +394,21 @@ fun EffectCard(
                                     androidx.compose.foundation.shape.CircleShape
                                 )
                         )
+                        if(effect is EffectViewModel.UiEffectType.Strobe ||
+                            effect is EffectViewModel.UiEffectType.Blink ||
+                            effect is EffectViewModel.UiEffectType.Breath) {
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(effectSettings.backgroundColor.toComposeColor())
+                                    .border(
+                                        0.5.dp,
+                                        MaterialTheme.colorScheme.outline,
+                                        androidx.compose.foundation.shape.CircleShape
+                                    )
+                            )
+                        }
                     }
                 }
                 Text(

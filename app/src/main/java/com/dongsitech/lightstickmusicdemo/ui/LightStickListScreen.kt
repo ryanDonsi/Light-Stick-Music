@@ -298,211 +298,208 @@ fun DeviceCard(
 
             // Expanded Device Info (연결되고 확장된 경우에만 표시)
             if (isConnected && deviceDetail != null && expanded) {
-                // Expanded Device Info (연결되고 확장된 경우에만 표시)
-                if (isConnected && deviceDetail != null && expanded) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider()
-                    Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(12.dp))
 
-                    // Device Information
-                    deviceDetail.deviceInfo?.let { info ->
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                // Device Information
+                deviceDetail.deviceInfo?.let { info ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Device Information",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        info.modelNumber?.let {
                             Text(
-                                text = "Device Information",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold
+                                text = "Model: $it",
+                                style = MaterialTheme.typography.bodySmall
                             )
-                            info.modelNumber?.let {
+                        }
+                        info.firmwareRevision?.let {
+                            Text(
+                                text = "Firmware: $it",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        info.manufacturer?.let {
+                            Text(
+                                text = "Manufacturer: $it",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // Battery Level
+                deviceDetail.batteryLevel?.let { level ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = when {
+                                level >= 80 -> Icons.Default.BatteryFull
+                                level >= 50 -> Icons.Default.Battery6Bar
+                                level >= 20 -> Icons.Default.Battery3Bar
+                                else -> Icons.Default.Battery1Bar
+                            },
+                            contentDescription = "Battery",
+                            tint = when {
+                                level >= 50 -> Color.Green
+                                level >= 20 -> Color(0xFFFF9800)
+                                else -> Color.Red
+                            }
+                        )
+                        Text(
+                            text = "배터리: $level%",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // OTA Update Section
+                Column {
+                    Text(
+                        text = "Firmware Update",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    if (deviceDetail.isOtaInProgress) {
+                        // OTA 진행 중
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text(
-                                    text = "Model: $it",
+                                    text = "업데이트 중...",
                                     style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    text = "${deviceDetail.otaProgress ?: 0}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
-                            info.firmwareRevision?.let {
-                                Text(
-                                    text = "Firmware: $it",
-                                    style = MaterialTheme.typography.bodySmall
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { (deviceDetail.otaProgress ?: 0) / 100f },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Button(
+                                onClick = onAbortOta,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error
                                 )
-                            }
-                            info.manufacturer?.let {
-                                Text(
-                                    text = "Manufacturer: $it",
-                                    style = MaterialTheme.typography.bodySmall
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
                                 )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("중단")
                             }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
+                    } else {
+                        // OTA 시작 버튼
+                        Button(
+                            onClick = { otaFileLauncher.launch("*/*") },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Upload,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("펌웨어 업데이트")
+                        }
                     }
+                }
 
-                    // Battery Level
-                    deviceDetail.batteryLevel?.let { level ->
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Event Settings
+                Column {
+                    Text(
+                        text = "이벤트 설정",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // CALL Event Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = when {
-                                    level >= 80 -> Icons.Default.BatteryFull
-                                    level >= 50 -> Icons.Default.Battery6Bar
-                                    level >= 20 -> Icons.Default.Battery3Bar
-                                    else -> Icons.Default.Battery1Bar
-                                },
-                                contentDescription = "Battery",
-                                tint = when {
-                                    level >= 50 -> Color.Green
-                                    level >= 20 -> Color(0xFFFF9800)
-                                    else -> Color.Red
-                                }
+                                imageVector = Icons.Default.Phone,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
                             )
                             Text(
-                                text = "배터리: $level%",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
+                                text = "전화 이벤트",
+                                style = MaterialTheme.typography.bodyMedium
                             )
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider()
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // OTA Update Section
-                    Column {
-                        Text(
-                            text = "Firmware Update",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
+                        Switch(
+                            checked = deviceDetail.callEventEnabled,
+                            onCheckedChange = onToggleCallEvent
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        if (deviceDetail.isOtaInProgress) {
-                            // OTA 진행 중
-                            Column {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "업데이트 중...",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                    Text(
-                                        text = "${deviceDetail.otaProgress ?: 0}%",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                LinearProgressIndicator(
-                                    progress = { (deviceDetail.otaProgress ?: 0) / 100f },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Button(
-                                    onClick = onAbortOta,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.error
-                                    )
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("중단")
-                                }
-                            }
-                        } else {
-                            // OTA 시작 버튼
-                            Button(
-                                onClick = { otaFileLauncher.launch("*/*") },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Upload,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("펌웨어 업데이트")
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider()
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Event Settings
-                    Column {
-                        Text(
-                            text = "이벤트 설정",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // CALL Event Toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Phone,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Text(
-                                    text = "전화 이벤트",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                            Switch(
-                                checked = deviceDetail.callEventEnabled,
-                                onCheckedChange = onToggleCallEvent
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // SMS Event Toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Message,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Text(
-                                    text = "문자 이벤트",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                            Switch(
-                                checked = deviceDetail.smsEventEnabled,
-                                onCheckedChange = onToggleSmsEvent
-                            )
-                        }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
+
+                    // SMS Event Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Message,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "문자 이벤트",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Switch(
+                            checked = deviceDetail.smsEventEnabled,
+                            onCheckedChange = onToggleSmsEvent
+                        )
+                    }
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
             // Connection Button (항상 표시)
