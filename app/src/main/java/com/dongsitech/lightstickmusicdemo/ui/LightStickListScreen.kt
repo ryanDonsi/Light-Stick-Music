@@ -72,20 +72,20 @@ fun LightStickListScreen(
     val pullFill = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
     val edgeColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
 
-    // ✅ RequestPermissions는 유지 (초기 권한 요청용)
-    RequestPermissions(
-        permissions = arrayOf(
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ),
-        onGranted = {
-            viewModel.startScan(context)
-        },
-        onDenied = {
-            android.util.Log.d("LightStickListScreen", "Permissions denied")
-        }
-    )
+//    // ✅ RequestPermissions는 유지 (초기 권한 요청용)
+//    RequestPermissions(
+//        permissions = arrayOf(
+//            Manifest.permission.BLUETOOTH_SCAN,
+//            Manifest.permission.BLUETOOTH_CONNECT,
+//            Manifest.permission.ACCESS_FINE_LOCATION
+//        ),
+//        onGranted = {
+//            viewModel.startScan(context)
+//        },
+//        onDenied = {
+//            android.util.Log.d("LightStickListScreen", "Permissions denied")
+//        }
+//    )
 
     // ✅ 권한 있을 때만 스캔 시작 (최초 1회)
     var initialScanDone by remember { mutableStateOf(false) }

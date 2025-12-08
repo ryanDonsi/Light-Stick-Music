@@ -63,10 +63,10 @@ fun MusicPlayerScreen(
                 onSetupClick = onRequestEffectsDirectory
             )
         } else {
-            EffectsInfoBanner(
-                effectCount = effectCount,
-                onChangeDirectoryClick = onRequestEffectsDirectory
-            )
+//            EffectsInfoBanner(
+//                effectCount = effectCount,
+//                onChangeDirectoryClick = onRequestEffectsDirectory
+//            )
         }
 
         // 음악 컨트롤 바

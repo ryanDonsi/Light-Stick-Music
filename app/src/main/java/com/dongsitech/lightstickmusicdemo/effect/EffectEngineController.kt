@@ -185,6 +185,7 @@ class EffectEngineController(
     @SuppressLint("MissingPermission")
     fun processFftEffect(band: FrequencyBand, context: Context) {
         if (!hasBleConnectPermission(context)) return
+        if (loadedEffects.isNotEmpty()) return
 
         try {
             when (processMode) {
