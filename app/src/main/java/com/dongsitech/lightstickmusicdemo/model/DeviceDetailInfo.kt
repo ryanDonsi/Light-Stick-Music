@@ -1,6 +1,6 @@
 package com.dongsitech.lightstickmusicdemo.model
 
-import com.lightstick.device.dto.DeviceInfo
+import com.lightstick.device.DeviceInfo
 
 /**
  * Device 상세 정보를 담는 데이터 클래스
@@ -15,5 +15,6 @@ data class DeviceDetailInfo(
     val otaProgress: Int? = null,
     val isOtaInProgress: Boolean = false,
     val callEventEnabled: Boolean = true,
-    val smsEventEnabled: Boolean = true
+    val smsEventEnabled: Boolean = true,
+    val broadcasting: Boolean = true
 )

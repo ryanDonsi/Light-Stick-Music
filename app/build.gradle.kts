@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.jetbrainsKotlinAndroid)
@@ -51,8 +53,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17" // JVM 타겟을 Java 17로 설정
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
     }
 }
 
@@ -132,7 +136,7 @@ dependencies {
     // Blur (Glide Transformation)
     implementation(libs.glide.transformations)
 
-    implementation(files("libs/lightstick-sdk-1.4.0.aar"))
+    implementation(files("libs/lightstick-sdk-1.4.1.aar"))
 
     // 테스트
     testImplementation(libs.junit)

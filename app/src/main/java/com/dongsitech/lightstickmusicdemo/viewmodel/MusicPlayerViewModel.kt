@@ -17,6 +17,7 @@ import com.dongsitech.lightstickmusicdemo.model.MusicItem
 import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
 import com.dongsitech.lightstickmusicdemo.player.FftAudioProcessor
 import com.dongsitech.lightstickmusicdemo.player.createFftPlayer
+import com.dongsitech.lightstickmusicdemo.util.EffectDirectoryManager
 import com.dongsitech.lightstickmusicdemo.util.MusicPlayerCommandBus
 import com.dongsitech.lightstickmusicdemo.util.ServiceController
 import kotlinx.coroutines.delay
@@ -62,11 +63,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val _duration = MutableStateFlow(0)
     val duration: StateFlow<Int> = _duration.asStateFlow()
 
-    private val effectDir = File(context.getExternalFilesDir(null), "effects").apply { mkdirs() }
-
     init {
-        // 앱 내부 이펙트 파일 매니저 초기화 (SDK 로더가 없을 때 폴백용)
-        MusicEffectManager.initialize(effectDir)
+        // ✅ Effects 초기화 (인트로에서 이미 완료되었을 수 있음)
+        initializeEffects()
 
         effectEngine.reset()
 
@@ -86,7 +85,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
-        loadMusic()
+        // ✅ 인트로에서 캐시된 음악 리스트 로드 시도
+        loadCachedMusicOrScan()
 
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -95,6 +95,42 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         })
     }
 
+    /**
+     * ✅ Effects 초기화
+     */
+    private fun initializeEffects() {
+        if (EffectDirectoryManager.isDirectoryConfigured(context)) {
+            MusicEffectManager.initializeFromSAF(context)
+            val count = MusicEffectManager.getLoadedEffectCount()
+            Log.d("MusicPlayerVM", "✅ Initialized $count effects")
+        } else {
+            Log.w("MusicPlayerVM", "⚠️ Effects directory not configured")
+        }
+    }
+
+    /**
+     * ✅ 캐시된 음악 리스트 로드 또는 새로 스캔
+     */
+    private fun loadCachedMusicOrScan() {
+        viewModelScope.launch {
+            val prefs = context.getSharedPreferences("app_state", android.content.Context.MODE_PRIVATE)
+            val isInitialized = prefs.getBoolean("is_initialized", false)
+
+            if (isInitialized) {
+                // 인트로에서 이미 초기화됨 → 빠르게 로드
+                Log.d("MusicPlayerVM", "📦 Loading from initialized state")
+                loadMusic()
+            } else {
+                // 인트로를 거치지 않음 → 직접 스캔
+                Log.d("MusicPlayerVM", "🔍 First launch, scanning music...")
+                loadMusic()
+            }
+        }
+    }
+
+    /**
+     * ✅ SDK의 MusicId API 사용
+     */
     fun loadMusic() {
         viewModelScope.launch {
             val resolver = context.contentResolver
@@ -117,7 +153,15 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     val path = cursor.getString(dataCol)
                     val title = cursor.getString(nameCol) ?: "Unknown"
                     val artist = cursor.getString(artistCol) ?: "Unknown"
-                    val musicId = File(path).nameWithoutExtension.hashCode()
+
+                    // ✅ SDK의 MusicId API 사용
+                    val musicFile = File(path)
+                    val hasEffect = try {
+                        MusicEffectManager.hasEffectFor(musicFile)
+                    } catch (e: Exception) {
+                        Log.e("MusicPlayerVM", "Failed to check effect: ${e.message}")
+                        false
+                    }
 
                     val retriever = MediaMetadataRetriever()
                     retriever.setDataSource(path)
@@ -128,12 +172,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     }
                     retriever.release()
 
-                    val hasEffect = MusicEffectManager.hasEffectFor(musicId)
                     musicItems.add(MusicItem(title, artist, path, art, hasEffect))
                 }
             }
 
             _musicList.value = musicItems
+            Log.d("MusicPlayerVM", "📀 Loaded ${musicItems.size} music files, ${musicItems.count { it.hasEffect }} with effects")
         }
     }
 
@@ -148,17 +192,19 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         )
     }
 
+    /**
+     * ✅ File 객체로 effectEngine에 전달
+     */
     fun playMusic(item: MusicItem) {
         _nowPlaying.value = item
         _isPlaying.value = true
         _duration.value = 0
         _currentPosition.value = 0
 
-        val musicId = File(item.filePath).nameWithoutExtension.hashCode()
-
-        // ✅ 이펙트 엔진 초기화 + .efx 로딩
+        // ✅ File 객체로 이펙트 로드
+        val musicFile = File(item.filePath)
         effectEngine.reset()
-        effectEngine.loadEffectsFor(musicId, context)
+        effectEngine.loadEffectsFor(musicFile, context)
 
         ServiceController.startMusicEffectService(
             context = context,

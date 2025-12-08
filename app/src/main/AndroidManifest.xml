@@ -1,18 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <!-- 블루투스 권한 -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+
+    <!-- ✅ Android 12+ 블루투스 권한 -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- ✅ 위치 권한 (BLE 스캔에 필요, Android 11 이하만) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"
+        android:maxSdkVersion="30" />
+
+    <!-- ✅ 미디어 권한 (Android 13+, 음악 파일 읽기용) -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- ✅ 외부 저장소 권한 (Android 12 이하, 음악 파일 읽기용) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32"/>
+
+    <!-- ✅ Foreground Service 권한 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- ✅ 알림 권한 (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
@@ -23,25 +42,34 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.LightStickMusicPlayerDemo"
-        >
+        android:theme="@style/Theme.LightStickMusicPlayerDemo">
+
+        <!-- ✅ SplashActivity를 시작 화면으로 설정 -->
         <activity
-            android:name=".MainActivity"
-            android:exported="true">
+            android:name=".splash.SplashActivity"
+            android:exported="true"
+            android:theme="@style/Theme.LightStickMusicPlayerDemo">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
+        <!-- ✅ MainActivity는 일반 Activity로 -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
+        <!-- ✅ Foreground Service 타입 명시 -->
         <service
             android:name=".service.MusicEffectService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback|connectedDevice" />
 
-        <receiver android:name=".receiver.MusicActionReceiver"
+        <receiver
+            android:name=".receiver.MusicActionReceiver"
             android:enabled="true"
             android:exported="false">
             <intent-filter>

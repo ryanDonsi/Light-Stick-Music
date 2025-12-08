@@ -20,8 +20,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,38 +53,48 @@ fun LightStickListScreen(
     val context = LocalContext.current
     val devices by viewModel.devices.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
-    val permissionGranted by viewModel.permissionGranted.collectAsState()
     val connectionStates by viewModel.connectionStates.collectAsState()
     val deviceDetails by viewModel.deviceDetails.collectAsState()
 
-    val canShowAddress =
-        permissionGranted && PermissionUtils.hasPermission(context, Manifest.permission.BLUETOOTH_CONNECT)
+    // ✅ 매번 실시간으로 권한 체크 (캐싱 없음)
+    val hasAllBluetoothPermissions = PermissionUtils.hasAllBluetoothPermissions(context)
+    val canShowAddress = hasAllBluetoothPermissions &&
+            PermissionUtils.hasBluetoothConnectPermission(context)
 
     val openSettingsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { }
 
     val pullRefreshState = rememberPullToRefreshState()
-
     val listState = rememberLazyListState()
     val canScrollUp = { listState.canScrollBackward }
 
-    // PullToRefresh 색상 - 더 생동감 있는 그라데이션
     val pullFill = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
     val edgeColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
 
+    // ✅ RequestPermissions는 유지 (초기 권한 요청용)
     RequestPermissions(
         permissions = arrayOf(
             Manifest.permission.BLUETOOTH_SCAN,
             Manifest.permission.BLUETOOTH_CONNECT,
             Manifest.permission.ACCESS_FINE_LOCATION
         ),
-        onGranted = { viewModel.setPermissionGranted(true) },
-        onDenied = { viewModel.setPermissionGranted(false) }
+        onGranted = {
+            viewModel.startScan(context)
+        },
+        onDenied = {
+            android.util.Log.d("LightStickListScreen", "Permissions denied")
+        }
     )
 
-    LaunchedEffect(permissionGranted) {
-        if (permissionGranted) viewModel.startScan(context)
+    // ✅ 권한 있을 때만 스캔 시작 (최초 1회)
+    var initialScanDone by remember { mutableStateOf(false) }
+
+    LaunchedEffect(hasAllBluetoothPermissions) {
+        if (hasAllBluetoothPermissions && !initialScanDone) {
+            viewModel.startScan(context)
+            initialScanDone = true
+        }
     }
 
     Scaffold(
@@ -94,7 +102,7 @@ fun LightStickListScreen(
             TopAppBar(
                 title = { Text("응원봉 목록") },
                 actions = {
-                    if (permissionGranted) {
+                    if (hasAllBluetoothPermissions) {
                         AnimatedScanIconButton(
                             isScanning = isScanning,
                             onStartScan = { viewModel.startScan(context) }
@@ -106,7 +114,8 @@ fun LightStickListScreen(
         },
         contentWindowInsets = WindowInsets(0)
     ) { paddingValues ->
-        if (!permissionGranted) {
+        if (!hasAllBluetoothPermissions) {
+            // ✅ 권한 없음 화면
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -114,9 +123,23 @@ fun LightStickListScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "권한이 필요합니다.",
+                    text = "블루투스 권한이 필요합니다.",
                     style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "설정에서 권한을 허용해주세요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(16.dp))
@@ -132,6 +155,7 @@ fun LightStickListScreen(
                 }
             }
         } else {
+            // ✅ 정상 화면
             StretchPullRefreshContainer(
                 isRefreshing = isScanning,
                 onRefresh = { viewModel.startScan(context) },
@@ -181,7 +205,6 @@ fun LightStickListScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // 연결된 디바이스를 먼저, 그 다음 연결 안된 디바이스 정렬
                         val sortedDevices = devices.sortedByDescending { device ->
                             connectionStates[device.mac] ?: false
                         }
@@ -230,7 +253,7 @@ fun DeviceCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(), // 애니메이션 추가
+            .animateContentSize(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color.White
@@ -252,7 +275,6 @@ fun DeviceCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Connection Status Icon
                         Icon(
                             imageVector = if (isConnected) Icons.Default.Bluetooth else Icons.Default.BluetoothDisabled,
                             contentDescription = if (isConnected) "연결됨" else "미연결",
@@ -285,7 +307,7 @@ fun DeviceCard(
                     }
                 }
 
-                // Expand/Collapse Button (연결된 경우에만 표시)
+                // Expand/Collapse Button
                 if (isConnected && deviceDetail != null) {
                     IconButton(onClick = { expanded = !expanded }) {
                         Icon(
@@ -296,7 +318,7 @@ fun DeviceCard(
                 }
             }
 
-            // Expanded Device Info (연결되고 확장된 경우에만 표시)
+            // Expanded Device Info
             if (isConnected && deviceDetail != null && expanded) {
                 Spacer(modifier = Modifier.height(12.dp))
                 HorizontalDivider()
@@ -502,7 +524,7 @@ fun DeviceCard(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Connection Button (항상 표시)
+            // Connection Button
             Spacer(modifier = Modifier.height(12.dp))
             Button(
                 onClick = onToggleConnection,
