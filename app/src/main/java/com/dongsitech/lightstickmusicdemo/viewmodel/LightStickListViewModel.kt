@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dongsitech.lightstickmusicdemo.model.DeviceDetailInfo
 import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
+import com.dongsitech.lightstickmusicdemo.util.DeviceSettings
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Controller
 import com.lightstick.device.Device
@@ -70,6 +71,8 @@ class LightStickListViewModel : ViewModel() {
     fun initializeWithContext(context: Context) {
         if (appContext != null) return
         appContext = context.applicationContext
+
+        DeviceSettings.initialize(context.applicationContext) // ✅ 추가
 
         if (PermissionUtils.hasBluetoothConnectPermission(appContext!!)) {
             updateConnectedCount()
@@ -328,9 +331,9 @@ class LightStickListViewModel : ViewModel() {
                 batteryLevel = null,
                 otaProgress = null,
                 isOtaInProgress = false,
-                callEventEnabled = true,
-                smsEventEnabled = true,
-                broadcasting = true
+                callEventEnabled = DeviceSettings.getCallEventEnabled(device.mac),
+                smsEventEnabled = DeviceSettings.getSmsEventEnabled(device.mac),
+                broadcasting = DeviceSettings.getBroadcasting(device.mac)
             )
         }
     }
@@ -635,10 +638,19 @@ class LightStickListViewModel : ViewModel() {
     }
 
     fun toggleCallEvent(device: Device, enabled: Boolean) {
+        DeviceSettings.setCallEventEnabled(device.mac, enabled) // ✅ SharedPreferences에 저장
+
         _eventStates.update { states ->
             val deviceStates = states[device.mac]?.toMutableMap() ?: mutableMapOf()
             deviceStates[EventType.CALL_RINGING] = enabled
             states + (device.mac to deviceStates)
+        }
+
+        _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
+            val existing = this[device.mac]
+            if (existing != null) {
+                this[device.mac] = existing.copy(callEventEnabled = enabled)
+            }
         }
 
         if (enabled) {
@@ -649,16 +661,42 @@ class LightStickListViewModel : ViewModel() {
     }
 
     fun toggleSmsEvent(device: Device, enabled: Boolean) {
+        DeviceSettings.setSmsEventEnabled(device.mac, enabled) // ✅ SharedPreferences에 저장
+
         _eventStates.update { states ->
             val deviceStates = states[device.mac]?.toMutableMap() ?: mutableMapOf()
             deviceStates[EventType.SMS_RECEIVED] = enabled
             states + (device.mac to deviceStates)
         }
 
+        _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
+            val existing = this[device.mac]
+            if (existing != null) {
+                this[device.mac] = existing.copy(smsEventEnabled = enabled)
+            }
+        }
+
         if (enabled) {
             Log.d(TAG, "✅ SMS event enabled for ${device.mac}")
         } else {
             Log.d(TAG, "🔕 SMS event disabled for ${device.mac}")
+        }
+    }
+
+    fun toggleBroadcasting(device: Device, enabled: Boolean) {
+        DeviceSettings.setBroadcasting(device.mac, enabled) // ✅ SharedPreferences에 저장
+
+        _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
+            val existing = this[device.mac]
+            if (existing != null) {
+                this[device.mac] = existing.copy(broadcasting = enabled)
+            }
+        }
+
+        if (enabled) {
+            Log.d(TAG, "✅ Broadcasting enabled for ${device.mac}")
+        } else {
+            Log.d(TAG, "🔕 Broadcasting disabled for ${device.mac}")
         }
     }
 

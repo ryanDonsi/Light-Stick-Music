@@ -219,7 +219,8 @@ fun LightStickListScreen(
                                 onStartOta = { uri -> viewModel.startOta(context, device, uri) },
                                 onAbortOta = { viewModel.abortOta(device) },
                                 onToggleCallEvent = { enabled -> viewModel.toggleCallEvent(device, enabled) },
-                                onToggleSmsEvent = { enabled -> viewModel.toggleSmsEvent(device, enabled) }
+                                onToggleSmsEvent = { enabled -> viewModel.toggleSmsEvent(device, enabled) },
+                                onToggleBroadcasting = { enabled -> viewModel.toggleBroadcasting(device, enabled) }
                             )
                         }
                     }
@@ -239,7 +240,8 @@ fun DeviceCard(
     onStartOta: (Uri) -> Unit,
     onAbortOta: () -> Unit,
     onToggleCallEvent: (Boolean) -> Unit,
-    onToggleSmsEvent: (Boolean) -> Unit
+    onToggleSmsEvent: (Boolean) -> Unit,
+    onToggleBroadcasting: (Boolean) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     var showOtaDialog by remember { mutableStateOf(false) }
@@ -517,6 +519,32 @@ fun DeviceCard(
                         Switch(
                             checked = deviceDetail.smsEventEnabled,
                             onCheckedChange = onToggleSmsEvent
+                        )
+                    }
+
+                    // Broadcasting Toggle 추가
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Sensors, // 또는 Icons.Default.Cast
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Broadcasting",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Switch(
+                            checked = deviceDetail.broadcasting,
+                            onCheckedChange = onToggleBroadcasting
                         )
                     }
                 }
