@@ -8,27 +8,50 @@ import android.net.Uri
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.dongsitech.lightstickmusicdemo.model.FrequencyBand
+import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
 import com.lightstick.efx.EfxEntry
 import com.lightstick.types.Color
+import com.lightstick.types.LSEffectPayload
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Controls FFT/timeline-driven LED effects for a SINGLE Light Stick.
+ * 중앙 집중식 Effect 제어 Singleton
  *
- * ✅ 개선 사항:
- * - SDK의 Color 타입 직접 사용 (Byte 변환 제거)
- * - EfxEntry.payload 직접 사용 (LSEffectPayload 변환 불필요)
- * - LedColor → LedColorWithTransit로 명확화
+ * - Manual Effect (Effect 탭에서 수동 실행)
+ * - Timeline Effect (음악 재생 중 타임라인 동기화)
+ * - FFT Effect (음악 주파수 분석)
+ *
+ * 모든 Effect 전송은 이 Object를 통해서만 수행됨
  */
-class EffectEngineController(
-    private val ledColorMapper: LedColorMapper? = null,
-    private val processMode: FftProcessMode = FftProcessMode.DEFAULT_AND_CUSTOM
-) {
-    // ---------- Single-target management ----------
+@SuppressLint("MissingPermission")
+object EffectEngineController {
+    private const val TAG = "EffectEngineController"
+
+    // =========== 설정 가능한 속성 ===========
+    @Volatile var ledColorMapper: LedColorMapper? = null
+    @Volatile var processMode: FftProcessMode = FftProcessMode.DEFAULT_AND_CUSTOM
+
+    // =========== Single-target management ===========
     @Volatile private var targetAddress: String? = null
     @Volatile private var targetDevice: Device? = null
+
+    // =========== Manual Effect (EffectViewModel용) ===========
+    @Volatile private var manualEffectJob: Job? = null
+
+    // =========== Timeline Effect (MusicPlayerViewModel용) ===========
+    private var sdkTimeline: List<Any>? = null
+    private var loadedEffects: List<EfxEntry> = emptyList()
+    private var isEffectFileMode = false
+    private var lastEffectIndex = -1
+
+    // =========== Public API ===========
 
     /** Set/clear the current target device MAC address. */
     fun setTargetAddress(address: String?) {
@@ -40,12 +63,178 @@ class EffectEngineController(
     fun getTargetAddress(): String? = targetAddress
 
     /**
-     * Resolve a usable send target Device:
-     * - If targetAddress is set AND connected → use it.
-     * - Else → use first of LSBluetooth.connectedDevices(), or null if none.
-     * Guarded by BLUETOOTH_CONNECT permission check.
+     * Manual Effect 시작 (Effect 탭용)
+     * - 기존 Manual Effect가 있으면 자동 중단 후 새로 시작
      */
-    @SuppressLint("MissingPermission")
+    fun startManualEffect(
+        payload: LSEffectPayload,
+        context: Context,
+        scope: CoroutineScope
+    ) {
+        // 기존 Manual Effect 중단
+        stopManualEffect(context)
+
+        manualEffectJob = scope.launch {
+            try {
+                while (isActive) {
+                    sendEffect(payload, context)
+                    delay(1000)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Manual effect error: ${e.message}")
+            }
+        }
+
+        Log.d(TAG, "Manual effect started")
+    }
+
+    /**
+     * Manual Effect 중단
+     */
+    fun stopManualEffect(context: Context) {
+        manualEffectJob?.cancel()
+        manualEffectJob = null
+        sendOffToAll(context)
+        Log.d(TAG, "Manual effect stopped")
+    }
+
+    /**
+     * Timeline Effect 로드 (음악 재생 시)
+     * - 기존 Manual Effect가 있으면 자동 중단
+     */
+    fun loadEffectsFor(musicFile: File, context: Context) {
+        // Manual Effect 중단
+        stopManualEffect(context)
+
+        sdkTimeline = null
+        loadedEffects = try {
+            MusicEffectManager.loadEffects(musicFile) ?: emptyList()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Effect load failed: ${t.message}")
+            emptyList()
+        }
+
+        isEffectFileMode = !sdkTimeline.isNullOrEmpty() || loadedEffects.isNotEmpty()
+        lastEffectIndex = -1
+        Log.d(TAG, "Loaded ${loadedEffects.size} timeline effects")
+    }
+
+    fun loadEffectsFor(musicUri: Uri, context: Context) {
+        stopManualEffect(context)
+
+        sdkTimeline = null
+        loadedEffects = try {
+            MusicEffectManager.loadEffects(context, musicUri) ?: emptyList()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Effect load failed: ${t.message}")
+            emptyList()
+        }
+
+        isEffectFileMode = !sdkTimeline.isNullOrEmpty() || loadedEffects.isNotEmpty()
+        lastEffectIndex = -1
+        Log.d(TAG, "Loaded ${loadedEffects.size} timeline effects")
+    }
+
+    @Deprecated(
+        message = "Use loadEffectsFor(File, Context) or loadEffectsFor(Uri, Context) instead",
+        replaceWith = ReplaceWith("loadEffectsFor(musicFile, context)")
+    )
+    fun loadEffectsFor(musicId: Int, context: Context) {
+        stopManualEffect(context)
+
+        sdkTimeline = null
+        loadedEffects = try {
+            @Suppress("DEPRECATION")
+            MusicEffectManager.loadEffectsByMusicId(musicId) ?: emptyList()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Effect load failed: ${t.message}")
+            emptyList()
+        }
+
+        isEffectFileMode = !sdkTimeline.isNullOrEmpty() || loadedEffects.isNotEmpty()
+        lastEffectIndex = -1
+    }
+
+    @Deprecated(
+        message = "Use loadEffectsFor(File, Context) or loadEffectsFor(Uri, Context) instead",
+        replaceWith = ReplaceWith("loadEffectsFor(musicFile, context)")
+    )
+    fun loadEffectsFor(musicId: Int) {
+        sdkTimeline = null
+        loadedEffects = try {
+            @Suppress("DEPRECATION")
+            MusicEffectManager.loadEffectsByMusicId(musicId) ?: emptyList()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Effect load failed: ${t.message}")
+            emptyList()
+        }
+        isEffectFileMode = loadedEffects.isNotEmpty()
+        lastEffectIndex = -1
+    }
+
+    /** Reset timeline effects */
+    fun reset() {
+        sdkTimeline = null
+        loadedEffects = emptyList()
+        isEffectFileMode = false
+        lastEffectIndex = -1
+        targetDevice = null
+    }
+
+    /**
+     * FFT Effect 처리 (음악 재생 중)
+     */
+    fun processFftEffect(band: FrequencyBand, context: Context) {
+        if (!hasBleConnectPermission(context)) return
+        if (loadedEffects.isNotEmpty()) return
+
+        try {
+            when (processMode) {
+                FftProcessMode.DEFAULT_ONLY -> sendDefaultColor(context, band)
+                FftProcessMode.CUSTOM_ONLY -> {
+                    ledColorMapper?.let { mapper ->
+                        val result = mapper.mapColor(band)
+                        sendColorToTarget(context, result.color, result.transit)
+                    }
+                }
+                FftProcessMode.DEFAULT_AND_CUSTOM -> {
+                    sendDefaultColor(context, band)
+                    ledColorMapper?.let { mapper ->
+                        val result = mapper.mapColor(band)
+                        sendColorToTarget(context, result.color, result.transit)
+                    }
+                }
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "FFT effect send failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Timeline Position 처리 (음악 재생 중)
+     */
+    fun processPosition(context: Context, currentPositionMs: Int) {
+        if (!hasBleConnectPermission(context)) return
+
+        if (loadedEffects.isNotEmpty()
+            && lastEffectIndex + 1 < loadedEffects.size
+            && loadedEffects[lastEffectIndex + 1].timestampMs <= currentPositionMs
+        ) {
+            val device = resolveTarget(context) ?: return
+            lastEffectIndex++
+
+            val payload = loadedEffects[lastEffectIndex].payload
+
+            try {
+                device.sendEffect(payload)
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Timeline effect send failed: ${e.message}")
+            }
+        }
+    }
+
+    // =========== Internal Helpers ===========
+
     private fun resolveTarget(context: Context): Device? {
         if (!hasBleConnectPermission(context)) return null
 
@@ -70,173 +259,44 @@ class EffectEngineController(
             return targetDevice
 
         } catch (t: Throwable) {
-            Log.e("EffectEngineController", "resolveTarget() failed: ${t.message}")
+            Log.e(TAG, "resolveTarget() failed: ${t.message}")
             return null
         }
     }
 
-    // ---------- Timeline storage ----------
-    /** SDK timeline (list of LSEffectPayload or similar) if SDK loader exists. */
-    private var sdkTimeline: List<Any>? = null
-
-    /** ✅ 변경: EfxEntry 타입 사용 (SDK 타입) */
-    private var loadedEffects: List<EfxEntry> = emptyList()
-
-    private var isEffectFileMode = false
-    private var lastEffectIndex = -1
-
-    /**
-     * ✅ SDK 활용: EfxEntry 리스트 로드
-     */
-    fun loadEffectsFor(musicFile: File, context: Context) {
-        sdkTimeline = null
-
-        if (sdkTimeline.isNullOrEmpty()) {
-            loadedEffects = try {
-                MusicEffectManager.loadEffects(musicFile) ?: emptyList()
-            } catch (t: Throwable) {
-                Log.e("EffectEngineController", "App timeline load failed: ${t.message}")
-                emptyList()
-            }
-            Log.d("EffectEngineController", "App timeline items: ${loadedEffects.size}")
-        } else {
-            loadedEffects = emptyList()
-            Log.d("EffectEngineController", "SDK timeline items: ${sdkTimeline?.size}")
-        }
-
-        isEffectFileMode = !sdkTimeline.isNullOrEmpty() || loadedEffects.isNotEmpty()
-        lastEffectIndex = -1
-    }
-
-    fun loadEffectsFor(musicUri: Uri, context: Context) {
-        sdkTimeline = null
-
-        if (sdkTimeline.isNullOrEmpty()) {
-            loadedEffects = try {
-                MusicEffectManager.loadEffects(context, musicUri) ?: emptyList()
-            } catch (t: Throwable) {
-                Log.e("EffectEngineController", "App timeline load failed: ${t.message}")
-                emptyList()
-            }
-            Log.d("EffectEngineController", "App timeline items: ${loadedEffects.size}")
-        } else {
-            loadedEffects = emptyList()
-            Log.d("EffectEngineController", "SDK timeline items: ${sdkTimeline?.size}")
-        }
-
-        isEffectFileMode = !sdkTimeline.isNullOrEmpty() || loadedEffects.isNotEmpty()
-        lastEffectIndex = -1
-    }
-
-    @Deprecated(
-        message = "Use loadEffectsFor(File, Context) or loadEffectsFor(Uri, Context) instead",
-        replaceWith = ReplaceWith("loadEffectsFor(musicFile, context)")
-    )
-    fun loadEffectsFor(musicId: Int, context: Context) {
-        sdkTimeline = null
-
-        if (sdkTimeline.isNullOrEmpty()) {
-            loadedEffects = try {
-                @Suppress("DEPRECATION")
-                MusicEffectManager.loadEffectsByMusicId(musicId) ?: emptyList()
-            } catch (t: Throwable) {
-                Log.e("EffectEngineController", "App timeline load failed: ${t.message}")
-                emptyList()
-            }
-            Log.d("EffectEngineController", "App timeline items: ${loadedEffects.size}")
-        } else {
-            loadedEffects = emptyList()
-            Log.d("EffectEngineController", "SDK timeline items: ${sdkTimeline?.size}")
-        }
-
-        isEffectFileMode = !sdkTimeline.isNullOrEmpty() || loadedEffects.isNotEmpty()
-        lastEffectIndex = -1
-    }
-
-    @Deprecated(
-        message = "Use loadEffectsFor(File, Context) or loadEffectsFor(Uri, Context) instead",
-        replaceWith = ReplaceWith("loadEffectsFor(musicFile, context)")
-    )
-    fun loadEffectsFor(musicId: Int) {
-        sdkTimeline = null
-        loadedEffects = try {
-            @Suppress("DEPRECATION")
-            MusicEffectManager.loadEffectsByMusicId(musicId) ?: emptyList()
-        } catch (t: Throwable) {
-            Log.e("EffectEngineController", "App timeline load failed: ${t.message}")
-            emptyList()
-        }
-        isEffectFileMode = loadedEffects.isNotEmpty()
-        lastEffectIndex = -1
-    }
-
-    /** Reset internal state, clearing any loaded timeline effects. */
-    fun reset() {
-        sdkTimeline = null
-        loadedEffects = emptyList()
-        isEffectFileMode = false
-        lastEffectIndex = -1
-        targetDevice = null
-    }
-
-    /**
-     * ✅ 개선: Color 타입 직접 사용
-     */
-    @SuppressLint("MissingPermission")
-    fun processFftEffect(band: FrequencyBand, context: Context) {
+    private fun sendEffect(payload: LSEffectPayload, context: Context) {
         if (!hasBleConnectPermission(context)) return
-        if (loadedEffects.isNotEmpty()) return
 
         try {
-            when (processMode) {
-                FftProcessMode.DEFAULT_ONLY -> sendDefaultColor(context, band)
-                FftProcessMode.CUSTOM_ONLY -> {
-                    ledColorMapper?.let { mapper ->
-                        val result = mapper.mapColor(band)
-                        sendColorToTarget(context, result.color, result.transit)
-                    }
-                }
-                FftProcessMode.DEFAULT_AND_CUSTOM -> {
-                    sendDefaultColor(context, band)
-                    ledColorMapper?.let { mapper ->
-                        val result = mapper.mapColor(band)
-                        sendColorToTarget(context, result.color, result.transit)
-                    }
+            val devices = LSBluetooth.connectedDevices()
+            if (devices.isEmpty()) {
+                Log.d(TAG, "No connected devices")
+                return
+            }
+
+            devices.forEach { device ->
+                try {
+                    device.sendEffect(payload)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to send to ${device.mac}: ${e.message}")
                 }
             }
-        } catch (e: SecurityException) {
-            Log.e("EffectEngineController", "BLE send failed (processFftEffect): ${e.message}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Effect send error: ${e.message}")
         }
     }
 
-    /**
-     * ✅ 개선: EfxEntry.payload는 이미 LSEffectPayload 타입 - 변환 불필요
-     */
-    @SuppressLint("MissingPermission")
-    fun processPosition(context: Context, currentPositionMs: Int) {
+    private fun sendOffToAll(context: Context) {
         if (!hasBleConnectPermission(context)) return
 
-        if (loadedEffects.isNotEmpty()
-            && lastEffectIndex + 1 < loadedEffects.size
-            && loadedEffects[lastEffectIndex + 1].timestampMs <= currentPositionMs
-        ) {
-            val device = resolveTarget(context) ?: return
-            lastEffectIndex++
-
-            // ✅ EfxEntry.payload는 이미 LSEffectPayload 타입
-            val payload = loadedEffects[lastEffectIndex].payload
-
-            try {
-                device.sendEffect(payload)
-            } catch (e: SecurityException) {
-                Log.e("EffectEngineController", "BLE send failed (processPosition): ${e.message}")
-            }
+        try {
+            val offPayload = LSEffectPayload.Effects.off()
+            LSBluetooth.broadcastEffect(offPayload)
+            Log.d(TAG, "Sent OFF to all devices")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending OFF: ${e.message}")
         }
     }
-
-    // ------------------------------------------------------------------------
-    // Internals
-    // ------------------------------------------------------------------------
 
     private fun hasBleConnectPermission(context: Context): Boolean =
         ContextCompat.checkSelfPermission(
@@ -244,14 +304,9 @@ class EffectEngineController(
             Manifest.permission.BLUETOOTH_CONNECT
         ) == PackageManager.PERMISSION_GRANTED
 
-    /**
-     * ✅ 개선: 직접 Color 객체 생성 (Byte 변환 불필요)
-     */
-    @SuppressLint("MissingPermission")
     private fun sendDefaultColor(context: Context, band: FrequencyBand) {
         val total = (band.bass + band.mid + band.treble).let { if (it <= 0f) 1e-6f else it }
 
-        // ✅ 직접 Color 생성 (Int 값 사용)
         val color = Color(
             r = ((band.bass / total) * 255f).toInt().coerceIn(0, 255),
             g = ((band.mid / total) * 255f).toInt().coerceIn(0, 255),
@@ -261,24 +316,16 @@ class EffectEngineController(
         sendColorToTarget(context, color, transit = 5)
     }
 
-    /**
-     * ✅ 개선: Color 타입 직접 사용 (Byte 변환 제거)
-     */
-    @SuppressLint("MissingPermission")
-    private fun sendColorToTarget(
-        context: Context,
-        color: Color,
-        transit: Int
-    ) {
+    private fun sendColorToTarget(context: Context, color: Color, transit: Int) {
         if (!hasBleConnectPermission(context)) return
         val device = resolveTarget(context) ?: return
 
         try {
             device.sendColor(color = color, transition = transit)
         } catch (se: SecurityException) {
-            Log.e("EffectEngineController", "sendColor SecurityException: ${se.message}")
+            Log.e(TAG, "sendColor SecurityException: ${se.message}")
         } catch (t: Throwable) {
-            Log.e("EffectEngineController", "sendColor failed: ${t.message}")
+            Log.e(TAG, "sendColor failed: ${t.message}")
         }
     }
 }
@@ -287,7 +334,6 @@ class EffectEngineController(
 enum class FftProcessMode { DEFAULT_ONLY, CUSTOM_ONLY, DEFAULT_AND_CUSTOM }
 
 /**
- * ✅ 개선: SDK의 Color 타입 사용
  * Implement to customize FFT → LED color mapping.
  */
 interface LedColorMapper {
@@ -295,7 +341,6 @@ interface LedColorMapper {
 }
 
 /**
- * ✅ 개선: SDK Color + transit 조합
  * Simple Color+transition container used by [LedColorMapper].
  */
 data class LedColorWithTransit(val color: Color, val transit: Int)

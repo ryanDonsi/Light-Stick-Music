@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.dongsitech.lightstickmusicdemo.effect.EffectEngineController
 import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
 import com.dongsitech.lightstickmusicdemo.util.DeviceSettings
 import com.lightstick.LSBluetooth
@@ -420,28 +421,41 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
      */
     @SuppressLint("MissingPermission")
     fun playEffect(context: Context) {
-        playbackJob?.cancel()
-
         if (!hasBluetoothPermission(context)) {
             _errorMessage.value = "블루투스 권한이 필요합니다"
             return
         }
 
-        // ✅ UI 업데이트: 재생 중 표시
+        val devices = LSBluetooth.connectedDevices()
+        if (devices.isEmpty()) {
+            _errorMessage.value = "연결된 디바이스가 없습니다"
+            return
+        }
+
         _isPlaying.value = true
 
-        playbackJob = viewModelScope.launch {
-            try {
-                while (isActive) {
-                    sendEffectToDevices()
-                    delay(100)
-                }
-            } catch (e: Exception) {
-                Log.e("EffectViewModel", "Error in playEffect: ${e.message}")
-                _errorMessage.value = "이펙트 전송 실패: ${e.message}"
-                // ✅ 에러 발생 시 UI도 업데이트
-                _isPlaying.value = false
-            }
+        val settings = _currentSettings.value
+        val payload = createPayload(settings)
+
+        if (payload == null) {
+            _errorMessage.value = "이펙트 생성 실패"
+            _isPlaying.value = false
+            return
+        }
+
+        try {
+            // ✅ EffectEngineController object 사용
+            EffectEngineController.startManualEffect(
+                payload = payload,
+                context = context,
+                scope = viewModelScope
+            )
+
+            Log.d("EffectViewModel", "Manual effect started")
+        } catch (e: Exception) {
+            Log.e("EffectViewModel", "Error starting effect: ${e.message}")
+            _errorMessage.value = "이펙트 시작 실패: ${e.message}"
+            _isPlaying.value = false
         }
     }
 
@@ -450,18 +464,87 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
      */
     @SuppressLint("MissingPermission")
     fun stopEffect(context: Context) {
-        playbackJob?.cancel()
-        playbackJob = null
-
-        // ✅ UI 업데이트: 재생 중지 + 선택 해제
         _isPlaying.value = false
         _selectedEffect.value = null
 
-        if (hasBluetoothPermission(context)) {
-            sendOffToAllDevices()
-        }
+        // ✅ EffectEngineController object 사용
+        EffectEngineController.stopManualEffect(context)
 
-        Log.d("EffectViewModel", "Effect stopped and deselected")
+        Log.d("EffectViewModel", "Manual effect stopped")
+    }
+
+    private fun createPayload(settings: EffectSettings): LSEffectPayload? {
+        return try {
+            when (_selectedEffect.value) {
+                is UiEffectType.On -> {
+                    LSEffectPayload.Effects.on(
+                        color = settings.color,
+                        transit = settings.transit,
+                        randomColor = if (settings.randomColor) 1 else 0,
+                        randomDelay = settings.randomDelay,
+                        broadcasting = if (settings.broadcasting) 1 else 0
+                    )
+                }
+                is UiEffectType.Off -> {
+                    LSEffectPayload.Effects.off(
+                        transit = settings.transit,
+                        randomDelay = settings.randomDelay,
+                        broadcasting = if (settings.broadcasting) 1 else 0
+                    )
+                }
+                is UiEffectType.Strobe -> {
+                    LSEffectPayload.Effects.strobe(
+                        period = settings.period,
+                        color = settings.color,
+                        backgroundColor = settings.backgroundColor,
+                        randomColor = if (settings.randomColor) 1 else 0,
+                        randomDelay = settings.randomDelay,
+                        broadcasting = if (settings.broadcasting) 1 else 0
+                    )
+                }
+                is UiEffectType.Blink -> {
+                    LSEffectPayload.Effects.blink(
+                        period = settings.period,
+                        color = settings.color,
+                        backgroundColor = settings.backgroundColor,
+                        randomColor = if (settings.randomColor) 1 else 0,
+                        randomDelay = settings.randomDelay,
+                        broadcasting = if (settings.broadcasting) 1 else 0
+                    )
+                }
+                is UiEffectType.Breath -> {
+                    LSEffectPayload.Effects.breath(
+                        period = settings.period,
+                        color = settings.color,
+                        backgroundColor = settings.backgroundColor,
+                        randomColor = if (settings.randomColor) 1 else 0,
+                        randomDelay = settings.randomDelay,
+                        broadcasting = if (settings.broadcasting) 1 else 0
+                    )
+                }
+                is UiEffectType.EffectList -> {
+                    val presetColors = listOf(
+                        Colors.RED, Colors.GREEN, Colors.BLUE,
+                        Colors.YELLOW, Colors.MAGENTA, Colors.CYAN
+                    )
+                    LSEffectPayload.Effects.on(
+                        color = presetColors.random(),
+                        transit = 100,
+                        randomColor = 0,
+                        randomDelay = 0
+                    )
+                }
+                null -> null
+            }
+        } catch (e: IllegalArgumentException) {
+            Log.e("EffectViewModel", "Invalid parameter: ${e.message}")
+            _errorMessage.value = "설정값 오류: ${e.message}"
+            null
+        } catch (e: Exception) {
+            Log.e("EffectViewModel", "Error creating payload: ${e.message}")
+            _errorMessage.value = "페이로드 생성 오류: ${e.message}"
+            null
+        }
     }
 
     /**
@@ -555,7 +638,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                     device.sendEffect(payload)
                     Log.d("EffectViewModel", "Sent to ${device.mac} (broadcasting=$deviceBroadcasting)")
                 } catch (e: Exception) {
-                    Log.e("EffectViewModel", "Failed to send to ${device.mac}: ${e.message}")
+//                    Log.e("EffectViewModel", "Failed to send to ${device.mac}: ${e.message}")
                 }
             }
 

@@ -32,14 +32,14 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private val context = application.applicationContext
 
-    // SDK와 독립된 이펙트 컨트롤러 직접 사용
-    private val effectEngine = EffectEngineController()
+    // ✅ 수정: EffectEngineController는 이제 object - 인스턴스 생성 제거
+    // private val effectEngine = EffectEngineController() ← 삭제
 
-    // FFT -> LED 전송 (컨트롤러가 내부에서 권한체크 + 전송)
+    // FFT -> LED 전송 (✅ object 직접 사용)
     val audioProcessor = FftAudioProcessor { band ->
         if (PermissionUtils.hasPermission(context, Manifest.permission.BLUETOOTH_CONNECT)) {
             try {
-                effectEngine.processFftEffect(band, context)
+                EffectEngineController.processFftEffect(band, context)
             } catch (e: SecurityException) {
                 Log.e("MusicPlayerVM", "FFT effect send failed: ${e.message}")
             }
@@ -64,13 +64,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     val duration: StateFlow<Int> = _duration.asStateFlow()
 
     init {
-        // ✅ Effects 초기화 (인트로에서 이미 완료되었을 수 있음)
         initializeEffects()
 
-        effectEngine.reset()
+        // ✅ 수정: object 직접 호출
+        EffectEngineController.reset()
 
         viewModelScope.launch {
-            // 플레이어 포지션 모니터링 루프
             monitorPosition()
         }
 
@@ -85,7 +84,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
-        // ✅ 인트로에서 캐시된 음악 리스트 로드 시도
         loadCachedMusicOrScan()
 
         player.addListener(object : Player.Listener {
@@ -95,9 +93,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         })
     }
 
-    /**
-     * ✅ Effects 초기화
-     */
     private fun initializeEffects() {
         if (EffectDirectoryManager.isDirectoryConfigured(context)) {
             MusicEffectManager.initializeFromSAF(context)
@@ -108,29 +103,21 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    /**
-     * ✅ 캐시된 음악 리스트 로드 또는 새로 스캔
-     */
     private fun loadCachedMusicOrScan() {
         viewModelScope.launch {
             val prefs = context.getSharedPreferences("app_state", android.content.Context.MODE_PRIVATE)
             val isInitialized = prefs.getBoolean("is_initialized", false)
 
             if (isInitialized) {
-                // 인트로에서 이미 초기화됨 → 빠르게 로드
                 Log.d("MusicPlayerVM", "📦 Loading from initialized state")
                 loadMusic()
             } else {
-                // 인트로를 거치지 않음 → 직접 스캔
                 Log.d("MusicPlayerVM", "🔍 First launch, scanning music...")
                 loadMusic()
             }
         }
     }
 
-    /**
-     * ✅ SDK의 MusicId API 사용
-     */
     fun loadMusic() {
         viewModelScope.launch {
             val resolver = context.contentResolver
@@ -154,7 +141,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     val title = cursor.getString(nameCol) ?: "Unknown"
                     val artist = cursor.getString(artistCol) ?: "Unknown"
 
-                    // ✅ SDK의 MusicId API 사용
                     val musicFile = File(path)
                     val hasEffect = try {
                         MusicEffectManager.hasEffectFor(musicFile)
@@ -193,7 +179,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
-     * ✅ File 객체로 effectEngine에 전달
+     * ✅ 수정: object 직접 사용, Manual Effect 자동 중단
      */
     fun playMusic(item: MusicItem) {
         _nowPlaying.value = item
@@ -201,10 +187,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         _duration.value = 0
         _currentPosition.value = 0
 
-        // ✅ File 객체로 이펙트 로드
+        // ✅ Timeline Effect 로드 (내부에서 Manual Effect 자동 중단)
         val musicFile = File(item.filePath)
-        effectEngine.reset()
-        effectEngine.loadEffectsFor(musicFile, context)
+        EffectEngineController.reset()
+        EffectEngineController.loadEffectsFor(musicFile, context)
 
         ServiceController.startMusicEffectService(
             context = context,
@@ -247,12 +233,11 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         updateNotificationProgress()
     }
 
-    /** Light Stick 단일 타깃 주소 설정 (디바이스 탭 시 호출) */
+    /** ✅ 수정: object 직접 호출 */
     fun setTargetAddress(address: String?) {
-        effectEngine.setTargetAddress(address)
+        EffectEngineController.setTargetAddress(address)
     }
 
-    /** 위치를 모니터링하며 타임라인 이펙트 전송 */
     @SuppressLint("MissingPermission")
     private fun monitorPosition() {
         viewModelScope.launch {
@@ -264,9 +249,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 _duration.value = duration
 
                 if (player.isPlaying && current / 1000 != lastSecond) {
-                    // ✅ .efx 타임라인 구동
                     try {
-                        effectEngine.processPosition(context, current)
+                        // ✅ 수정: object 직접 호출
+                        EffectEngineController.processPosition(context, current)
                     } catch (e: SecurityException) {
                         Log.e("MusicPlayerVM", "processPosition() failed: ${e.message}")
                     }
