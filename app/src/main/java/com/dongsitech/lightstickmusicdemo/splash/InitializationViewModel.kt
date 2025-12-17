@@ -126,17 +126,26 @@ class InitializationViewModel(application: Application) : AndroidViewModel(appli
                 index++
                 _state.value = InitializationState.CalculatingMusicIds(index, totalFiles.size)
 
-                // 앨범아트 추출
                 val retriever = MediaMetadataRetriever()
-                val art = try {
+                var art: String? = null
+                var duration: Long = 0L  // ✅ 추가
+
+                try {
                     retriever.setDataSource(path)
-                    retriever.embeddedPicture?.let {
+
+                    // 앨범아트 추출
+                    art = retriever.embeddedPicture?.let {
                         val file = File(context.cacheDir, "${title.hashCode()}.jpg")
                         file.writeBytes(it)
                         file.absolutePath
                     }
+
+                    // Duration 추출
+                    val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    duration = durationStr?.toLongOrNull() ?: 0L
+
                 } catch (e: Exception) {
-                    null
+                    Log.e("InitVM", "Failed to extract metadata: ${e.message}")
                 } finally {
                     retriever.release()
                 }
@@ -147,7 +156,8 @@ class InitializationViewModel(application: Application) : AndroidViewModel(appli
                         artist = artist,
                         filePath = path,
                         albumArtPath = art,
-                        hasEffect = false  // 아직 매칭 전
+                        hasEffect = false,
+                        duration = duration
                     )
                 )
 

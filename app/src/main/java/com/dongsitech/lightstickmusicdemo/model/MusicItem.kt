@@ -9,7 +9,8 @@ data class MusicItem(
     val artist: String,
     val filePath: String,
     val albumArtPath: String? = null,
-    val hasEffect: Boolean = false
+    val hasEffect: Boolean = false,
+    val duration: Long = 0
 ) : Parcelable
 
 

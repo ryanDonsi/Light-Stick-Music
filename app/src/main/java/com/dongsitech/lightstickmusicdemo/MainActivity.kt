@@ -22,6 +22,9 @@ import androidx.navigation.compose.*
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.runtime.SideEffect
 import com.dongsitech.lightstickmusicdemo.effect.MusicEffectManager
 import com.dongsitech.lightstickmusicdemo.ui.EffectScreen
@@ -37,6 +40,7 @@ import com.dongsitech.lightstickmusicdemo.R
 import androidx.media3.common.util.UnstableApi
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
+import com.dongsitech.lightstickmusicdemo.ui.components.common.CustomNavigationBar  // ← 추가
 
 @UnstableApi
 class MainActivity : ComponentActivity() {
@@ -72,14 +76,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
         // SDK init
         LSBluetooth.initialize(applicationContext)
         lightStickListViewModel.initializeWithContext(applicationContext)
 
         // ✅ 권한 상태 로깅
         PermissionUtils.logPermissionStatus(this, "MainActivity")
-
-        WindowCompat.setDecorFitsSystemWindows(window, true)
 
         setContent {
             val lightBackground = !isSystemInDarkTheme()
@@ -104,56 +108,28 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val bottomNavItems = listOf(
-                    BottomNavItem("music", "음악", R.drawable.ic_music_note),
-                    BottomNavItem("effect", "이펙트", R.drawable.ic_bolt),
-                    BottomNavItem("deviceList", "응원봉", R.drawable.ic_lightstick)
-                )
-
                 val connectedDeviceCount by lightStickListViewModel.connectedDeviceCount.collectAsState()
 
                 Scaffold(
+                    contentWindowInsets = WindowInsets(0),
                     bottomBar = {
-                        NavigationBar {
-                            bottomNavItems.forEach { item ->
-                                NavigationBarItem(
-                                    selected = currentRoute.startsWith(item.route),
-                                    onClick = {
-                                        if (!currentRoute.startsWith(item.route)) {
-                                            navController.navigate(item.route) {
-                                                popUpTo(navController.graph.startDestinationId) {
-                                                    saveState = true
-                                                }
-                                                launchSingleTop = true
-                                                restoreState = true
-                                            }
+                        // ✅ CustomNavigationBar 사용
+                        CustomNavigationBar(
+                            modifier = Modifier.navigationBarsPadding(),
+                            selectedRoute = currentRoute,
+                            onNavigate = { route ->
+                                if (!currentRoute.startsWith(route)) {
+                                    navController.navigate(route) {
+                                        popUpTo(navController.graph.startDestinationId) {
+                                            saveState = true
                                         }
-                                    },
-                                    icon = {
-                                        if (item.route == "deviceList" && connectedDeviceCount > 0) {
-                                            BadgedBox(
-                                                badge = {
-                                                    Badge {
-                                                        Text("$connectedDeviceCount")
-                                                    }
-                                                }
-                                            ) {
-                                                Icon(
-                                                    painter = painterResource(id = item.iconRes),
-                                                    contentDescription = item.label
-                                                )
-                                            }
-                                        } else {
-                                            Icon(
-                                                painter = painterResource(id = item.iconRes),
-                                                contentDescription = item.label
-                                            )
-                                        }
-                                    },
-                                    label = { Text(item.label) }
-                                )
-                            }
-                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            },
+                            connectedDeviceCount = connectedDeviceCount
+                        )
                     }
                 ) { padding ->
                     AppNavigation(
@@ -167,6 +143,40 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        // ✅ Permissions
+        val permissions = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            permissions.add(Manifest.permission.BLUETOOTH)
+            permissions.add(Manifest.permission.BLUETOOTH_ADMIN)
+            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        val permissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { results ->
+            PermissionUtils.logPermissionStatus(this, "PermissionResult")
+
+            val allGranted = results.values.all { it }
+            if (allGranted) {
+                lightStickListViewModel.startScan(this)  // ✅ 수정
+            } else {
+                Toast.makeText(
+                    this,
+                    "일부 권한이 거부되었습니다. BLE 기능이 제한될 수 있습니다.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+
+        permissionLauncher.launch(permissions.toTypedArray())
     }
 
     /**
@@ -211,7 +221,6 @@ fun AppNavigation(
                 viewModel = lightStickListViewModel,
                 navController = navController,
                 onDeviceSelected = { device: Device ->
-                    // ✅ PermissionUtils 사용
                     if (!PermissionUtils.hasBluetoothConnectPermission(context)) {
                         Toast.makeText(context, "BLUETOOTH_CONNECT 권한 없음", Toast.LENGTH_LONG).show()
                         return@LightStickListScreen
@@ -224,9 +233,3 @@ fun AppNavigation(
         }
     }
 }
-
-data class BottomNavItem(
-    val route: String,
-    val label: String,
-    @DrawableRes val iconRes: Int
-)

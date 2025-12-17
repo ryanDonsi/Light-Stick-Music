@@ -10,7 +10,6 @@ import com.dongsitech.lightstickmusicdemo.model.DeviceDetailInfo
 import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
 import com.dongsitech.lightstickmusicdemo.util.DeviceSettings
 import com.lightstick.LSBluetooth
-import com.lightstick.device.Controller
 import com.lightstick.device.Device
 import com.lightstick.device.DeviceInfo
 import com.lightstick.events.EventAction
@@ -45,7 +44,8 @@ class LightStickListViewModel : ViewModel() {
     private val _connectionStates = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val connectionStates: StateFlow<Map<String, Boolean>> = _connectionStates.asStateFlow()
 
-    private val controllers = mutableMapOf<String, Controller>()
+    // ✅ 변경: Controller → Device 저장
+    private val connectedDevices = mutableMapOf<String, Device>()
 
     private val _deviceDetails = MutableStateFlow<Map<String, DeviceDetailInfo>>(emptyMap())
     val deviceDetails: StateFlow<Map<String, DeviceDetailInfo>> = _deviceDetails.asStateFlow()
@@ -72,7 +72,7 @@ class LightStickListViewModel : ViewModel() {
         if (appContext != null) return
         appContext = context.applicationContext
 
-        DeviceSettings.initialize(context.applicationContext) // ✅ 추가
+        DeviceSettings.initialize(context.applicationContext)
 
         if (PermissionUtils.hasBluetoothConnectPermission(appContext!!)) {
             updateConnectedCount()
@@ -215,34 +215,55 @@ class LightStickListViewModel : ViewModel() {
                 @SuppressLint("MissingPermission")
                 fun doConnect() {
                     device.connect(
-                        onConnected = { controller ->
+                        onConnected = {
                             Log.d(TAG, "✅ Connected to ${device.mac}")
 
-                            controllers[device.mac] = controller
+                            // Device 저장
+                            connectedDevices[device.mac] = device
                             updateConnectionState(device.mac, true)
                             updateConnectedCount()
 
-                            // 연결 성공 연출
+                            // 연결 성공 연출 (타임라인 기반)
                             viewModelScope.launch {
                                 try {
-                                    repeat(3) {
-                                        controller.sendColor(Colors.WHITE, transition = 5)
-                                        delay(200)
-                                        controller.sendColor(Colors.BLACK, transition = 5)
-                                        delay(200)
+                                    // 타임라인 프레임 생성: BLINK 3회 → WHITE 유지
+                                    val connectionAnimation = listOf(
+                                        0L to LSEffectPayload.Effects.blink(3, Colors.WHITE).toByteArray(),
+                                        1200L to LSEffectPayload.Effects.on(Colors.WHITE).toByteArray()
+                                    )
+
+                                    // 타임라인 로드 및 재생
+                                    if (device.loadTimeline(connectionAnimation)) {
+                                        Log.d(TAG, "🎬 Connection animation timeline loaded (2 frames)")
+
+                                        // 재생
+                                        val startTime = System.currentTimeMillis()
+                                        val duration = 1200L
+
+                                        while (true) {
+                                            val elapsed = System.currentTimeMillis() - startTime
+                                            if (elapsed >= duration) {
+                                                device.updatePlaybackPosition(duration)
+                                                delay(50) // 마지막 프레임 유지
+                                                break
+                                            }
+                                            device.updatePlaybackPosition(elapsed)
+                                            delay(16) // ~60fps
+                                        }
+
+                                        // 타임라인 정리
+                                        device.stopTimeline()
+                                        Log.d(TAG, "✅ Connection animation completed")
+                                    } else {
+                                        Log.w(TAG, "⚠️ Failed to load connection animation timeline")
                                     }
-                                    controller.sendColor(Colors.WHITE, transition = 10)
                                 } catch (e: Exception) {
                                     Log.e(TAG, "❌ 연결 연출 실패: ${e.message}")
                                 }
                             }
-			
+
                             // 초기 DeviceDetailInfo 생성
                             initializeDeviceDetail(device)
-
-                            // 디바이스 정보 읽기
-                            fetchDeviceInfo(device)
-                            fetchBatteryLevel(device)
 
                             // 이벤트 규칙 등록
                             registerDeviceEventRules(device)
@@ -252,7 +273,18 @@ class LightStickListViewModel : ViewModel() {
                             Log.e(TAG, "   Error: ${error.message}", error)
 
                             updateConnectionState(device.mac, false)
-                            controllers.remove(device.mac)
+                            connectedDevices.remove(device.mac)
+                        },
+                        onDeviceInfo = { info ->
+                            Log.d(TAG, "📋 DeviceInfo received for ${device.mac}:")
+                            Log.d(TAG, "   ├─ Device Name: ${info.deviceName}")
+                            Log.d(TAG, "   ├─ Model Number: ${info.modelNumber}")
+                            Log.d(TAG, "   ├─ Firmware Revision: ${info.firmwareRevision}")
+                            Log.d(TAG, "   ├─ Manufacturer: ${info.manufacturer}")
+                            Log.d(TAG, "   └─ Battery: ${info.batteryLevel}%")
+
+                            // DeviceInfo 업데이트
+                            updateDeviceInfoFromCallback(device.mac, info)
                         }
                     )
                 }
@@ -280,7 +312,7 @@ class LightStickListViewModel : ViewModel() {
                 val ctx = appContext
                 if (ctx == null || !PermissionUtils.hasBluetoothConnectPermission(ctx)) {
                     Log.w(TAG, "⚠️ BLUETOOTH_CONNECT permission not available for disconnect")
-                    controllers.remove(device.mac)
+                    connectedDevices.remove(device.mac)  // ✅ 변경
                     updateConnectionState(device.mac, false)
                     clearDeviceDetails(device.mac)
                     return@launch
@@ -295,7 +327,7 @@ class LightStickListViewModel : ViewModel() {
 
                 doDisconnect()
 
-                controllers.remove(device.mac)
+                connectedDevices.remove(device.mac)  // ✅ 변경
                 updateConnectionState(device.mac, false)
                 updateConnectedCount()
                 clearDeviceDetails(device.mac)
@@ -304,12 +336,12 @@ class LightStickListViewModel : ViewModel() {
 
             } catch (e: SecurityException) {
                 Log.e(TAG, "❌ SecurityException during disconnect: ${e.message}")
-                controllers.remove(device.mac)
+                connectedDevices.remove(device.mac)  // ✅ 변경
                 updateConnectionState(device.mac, false)
                 clearDeviceDetails(device.mac)
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error during disconnect: ${e.message}", e)
-                controllers.remove(device.mac)
+                connectedDevices.remove(device.mac)  // ✅ 변경
                 updateConnectionState(device.mac, false)
                 clearDeviceDetails(device.mac)
             }
@@ -338,176 +370,20 @@ class LightStickListViewModel : ViewModel() {
         }
     }
 
-    private fun fetchDeviceInfo(device: Device) {
-        val ctx = appContext
-        if (ctx == null || !PermissionUtils.hasBluetoothConnectPermission(ctx)) {
-            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음")
-            return
-        }
-
-        viewModelScope.launch {
-            try {
-                val isConnected = try {
-                    device.isConnected()
-                } catch (e: Exception) {
-                    false
-                }
-
-                if (!isConnected) {
-                    Log.w(TAG, "⚠️ Device not connected: ${device.mac}")
-                    return@launch
-                }
-
-                Log.d(TAG, "📋 Reading device info for ${device.mac}...")
-
-                var deviceName: String? = null
-                var modelNumber: String? = null
-                var firmwareRevision: String? = null
-                var manufacturer: String? = null
-
-                @SuppressLint("MissingPermission")
-                fun doFetchInfo() {
-                    device.readDeviceName { result: Result<String> ->
-                        result.onSuccess { name ->
-                            deviceName = name
-                            Log.d(TAG, "   ├─ Device Name: $name")
-                            updateDeviceInfo(device.mac, deviceName, modelNumber, firmwareRevision, manufacturer)
-                        }.onFailure { error ->
-                            Log.w(TAG, "   ├─ readDeviceName failed: ${error.message}")
-                        }
-                    }
-
-                    device.readModelNumber { result: Result<String> ->
-                        result.onSuccess { model ->
-                            modelNumber = model
-                            Log.d(TAG, "   ├─ Model Number: $model")
-                            updateDeviceInfo(device.mac, deviceName, modelNumber, firmwareRevision, manufacturer)
-                        }.onFailure { error ->
-                            Log.w(TAG, "   ├─ readModelNumber failed: ${error.message}")
-                        }
-                    }
-
-                    device.readFirmwareRevision { result: Result<String> ->
-                        result.onSuccess { fw ->
-                            firmwareRevision = fw
-                            Log.d(TAG, "   ├─ Firmware Revision: $fw")
-                            updateDeviceInfo(device.mac, deviceName, modelNumber, firmwareRevision, manufacturer)
-                        }.onFailure { error ->
-                            Log.w(TAG, "   ├─ readFirmwareRevision failed: ${error.message}")
-                        }
-                    }
-
-                    device.readManufacturer { result: Result<String> ->
-                        result.onSuccess { mfr ->
-                            manufacturer = mfr
-                            Log.d(TAG, "   └─ Manufacturer: $mfr")
-                            updateDeviceInfo(device.mac, deviceName, modelNumber, firmwareRevision, manufacturer)
-                        }.onFailure { error ->
-                            Log.w(TAG, "   └─ readManufacturer failed: ${error.message}")
-                        }
-                    }
-                }
-
-                doFetchInfo()
-
-            } catch (e: SecurityException) {
-                Log.e(TAG, "❌ SecurityException fetching device info: ${e.message}")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Error fetching device info: ${e.message}", e)
-            }
-        }
-    }
-
-    private fun fetchBatteryLevel(device: Device) {
-        val ctx = appContext
-        if (ctx == null || !PermissionUtils.hasBluetoothConnectPermission(ctx)) {
-            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음")
-            return
-        }
-
-        viewModelScope.launch {
-            try {
-                val isConnected = try {
-                    device.isConnected()
-                } catch (e: Exception) {
-                    false
-                }
-
-                if (!isConnected) {
-                    Log.w(TAG, "⚠️ Device not connected for battery read: ${device.mac}")
-                    return@launch
-                }
-
-                Log.d(TAG, "🔋 Reading battery level for ${device.mac}...")
-
-                @SuppressLint("MissingPermission")
-                fun doFetchBattery() {
-                    device.readBattery { result: Result<Int> ->
-                        result.onSuccess { level ->
-                            Log.d(TAG, "   └─ Battery: $level%")
-                            updateBattery(device.mac, level)
-                        }.onFailure { error ->
-                            Log.w(TAG, "   └─ readBattery failed: ${error.message}")
-                        }
-                    }
-                }
-
-                doFetchBattery()
-
-            } catch (e: SecurityException) {
-                Log.e(TAG, "❌ SecurityException fetching battery: ${e.message}")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Error fetching battery: ${e.message}", e)
-            }
-        }
-    }
-
-    private fun updateDeviceInfo(
-        mac: String,
-        deviceName: String?,
-        modelNumber: String?,
-        firmwareRevision: String?,
-        manufacturer: String?
-    ) {
+    private fun updateDeviceInfoFromCallback(mac: String, info: DeviceInfo) {
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
             if (existing != null) {
-                val deviceInfo = DeviceInfo(
-                    deviceName = deviceName,
-                    modelNumber = modelNumber,
-                    firmwareRevision = firmwareRevision,
-                    manufacturer = manufacturer,
-                    macAddress = mac,
-                    batteryLevel = existing.batteryLevel,
-                    rssi = existing.rssi,
-                    isConnected = existing.isConnected,
-                    lastUpdated = System.currentTimeMillis()
-                )
-
-                this[mac] = existing.copy(deviceInfo = deviceInfo)
-            }
-        }
-    }
-
-    private fun updateBattery(mac: String, batteryLevel: Int) {
-        _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
-            val existing = this[mac]
-            if (existing != null) {
-                val updatedDeviceInfo = existing.deviceInfo?.copy(
-                    batteryLevel = batteryLevel,
-                    lastUpdated = System.currentTimeMillis()
-                )
-
                 this[mac] = existing.copy(
-                    batteryLevel = batteryLevel,
-                    deviceInfo = updatedDeviceInfo
+                    deviceInfo = info,
+                    batteryLevel = info.batteryLevel
                 )
             }
         }
     }
 
     private fun clearDeviceDetails(mac: String) {
-        _deviceDetails.value = _deviceDetails.value - mac
+        _deviceDetails.value -= mac
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -705,7 +581,7 @@ class LightStickListViewModel : ViewModel() {
     // ═══════════════════════════════════════════════════════════
 
     private fun updateConnectionState(mac: String, isConnected: Boolean) {
-        _connectionStates.value = _connectionStates.value + (mac to isConnected)
+        _connectionStates.value += (mac to isConnected)
 
         Log.d(TAG, "📍 Connection state updated: $mac -> $isConnected")
 
@@ -784,21 +660,22 @@ class LightStickListViewModel : ViewModel() {
 
         val ctx = appContext
         if (ctx != null && PermissionUtils.hasBluetoothConnectPermission(ctx)) {
-            controllers.values.forEach { controller ->
+            // ✅ 변경: Device 직접 사용
+            connectedDevices.values.forEach { device ->
                 try {
                     @SuppressLint("MissingPermission")
                     fun doDisconnect() {
-                        controller.device.disconnect()
+                        device.disconnect()  // ✅ device 직접 사용
                     }
                     doDisconnect()
-                    Log.d(TAG, "   Disconnected: ${controller.device.mac}")
+                    Log.d(TAG, "   Disconnected: ${device.mac}")
                 } catch (e: Exception) {
-                    Log.e(TAG, "   Error disconnecting ${controller.device.mac}: ${e.message}")
+                    Log.e(TAG, "   Error disconnecting ${device.mac}: ${e.message}")
                 }
             }
         }
 
-        controllers.clear()
+        connectedDevices.clear()  // ✅ 변경
         Log.d(TAG, "✅ Cleanup completed")
     }
 }

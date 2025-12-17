@@ -1,44 +1,48 @@
 package com.dongsitech.lightstickmusicdemo.ui.components
 
 import android.graphics.BitmapFactory
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Density
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalDensity
 import com.dongsitech.lightstickmusicdemo.R
 import com.dongsitech.lightstickmusicdemo.model.MusicItem
-import kotlin.math.PI
-import kotlin.math.sin
+import com.dongsitech.lightstickmusicdemo.ui.theme.LightStickMusicPlayerDemoTheme
+import com.dongsitech.lightstickmusicdemo.ui.theme.customTextStyles
 
+/**
+ * 🎨 Figma 디자인 100% 정확한 Music Control Bar
+ *
+ * Typography.kt 사용:
+ * - titleLarge: 제목 (SemiBold 20sp, 140%)
+ * - bodyLarge: 아티스트 (Regular 16sp, 140%)
+ * - customTextStyles.badgeMedium: 시간 & EFX (SemiBold 12sp, 140%)
+ *
+ * Figma 색상:
+ * - EFX 뱃지: #FFD46F 배경, #111111 텍스트
+ * - 시간: #9CA3AF
+ * - 진행바: 그라데이션 #9D79BC → #8A40C4
+ * - 재생 버튼: #A774FF
+ */
+@Suppress("COMPOSE_APPLIER_CALL_MISMATCH")
 @Composable
 fun MusicControlBar(
     musicItem: MusicItem,
@@ -65,271 +69,318 @@ fun MusicControlBar(
 
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF1C1B1F)  // Material3 Surface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier.wrapContentSize()
-                ) {
-                    // 앨범 아트
-                    Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        if (imageBitmap != null) {
-                            Image(
-                                bitmap = imageBitmap,
-                                contentDescription = "Album Art",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Image(
-                                painter = painterResource(id = albumArtResId ?: R.drawable.ic_music_note),
-                                contentDescription = "Default Music Icon",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 22.dp, vertical = 17.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // 앨범 아트 (동적 크기)
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                val albumSize = (maxWidth * 0.6f).coerceAtMost(200.dp)
 
-                    // efx 뱃지
-                    if (musicItem.hasEffect) {
+                Box(
+                    modifier = Modifier
+                        .size(albumSize)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF2C2C2E)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (imageBitmap != null) {
+                        Image(
+                            bitmap = imageBitmap,
+                            contentDescription = "Album Art",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(
+                            painter = painterResource(
+                                id = albumArtResId ?: R.drawable.ic_music_note
+                            ),
+                            contentDescription = "Default Music Icon",
+                            modifier = Modifier.size(albumSize * 0.4f),
+                            tint = Color(0xFF8E8E93)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 곡 제목 + EFX 뱃지
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,  // SemiBold 20sp, 140%
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+
+                if (musicItem.hasEffect) {
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Figma 스펙: 40×18, #FFD46F 배경, #111111 텍스트
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFFFFD46F),  // Theme color/Secondary
+                        modifier = Modifier
+                            .height(18.dp)
+                            .widthIn(min = 40.dp)
+                    ) {
                         Box(
                             modifier = Modifier
-                                .offset(x = (+6).dp, y = (-6).dp)
-                                .align(Alignment.TopEnd)
-                                .background(Color.Blue, shape = CircleShape)
-                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "efx",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                                text = "EFX",
+                                style = MaterialTheme.customTextStyles.badgeMedium,  // SemiBold 12sp, 140%
+                                color = Color(0xFF111111)
                             )
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    // 마키 텍스트는 기존 프로젝트의 Composable 사용
-                    MarqueeText(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Text(
-                        text = artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
-                    )
-                }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
+            // 아티스트명
+            Text(
+                text = artist,
+                style = MaterialTheme.typography.bodyLarge,  // Regular 16sp, 140%
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 시간 표시
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .width(279.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (hasMusic) formatTime(currentPosition) else "--:--",
-                    style = MaterialTheme.typography.labelSmall
+                    text = if (hasMusic) formatTime(currentPosition) else "0:00",
+                    style = MaterialTheme.customTextStyles.badgeMedium,  // SemiBold 12sp, 140%
+                    color = Color(0xFF9CA3AF)
                 )
+
                 Text(
-                    text = if (hasMusic) formatTime(duration) else "--:--",
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            val progress = if (duration > 0) (currentPosition / duration.toFloat()).coerceIn(0f, 1f) else 0f
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp) // 파도 표현을 위해 살짝 키움
-                    .padding(horizontal = 16.dp)
-                    .pointerInput(duration) {
-                        detectTapGestures { offset ->
-                            if (duration > 0) {
-                                val percent = (offset.x / size.width).coerceIn(0f, 1f)
-                                onSeekTo((duration * percent).toLong())
-                            }
-                        }
-                    }
-            ) {
-                CustomProgressBar(
-                    progress = progress,
-                    backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                    fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                    waveColor = MaterialTheme.colorScheme.primary,
-                    cornerRadiusDp = 6f,
-                    amplitudeDp = 3f,       // 파도 높이
-                    wavelengthDp = 24f,     // 파도 길이
-                    speedPxPerSec = 120f     // 파도 이동 속도
+                    text = if (hasMusic) formatTime(duration) else "0:00",
+                    style = MaterialTheme.customTextStyles.badgeMedium,  // SemiBold 12sp, 140%
+                    color = Color(0xFF9CA3AF)
                 )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+            // 진행바 (Figma 스펙: 279px 너비, 4px 높이, 그라데이션)
+            val progress = if (duration > 0) {
+                (currentPosition / duration.toFloat()).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+
+            Box(
+                modifier = Modifier
+                    .width(279.dp)
+                    .height(16.dp),
+                contentAlignment = Alignment.Center
             ) {
-                IconButton(onClick = onPrevClick, enabled = hasMusic) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_skip_previous),
-                        contentDescription = "Previous"
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .pointerInput(duration) {
+                            detectTapGestures { offset ->
+                                if (duration > 0) {
+                                    val percent = (offset.x / size.width).coerceIn(0f, 1f)
+                                    onSeekTo((duration * percent).toLong())
+                                }
+                            }
+                        }
+                ) {
+                    // 배경
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(9999.dp))
+                            .background(Color(0xFF424242))
+                    )
+
+                    // 진행 (그라데이션)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(9999.dp))
+                            .background(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color(0xFF9D79BC),
+                                        Color(0xFF8A40C4)
+                                    )
+                                )
+                            )
                     )
                 }
-                IconButton(onClick = onPlayPauseClick, enabled = hasMusic) {
-                    Icon(
-                        painter = if (isPlaying) painterResource(id = R.drawable.ic_pause)
-                        else painterResource(id = R.drawable.ic_play),
-                        contentDescription = "Play/Pause"
-                    )
-                }
-                IconButton(onClick = onNextClick, enabled = hasMusic) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_skip_next),
-                        contentDescription = "Next"
-                    )
-                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 플레이어 컨트롤 (Figma 스펙: 48×48, 64×64)
+            Row(
+                modifier = Modifier.width(279.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 이전 버튼 (48×48)
+                PressableIconButton(
+                    onClick = onPrevClick,
+                    enabled = hasMusic,
+                    normalIcon = R.drawable.ic_player_back_n,
+                    pressedIcon = R.drawable.ic_player_back_p,
+                    contentDescription = "Previous",
+                    size = 48.dp,
+                    iconSize = 48.dp
+                )
+
+                // 재생/일시정지 버튼 (64×64)
+                PressableFilledIconButton(
+                    onClick = onPlayPauseClick,
+                    enabled = hasMusic,
+                    normalIcon = if (isPlaying)
+                        R.drawable.ic_player_pause_n
+                    else
+                        R.drawable.ic_player_play_n,
+                    pressedIcon = if (isPlaying)
+                        R.drawable.ic_player_pause_p
+                    else
+                        R.drawable.ic_player_play_p,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    size = 64.dp,
+                    iconSize = 64.dp,
+                    containerColor = Color(0xFFA774FF),
+                    disabledContainerColor = Color(0xFF2C2C2E)
+                )
+
+                // 다음 버튼 (48×48)
+                PressableIconButton(
+                    onClick = onNextClick,
+                    enabled = hasMusic,
+                    normalIcon = R.drawable.ic_player_forward_n,
+                    pressedIcon = R.drawable.ic_player_forward_p,
+                    contentDescription = "Next",
+                    size = 48.dp,
+                    iconSize = 48.dp
+                )
             }
         }
     }
 }
 
 /**
- * 파도 애니메이션이 흐르는 진행 바.
- * - 트랙(배경) → 진행된 구간 채움 → 진행 구간 안에서만 사인파를 클리핑해 그립니다.
+ * Press 상태를 감지하는 IconButton
  */
 @Composable
-private fun CustomProgressBar(
-    progress: Float,
-    backgroundColor: Color,
-    fillColor: Color,
-    waveColor: Color,
-    cornerRadiusDp: Float = 6f,
-    amplitudeDp: Float = 3f,
-    wavelengthDp: Float = 24f,
-    speedPxPerSec: Float = 120f // px/s
+private fun PressableIconButton(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    normalIcon: Int,
+    pressedIcon: Int,
+    contentDescription: String,
+    size: androidx.compose.ui.unit.Dp,
+    iconSize: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier
 ) {
-    val density = LocalDensity.current
-    val infinite = rememberInfiniteTransition(label = "wave")
-    // 파도 위상(phase)을 계속 증가시켜 좌→우로 흐르게
-    val phase by infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f, // 1.0을 한 주기로 보고 아래에서 2π 곱해 사용
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "wavePhase"
-    )
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
 
-    // dp → px 변환 값들 캐싱
-    val cornerPx = rememberDpToPx(density, cornerRadiusDp)
-    val ampPx = rememberDpToPx(density, amplitudeDp)
-    val waveLenPx = rememberDpToPx(density, wavelengthDp)
-
-    // draw scope
-    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
-
-        // 트랙 모양
-        val track = RoundRect(
-            rect = Rect(0f, 0f, w, h),
-            cornerRadius = CornerRadius(cornerPx, cornerPx)
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.size(size),
+        interactionSource = interactionSource
+    ) {
+        Icon(
+            painter = painterResource(
+                id = if (isPressed && enabled) pressedIcon else normalIcon
+            ),
+            contentDescription = contentDescription,
+            tint = Color.Unspecified,
+            modifier = Modifier.size(iconSize)
         )
-
-        // 배경
-        drawIntoCanvas {
-            drawRoundRect(
-                color = backgroundColor,
-                topLeft = Offset.Zero,
-                size = size,
-                cornerRadius = CornerRadius(cornerPx, cornerPx)
-            )
-        }
-
-        // 진행된 구간 폭
-        val pw = (w * progress.coerceIn(0f, 1f))
-
-        if (pw > 1f) {
-            // 진행 채움(단색)
-            clipPath(path = Path().apply { addRoundRect(track) }) {
-                drawRoundRect(
-                    color = fillColor,
-                    topLeft = Offset.Zero,
-                    size = androidx.compose.ui.geometry.Size(pw, h),
-                    cornerRadius = CornerRadius(cornerPx, cornerPx)
-                )
-            }
-
-            // 파도 경로: 진행된 구간만 클리핑
-            val wavePath = Path().apply {
-                // 파도 y = mid + A * sin(2π/λ * x + θ)
-                val mid = h * 0.5f
-                val twoPi = (2f * PI).toFloat()
-                val theta = twoPi * phase // 0..2π
-                val k = twoPi / waveLenPx
-
-                // 시작
-                moveTo(0f, mid)
-                var x = 0f
-                val step = 2f // px 스텝 (너무 작으면 과도한 세그먼트)
-                while (x <= pw) {
-                    val y = (mid + ampPx * sin(k * x + theta)).toFloat()
-                    lineTo(x, y)
-                    x += step
-                }
-                // 아래쪽 닫기
-                lineTo(pw, h)
-                lineTo(0f, h)
-                close()
-            }
-
-            // 진행된 구간 모양으로 먼저 클립, 그 안에 파도만 그림
-            val progressClip = Path().apply {
-                addRoundRect(
-                    RoundRect(
-                        rect = Rect(0f, 0f, pw, h),
-                        cornerRadius = CornerRadius(cornerPx, cornerPx)
-                    )
-                )
-            }
-            clipPath(progressClip) {
-                drawPath(
-                    path = wavePath,
-                    color = waveColor
-                )
-            }
-        }
     }
 }
 
+/**
+ * Press 상태를 감지하는 FilledIconButton
+ */
 @Composable
-private fun rememberDpToPx(density: Density, dp: Float): Float {
-    return remember(dp, density) { with(density) { dp.dp.toPx() } }
+private fun PressableFilledIconButton(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    normalIcon: Int,
+    pressedIcon: Int,
+    contentDescription: String,
+    size: androidx.compose.ui.unit.Dp,
+    iconSize: androidx.compose.ui.unit.Dp,
+    containerColor: Color,
+    disabledContainerColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    FilledIconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.size(size),
+        colors = IconButtonDefaults.filledIconButtonColors(
+            containerColor = containerColor,
+            contentColor = Color.White,
+            disabledContainerColor = disabledContainerColor,
+            disabledContentColor = Color.White.copy(alpha = 0.38f)
+        ),
+        interactionSource = interactionSource
+    ) {
+        Icon(
+            painter = painterResource(
+                id = if (isPressed && enabled) pressedIcon else normalIcon
+            ),
+            contentDescription = contentDescription,
+            tint = Color.Unspecified,
+            modifier = Modifier.size(iconSize)
+        )
+    }
 }
 
 fun formatTime(millis: Int): String {
-    if (millis <= 0) return "--:--"
+    if (millis <= 0) return "0:00"
     val totalSeconds = millis / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60

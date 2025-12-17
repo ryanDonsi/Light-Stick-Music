@@ -121,7 +121,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     // 이펙트별 개별 설정 저장소 (내부용)
     private val effectSettingsMapInternal = mutableMapOf<String, EffectSettings>()
 
-    // ✅ EffectScreen 호환: effectSettingsMap 이름으로 StateFlow 제공
+    // EffectScreen 호환: effectSettingsMap 이름으로 StateFlow 제공
     private val _effectSettingsMap = MutableStateFlow<Map<String, EffectSettings>>(emptyMap())
     val effectSettingsMap: StateFlow<Map<String, EffectSettings>> = _effectSettingsMap.asStateFlow()
 
@@ -143,7 +143,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * ✅ public 메서드
+     * public 메서드
      */
     fun getEffectKey(effect: UiEffectType): String {
         return when (effect) {
@@ -175,7 +175,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
 
-            // ✅ Flow 업데이트
+            // Flow 업데이트
             _effectSettingsMap.value = effectSettingsMapInternal.toMap()
         } catch (e: Exception) {
             Log.e("EffectViewModel", "Failed to load settings: ${e.message}")
@@ -183,7 +183,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * ✅ 수정 4: loadSettings() - Default 설정 사용 (192~231번째 줄)
      * Color 직렬화 개선 (RGB를 하나의 Int로) + Default 설정 사용
      */
     private fun loadSettings(effectKey: String): EffectSettings? {
@@ -200,13 +199,13 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
 
-            // ✅ 저장된 값이 없으면 Default 사용
+            // 저장된 값이 없으면 Default 사용
             if (!prefs.contains("${effectKey}_color_rgb")) {
                 Log.d("EffectViewModel", "No saved settings for $effectKey, using default")
                 return EffectSettings.defaultFor(uiType)
             }
 
-            // ✅ RGB를 하나의 Int로 저장/복원
+            // RGB를 하나의 Int로 저장/복원
             val colorRgb = prefs.getInt("${effectKey}_color_rgb", 0xFFFFFF)
             val bgColorRgb = prefs.getInt("${effectKey}_bg_color_rgb", 0x000000)
 
@@ -230,14 +229,14 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * ✅ Color 저장 (RGB를 하나의 Int로)
+     * Color 저장 (RGB를 하나의 Int로)
      */
     private fun saveSettings(effectKey: String, settings: EffectSettings) {
         try {
             prefs.edit().apply {
                 putBoolean("${effectKey}_broadcasting", settings.broadcasting)
 
-                // ✅ RGB를 하나의 Int로 변환하여 저장
+                // RGB를 하나의 Int로 변환하여 저장
                 putInt("${effectKey}_color_rgb", colorToRgb(settings.color))
                 putInt("${effectKey}_bg_color_rgb", colorToRgb(settings.backgroundColor))
 
@@ -255,14 +254,14 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * ✅ Color를 Int로 변환 (0xRRGGBB)
+     * Color를 Int로 변환 (0xRRGGBB)
      */
     private fun colorToRgb(color: Color): Int {
         return (color.r shl 16) or (color.g shl 8) or color.b
     }
 
     /**
-     * ✅ Int를 Color로 변환
+     * Int를 Color로 변환
      */
     private fun rgbToColor(rgb: Int): Color {
         return Color(
@@ -273,38 +272,36 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * ✅ 수정 5: selectEffect() - Default 설정 사용 (280~302번째 줄)
      * EffectScreen 호환: selectEffect(context, effect)
      */
     @SuppressLint("MissingPermission")
     fun selectEffect(context: Context, effectType: UiEffectType) {
         val key = getEffectKey(effectType)
 
-        // ✅ 재선택 시 중지 (토글) - UI 선택 해제
+        // 재선택 시 중지 (토글) - UI 선택 해제
         if (_selectedEffect.value == effectType) {
             Log.d("EffectViewModel", "Deselecting effect: $key (toggle off)")
             stopEffect(context)
             return
         }
 
-        // ✅ 다른 Effect가 재생 중이면 먼저 중지
+        // 다른 Effect가 재생 중이면 먼저 중지
         if (_isPlaying.value) {
             Log.d("EffectViewModel", "Stopping previous effect")
             stopEffect(context)
         }
 
-        // ✅ 새로운 Effect 선택 + UI 업데이트 (Default 사용)
+        // 새로운 Effect 선택 + UI 업데이트 (Default 사용)
         _selectedEffect.value = effectType
         _currentSettings.value = effectSettingsMapInternal[key]
             ?: EffectSettings.defaultFor(effectType)  // ← Default 사용
         Log.d("EffectViewModel", "Selected effect: $key")
 
-        // ✅ 자동으로 재생 시작
+        // 자동으로 재생 시작
         playEffect(context)
     }
 
     /**
-     * ✅ 수정 6: getEffectSettings() - Default 설정 사용 (318~321번째 줄)
      * EffectScreen 호환: getEffectSettings(effect)
      */
     fun getEffectSettings(effectType: UiEffectType): EffectSettings {
@@ -314,19 +311,19 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * ✅ EffectScreen 호환: saveEffectSettings(effect, settings)
+     * EffectScreen 호환: saveEffectSettings(effect, settings)
      */
     fun saveEffectSettings(effectType: UiEffectType, settings: EffectSettings) {
         val key = getEffectKey(effectType)
         effectSettingsMapInternal[key] = settings
         saveSettings(key, settings)
 
-        // ✅ Flow 업데이트
+        // Flow 업데이트
         _effectSettingsMap.value = effectSettingsMapInternal.toMap()
     }
 
     /**
-     * ✅ EffectScreen 호환: updateColor(context, color) - 현재 선택된 effect
+     * EffectScreen 호환: updateColor(context, color) - 현재 선택된 effect
      */
     fun updateColor(context: Context, color: Color) {
         val current = _selectedEffect.value ?: return
@@ -342,7 +339,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * ✅ EffectScreen 호환: updateBackgroundColor(context, color) - 현재 선택된 effect
+     * EffectScreen 호환: updateBackgroundColor(context, color) - 현재 선택된 effect
      */
     fun updateBackgroundColor(context: Context, color: Color) {
         val current = _selectedEffect.value ?: return
@@ -358,7 +355,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * ✅ EffectScreen 호환: updateSettings(context, newSettings) - 현재 선택된 effect
+     * EffectScreen 호환: updateSettings(context, newSettings) - 현재 선택된 effect
      */
     fun updateSettings(context: Context, newSettings: EffectSettings) {
         val current = _selectedEffect.value ?: return
@@ -373,7 +370,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * ✅ clearError
+     * clearError
      */
     fun clearError() {
         _errorMessage.value = null
@@ -407,7 +404,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         try {
-            // ✅ EffectEngineController object 사용
+            // EffectEngineController object 사용
             EffectEngineController.startManualEffect(
                 payload = payload,
                 context = context,
@@ -430,7 +427,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         _isPlaying.value = false
         _selectedEffect.value = null
 
-        // ✅ EffectEngineController object 사용
+        // EffectEngineController object 사용
         EffectEngineController.stopManualEffect(context)
 
         Log.d("EffectViewModel", "Manual effect stopped")

@@ -3,6 +3,7 @@ package com.dongsitech.lightstickmusicdemo.viewmodel
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Application
+import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.provider.MediaStore
 import android.util.Log
@@ -20,6 +21,7 @@ import com.dongsitech.lightstickmusicdemo.player.createFftPlayer
 import com.dongsitech.lightstickmusicdemo.util.EffectDirectoryManager
 import com.dongsitech.lightstickmusicdemo.util.MusicPlayerCommandBus
 import com.dongsitech.lightstickmusicdemo.util.ServiceController
+import com.dongsitech.lightstickmusicdemo.util.AutoModeManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,13 +33,16 @@ import java.io.File
 class MusicPlayerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context = application.applicationContext
+    private val effectEngineController = EffectEngineController
 
-    // ✅ 수정: EffectEngineController는 이제 object - 인스턴스 생성 제거
-    // private val effectEngine = EffectEngineController() ← 삭제
+    // ✅ AUTO 모드 상태
+    private val _isAutoModeEnabled = MutableStateFlow(true)
+    val isAutoModeEnabled: StateFlow<Boolean> = _isAutoModeEnabled.asStateFlow()
 
-    // FFT -> LED 전송 (✅ object 직접 사용)
+    // ✅ FFT -> LED 전송 (AUTO 모드 체크 포함)
     val audioProcessor = FftAudioProcessor { band ->
-        if (PermissionUtils.hasPermission(context, Manifest.permission.BLUETOOTH_CONNECT)) {
+        // AUTO 모드일 때만 FFT 효과 처리
+        if (_isAutoModeEnabled.value && PermissionUtils.hasPermission(context, Manifest.permission.BLUETOOTH_CONNECT)) {
             try {
                 EffectEngineController.processFftEffect(band, context)
             } catch (e: SecurityException) {
@@ -65,9 +70,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     init {
         initializeEffects()
-
-        // ✅ 수정: object 직접 호출
         EffectEngineController.reset()
+
+        // ✅ AUTO 모드 초기값 로드
+        _isAutoModeEnabled.value = AutoModeManager.isAutoModeEnabled(getApplication())
 
         viewModelScope.launch {
             monitorPosition()
@@ -149,16 +155,41 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                         false
                     }
 
+                    // MediaMetadataRetriever로 앨범아트 + duration 추출
                     val retriever = MediaMetadataRetriever()
-                    retriever.setDataSource(path)
-                    val art = retriever.embeddedPicture?.let {
-                        val file = File(context.cacheDir, "${title.hashCode()}.jpg")
-                        file.writeBytes(it)
-                        file.absolutePath
-                    }
-                    retriever.release()
+                    var art: String? = null
+                    var duration: Long = 0L
 
-                    musicItems.add(MusicItem(title, artist, path, art, hasEffect))
+                    try {
+                        retriever.setDataSource(path)
+
+                        // 앨범아트 추출
+                        art = retriever.embeddedPicture?.let { bytes ->
+                            val file = File(context.cacheDir, "${title.hashCode()}.jpg")
+                            file.writeBytes(bytes)
+                            file.absolutePath
+                        }
+
+                        // Duration 추출
+                        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        duration = durationStr?.toLongOrNull() ?: 0L
+
+                    } catch (e: Exception) {
+                        Log.e("MusicPlayerVM", "Failed to extract metadata: ${e.message}")
+                    } finally {
+                        retriever.release()
+                    }
+
+                    musicItems.add(
+                        MusicItem(
+                            title = title,
+                            artist = artist,
+                            filePath = path,
+                            albumArtPath = art,
+                            hasEffect = hasEffect,
+                            duration = duration
+                        )
+                    )
                 }
             }
 
@@ -179,7 +210,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
-     * ✅ 수정: object 직접 사용, Manual Effect 자동 중단
+     * ✅ 음악 재생 (AUTO 모드 체크 포함)
      */
     fun playMusic(item: MusicItem) {
         _nowPlaying.value = item
@@ -187,10 +218,17 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         _duration.value = 0
         _currentPosition.value = 0
 
-        // ✅ Timeline Effect 로드 (내부에서 Manual Effect 자동 중단)
-        val musicFile = File(item.filePath)
-        EffectEngineController.reset()
-        EffectEngineController.loadEffectsFor(musicFile, context)
+        // ✅ AUTO 모드일 때만 EFX 로드
+        if (_isAutoModeEnabled.value) {
+            val musicFile = File(item.filePath)
+            EffectEngineController.reset()
+            EffectEngineController.loadEffectsFor(musicFile, context)
+            Log.d("MusicPlayerVM", "🎵 AUTO ON - EFX loaded for: ${item.title}")
+        } else {
+            // AUTO OFF - EFX 로드 안 함
+            EffectEngineController.reset()
+            Log.d("MusicPlayerVM", "🔕 AUTO OFF - EFX not loaded")
+        }
 
         ServiceController.startMusicEffectService(
             context = context,
@@ -217,6 +255,32 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         updateNotificationProgress()
     }
 
+    /**
+     * ✅ AUTO 모드 토글 (완전 구현)
+     */
+    fun toggleAutoMode(): Boolean {
+        val context = getApplication<Application>()
+        val newState = AutoModeManager.toggleAutoMode(context)
+        _isAutoModeEnabled.value = newState
+
+        if (!newState) {
+            // ✅ AUTO OFF - EFX 언로드
+            effectEngineController.reset()
+            Log.d("MusicPlayerVM", "🔕 AUTO OFF - EFX unloaded, FFT analysis disabled")
+        } else {
+            // ✅ AUTO ON - 현재 재생 중인 곡이 있으면 EFX 로드
+            val currentMusic = _nowPlaying.value
+            if (currentMusic != null) {
+                val musicFile = File(currentMusic.filePath)
+                effectEngineController.reset()
+                effectEngineController.loadEffectsFor(musicFile, context)
+                Log.d("MusicPlayerVM", "🎵 AUTO ON - EFX loaded for: ${currentMusic.title}")
+            }
+        }
+
+        return newState
+    }
+
     fun playNext() {
         val index = _musicList.value.indexOfFirst { it == _nowPlaying.value }
         _musicList.value.getOrNull(index + 1)?.let { playMusic(it) }
@@ -233,11 +297,13 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         updateNotificationProgress()
     }
 
-    /** ✅ 수정: object 직접 호출 */
     fun setTargetAddress(address: String?) {
         EffectEngineController.setTargetAddress(address)
     }
 
+    /**
+     * ✅ 위치 모니터링 (AUTO 모드 체크 포함)
+     */
     @SuppressLint("MissingPermission")
     private fun monitorPosition() {
         viewModelScope.launch {
@@ -248,9 +314,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 _currentPosition.value = current
                 _duration.value = duration
 
-                if (player.isPlaying && current / 1000 != lastSecond) {
+                // ✅ AUTO 모드일 때만 타임라인 효과 처리
+                if (player.isPlaying && _isAutoModeEnabled.value && current / 1000 != lastSecond) {
                     try {
-                        // ✅ 수정: object 직접 호출
                         EffectEngineController.processPosition(context, current)
                     } catch (e: SecurityException) {
                         Log.e("MusicPlayerVM", "processPosition() failed: ${e.message}")
