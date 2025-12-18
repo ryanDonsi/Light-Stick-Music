@@ -29,7 +29,6 @@ import androidx.compose.runtime.SideEffect
 import com.dongsitech.lightstickmusicdemo.effect.MusicEffectManager
 import com.dongsitech.lightstickmusicdemo.ui.EffectScreen
 import com.dongsitech.lightstickmusicdemo.ui.LightStickListScreen
-import com.dongsitech.lightstickmusicdemo.ui.MusicPlayerScreen
 import com.dongsitech.lightstickmusicdemo.ui.theme.LightStickMusicPlayerDemoTheme
 import com.dongsitech.lightstickmusicdemo.util.EffectDirectoryManager
 import com.dongsitech.lightstickmusicdemo.viewmodel.EffectViewModel
@@ -38,6 +37,8 @@ import com.dongsitech.lightstickmusicdemo.viewmodel.MusicPlayerViewModel
 import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
 import com.dongsitech.lightstickmusicdemo.R
 import androidx.media3.common.util.UnstableApi
+import com.dongsitech.lightstickmusicdemo.ui.MusicControlScreen
+import com.dongsitech.lightstickmusicdemo.ui.MusicListScreen
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
 import com.dongsitech.lightstickmusicdemo.ui.components.common.CustomNavigationBar  // ← 추가
@@ -114,22 +115,24 @@ class MainActivity : ComponentActivity() {
                     contentWindowInsets = WindowInsets(0),
                     bottomBar = {
                         // ✅ CustomNavigationBar 사용
-                        CustomNavigationBar(
-                            modifier = Modifier.navigationBarsPadding(),
-                            selectedRoute = currentRoute,
-                            onNavigate = { route ->
-                                if (!currentRoute.startsWith(route)) {
-                                    navController.navigate(route) {
-                                        popUpTo(navController.graph.startDestinationId) {
-                                            saveState = true
+                        if (currentRoute != "musicList") {
+                            CustomNavigationBar(
+                                modifier = Modifier.navigationBarsPadding(),
+                                selectedRoute = currentRoute,
+                                onNavigate = { route ->
+                                    if (!currentRoute.startsWith(route)) {
+                                        navController.navigate(route) {
+                                            popUpTo(navController.graph.startDestinationId) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
                                         }
-                                        launchSingleTop = true
-                                        restoreState = true
                                     }
-                                }
-                            },
-                            connectedDeviceCount = connectedDeviceCount
-                        )
+                                },
+                                connectedDeviceCount = connectedDeviceCount
+                            )
+                        }
                     }
                 ) { padding ->
                     AppNavigation(
@@ -205,10 +208,24 @@ fun AppNavigation(
         startDestination = "music",
         modifier = modifier
     ) {
+// 🎵 MusicControlScreen (메인 음악 화면)
         composable("music") {
-            MusicPlayerScreen(
+            MusicControlScreen(
                 viewModel = musicPlayerViewModel,
+                onNavigateToMusicList = {
+                    navController.navigate("musicList")
+                },
                 onRequestEffectsDirectory = onRequestEffectsDirectory
+            )
+        }
+
+// 📋 MusicListScreen (음악 목록 화면)
+        composable("musicList") {
+            MusicListScreen(
+                viewModel = musicPlayerViewModel,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
             )
         }
 
