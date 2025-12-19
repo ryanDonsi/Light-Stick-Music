@@ -9,11 +9,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.dongsitech.lightstickmusicdemo.ui.theme.Secondary
 import com.dongsitech.lightstickmusicdemo.ui.theme.customTextStyles
+import com.dongsitech.lightstickmusicdemo.R
 
 /**
  * 🎨 Custom Top Bar (Figma 디자인 적용)
@@ -41,7 +43,7 @@ fun CustomTopBar(
     actionText: String? = null,
     onActionClick: (() -> Unit)? = null,
     actionTextColor: Color = Secondary,
-    backgroundColor: Color = Color.Black.copy(alpha = 0.8f),
+    backgroundColor: Color = MaterialTheme.colorScheme.surface,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -59,7 +61,7 @@ fun CustomTopBar(
             Text(
                 text = title,
                 style = MaterialTheme.customTextStyles.topBarLarge,  // SemiBold 17sp, 125%
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center
             )
         }
@@ -76,9 +78,9 @@ fun CustomTopBar(
                     modifier = Modifier.size(36.dp)  // Figma 스펙: 36×36px
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        painter = painterResource(id = R.drawable.ic_back),
                         contentDescription = "뒤로가기",
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(24.dp)
                     )
                 }

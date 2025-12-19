@@ -40,10 +40,8 @@ fun CustomNavigationBar(
         tonalElevation = 3.dp
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             navItems.forEach { item ->
@@ -69,7 +67,8 @@ private fun NavBarItem(
 
     Box(
         modifier = modifier
-            .fillMaxHeight()
+            .width(109.dp)
+            .height(58.dp)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -101,15 +100,21 @@ private fun NavIcon(
     @DrawableRes iconRes: Int,
     selected: Boolean
 ) {
-    Icon(
-        painter = painterResource(iconRes),
-        contentDescription = null,
-        tint = if (selected)
-            MaterialTheme.colorScheme.primary
-        else
-            MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.size(50.dp) // 50dp → 실제 바 높이 대비 안전
-    )
+    Box(
+        modifier = Modifier
+            .width(40.dp)
+            .height(50.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = if (selected)
+                MaterialTheme.colorScheme.primary
+            else
+                MaterialTheme.colorScheme.surfaceVariant
+        )
+    }
 }
 
 data class NavItem(

@@ -3,6 +3,7 @@ package com.dongsitech.lightstickmusicdemo.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -62,9 +63,9 @@ fun MusicControlScreen(
                 onActionClick = {
                     val newState = viewModel.toggleAutoMode()
                     val message = if (newState) {
-                        "자동 연출 기능을 사용합니다."
+                        "자동 연출 기능을 실행합니다."
                     } else {
-                        "자동 연출 기능이 중지됩니다."
+                        "자동 연출 기능을 중지합니다."
                     }
                     toastState.show(message)  // ✅ CustomToast 사용
                 },
@@ -86,11 +87,13 @@ fun MusicControlScreen(
                     alignment = Alignment.TopCenter
                 )
 
-                // ✅ 어두운 오버레이 제거됨
 
                 // 콘텐츠
                 Column(
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 24.dp),
+                    verticalArrangement = Arrangement.Top  // ✅ 상단 정렬
                 ) {
                     // ✅ Effects 배너
                     when {
@@ -117,7 +120,6 @@ fun MusicControlScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)  // ✅ 남은 공간 전체 사용
                     ) {
                         MusicPlayerCard(
                             musicItem = nowPlaying,  // nullable 전달
@@ -128,19 +130,24 @@ fun MusicControlScreen(
                             onPlayPauseClick = { viewModel.togglePlayPause() },
                             onNextClick = { viewModel.playNext() },
                             onSeekTo = { position -> viewModel.seekTo(position) },
-                            modifier = Modifier.fillMaxSize()  // ✅ 전체 공간 채우기
+                            modifier = Modifier.fillMaxWidth()  // ✅ 전체 공간 채우기
                         )
                     }
 
                     // ✅ MUSIC LIST 버튼
                     Row(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                            .fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
                         TextButton(
-                            onClick = onNavigateToMusicList
+                            onClick = onNavigateToMusicList,
+                            contentPadding = PaddingValues(
+                                start = 0.dp,
+                                top = 8.dp,
+                                end = 0.dp,
+                                bottom = 8.dp
+                            )
                         ) {
                             Text(
                                 text = "MUSIC LIST",
@@ -150,10 +157,10 @@ fun MusicControlScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Icon(
-                                imageVector = Icons.AutoMirrored.Default.KeyboardArrowRight,
+                                imageVector = Icons.Filled.ChevronRight,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(28.dp)
                             )
                         }
                     }

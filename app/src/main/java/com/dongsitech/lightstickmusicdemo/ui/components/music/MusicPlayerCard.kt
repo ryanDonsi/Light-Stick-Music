@@ -71,11 +71,11 @@ fun MusicPlayerCard(
     // ✅ 화면을 가득 채우는 Column
     Column(
         modifier = modifier
-            .fillMaxSize()  // ✅ fillMaxWidth → fillMaxSize
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+            .fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center  // ✅ 중앙 정렬
+        verticalArrangement = Arrangement.Top  // ✅ 상단 정렬
     ) {
+
         // ✅ 글라스모피즘 카드 (투명도 증가)
         Box(
             modifier = Modifier
@@ -93,46 +93,42 @@ fun MusicPlayerCard(
                     color = Color.White.copy(alpha = 0.16f),
                     shape = RoundedCornerShape(20.dp)
                 )
-                .padding(horizontal = 32.dp, vertical = 20.dp)
+                .padding(horizontal = 32.dp, vertical = 32.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // ✅ 앨범 아트 (동적 크기 - 화면 대부분 차지)
-                BoxWithConstraints(
+                // ═══════════════════════════════════════
+                // ✅ 앨범 아트 (BoxWithConstraints 없이!)
+                // ═══════════════════════════════════════
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f, fill = false),  // ✅ 가능한 공간 최대 활용
+                        .heightIn(max = 280.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.background),
                     contentAlignment = Alignment.Center
                 ) {
-                    // ✅ 화면 크기에 따라 앨범아트 크기 결정 (85%, 최대 400dp)
-                    val albumSize = minOf(maxWidth * 0.85f, maxHeight * 0.85f).coerceAtMost(400.dp)
-
-                    Box(
-                        modifier = Modifier
-                            .size(albumSize)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF2C2C2E)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (imageBitmap != null) {
-                            Image(
-                                bitmap = imageBitmap,
-                                contentDescription = "Album Art",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Icon(
-                                painter = painterResource(
-                                    id = R.drawable.ic_music_note
-                                ),
-                                contentDescription = "Default Music Icon",
-                                modifier = Modifier.size(albumSize * 0.4f),
-                                tint = Color(0xFF8E8E93)
-                            )
-                        }
+                    if (imageBitmap != null) {
+                        Image(
+                            bitmap = imageBitmap,
+                            contentDescription = "Album Art",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(20.dp))
+                        )
+                    } else {
+                        Icon(
+                            painter = painterResource(
+                                id = R.drawable.ic_music_note
+                            ),
+                            contentDescription = "Default Music Icon",
+                            modifier = Modifier.size(120.dp),  // ✅ 고정 크기
+                            tint = Color(0xFF8E8E93)
+                        )
                     }
                 }
 
@@ -191,11 +187,11 @@ fun MusicPlayerCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+//                Spacer(modifier = Modifier.height(24.dp))
 
                 // ✅ 시간 표시
                 Row(
-                    modifier = Modifier.width(279.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -223,7 +219,7 @@ fun MusicPlayerCard(
 
                 Box(
                     modifier = Modifier
-                        .width(279.dp)
+                        .fillMaxWidth()
                         .height(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -274,7 +270,7 @@ fun MusicPlayerCard(
                     modifier = Modifier
                         .height(64.dp)
                         .wrapContentWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // 이전 (48)
@@ -326,13 +322,10 @@ private fun EmptyMusicCard(modifier: Modifier = Modifier) {
     // ✅ 상단 정렬로 변경
     Column(
         modifier = modifier
-            .fillMaxSize()  // ✅ fillMaxWidth → fillMaxSize
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+            .fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top  // ✅ 상단 정렬
     ) {
-        Spacer(modifier = Modifier.height(40.dp))  // ✅ 상단 여백
-
         Box(
             modifier = Modifier
                 .fillMaxWidth()
