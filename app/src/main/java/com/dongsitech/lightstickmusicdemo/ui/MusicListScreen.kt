@@ -34,15 +34,16 @@ fun MusicListScreen(
     val musicList by viewModel.musicList.collectAsState()
     val nowPlaying by viewModel.nowPlaying.collectAsState()
     val isAutoModeEnabled by viewModel.isAutoModeEnabled.collectAsState()
-
-    // ✅ CustomToast 상태
+    
     val toastState = rememberToastState()
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .windowInsetsPadding(WindowInsets.navigationBars)
+    ) {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // ✅ Top Bar (배경색만, 이미지 없음)
             TopBarWithBack(
                 title = "Music List",
                 onBackClick = onNavigateBack,
@@ -50,16 +51,15 @@ fun MusicListScreen(
                 onActionClick = {
                     val newState = viewModel.toggleAutoMode()
                     val message = if (newState) {
-                        "자동 연출 기능을 사용합니다."
+                        "자동 연출 기능을 실행합니다."
                     } else {
-                        "자동 연출 기능이 중지됩니다."
+                        "자동 연출 기능을 중지합니다."
                     }
-                    toastState.show(message)  // ✅ CustomToast 사용
+                    toastState.show(message)
                 },
                 actionTextColor = if (isAutoModeEnabled) Secondary else Color.Gray
             )
-
-            // ✅ 배경 이미지 영역 (TopBar 아래부터, 오버레이 없음)
+            
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -74,45 +74,46 @@ fun MusicListScreen(
                     alignment = Alignment.TopCenter
                 )
 
-                // ✅ 어두운 오버레이 제거됨
+                // 콘텐츠
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 24.dp),
+                    verticalArrangement = Arrangement.Top  // ✅ 상단 정렬
+                ) {
 
-                // ✅ 음악 리스트
-                if (musicList.isEmpty()) {
-                    // 빈 리스트 표시
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "음악 파일이 없습니다",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Color.Gray
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = 8.dp,
-                            bottom = 16.dp
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(musicList) { item ->
-                            MusicListItemCard(
-                                musicItem = item,
-                                isPlaying = nowPlaying?.filePath == item.filePath,
-                                onClick = { viewModel.playMusic(item) }
+
+                    // 음악 리스트
+                    if (musicList.isEmpty()) {
+                        // 빈 리스트 표시
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "음악 파일이 없습니다",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.surfaceVariant
                             )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(musicList) { item ->
+                                MusicListItemCard(
+                                    musicItem = item,
+                                    isPlaying = nowPlaying?.filePath == item.filePath,
+                                    onClick = { viewModel.playMusic(item) }
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-
-        // ✅ CustomToast
+        
         CustomToast(
             message = toastState.message,
             isVisible = toastState.isVisible,

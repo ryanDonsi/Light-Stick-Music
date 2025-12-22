@@ -348,7 +348,7 @@ private fun EmptyMusicCard(modifier: Modifier = Modifier) {
             Text(
                 text = "재생중인 음악이 없습니다",
                 style = MaterialTheme.typography.bodyLarge,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.surfaceVariant,
                 textAlign = TextAlign.Center
             )
         }

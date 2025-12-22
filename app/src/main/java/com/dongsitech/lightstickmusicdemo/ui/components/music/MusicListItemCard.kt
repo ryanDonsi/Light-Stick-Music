@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
@@ -25,6 +26,8 @@ import androidx.compose.ui.unit.sp
 import com.dongsitech.lightstickmusicdemo.model.MusicItem
 import com.dongsitech.lightstickmusicdemo.ui.theme.Primary
 import com.dongsitech.lightstickmusicdemo.ui.theme.Secondary
+import com.dongsitech.lightstickmusicdemo.ui.theme.customTextStyles
+import com.dongsitech.lightstickmusicdemo.ui.theme.customColors
 import com.dongsitech.lightstickmusicdemo.util.TimeFormatter
 
 /**
@@ -51,26 +54,31 @@ fun MusicListItemCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(
-                color = if (isPlaying) Primary.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.2f)
+                color = if (isPlaying) MaterialTheme.customColors.primary.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.05f)
             )
-            .border(
-                width = if (isPlaying) 2.dp else 0.dp,
-                color = if (isPlaying) Primary else Color.White.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(20.dp)
-            )
+            .let { mod ->
+                if (isPlaying) {
+                    mod.border(
+                        width = 2.dp,
+                        color = MaterialTheme.customColors.primary,
+                        shape = RoundedCornerShape(20.dp)
+                    )
+                } else {
+                    mod
+                }
+            }
             .clickable(onClick = onClick)
             .padding(12.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 앨범아트 썸네일 (실제 이미지 또는 기본 아이콘)
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.White.copy(alpha = 0.15f)),
+                    .clip(RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 if (imageBitmap != null) {
@@ -92,21 +100,19 @@ fun MusicListItemCard(
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(16.dp))
 
             // 제목 + 아티스트
             Column(
                 modifier = Modifier.weight(1f)
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = musicItem.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
@@ -114,18 +120,26 @@ fun MusicListItemCard(
 
                     // EFX 배지
                     if (musicItem.hasEffect) {
-                        Box(
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Figma 스펙: 40×18, #FFD46F 배경, #111111 텍스트
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier
-                                .background(Secondary, RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .height(18.dp)
+                                .widthIn(min = 40.dp)
                         ) {
-                            Text(
-                                text = "EFX",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                fontSize = 10.sp
-                            )
+                            Box(
+                                modifier = Modifier,
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "EFX",
+                                    style = MaterialTheme.customTextStyles.badgeMedium,  // SemiBold 12sp, 140%
+                                    color = MaterialTheme.colorScheme.surface
+                                )
+                            }
                         }
                     }
                 }
@@ -142,35 +156,34 @@ fun MusicListItemCard(
                 )
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
-
+            Spacer(modifier = Modifier.width(16.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Absolute.Right
+            ) {
             // ✅ 재생 중 표시 또는 재생 시간
-            if (isPlaying) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+                if (isPlaying) {
+                    Text(
+                        text = "Playing",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.6f)
+                    )
+                } else {
+                    Text(
+                        text = TimeFormatter.formatTime(musicItem.duration),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.6f)
+                    )
+
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "재생 중",
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = "playing",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontSize = 11.sp
+                        contentDescription = "Playing",
+                        tint = Color.White.copy(alpha = 0.6f),
+                        modifier = Modifier.size(14.dp)
                     )
                 }
-            } else {
-                Text(
-                    text = TimeFormatter.formatTime(musicItem.duration),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
             }
         }
     }

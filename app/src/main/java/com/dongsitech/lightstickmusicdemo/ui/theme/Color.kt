@@ -1,74 +1,166 @@
 package com.dongsitech.lightstickmusicdemo.ui.theme
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 // ═══════════════════════════════════════════════════════════
-// Primary Colors
+// Raw Color Definitions (기본 팔레트)
 // ═══════════════════════════════════════════════════════════
 
-val Primary = Color(0xFFA774FF)              // #A774FF
-val OnPrimary = Color(0xFFFCF4FF)            // #FCF4FF
-val PrimaryContainer = Color(0xFF843DFF)     // #843DFF
-val OnPrimaryContainer = Color(0xFFFCF9FF)   // #FCF9FF
+// Primary
+val Primary = Color(0xFFA774FF)
+val OnPrimary = Color(0xFFFCF4FF)
+val PrimaryContainer = Color(0xFF843DFF)
+val OnPrimaryContainer = Color(0xFFFCF9FF)
+
+// Secondary
+val Secondary = Color(0xFFFFD46F)
+val OnSecondary = Color(0xFF21201D)
+
+// Neutral
+val Surface = Color(0xFF111111)
+val OnSurface = Color(0xFFFFFFFF)
+val SurfaceVariant = Color(0xFF6F7074)
+val OnSurfaceVariant = Color(0xFFE1E3E6)
+val Outline = Color(0xFF424242)
+val Divider = Color(0xFF323232)
+val Background = Color(0xFF1F1F1F)
+val Error = Color(0xFFFF404E)
+
+// Effect
+val Dimmed = Color(0x80000000)
+val ToastBg = Color(0xCC81B1B1)
+val Disable = Color(0xFF4A4A4A)
+val OnDisable = Color(0x4DACACAC)
+val Ripple = Color(0x26DDE8FF)
+
+// Shadow
+val ShadowDialog = Color(0x33FFFFFF)
+val ShadowCard = Color(0x33000000)
+
+// Primary Level
+val PrimaryLevel1 = Color(0xBAA774FF)
+val PrimaryLevel2 = Color(0xB8A774FF)
+val PrimaryLevel3 = Color(0x7AA774FF)
+val PrimaryLevel4 = Color(0xBFA774FF)
+
+// OnSurface Level
+val OnSurfaceLevel1 = Color(0x0F111111)
+val OnSurfaceLevel2 = Color(0x24111111)
+val OnSurfaceLevel3 = Color(0x61111111)
+val OnSurfaceLevel4 = Color(0x85111111)
+
+// Gradient
+val GradientStart = Color(0xFF3617CE)
+val GradientEnd = Color(0xFF758AFF)
+
 
 // ═══════════════════════════════════════════════════════════
-// Secondary Colors
+// CustomColors (MaterialTheme 확장용)
 // ═══════════════════════════════════════════════════════════
 
-val Secondary = Color(0xFFFFD46F)            // #FFD46F
-val OnSecondary = Color(0xFF21201D)          // #21201D
+@Immutable
+data class CustomColors(
+    val primary: Color,
+    val onPrimary: Color,
+    val primaryContainer: Color,
+    val onPrimaryContainer: Color,
+
+    val secondary: Color,
+    val onSecondary: Color,
+
+    val surface: Color,
+    val onSurface: Color,
+    val surfaceVariant: Color,
+    val onSurfaceVariant: Color,
+    val outline: Color,
+    val divider: Color,
+    val background: Color,
+    val error: Color,
+
+    val dimmed: Color,
+    val toastBg: Color,
+    val disable: Color,
+    val onDisable: Color,
+    val ripple: Color,
+
+    val shadowDialog: Color,
+    val shadowCard: Color,
+
+    val primaryLevel1: Color,
+    val primaryLevel2: Color,
+    val primaryLevel3: Color,
+    val primaryLevel4: Color,
+
+    val onSurfaceLevel1: Color,
+    val onSurfaceLevel2: Color,
+    val onSurfaceLevel3: Color,
+    val onSurfaceLevel4: Color,
+
+    val gradientStart: Color,
+    val gradientEnd: Color
+)
 
 // ═══════════════════════════════════════════════════════════
-// Neutral Colors
+// Default CustomColors Instance
 // ═══════════════════════════════════════════════════════════
 
-val Surface = Color(0xFF111111)              // #111111
-val OnSurface = Color(0xFFFFFFFF)            // #FFFFFF
-val SurfaceVariant = Color(0xFF6F7074)       // #6F7074
-val OnSurfaceVariant = Color(0xFFE1E3E6)     // #E1E3E6
-val Outline = Color(0xFF424242)              // #424242 (border)
-val Divider = Color(0xFF323232)              // #323232
-val Background = Color(0xFF1F1F1F)           // #1F1F1F
-val Error = Color(0xFFFF404E)                // #FF404E
+val DefaultCustomColors = CustomColors(
+    primary = Primary,
+    onPrimary = OnPrimary,
+    primaryContainer = PrimaryContainer,
+    onPrimaryContainer = OnPrimaryContainer,
+
+    secondary = Secondary,
+    onSecondary = OnSecondary,
+
+    surface = Surface,
+    onSurface = OnSurface,
+    surfaceVariant = SurfaceVariant,
+    onSurfaceVariant = OnSurfaceVariant,
+    outline = Outline,
+    divider = Divider,
+    background = Background,
+    error = Error,
+
+    dimmed = Dimmed,
+    toastBg = ToastBg,
+    disable = Disable,
+    onDisable = OnDisable,
+    ripple = Ripple,
+
+    shadowDialog = ShadowDialog,
+    shadowCard = ShadowCard,
+
+    primaryLevel1 = PrimaryLevel1,
+    primaryLevel2 = PrimaryLevel2,
+    primaryLevel3 = PrimaryLevel3,
+    primaryLevel4 = PrimaryLevel4,
+
+    onSurfaceLevel1 = OnSurfaceLevel1,
+    onSurfaceLevel2 = OnSurfaceLevel2,
+    onSurfaceLevel3 = OnSurfaceLevel3,
+    onSurfaceLevel4 = OnSurfaceLevel4,
+
+    gradientStart = GradientStart,
+    gradientEnd = GradientEnd
+)
 
 // ═══════════════════════════════════════════════════════════
-// Effect Colors (알파값 포함)
+// CompositionLocal + MaterialTheme Extension
 // ═══════════════════════════════════════════════════════════
 
-val Dimmed = Color(0x80000000)               // #000000 / 50% (0x80 = 128)
-val ToastBg = Color(0xCC81B1B1)              // #81B1B1 / 80% (0xCC = 204)
-val Disable = Color(0xFF4A4A4A)              // #4A4A4A
-val OnDisable = Color(0x4DACACAC)            // #ACACAC / 30% (0x4D = 77)
-val Ripple = Color(0x26DDE8FF)               // #DDE8FF / 15% (0x26 = 38)
+internal val LocalCustomColors =
+    staticCompositionLocalOf { DefaultCustomColors }
 
-// ═══════════════════════════════════════════════════════════
-// Shadow Colors (알파값 포함)
-// ═══════════════════════════════════════════════════════════
-
-val ShadowDialog = Color(0x33FFFFFF)         // #FFFFFF / 20% (0x33 = 51)
-val ShadowCard = Color(0x33000000)           // #000000 / 20% (0x33 = 51)
-
-// ═══════════════════════════════════════════════════════════
-// Level Colors - Primary (알파값 포함)
-// ═══════════════════════════════════════════════════════════
-
-val PrimaryLevel1 = Color(0xBA3B48FF)        // #3B48FF / 73% (0xBA = 186)
-val PrimaryLevel2 = Color(0xB83B48FF)        // #3B48FF / 72% (0xB8 = 184)
-val PrimaryLevel3 = Color(0x7A3B48FF)        // #3B48FF / 48% (0x7A = 122)
-val PrimaryLevel4 = Color(0xBF9B48FF)        // #9B48FF / 75% (0xBF = 191)
-
-// ═══════════════════════════════════════════════════════════
-// Level Colors - OnSurface (알파값 포함)
-// ═══════════════════════════════════════════════════════════
-
-val OnSurfaceLevel1 = Color(0x0F111111)      // #111111 / 6% (0x0F = 15)
-val OnSurfaceLevel2 = Color(0x24111111)      // #111111 / 14% (0x24 = 36)
-val OnSurfaceLevel3 = Color(0x61111111)      // #111111 / 38% (0x61 = 97)
-val OnSurfaceLevel4 = Color(0x85111111)      // #111111 / 52% (0x85 = 133)
-
-// ═══════════════════════════════════════════════════════════
-// Special Color - Gradient
-// ═══════════════════════════════════════════════════════════
-
-val GradientStart = Color(0xFF3617CE)        // #3617CE
-val GradientEnd = Color(0xFF758AFF)          // #758AFF
+/**
+ * 사용 예:
+ * MaterialTheme.customColors.primary
+ * MaterialTheme.customColors.surface
+ */
+val MaterialTheme.customColors: CustomColors
+    @Composable
+    get() = LocalCustomColors.current

@@ -13,6 +13,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dongsitech.lightstickmusicdemo.R
+import com.dongsitech.lightstickmusicdemo.ui.theme.customColors
 
 @Composable
 fun CustomNavigationBar(
@@ -36,7 +37,7 @@ fun CustomNavigationBar(
             .fillMaxWidth()
             .height(62.dp)              // ✅ 높이는 여기서
             .navigationBarsPadding(),   // ✅ padding도 여기서
-        color = MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.customColors.surface,
         tonalElevation = 3.dp
     ) {
         Row(
