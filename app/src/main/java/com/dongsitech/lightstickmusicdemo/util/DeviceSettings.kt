@@ -50,7 +50,25 @@ object DeviceSettings {
     }
 
     fun getBroadcasting(mac: String): Boolean {
-        return prefs?.getBoolean("broadcast_$mac", true) ?: true // ✅ default를 true로 변경
+        return prefs?.getBoolean("broadcast_$mac", true) ?: true
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Auto Reconnect Settings
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * 자동 재연결 활성화 여부 설정
+     */
+    fun setAutoReconnectEnabled(enabled: Boolean) {
+        prefs?.edit()?.putBoolean("auto_reconnect_enabled", enabled)?.apply()
+    }
+
+    /**
+     * 자동 재연결 활성화 여부 조회
+     */
+    fun getAutoReconnectEnabled(): Boolean {
+        return prefs?.getBoolean("auto_reconnect_enabled", true) ?: true
     }
 
     // ═══════════════════════════════════════════════════════════

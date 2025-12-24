@@ -205,7 +205,7 @@ fun AppNavigation(
 
     NavHost(
         navController = navController,
-        startDestination = "music",
+        startDestination = "effect",
         modifier = modifier
     ) {
 // 🎵 MusicControlScreen (메인 음악 화면)
@@ -230,7 +230,12 @@ fun AppNavigation(
         }
 
         composable("effect") {
-            EffectScreen(viewModel = effectViewModel)
+            EffectScreen(
+                viewModel = effectViewModel,
+                onNavigateToDeviceList = {
+                    navController.navigate("deviceList")
+                }
+            )
         }
 
         composable("deviceList") {
