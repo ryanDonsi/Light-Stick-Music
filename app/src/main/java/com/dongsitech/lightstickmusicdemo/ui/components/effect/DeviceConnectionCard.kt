@@ -2,6 +2,7 @@ package com.dongsitech.lightstickmusicdemo.ui.components.effect
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,17 +19,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dongsitech.lightstickmusicdemo.ui.theme.customColors
+import com.dongsitech.lightstickmusicdemo.ui.theme.customTextStyles
 import com.dongsitech.lightstickmusicdemo.viewmodel.EffectViewModel
 import com.lightstick.device.Device
 
 /**
- * 🎨 디바이스 연결 상태 카드 (State별 분리 버전)
+ * ✅ 디바이스 연결 상태 카드 - Figma 완벽 구현
  *
- * 장점:
- * - 각 상태가 명확하게 분리됨
- * - 코드 가독성 좋음
- * - 유지보수 용이
- * - 각 상태별 커스터마이징 쉬움
+ * - 부드러운 사이즈 애니메이션
+ * - 스크롤 여부에 따라 레이아웃 변경
  */
 @Composable
 fun DeviceConnectionCard(
@@ -39,6 +39,34 @@ fun DeviceConnectionCard(
     isScrolled: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    // ✅ 부드러운 사이즈 애니메이션
+    val animatedSize by animateDpAsState(
+        targetValue = if (isScrolled) 124.dp else 180.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "size"
+    )
+
+    val animatedIconSize by animateDpAsState(
+        targetValue = if (isScrolled) 50.dp else 70.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "iconSize"
+    )
+
+    val animatedCornerRadius by animateDpAsState(
+        targetValue = if (isScrolled) 20.dp else 32.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "cornerRadius"
+    )
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -47,26 +75,25 @@ fun DeviceConnectionCard(
     ) {
         when (connectionState) {
             is EffectViewModel.DeviceConnectionState.NoBondedDevice -> {
-                // ✅ 1. 등록된 기기 없음 (최초)
                 NoBondedDeviceState(onConnectClick = onConnectClick)
             }
 
             is EffectViewModel.DeviceConnectionState.Scanning -> {
-                // ✅ 2. 등록된 기기 확인 중 (로딩 애니메이션)
                 ScanningState()
             }
 
             is EffectViewModel.DeviceConnectionState.ScanFailed -> {
-                // ✅ 3. 연결 가능한 기기 없음 (Retry 버튼)
                 ScanFailedState(onRetryClick = onRetryClick)
             }
 
             is EffectViewModel.DeviceConnectionState.Connected -> {
-                // ✅ 4-5. 연결 성공 (스크롤 여부에 따라)
                 ConnectedState(
                     device = connectionState.device,
                     effectColor = currentEffectColor,
-                    isScrolled = isScrolled
+                    isScrolled = isScrolled,
+                    boxSize = animatedSize,
+                    iconSize = animatedIconSize,
+                    cornerRadius = animatedCornerRadius
                 )
             }
         }
@@ -74,7 +101,7 @@ fun DeviceConnectionCard(
 }
 
 /**
- * ✅ 1. 등록된 기기 없음 (최초)
+ * ✅ 1. 등록된 기기 없음
  */
 @Composable
 private fun NoBondedDeviceState(
@@ -83,7 +110,6 @@ private fun NoBondedDeviceState(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 라운드 박스 (아이콘만)
         RoundedIconBox(
             size = 180.dp,
             backgroundColor = Color.White.copy(alpha = 0.06f),
@@ -97,18 +123,15 @@ private fun NoBondedDeviceState(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Text(
             text = "연결된 기기 없음",
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp
-            ),
-            color = Color.White
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.customColors.surfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Button(
             onClick = onConnectClick,
@@ -122,10 +145,8 @@ private fun NoBondedDeviceState(
         ) {
             Text(
                 text = "기기 연결하기",
-                style = MaterialTheme.typography.labelLarge.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
-                ),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = Color(0xFFFCF9FF)
             )
         }
@@ -133,11 +154,10 @@ private fun NoBondedDeviceState(
 }
 
 /**
- * ✅ 2. 등록된 기기 확인 중 (로딩 애니메이션)
+ * ✅ 2. 스캔 중 (로딩 애니메이션)
  */
 @Composable
 private fun ScanningState() {
-    // ✅ 회전 애니메이션
     val infiniteTransition = rememberInfiniteTransition(label = "scanning")
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -169,34 +189,28 @@ private fun ScanningState() {
 
         Text(
             text = "연결된 기기 없음",
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp
-            ),
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
             color = Color.White
         )
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // ✅ 로딩 아이콘 + 텍스트
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "등록된 기기 확인 중",
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 12.sp
-                ),
+                fontSize = 12.sp,
                 color = Color.White.copy(alpha = 0.7f)
             )
-
             Icon(
                 imageVector = Icons.Default.Refresh,
                 contentDescription = "확인 중",
                 modifier = Modifier
                     .size(16.dp)
-                    .rotate(rotation),  // ✅ 회전 애니메이션
+                    .rotate(rotation),
                 tint = Color.White.copy(alpha = 0.7f)
             )
         }
@@ -204,7 +218,7 @@ private fun ScanningState() {
 }
 
 /**
- * ✅ 3. 연결 가능한 기기 없음 (Retry 버튼)
+ * ✅ 3. 스캔 실패
  */
 @Composable
 private fun ScanFailedState(
@@ -226,58 +240,54 @@ private fun ScanFailedState(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Text(
             text = "연결된 기기 없음",
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp
-            ),
-            color = Color.White
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.customColors.surfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // ✅ Retry 아이콘 + 텍스트 (클릭 가능)
-        TextButton(
-            onClick = onRetryClick,
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "연결 가능한 기기가 없습니다",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 12.sp
-                    ),
-                    color = Color(0xFFFF5252)
-                )
+            Text(
+                text = "연결 가능한 기기가 없습니다",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.customColors.onSurface
+            )
 
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "재시도",
-                    modifier = Modifier.size(16.dp),
-                    tint = Color(0xFFFF5252)
-                )
-            }
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = "재시도",
+                modifier = Modifier
+                    .size(16.dp)
+                    .clickable(
+                        onClick = onRetryClick
+                    ),
+                tint = MaterialTheme.customColors.onSurface
+            )
         }
     }
 }
 
 /**
- * ✅ 4-5. 연결 성공 (스크롤 여부에 따라)
+ * ✅ 4-5. 연결 성공 (애니메이션)
  */
 @Composable
 private fun ConnectedState(
     device: Device,
     effectColor: Color,
-    isScrolled: Boolean
+    isScrolled: Boolean,
+    boxSize: androidx.compose.ui.unit.Dp,
+    iconSize: androidx.compose.ui.unit.Dp,
+    cornerRadius: androidx.compose.ui.unit.Dp
 ) {
     if (isScrolled) {
-        // ✅ 5. 스크롤 후 (MIN: 124×124, 우측 텍스트)
+        // 스크롤 후: 가로 레이아웃
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -286,16 +296,16 @@ private fun ConnectedState(
             horizontalArrangement = Arrangement.Center
         ) {
             RoundedIconBox(
-                size = 124.dp,
+                size = boxSize,
                 backgroundColor = Color(0xFFA774FF).copy(alpha = 0.22f),
-                cornerRadius = 20.dp,
+                cornerRadius = cornerRadius,
                 showGradient = true,
                 gradientColor = effectColor
             ) {
                 Icon(
                     imageVector = Icons.Default.Mic,
                     contentDescription = null,
-                    modifier = Modifier.size(50.dp),
+                    modifier = Modifier.size(iconSize),
                     tint = effectColor
                 )
             }
@@ -305,40 +315,34 @@ private fun ConnectedState(
             Column {
                 Text(
                     text = "연결 됨",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp
-                    ),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = Color.White
                 )
-
                 Spacer(modifier = Modifier.height(2.dp))
-
                 Text(
-                    text = device.name ?: "기기 먼벨",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 12.sp
-                    ),
+                    text = device.name ?: "기기 모델명",
+                    fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.7f)
                 )
             }
         }
     } else {
-        // ✅ 4. 스크롤 전 (MAX: 180×180, 하단 텍스트)
+        // 스크롤 전: 세로 레이아웃
         Column(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             RoundedIconBox(
-                size = 180.dp,
+                size = boxSize,
                 backgroundColor = Color(0xFFA774FF).copy(alpha = 0.22f),
-                cornerRadius = 32.dp,
+                cornerRadius = cornerRadius,
                 showGradient = true,
                 gradientColor = effectColor
             ) {
                 Icon(
                     imageVector = Icons.Default.Mic,
                     contentDescription = null,
-                    modifier = Modifier.size(70.dp),
+                    modifier = Modifier.size(iconSize),
                     tint = effectColor
                 )
             }
@@ -347,10 +351,8 @@ private fun ConnectedState(
 
             Text(
                 text = "연결 됨",
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp
-                ),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = Color.White
             )
 
@@ -358,9 +360,7 @@ private fun ConnectedState(
 
             Text(
                 text = device.mac,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 12.sp
-                ),
+                fontSize = 12.sp,
                 color = Color.White.copy(alpha = 0.7f)
             )
         }
@@ -368,7 +368,7 @@ private fun ConnectedState(
 }
 
 /**
- * ✅ 라운드 아이콘 박스 (공통)
+ * ✅ 라운드 아이콘 박스
  */
 @Composable
 private fun RoundedIconBox(

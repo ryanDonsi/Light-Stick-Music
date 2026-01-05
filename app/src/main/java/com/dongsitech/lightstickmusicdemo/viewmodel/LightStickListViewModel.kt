@@ -10,6 +10,7 @@ import com.dongsitech.lightstickmusicdemo.model.DeviceDetailInfo
 import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
 import com.dongsitech.lightstickmusicdemo.util.DeviceSettings
 import com.lightstick.LSBluetooth
+import com.lightstick.device.ConnectionState  // ✅ 추가
 import com.lightstick.device.Device
 import com.lightstick.device.DeviceInfo
 import com.lightstick.events.EventAction
@@ -44,7 +45,6 @@ class LightStickListViewModel : ViewModel() {
     private val _connectionStates = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val connectionStates: StateFlow<Map<String, Boolean>> = _connectionStates.asStateFlow()
 
-    // ✅ 변경: Controller → Device 저장
     private val connectedDevices = mutableMapOf<String, Device>()
 
     private val _deviceDetails = MutableStateFlow<Map<String, DeviceDetailInfo>>(emptyMap())
@@ -75,10 +75,67 @@ class LightStickListViewModel : ViewModel() {
         DeviceSettings.initialize(context.applicationContext)
 
         if (PermissionUtils.hasBluetoothConnectPermission(appContext!!)) {
+            // ✅ SDK에서 이미 연결된 디바이스 동기화 추가
+            syncConnectedDevicesOnInit()
             updateConnectedCount()
         }
 
         PermissionUtils.logPermissionStatus(appContext!!, TAG)
+
+        // ✅ 추가: SDK 연결 상태 실시간 관찰
+        observeConnectionStates()
+    }
+
+    // ✅ 추가: SDK 연결 상태 실시간 관찰
+    /**
+     * SDK 연결 상태 실시간 관찰
+     * - EffectViewModel과 상태 동기화
+     * - 연결/해제 즉시 반영
+     * - Navigation bar 배지 자동 업데이트
+     */
+    private fun observeConnectionStates() {
+        viewModelScope.launch {
+            LSBluetooth.observeDeviceStates().collect { states ->
+                // 연결된 디바이스 MAC 주소 추출
+                val connectedMacs = states
+                    .filter { (_, state) ->
+                        state.connectionState is ConnectionState.Connected
+                    }
+                    .keys
+
+                // 연결 상태 맵 업데이트
+                val updatedStates = _connectionStates.value.toMutableMap()
+
+                // 연결된 디바이스 true로 설정
+                connectedMacs.forEach { mac ->
+                    updatedStates[mac] = true
+                    Log.d(TAG, "✅ [observeConnectionStates] Device connected: $mac")
+                }
+
+                // 연결 끊긴 디바이스 false로 설정
+                _devices.value.forEach { device ->
+                    if (device.mac !in connectedMacs && updatedStates[device.mac] == true) {
+                        updatedStates[device.mac] = false
+                        Log.d(TAG, "⚠️ [observeConnectionStates] Device disconnected: ${device.mac}")
+                    }
+                }
+
+                _connectionStates.value = updatedStates
+
+                // ✅ 연결 개수 업데이트 (Navigation bar badge)
+                _connectedDeviceCount.value = connectedMacs.size
+                Log.d(TAG, "📊 [observeConnectionStates] Connected count: ${connectedMacs.size}")
+
+                // ✅ 디바이스 목록 재정렬 (연결된 것 먼저)
+                _devices.value = _devices.value.sortedWith(
+                    compareByDescending<Device> {
+                        _connectionStates.value[it.mac] ?: false
+                    }.thenByDescending {
+                        it.rssi ?: -100
+                    }
+                )
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -218,7 +275,6 @@ class LightStickListViewModel : ViewModel() {
                         onConnected = {
                             Log.d(TAG, "✅ Connected to ${device.mac}")
 
-                            // Device 저장
                             connectedDevices[device.mac] = device
                             updateConnectionState(device.mac, true)
                             updateConnectedCount()
@@ -226,17 +282,14 @@ class LightStickListViewModel : ViewModel() {
                             // 연결 성공 연출 (타임라인 기반)
                             viewModelScope.launch {
                                 try {
-                                    // 타임라인 프레임 생성: BLINK 3회 → WHITE 유지
                                     val connectionAnimation = listOf(
                                         0L to LSEffectPayload.Effects.blink(3, Colors.WHITE).toByteArray(),
                                         1200L to LSEffectPayload.Effects.on(Colors.WHITE).toByteArray()
                                     )
 
-                                    // 타임라인 로드 및 재생
                                     if (device.loadTimeline(connectionAnimation)) {
                                         Log.d(TAG, "🎬 Connection animation timeline loaded (2 frames)")
 
-                                        // 재생
                                         val startTime = System.currentTimeMillis()
                                         val duration = 1200L
 
@@ -244,14 +297,13 @@ class LightStickListViewModel : ViewModel() {
                                             val elapsed = System.currentTimeMillis() - startTime
                                             if (elapsed >= duration) {
                                                 device.updatePlaybackPosition(duration)
-                                                delay(50) // 마지막 프레임 유지
+                                                delay(50)
                                                 break
                                             }
                                             device.updatePlaybackPosition(elapsed)
-                                            delay(16) // ~60fps
+                                            delay(16)
                                         }
 
-                                        // 타임라인 정리
                                         device.stopTimeline()
                                         Log.d(TAG, "✅ Connection animation completed")
                                     } else {
@@ -262,10 +314,7 @@ class LightStickListViewModel : ViewModel() {
                                 }
                             }
 
-                            // 초기 DeviceDetailInfo 생성
                             initializeDeviceDetail(device)
-
-                            // 이벤트 규칙 등록
                             registerDeviceEventRules(device)
                         },
                         onFailed = { error ->
@@ -283,7 +332,6 @@ class LightStickListViewModel : ViewModel() {
                             Log.d(TAG, "   ├─ Manufacturer: ${info.manufacturer}")
                             Log.d(TAG, "   └─ Battery: ${info.batteryLevel}%")
 
-                            // DeviceInfo 업데이트
                             updateDeviceInfoFromCallback(device.mac, info)
                         }
                     )
@@ -312,7 +360,7 @@ class LightStickListViewModel : ViewModel() {
                 val ctx = appContext
                 if (ctx == null || !PermissionUtils.hasBluetoothConnectPermission(ctx)) {
                     Log.w(TAG, "⚠️ BLUETOOTH_CONNECT permission not available for disconnect")
-                    connectedDevices.remove(device.mac)  // ✅ 변경
+                    connectedDevices.remove(device.mac)
                     updateConnectionState(device.mac, false)
                     clearDeviceDetails(device.mac)
                     return@launch
@@ -327,7 +375,7 @@ class LightStickListViewModel : ViewModel() {
 
                 doDisconnect()
 
-                connectedDevices.remove(device.mac)  // ✅ 변경
+                connectedDevices.remove(device.mac)
                 updateConnectionState(device.mac, false)
                 updateConnectedCount()
                 clearDeviceDetails(device.mac)
@@ -336,12 +384,12 @@ class LightStickListViewModel : ViewModel() {
 
             } catch (e: SecurityException) {
                 Log.e(TAG, "❌ SecurityException during disconnect: ${e.message}")
-                connectedDevices.remove(device.mac)  // ✅ 변경
+                connectedDevices.remove(device.mac)
                 updateConnectionState(device.mac, false)
                 clearDeviceDetails(device.mac)
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error during disconnect: ${e.message}", e)
-                connectedDevices.remove(device.mac)  // ✅ 변경
+                connectedDevices.remove(device.mac)
                 updateConnectionState(device.mac, false)
                 clearDeviceDetails(device.mac)
             }
@@ -514,7 +562,7 @@ class LightStickListViewModel : ViewModel() {
     }
 
     fun toggleCallEvent(device: Device, enabled: Boolean) {
-        DeviceSettings.setCallEventEnabled(device.mac, enabled) // ✅ SharedPreferences에 저장
+        DeviceSettings.setCallEventEnabled(device.mac, enabled)
 
         _eventStates.update { states ->
             val deviceStates = states[device.mac]?.toMutableMap() ?: mutableMapOf()
@@ -537,7 +585,7 @@ class LightStickListViewModel : ViewModel() {
     }
 
     fun toggleSmsEvent(device: Device, enabled: Boolean) {
-        DeviceSettings.setSmsEventEnabled(device.mac, enabled) // ✅ SharedPreferences에 저장
+        DeviceSettings.setSmsEventEnabled(device.mac, enabled)
 
         _eventStates.update { states ->
             val deviceStates = states[device.mac]?.toMutableMap() ?: mutableMapOf()
@@ -560,7 +608,7 @@ class LightStickListViewModel : ViewModel() {
     }
 
     fun toggleBroadcasting(device: Device, enabled: Boolean) {
-        DeviceSettings.setBroadcasting(device.mac, enabled) // ✅ SharedPreferences에 저장
+        DeviceSettings.setBroadcasting(device.mac, enabled)
 
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[device.mac]
@@ -648,6 +696,59 @@ class LightStickListViewModel : ViewModel() {
     }
 
     // ═══════════════════════════════════════════════════════════
+    // ✅ SDK 연결 디바이스 동기화 (기존)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * 앱 시작 시 SDK에서 이미 연결된 디바이스 동기화
+     * Effect 화면에서 연결한 디바이스를 Device 화면에서도 인식하도록 함
+     */
+    @SuppressLint("MissingPermission")
+    private fun syncConnectedDevicesOnInit() {
+        try {
+            val ctx = appContext ?: return
+            if (!PermissionUtils.hasBluetoothConnectPermission(ctx)) {
+                Log.w(TAG, "⚠️ Cannot sync: permission not available")
+                return
+            }
+
+            // ✅ SDK에서 실제 연결된 디바이스 조회
+            val systemConnected = LSBluetooth.connectedDevices()
+
+            Log.d(TAG, "═══════════════════════════════════════")
+            Log.d(TAG, "📱 Syncing ${systemConnected.size} connected devices from SDK")
+
+            systemConnected.forEach { device ->
+                Log.d(TAG, "  - ${device.mac} (${device.name}) RSSI: ${device.rssi}")
+
+                // ✅ connectedDevices Map에 추가 (중요!)
+                if (!connectedDevices.containsKey(device.mac)) {
+                    connectedDevices[device.mac] = device
+                    updateConnectionState(device.mac, true)
+
+                    // ✅ DeviceDetailInfo 초기화
+                    initializeDeviceDetail(device)
+
+                    // ✅ 이벤트 규칙 등록
+                    registerDeviceEventRules(device)
+
+                    Log.d(TAG, "✅ Synced device: ${device.mac}")
+                } else {
+                    Log.d(TAG, "⏭️ Already synced: ${device.mac}")
+                }
+            }
+
+            Log.d(TAG, "✅ Device sync completed")
+            Log.d(TAG, "═══════════════════════════════════════")
+
+        } catch (e: SecurityException) {
+            Log.e(TAG, "❌ SecurityException during sync: ${e.message}")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error syncing devices: ${e.message}", e)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
     // Cleanup
     // ═══════════════════════════════════════════════════════════
 
@@ -660,12 +761,11 @@ class LightStickListViewModel : ViewModel() {
 
         val ctx = appContext
         if (ctx != null && PermissionUtils.hasBluetoothConnectPermission(ctx)) {
-            // ✅ 변경: Device 직접 사용
             connectedDevices.values.forEach { device ->
                 try {
                     @SuppressLint("MissingPermission")
                     fun doDisconnect() {
-                        device.disconnect()  // ✅ device 직접 사용
+                        device.disconnect()
                     }
                     doDisconnect()
                     Log.d(TAG, "   Disconnected: ${device.mac}")
@@ -675,7 +775,7 @@ class LightStickListViewModel : ViewModel() {
             }
         }
 
-        connectedDevices.clear()  // ✅ 변경
+        connectedDevices.clear()
         Log.d(TAG, "✅ Cleanup completed")
     }
 }

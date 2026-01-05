@@ -59,9 +59,10 @@ fun LightStickMusicPlayerDemoTheme(
         }
     }
 
-    // ✅ CustomColors 주입
+    // CustomColors + CustomTextStyles 주입
     CompositionLocalProvider(
-        LocalCustomColors provides DefaultCustomColors
+        LocalCustomColors provides DefaultCustomColors,
+        LocalCustomTextStyles provides DefaultCustomTextStyles
     ) {
         MaterialTheme(
             colorScheme = AppColorScheme,

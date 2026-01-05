@@ -232,9 +232,7 @@ fun AppNavigation(
         composable("effect") {
             EffectScreen(
                 viewModel = effectViewModel,
-                onNavigateToDeviceList = {
-                    navController.navigate("deviceList")
-                }
+                navController = navController
             )
         }
 

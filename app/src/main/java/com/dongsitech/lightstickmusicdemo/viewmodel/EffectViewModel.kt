@@ -5,18 +5,23 @@ import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.dongsitech.lightstickmusicdemo.util.DeviceSettings
+import com.dongsitech.lightstickmusicdemo.permissions.PermissionUtils
+import com.dongsitech.lightstickmusicdemo.ui.components.effect.PresetColors
 import com.lightstick.LSBluetooth
+import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
-import com.lightstick.types.Color
+import com.lightstick.types.Color as LightStickColor
 import com.lightstick.types.Colors
 import com.lightstick.types.LSEffectPayload
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -28,44 +33,54 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         private const val PREFS_NAME = "effect_settings"
         private const val TAG = "EffectViewModel"
         private const val KEY_CUSTOM_EFFECTS = "custom_effects"
+        private const val SCAN_DURATION_MS = 3000L
     }
 
     private val prefs: SharedPreferences = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    // ═══════════════════════════════════════════════════════════
-    // Effect Type 정의
-    // ═══════════════════════════════════════════════════════════
-
-    enum class BaseEffectType(val displayName: String) {
-        ON("ON"),
-        OFF("OFF"),
-        STROBE("STROBE"),
-        BLINK("BLINK"),
-        BREATH("BREATH")
-    }
-
     sealed class UiEffectType(val displayName: String, val description: String) {
-        data object On : UiEffectType("ON", "켜기")
-        data object Off : UiEffectType("OFF", "끄기")
-        data object Strobe : UiEffectType("STROBE", "스트로브")
-        data object Blink : UiEffectType("BLINK", "깜빡임")
-        data object Breath : UiEffectType("BREATH", "숨쉬기")
-        data class Custom(val id: String, val baseType: BaseEffectType, val name: String) :
-            UiEffectType(name, "")
-        data class EffectList(val number: Int, val name: String) :
-            UiEffectType(name, "EffectList$number")
+        data object On : UiEffectType("ON", "LED를 선택한 색상으로 켭니다")
+        data object Off : UiEffectType("OFF", "LED를 끕니다")
+        data object Strobe : UiEffectType("STROBE", "플래시 터지는 효과 (period: 0~255)")
+        data object Blink : UiEffectType("BLINK", "깜빡이는 효과 (period: 0~255)")
+        data object Breath : UiEffectType("BREATH", "숨쉬듯 밝아졌다 어두워지는 효과 (period: 0~255)")
+        data class EffectList(val number: Int, val subName: String = "") :
+            UiEffectType("EFFECT LIST $number${if (subName.isNotEmpty()) " ($subName)" else ""}",
+                "내장 이펙트 리스트 재생")
+
+        data class Custom(
+            val id: String,
+            val baseType: BaseEffectType,
+            val name: String
+        ) : UiEffectType(name, getDescriptionForBase(baseType))
+
+        enum class BaseEffectType {
+            ON, OFF, STROBE, BLINK, BREATH
+        }
+
+        companion object {
+            private fun getDescriptionForBase(baseType: BaseEffectType): String {
+                return when (baseType) {
+                    BaseEffectType.ON -> "커스텀 ON 효과"
+                    BaseEffectType.OFF -> "커스텀 OFF 효과"
+                    BaseEffectType.STROBE -> "커스텀 STROBE 효과"
+                    BaseEffectType.BLINK -> "커스텀 BLINK 효과"
+                    BaseEffectType.BREATH -> "커스텀 BREATH 효과"
+                }
+            }
+        }
     }
 
     data class EffectSettings(
         val uiType: UiEffectType,
-        val broadcasting: Boolean = false,
-        val color: Color = Colors.WHITE,
-        val backgroundColor: Color = Colors.BLACK,
-        val period: Int = 5,
-        val transit: Int = 2,
-        val randomColor: Boolean = false,
-        val randomDelay: Int = 0,
-        val fade: Int = 100
+        var broadcasting: Boolean = false,
+        var color: LightStickColor = Colors.WHITE,
+        var backgroundColor: LightStickColor = Colors.BLACK,
+        var period: Int = 0,
+        var transit: Int = 0,
+        var randomColor: Boolean = false,
+        var randomDelay: Int = 0,
+        var fade: Int = 100
     ) {
         companion object {
             fun defaultFor(effectType: UiEffectType): EffectSettings {
@@ -102,231 +117,381 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                         period = 40,
                         broadcasting = false
                     )
+                    is UiEffectType.EffectList -> {
+                        EffectSettings(
+                            uiType = effectType,
+                            color = Colors.WHITE,
+                            backgroundColor = Colors.BLACK,
+                            period = 30,
+                            broadcasting = false
+                        )
+                    }
                     is UiEffectType.Custom -> {
                         when (effectType.baseType) {
-                            BaseEffectType.ON -> EffectSettings(
-                                uiType = effectType,
-                                color = Colors.WHITE,
-                                transit = 0,
-                                broadcasting = false
-                            )
-                            BaseEffectType.OFF -> EffectSettings(
-                                uiType = effectType,
-                                transit = 0,
-                                broadcasting = false
-                            )
-                            BaseEffectType.STROBE -> EffectSettings(
-                                uiType = effectType,
-                                color = Colors.WHITE,
-                                backgroundColor = Colors.BLACK,
-                                period = 2,
-                                broadcasting = false
-                            )
-                            BaseEffectType.BLINK -> EffectSettings(
-                                uiType = effectType,
-                                color = Colors.WHITE,
-                                backgroundColor = Colors.BLACK,
-                                period = 5,
-                                broadcasting = false
-                            )
-                            BaseEffectType.BREATH -> EffectSettings(
-                                uiType = effectType,
-                                color = Colors.WHITE,
-                                backgroundColor = Colors.BLACK,
-                                period = 40,
-                                broadcasting = false
-                            )
+                            UiEffectType.BaseEffectType.ON -> defaultFor(UiEffectType.On).copy(uiType = effectType)
+                            UiEffectType.BaseEffectType.OFF -> defaultFor(UiEffectType.Off).copy(uiType = effectType)
+                            UiEffectType.BaseEffectType.STROBE -> defaultFor(UiEffectType.Strobe).copy(uiType = effectType)
+                            UiEffectType.BaseEffectType.BLINK -> defaultFor(UiEffectType.Blink).copy(uiType = effectType)
+                            UiEffectType.BaseEffectType.BREATH -> defaultFor(UiEffectType.Breath).copy(uiType = effectType)
                         }
                     }
-                    is UiEffectType.EffectList -> EffectSettings(
-                        uiType = effectType,
-                        color = Colors.WHITE,
-                        backgroundColor = Colors.BLACK,
-                        period = 5,
-                        broadcasting = false
-                    )
                 }
             }
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Device Connection State
-    // ═══════════════════════════════════════════════════════════
+    private val _selectedEffect = MutableStateFlow<UiEffectType?>(null)
+    val selectedEffect: StateFlow<UiEffectType?> = _selectedEffect.asStateFlow()
+
+    private val effectSettingsMapInternal = mutableMapOf<String, EffectSettings>()
+    private val _effectSettingsMap = MutableStateFlow<Map<String, EffectSettings>>(emptyMap())
+    val effectSettingsMap: StateFlow<Map<String, EffectSettings>> = _effectSettingsMap.asStateFlow()
+
+    private val _currentSettings = MutableStateFlow(EffectSettings(UiEffectType.On))
+    val currentSettings: StateFlow<EffectSettings> = _currentSettings.asStateFlow()
+
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    private val _playingEffect = MutableStateFlow<UiEffectType?>(null)
+    val playingEffect: StateFlow<UiEffectType?> = _playingEffect.asStateFlow()
+
+    private val _customEffects = MutableStateFlow<List<UiEffectType.Custom>>(emptyList())
+    val customEffects: StateFlow<List<UiEffectType.Custom>> = _customEffects.asStateFlow()
 
     sealed class DeviceConnectionState {
         data object NoBondedDevice : DeviceConnectionState()
         data object Scanning : DeviceConnectionState()
-        data class ScanFailed(val message: String) : DeviceConnectionState()
+        data object ScanFailed : DeviceConnectionState()
         data class Connected(val device: Device) : DeviceConnectionState()
     }
 
     private val _deviceConnectionState = MutableStateFlow<DeviceConnectionState>(DeviceConnectionState.NoBondedDevice)
     val deviceConnectionState: StateFlow<DeviceConnectionState> = _deviceConnectionState.asStateFlow()
 
-    // ═══════════════════════════════════════════════════════════
-    // State 관리
-    // ═══════════════════════════════════════════════════════════
+    // ===== 프리셋 관리 추가 =====
 
-    private val _selectedEffect = MutableStateFlow<UiEffectType?>(null)
-    val selectedEffect: StateFlow<UiEffectType?> = _selectedEffect.asStateFlow()
+    private val _fgPresetColors = MutableStateFlow(loadFgPresetColors().toMutableList())
+    val fgPresetColors: StateFlow<List<Color>> = _fgPresetColors.asStateFlow()
 
-    private val _playingEffect = MutableStateFlow<UiEffectType?>(null)
-    val playingEffect: StateFlow<UiEffectType?> = _playingEffect.asStateFlow()
+    private val _bgPresetColors = MutableStateFlow(loadBgPresetColors().toMutableList())
+    val bgPresetColors: StateFlow<List<Color>> = _bgPresetColors.asStateFlow()
 
-    private val effectSettingsMapInternal = mutableMapOf<String, EffectSettings>()
-    private val _effectSettingsMap = MutableStateFlow<Map<String, EffectSettings>>(emptyMap())
-    val effectSettingsMap: StateFlow<Map<String, EffectSettings>> = _effectSettingsMap.asStateFlow()
+    private val _selectedFgPreset = MutableStateFlow<Int?>(null)
+    val selectedFgPreset: StateFlow<Int?> = _selectedFgPreset.asStateFlow()
 
-    private val _customEffects = MutableStateFlow<List<UiEffectType.Custom>>(emptyList())
-    val customEffects: StateFlow<List<UiEffectType.Custom>> = _customEffects.asStateFlow()
+    private val _selectedBgPreset = MutableStateFlow<Int?>(null)
+    val selectedBgPreset: StateFlow<Int?> = _selectedBgPreset.asStateFlow()
+
+    private var effectListJob: Job? = null
+    private var scanJob: Job? = null
 
     init {
         loadAllSettings()
         loadCustomEffects()
 
         viewModelScope.launch {
-            delay(500)
-            startAutoReconnect()
+            delay(300)
+            checkExistingConnection()
+        }
+
+        observeDeviceStates()
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // 프리셋 관리
+    // ═══════════════════════════════════════════════════════════
+
+    fun selectFgPreset(index: Int) {
+        _selectedFgPreset.value = index
+    }
+
+    fun selectBgPreset(index: Int) {
+        _selectedBgPreset.value = index
+    }
+
+    fun updateFgPresetColor(index: Int, color: Color) {
+        val colors = _fgPresetColors.value.toMutableList()
+        colors[index] = color
+        _fgPresetColors.value = colors
+        saveFgPresetColors(colors)
+    }
+
+    fun updateBgPresetColor(index: Int, color: Color) {
+        val colors = _bgPresetColors.value.toMutableList()
+        colors[index] = color
+        _bgPresetColors.value = colors
+        saveBgPresetColors(colors)
+    }
+
+    private fun saveFgPresetColors(colors: List<Color>) {
+        colors.forEachIndexed { index, color ->
+            prefs.edit().apply {
+                putInt("fg_preset_$index", android.graphics.Color.rgb(
+                    (color.red * 255).toInt(),
+                    (color.green * 255).toInt(),
+                    (color.blue * 255).toInt()
+                ))
+                apply()
+            }
         }
     }
 
-    fun selectEffect(effect: UiEffectType) {
-        _selectedEffect.value = effect
+    private fun saveBgPresetColors(colors: List<Color>) {
+        colors.forEachIndexed { index, color ->
+            prefs.edit().apply {
+                putInt("bg_preset_$index", android.graphics.Color.rgb(
+                    (color.red * 255).toInt(),
+                    (color.green * 255).toInt(),
+                    (color.blue * 255).toInt()
+                ))
+                apply()
+            }
+        }
     }
+
+    private fun loadFgPresetColors(): List<Color> {
+        return (0..9).map { index ->
+            val rgb = prefs.getInt("fg_preset_$index", -1)
+            if (rgb != -1) {
+                Color(
+                    android.graphics.Color.red(rgb) / 255f,
+                    android.graphics.Color.green(rgb) / 255f,
+                    android.graphics.Color.blue(rgb) / 255f
+                )
+            } else {
+                PresetColors.defaultForegroundPresets[index]
+            }
+        }
+    }
+
+    private fun loadBgPresetColors(): List<Color> {
+        return (0..9).map { index ->
+            val rgb = prefs.getInt("bg_preset_$index", -1)
+            if (rgb != -1) {
+                Color(
+                    android.graphics.Color.red(rgb) / 255f,
+                    android.graphics.Color.green(rgb) / 255f,
+                    android.graphics.Color.blue(rgb) / 255f
+                )
+            } else {
+                PresetColors.defaultBackgroundPresets[index]
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // 자동 스캔 & 연결 + 상태 관찰
+    // ═══════════════════════════════════════════════════════════
 
     @SuppressLint("MissingPermission")
-    fun playEffect(context: Context, effect: UiEffectType) {
-        val device = (_deviceConnectionState.value as? DeviceConnectionState.Connected)?.device
-        if (device == null) {
-            Log.e(TAG, "No device connected")
-            return
-        }
-
-        val settings = effectSettingsMapInternal[getEffectKey(effect)] ?: EffectSettings.defaultFor(effect)
-
+    private fun checkExistingConnection() {
         try {
-            val payload = when (effect) {
-                is UiEffectType.On -> {
-                    LSEffectPayload.Effects.on(
-                        color = settings.color,
-                        transit = settings.transit
+            val connected = LSBluetooth.connectedDevices()
+            val lsDevice = connected.firstOrNull { it.name?.endsWith("LS") == true }
+
+            if (lsDevice != null) {
+                _deviceConnectionState.value = DeviceConnectionState.Connected(lsDevice)
+                Log.d(TAG, "✅ Found existing connection: ${lsDevice.mac}")
+            } else {
+                Log.d(TAG, "⚠️ No existing connection")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error checking existing connection: ${e.message}")
+        }
+    }
+
+    private fun observeDeviceStates() {
+        viewModelScope.launch {
+            LSBluetooth.observeDeviceStates().collect { states ->
+                if (_deviceConnectionState.value is DeviceConnectionState.Scanning) {
+                    return@collect
+                }
+
+                val connectedState = states.values.firstOrNull { state ->
+                    state.connectionState is ConnectionState.Connected
+                }
+
+                if (connectedState != null) {
+                    val device = Device(
+                        mac = connectedState.macAddress,
+                        name = connectedState.deviceInfo?.deviceName ?: "Unknown",
+                        rssi = connectedState.deviceInfo?.rssi
                     )
-                }
-                is UiEffectType.Off -> {
-                    LSEffectPayload.Effects.off(transit = settings.transit)
-                }
-                is UiEffectType.Strobe -> {
-                    LSEffectPayload.Effects.strobe(
-                        period = settings.period,
-                        color = settings.color,
-                        backgroundColor = settings.backgroundColor
-                    )
-                }
-                is UiEffectType.Blink -> {
-                    LSEffectPayload.Effects.blink(
-                        period = settings.period,
-                        color = settings.color,
-                        backgroundColor = settings.backgroundColor
-                    )
-                }
-                is UiEffectType.Breath -> {
-                    LSEffectPayload.Effects.breath(
-                        period = settings.period,
-                        color = settings.color,
-                        backgroundColor = settings.backgroundColor
-                    )
-                }
-                is UiEffectType.Custom -> {
-                    when (effect.baseType) {
-                        BaseEffectType.ON -> LSEffectPayload.Effects.on(
-                            color = settings.color,
-                            transit = settings.transit
-                        )
-                        BaseEffectType.OFF -> LSEffectPayload.Effects.off(transit = settings.transit)
-                        BaseEffectType.STROBE -> LSEffectPayload.Effects.strobe(
-                            period = settings.period,
-                            color = settings.color,
-                            backgroundColor = settings.backgroundColor
-                        )
-                        BaseEffectType.BLINK -> LSEffectPayload.Effects.blink(
-                            period = settings.period,
-                            color = settings.color,
-                            backgroundColor = settings.backgroundColor
-                        )
-                        BaseEffectType.BREATH -> LSEffectPayload.Effects.breath(
-                            period = settings.period,
-                            color = settings.color,
-                            backgroundColor = settings.backgroundColor
-                        )
+
+                    if (_deviceConnectionState.value !is DeviceConnectionState.Connected) {
+                        _deviceConnectionState.value = DeviceConnectionState.Connected(device)
+                        Log.d(TAG, "✅ Device connected via observeDeviceStates: ${device.mac}")
+                    }
+                } else {
+                    if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
+                        _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
+                        Log.d(TAG, "⚠️ Device disconnected via observeDeviceStates")
                     }
                 }
-                is UiEffectType.EffectList -> {
-                    LSEffectPayload.Effects.on(
-                        color = settings.color,
-                        transit = settings.transit
-                    )
-                }
             }
-
-            device.sendEffect(payload)
-            _playingEffect.value = effect
-            Log.d(TAG, "Effect played: ${effect.displayName}")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to play effect: ${e.message}")
         }
     }
 
     @SuppressLint("MissingPermission")
-    fun stopEffect(context: Context) {
-        val device = (_deviceConnectionState.value as? DeviceConnectionState.Connected)?.device
-        if (device == null) {
-            Log.e(TAG, "No device connected")
+    fun startAutoScan(context: Context) {
+        if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
+            Log.d(TAG, "✅ Already connected, skipping auto scan")
             return
         }
 
-        try {
-            val payload = LSEffectPayload.Effects.off(transit = 0)
-            device.sendEffect(payload)
-            _playingEffect.value = null
-            Log.d(TAG, "Effect stopped")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to stop effect: ${e.message}")
+        if (!PermissionUtils.hasAllBluetoothPermissions(context)) {
+            _errorMessage.value = "Bluetooth 권한이 필요합니다"
+            return
+        }
+
+        scanJob?.cancel()
+        scanJob = viewModelScope.launch {
+            try {
+                val bondedDevices = LSBluetooth.bondedDevices()
+                    .filter { it.name?.endsWith("LS") == true }
+
+                if (bondedDevices.isEmpty()) {
+                    _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
+                    Log.d(TAG, "❌ No bonded LS devices")
+                    return@launch
+                }
+
+                Log.d(TAG, "✅ Found ${bondedDevices.size} bonded LS devices")
+
+                _deviceConnectionState.value = DeviceConnectionState.Scanning
+
+                val scannedDevices = mutableMapOf<String, Device>()
+
+                LSBluetooth.startScan { device ->
+                    if (bondedDevices.any { it.mac == device.mac }) {
+                        scannedDevices[device.mac] = device
+                        Log.d(TAG, "📡 Scanned: ${device.mac} RSSI=${device.rssi}")
+                    }
+                }
+
+                delay(SCAN_DURATION_MS)
+
+                LSBluetooth.stopScan()
+
+                val bestDevice = scannedDevices.values
+                    .filter { it.rssi != null }
+                    .maxByOrNull { it.rssi!! }
+
+                if (bestDevice == null) {
+                    _deviceConnectionState.value = DeviceConnectionState.ScanFailed
+                    Log.d(TAG, "❌ No devices found during scan")
+                    return@launch
+                }
+
+                Log.d(TAG, "✅ Best device: ${bestDevice.mac} RSSI=${bestDevice.rssi}")
+
+                connectToDevice(bestDevice)
+
+            } catch (e: Exception) {
+                _deviceConnectionState.value = DeviceConnectionState.ScanFailed
+                Log.e(TAG, "❌ Auto scan failed: ${e.message}")
+            }
         }
     }
 
-    fun updateSettings(effect: UiEffectType, newSettings: EffectSettings) {
-        val key = getEffectKey(effect)
-        effectSettingsMapInternal[key] = newSettings
-        _effectSettingsMap.value = effectSettingsMapInternal.toMap()
-        saveSettings(key, newSettings)
+    @SuppressLint("MissingPermission")
+    private fun connectToDevice(device: Device) {
+        device.connect(
+            onConnected = {
+                _deviceConnectionState.value = DeviceConnectionState.Connected(device)
+                Log.d(TAG, "✅ Auto connected: ${device.mac}")
+            },
+            onFailed = { error ->
+                _deviceConnectionState.value = DeviceConnectionState.ScanFailed
+                _errorMessage.value = "연결 실패: ${error.message}"
+                Log.e(TAG, "❌ Connection failed: ${error.message}")
+            }
+        )
     }
 
-    fun getSettings(effect: UiEffectType): EffectSettings {
-        val key = getEffectKey(effect)
-        return effectSettingsMapInternal[key] ?: EffectSettings.defaultFor(effect)
+    fun retryAutoScan(context: Context) {
+        startAutoScan(context)
     }
 
-    fun addCustomEffect(name: String, baseType: BaseEffectType) {
+    // ═══════════════════════════════════════════════════════════
+    // EffectList 시퀀스 생성
+    // ═══════════════════════════════════════════════════════════
+
+    private fun createEffectListSequence(number: Int): List<Pair<Long, ByteArray>> {
+        return when (number) {
+            1 -> listOf(
+                0L to LSEffectPayload.Effects.breath(40, Colors.RED, Colors.BLACK).toByteArray(),
+                2000L to LSEffectPayload.Effects.breath(50, LightStickColor(255, 192, 203), Colors.BLACK).toByteArray(),
+                4000L to LSEffectPayload.Effects.on(Colors.WHITE, transit = 30).toByteArray(),
+                6000L to LSEffectPayload.Effects.breath(45, LightStickColor(255, 165, 0), Colors.BLACK).toByteArray()
+            )
+            2 -> listOf(
+                0L to LSEffectPayload.Effects.strobe(5, Colors.MAGENTA, Colors.BLACK).toByteArray(),
+                1000L to LSEffectPayload.Effects.blink(8, Colors.CYAN, Colors.BLACK).toByteArray(),
+                2000L to LSEffectPayload.Effects.strobe(3, Colors.YELLOW, Colors.BLACK).toByteArray(),
+                3000L to LSEffectPayload.Effects.strobe(6, Colors.GREEN, Colors.BLACK).toByteArray()
+            )
+            3 -> listOf(
+                0L to LSEffectPayload.Effects.strobe(10, Colors.RED, Colors.BLACK).toByteArray(),
+                1500L to LSEffectPayload.Effects.on(Colors.WHITE, transit = 10).toByteArray(),
+                2500L to LSEffectPayload.Effects.strobe(8, LightStickColor(255, 165, 0), Colors.BLACK).toByteArray(),
+                4000L to LSEffectPayload.Effects.blink(15, Colors.YELLOW, Colors.BLACK).toByteArray()
+            )
+            4 -> listOf(
+                0L to LSEffectPayload.Effects.blink(12, Colors.YELLOW, Colors.BLACK).toByteArray(),
+                1200L to LSEffectPayload.Effects.strobe(7, LightStickColor(128, 0, 128), Colors.BLACK).toByteArray(),
+                2400L to LSEffectPayload.Effects.blink(10, Colors.CYAN, Colors.BLACK).toByteArray(),
+                3600L to LSEffectPayload.Effects.on(Colors.GREEN, transit = 15).toByteArray()
+            )
+            5 -> listOf(
+                0L to LSEffectPayload.Effects.breath(50, Colors.CYAN, Colors.BLUE).toByteArray(),
+                2500L to LSEffectPayload.Effects.on(LightStickColor(135, 206, 235), transit = 40).toByteArray(),
+                5000L to LSEffectPayload.Effects.breath(60, Colors.BLUE, Colors.BLACK).toByteArray(),
+                7500L to LSEffectPayload.Effects.on(Colors.WHITE, transit = 50).toByteArray()
+            )
+            6 -> listOf(
+                0L to LSEffectPayload.Effects.breath(60, Colors.WHITE, Colors.BLACK).toByteArray(),
+                3000L to LSEffectPayload.Effects.on(LightStickColor(255, 192, 203), transit = 50).toByteArray(),
+                6000L to LSEffectPayload.Effects.breath(70, LightStickColor(135, 206, 235), Colors.BLACK).toByteArray(),
+                9000L to LSEffectPayload.Effects.on(Colors.WHITE, transit = 60).toByteArray()
+            )
+            else -> listOf(
+                0L to LSEffectPayload.Effects.on(Colors.WHITE).toByteArray()
+            )
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Custom Effect CRUD
+    // ═══════════════════════════════════════════════════════════
+
+    fun addCustomEffect(name: String, baseType: UiEffectType.BaseEffectType) {
         try {
-            val id = UUID.randomUUID().toString()
-            val custom = UiEffectType.Custom(id, baseType, name)
+            val custom = UiEffectType.Custom(
+                id = UUID.randomUUID().toString(),
+                baseType = baseType,
+                name = name
+            )
 
             val current = _customEffects.value.toMutableList()
             current.add(custom)
             _customEffects.value = current
 
-            saveCustomEffects()
-
-            val defaultSettings = EffectSettings.defaultFor(custom)
-            effectSettingsMapInternal[getEffectKey(custom)] = defaultSettings
+            val key = getEffectKey(custom)
+            val settings = EffectSettings.defaultFor(custom)
+            effectSettingsMapInternal[key] = settings
             _effectSettingsMap.value = effectSettingsMapInternal.toMap()
+            saveSettings(key, settings)
 
-            Log.d(TAG, "Custom effect added: $name")
+            saveCustomEffects()
+            Log.d(TAG, "✅ Added custom effect: $name (${custom.id})")
 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to add custom effect: ${e.message}")
+            Log.e(TAG, "❌ Failed to add custom effect: ${e.message}")
         }
     }
 
@@ -336,164 +501,109 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
             current.remove(custom)
             _customEffects.value = current
 
-            saveCustomEffects()
-
-            effectSettingsMapInternal.remove(getEffectKey(custom))
+            val key = getEffectKey(custom)
+            effectSettingsMapInternal.remove(key)
             _effectSettingsMap.value = effectSettingsMapInternal.toMap()
 
+            prefs.edit().apply {
+                remove("${key}_broadcasting")
+                remove("${key}_color_rgb")
+                remove("${key}_bg_color_rgb")
+                remove("${key}_period")
+                remove("${key}_transit")
+                remove("${key}_randomColor")
+                remove("${key}_randomDelay")
+                remove("${key}_fade")
+                apply()
+            }
+
+            saveCustomEffects()
+
+            if (_selectedEffect.value == custom) {
+                _selectedEffect.value = null
+                _playingEffect.value = null
+                _isPlaying.value = false
+            }
+
+            Log.d(TAG, "✅ Deleted custom effect: ${custom.name}")
+
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to delete custom effect: ${e.message}")
+            Log.e(TAG, "❌ Failed to delete custom effect: ${e.message}")
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Auto-Reconnect
-    // ═══════════════════════════════════════════════════════════
-
-    @SuppressLint("MissingPermission")
-    fun startAutoReconnect() {
-        viewModelScope.launch {
-            if (!DeviceSettings.getAutoReconnectEnabled()) {
-                _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
-                Log.d(TAG, "❌ Auto-reconnect disabled")
-                return@launch
-            }
-
-            try {
-                val bondedDevices = LSBluetooth.bondedDevices()
-                if (bondedDevices.isEmpty()) {
-                    _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
-                    Log.d(TAG, "📱 No bonded devices")
-                    return@launch
-                }
-
-                val bondedLsDevices = bondedDevices.filter { it.name?.endsWith("LS") == true }
-                if (bondedLsDevices.isEmpty()) {
-                    _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
-                    Log.d(TAG, "📱 No bonded LS devices")
-                    return@launch
-                }
-
-                val bondedMacAddresses = bondedLsDevices.map { it.mac }.toSet()
-                Log.d(TAG, "📱 Found ${bondedLsDevices.size} bonded LS devices")
-
-                _deviceConnectionState.value = DeviceConnectionState.Scanning
-                Log.d(TAG, "🔍 Scanning for bonded LS devices...")
-
-                val scannedDevices = mutableListOf<Device>()
-
-                LSBluetooth.startScan { device ->
-                    if (device.name?.endsWith("LS") == true && device.mac in bondedMacAddresses) {
-                        Log.d(TAG, "📱 Found bonded LS device: ${device.mac} | ${device.name} | RSSI: ${device.rssi}")
-
-                        val existingIndex = scannedDevices.indexOfFirst { it.mac == device.mac }
-                        if (existingIndex >= 0) {
-                            scannedDevices[existingIndex] = device
-                        } else {
-                            scannedDevices.add(device)
-                        }
-                    }
-                }
-
-                delay(3000)
-
-                LSBluetooth.stopScan()
-                Log.d(TAG, "🛑 Scan stopped. Found ${scannedDevices.size} bonded LS devices")
-
-                if (scannedDevices.isEmpty()) {
-                    _deviceConnectionState.value = DeviceConnectionState.ScanFailed("등록된 LS 기기를 찾을 수 없습니다")
-                    Log.d(TAG, "❌ No bonded LS devices found in scan")
-                    return@launch
-                }
-
-                val sortedDevices = scannedDevices.sortedByDescending { it.rssi ?: -100 }
-
-                val targetDevice = sortedDevices.first()
-                Log.d(TAG, "🎯 Target device: ${targetDevice.mac} (${targetDevice.name}) RSSI: ${targetDevice.rssi}")
-
-                Log.d(TAG, "🔗 Connecting to ${targetDevice.mac}...")
-
-                var connectionSuccess = false
-
-                targetDevice.connect(
-                    onConnected = {
-                        connectionSuccess = true
-                        _deviceConnectionState.value = DeviceConnectionState.Connected(targetDevice)
-                        Log.d(TAG, "✅ Connected successfully!")
-
-                        viewModelScope.launch {
-                            playConnectionAnimation(targetDevice)
-                        }
-                    },
-                    onFailed = { error ->
-                        _deviceConnectionState.value = DeviceConnectionState.ScanFailed("연결 실패: ${error.message}")
-                        Log.e(TAG, "❌ Connection failed: ${error.message}")
-                    }
-                )
-
-                delay(5000)
-
-                if (!connectionSuccess) {
-                    _deviceConnectionState.value = DeviceConnectionState.ScanFailed("연결 타임아웃")
-                    Log.d(TAG, "⏱️ Connection timeout")
-                }
-
-            } catch (e: SecurityException) {
-                _deviceConnectionState.value = DeviceConnectionState.ScanFailed("권한 오류: ${e.message}")
-                Log.e(TAG, "❌ Permission error: ${e.message}")
-            } catch (e: Exception) {
-                _deviceConnectionState.value = DeviceConnectionState.ScanFailed("오류: ${e.message}")
-                Log.e(TAG, "❌ Auto-reconnect error: ${e.message}")
-            }
-        }
-    }
-
-//    @SuppressLint("MissingPermission")
-//    private suspend fun playConnectionAnimation(device: Device) {
-//        try {
-//            Log.d(TAG, "🎬 Playing connection animation...")
-//
-//            repeat(3) {
-//                val payload = LSEffectPayload.Effects.blink(
-//                    period = 5,
-//                    color = Colors.WHITE,
-//                    backgroundColor = Colors.BLACK
-//                )
-//                device.sendEffect(payload)
-//
-//            }
-//            delay(1000)
-//            device.sendEffect(LSEffectPayload.Effects.off(transit = 0))
-//
-//            Log.d(TAG, "✅ Connection animation completed")
-//        } catch (e: Exception) {
-//            Log.e(TAG, "Animation error: ${e.message}")
-//        }
-//    }
-
-    @SuppressLint("MissingPermission")
-    private suspend fun playConnectionAnimation(device: Device) {
+    fun renameCustomEffect(customId: String, newName: String) {
         try {
-            Log.d(TAG, "🎬 Playing connection animation (Timeline-based)...")
-            val frames = listOf(
-                // 0ms: Blink 시작
-                0L to LSEffectPayload.Effects.off().toByteArray(),
-                250L to LSEffectPayload.Effects.on(Colors.WHITE).toByteArray(),
-                500L to LSEffectPayload.Effects.off().toByteArray(),
-                750L to LSEffectPayload.Effects.on(Colors.WHITE).toByteArray()
+            val current = _customEffects.value.toMutableList()
+            val index = current.indexOfFirst { it.id == customId }
+
+            if (index < 0) return
+
+            val old = current[index]
+            val renamed = UiEffectType.Custom(
+                id = old.id,
+                baseType = old.baseType,
+                name = newName
             )
-            device.play(frames)
-            delay(2500)
+
+            current[index] = renamed
+            _customEffects.value = current
+
+            if (_selectedEffect.value == old) {
+                _selectedEffect.value = renamed
+            }
+            if (_playingEffect.value == old) {
+                _playingEffect.value = renamed
+            }
+
+            saveCustomEffects()
+            Log.d(TAG, "✅ Renamed custom effect: '$customId' -> '$newName'")
 
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Animation error: ${e.message}")
+            Log.e(TAG, "❌ Failed to rename custom effect: ${e.message}")
         }
     }
 
+    private fun saveCustomEffects() {
+        try {
+            val jsonArray = JSONArray()
+            _customEffects.value.forEach { custom ->
+                val jsonObject = JSONObject()
+                jsonObject.put("id", custom.id)
+                jsonObject.put("name", custom.name)
+                jsonObject.put("baseType", custom.baseType.name)
+                jsonArray.put(jsonObject)
+            }
 
-    // ═══════════════════════════════════════════════════════════
-    // Settings Helper
-    // ═══════════════════════════════════════════════════════════
+            prefs.edit().putString(KEY_CUSTOM_EFFECTS, jsonArray.toString()).apply()
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save custom effects: ${e.message}")
+        }
+    }
+
+    private fun loadCustomEffects() {
+        try {
+            val json = prefs.getString(KEY_CUSTOM_EFFECTS, null) ?: return
+            val jsonArray = JSONArray(json)
+
+            val customs = mutableListOf<UiEffectType.Custom>()
+            for (i in 0 until jsonArray.length()) {
+                val jsonObject = jsonArray.getJSONObject(i)
+                val custom = UiEffectType.Custom(
+                    id = jsonObject.getString("id"),
+                    name = jsonObject.getString("name"),
+                    baseType = UiEffectType.BaseEffectType.valueOf(jsonObject.getString("baseType"))
+                )
+                customs.add(custom)
+            }
+
+            _customEffects.value = customs
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load custom effects: ${e.message}")
+        }
+    }
 
     fun getEffectKey(effect: UiEffectType): String {
         return when (effect) {
@@ -502,20 +612,23 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
             is UiEffectType.Strobe -> "STROBE"
             is UiEffectType.Blink -> "BLINK"
             is UiEffectType.Breath -> "BREATH"
-            is UiEffectType.Custom -> "CUSTOM_${effect.id}"
             is UiEffectType.EffectList -> "EFFECT_LIST_${effect.number}"
+            is UiEffectType.Custom -> "CUSTOM_${effect.id}"
         }
     }
 
     private fun loadAllSettings() {
         try {
-            val effectKeys = listOf("ON", "OFF", "STROBE", "BLINK", "BREATH")
+            val effectKeys = listOf(
+                "ON", "OFF", "STROBE", "BLINK", "BREATH",
+                "EFFECT_LIST_1", "EFFECT_LIST_2", "EFFECT_LIST_3",
+                "EFFECT_LIST_4", "EFFECT_LIST_5", "EFFECT_LIST_6"
+            )
 
             effectKeys.forEach { effectKey ->
                 val settings = loadSettings(effectKey)
                 if (settings != null) {
                     effectSettingsMapInternal[effectKey] = settings
-                    Log.d(TAG, "Loaded settings for $effectKey")
                 }
             }
 
@@ -533,7 +646,10 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                 "STROBE" -> UiEffectType.Strobe
                 "BLINK" -> UiEffectType.Blink
                 "BREATH" -> UiEffectType.Breath
-                else -> return null
+                else -> {
+                    val num = effectKey.substringAfter("EFFECT_LIST_").toIntOrNull() ?: 1
+                    UiEffectType.EffectList(num)
+                }
             }
 
             if (!prefs.contains("${effectKey}_color_rgb")) {
@@ -573,18 +689,17 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                 putInt("${effectKey}_fade", settings.fade)
                 apply()
             }
-            Log.d(TAG, "Saved settings for $effectKey")
         } catch (e: Exception) {
             Log.e(TAG, "Error saving settings for $effectKey: ${e.message}")
         }
     }
 
-    private fun colorToRgb(color: Color): Int {
+    private fun colorToRgb(color: LightStickColor): Int {
         return (color.r shl 16) or (color.g shl 8) or color.b
     }
 
-    private fun rgbToColor(rgb: Int): Color {
-        return Color(
+    private fun rgbToColor(rgb: Int): LightStickColor {
+        return LightStickColor(
             r = (rgb shr 16) and 0xFF,
             g = (rgb shr 8) and 0xFF,
             b = rgb and 0xFF
@@ -592,49 +707,198 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // ═══════════════════════════════════════════════════════════
-    // Custom Effects
+    // Effect 제어
     // ═══════════════════════════════════════════════════════════
 
-    private fun loadCustomEffects() {
+    fun selectEffect(effectType: UiEffectType) {
+        val key = getEffectKey(effectType)
+
+        if (_selectedEffect.value == effectType) {
+            _selectedEffect.value = null
+            return
+        }
+
+        _selectedEffect.value = effectType
+        _currentSettings.value = effectSettingsMapInternal[key]
+            ?: EffectSettings.defaultFor(effectType)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun playEffect(context: Context, effectType: UiEffectType) {
+        if (!PermissionUtils.hasAllBluetoothPermissions(context)) {
+            _errorMessage.value = "Bluetooth 권한이 필요합니다"
+            return
+        }
+
         try {
-            val json = prefs.getString(KEY_CUSTOM_EFFECTS, null) ?: return
-            val jsonArray = JSONArray(json)
-            val effects = mutableListOf<UiEffectType.Custom>()
+            val connected = LSBluetooth.connectedDevices()
+            val lsDevice = connected.firstOrNull { it.name?.endsWith("LS") == true }
 
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                val id = obj.getString("id")
-                val name = obj.getString("name")
-                val baseType = BaseEffectType.valueOf(obj.getString("baseType"))
-
-                effects.add(UiEffectType.Custom(id, baseType, name))
+            if (lsDevice == null) {
+                _errorMessage.value = "연결된 디바이스가 없습니다"
+                return
             }
 
-            _customEffects.value = effects
-            Log.d(TAG, "Loaded ${effects.size} custom effects")
+            val settings = effectSettingsMapInternal[getEffectKey(effectType)]
+                ?: EffectSettings.defaultFor(effectType)
+
+            if (effectType is UiEffectType.EffectList) {
+                effectListJob?.cancel()
+
+                val frames = createEffectListSequence(effectType.number)
+
+                effectListJob = viewModelScope.launch {
+                    while (isActive) {
+                        lsDevice.play(frames)
+
+                        val maxTimestamp = frames.maxOfOrNull { it.first } ?: 0L
+                        delay(maxTimestamp + 500)
+                    }
+                }
+
+                _playingEffect.value = effectType
+                _isPlaying.value = true
+                _errorMessage.value = null
+
+                Log.d(TAG, "✅ EffectList play started: ${effectType.displayName}")
+                return
+            }
+
+            val payload = createPayload(effectType, settings) ?: return
+
+            lsDevice.sendEffect(payload)
+
+            _playingEffect.value = effectType
+            _isPlaying.value = true
+            _errorMessage.value = null
+
+            Log.d(TAG, "✅ Effect sent: ${effectType.displayName}")
 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load custom effects: ${e.message}")
+            _errorMessage.value = "Effect 전송 실패: ${e.message}"
+            Log.e(TAG, "❌ playEffect error: ${e.message}")
         }
     }
 
-    private fun saveCustomEffects() {
+    @SuppressLint("MissingPermission")
+    fun stopEffect(context: Context) {
         try {
-            val jsonArray = JSONArray()
-            _customEffects.value.forEach { custom ->
-                val obj = JSONObject().apply {
-                    put("id", custom.id)
-                    put("name", custom.name)
-                    put("baseType", custom.baseType.name)
-                }
-                jsonArray.put(obj)
-            }
+            effectListJob?.cancel()
+            effectListJob = null
 
-            prefs.edit().putString(KEY_CUSTOM_EFFECTS, jsonArray.toString()).apply()
-            Log.d(TAG, "Saved ${_customEffects.value.size} custom effects")
+            val connected = LSBluetooth.connectedDevices()
+            val lsDevice = connected.firstOrNull { it.name?.endsWith("LS") == true }
+
+            lsDevice?.sendEffect(LSEffectPayload.Effects.off())
+
+            _playingEffect.value = null
+            _isPlaying.value = false
+
+            Log.d(TAG, "✅ Effect stopped")
 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to save custom effects: ${e.message}")
+            Log.e(TAG, "❌ stopEffect error: ${e.message}")
         }
+    }
+
+    private fun createPayload(effectType: UiEffectType, settings: EffectSettings): LSEffectPayload? {
+        return try {
+            when (effectType) {
+                is UiEffectType.On -> LSEffectPayload.Effects.on(
+                    color = settings.color,
+                    transit = settings.transit,
+                    randomColor = if (settings.randomColor) 1 else 0,
+                    randomDelay = settings.randomDelay,
+                    broadcasting = if (settings.broadcasting) 1 else 0
+                )
+                is UiEffectType.Off -> LSEffectPayload.Effects.off(
+                    transit = settings.transit,
+                    randomDelay = settings.randomDelay,
+                    broadcasting = if (settings.broadcasting) 1 else 0
+                )
+                is UiEffectType.Strobe -> LSEffectPayload.Effects.strobe(
+                    period = settings.period,
+                    color = settings.color,
+                    backgroundColor = settings.backgroundColor,
+                    randomColor = if (settings.randomColor) 1 else 0,
+                    randomDelay = settings.randomDelay,
+                    broadcasting = if (settings.broadcasting) 1 else 0
+                )
+                is UiEffectType.Blink -> LSEffectPayload.Effects.blink(
+                    period = settings.period,
+                    color = settings.color,
+                    backgroundColor = settings.backgroundColor,
+                    randomColor = if (settings.randomColor) 1 else 0,
+                    randomDelay = settings.randomDelay,
+                    broadcasting = if (settings.broadcasting) 1 else 0
+                )
+                is UiEffectType.Breath -> LSEffectPayload.Effects.breath(
+                    period = settings.period,
+                    color = settings.color,
+                    backgroundColor = settings.backgroundColor,
+                    randomColor = if (settings.randomColor) 1 else 0,
+                    randomDelay = settings.randomDelay,
+                    broadcasting = if (settings.broadcasting) 1 else 0
+                )
+                is UiEffectType.EffectList -> null
+                is UiEffectType.Custom -> {
+                    when (effectType.baseType) {
+                        UiEffectType.BaseEffectType.ON -> createPayload(UiEffectType.On, settings)
+                        UiEffectType.BaseEffectType.OFF -> createPayload(UiEffectType.Off, settings)
+                        UiEffectType.BaseEffectType.STROBE -> createPayload(UiEffectType.Strobe, settings)
+                        UiEffectType.BaseEffectType.BLINK -> createPayload(UiEffectType.Blink, settings)
+                        UiEffectType.BaseEffectType.BREATH -> createPayload(UiEffectType.Breath, settings)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "createPayload error: ${e.message}")
+            null
+        }
+    }
+
+    fun updateColor(context: Context, color: LightStickColor) {
+        val current = _selectedEffect.value ?: return
+        val settings = _currentSettings.value.copy(color = color)
+        _currentSettings.value = settings
+        saveEffectSettings(current, settings)
+        if (_isPlaying.value) playEffect(context, current)
+    }
+
+    fun updateBackgroundColor(context: Context, color: LightStickColor) {
+        val current = _selectedEffect.value ?: return
+        val settings = _currentSettings.value.copy(backgroundColor = color)
+        _currentSettings.value = settings
+        saveEffectSettings(current, settings)
+        if (_isPlaying.value) playEffect(context, current)
+    }
+
+    fun updateSettings(context: Context, newSettings: EffectSettings) {
+        val current = _selectedEffect.value ?: return
+        _currentSettings.value = newSettings
+        saveEffectSettings(current, newSettings)
+        if (_isPlaying.value) playEffect(context, current)
+    }
+
+    fun saveEffectSettings(effectType: UiEffectType, settings: EffectSettings) {
+        val key = getEffectKey(effectType)
+        effectSettingsMapInternal[key] = settings
+        saveSettings(key, settings)
+        _effectSettingsMap.value = effectSettingsMapInternal.toMap()
+    }
+
+    fun getEffectSettings(effectType: UiEffectType): EffectSettings {
+        val key = getEffectKey(effectType)
+        return effectSettingsMapInternal[key] ?: EffectSettings.defaultFor(effectType)
+    }
+
+    fun clearError() {
+        _errorMessage.value = null
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        scanJob?.cancel()
+        effectListJob?.cancel()
     }
 }
