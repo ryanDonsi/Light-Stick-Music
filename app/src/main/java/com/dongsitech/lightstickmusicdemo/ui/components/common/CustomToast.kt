@@ -13,14 +13,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.dongsitech.lightstickmusicdemo.R
+import com.dongsitech.lightstickmusicdemo.ui.theme.customColors
+import com.dongsitech.lightstickmusicdemo.ui.theme.customTextStyles
 import kotlinx.coroutines.delay
 
 /**
- * 🎨 Custom Toast (체크 아이콘 포함)
+ * Custom Toast (Figma 디자인 적용)
  *
  * @param message 표시할 메시지
  * @param isVisible 토스트 표시 여부
@@ -55,28 +55,24 @@ fun CustomToast(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF2C2C2E))  // 어두운 배경
+                    .background(Color.Black.copy(alpha = 0.8f))
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
-                // ✅ 체크 아이콘
                 Icon(
                     painter = painterResource(id = R.drawable.ic_check),
                     contentDescription = "Success",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = MaterialTheme.customColors.primary,
                     modifier = Modifier.size(20.dp)
                 )
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // ✅ 메시지
                 Text(
                     text = message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = Color.White,
-                    fontSize = 14.sp
+                    style = MaterialTheme.customTextStyles.toastMedium,
+                    color = MaterialTheme.customColors.onSurface
                 )
             }
         }

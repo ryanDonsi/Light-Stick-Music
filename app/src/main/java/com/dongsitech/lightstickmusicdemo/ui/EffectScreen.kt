@@ -91,7 +91,7 @@ fun EffectScreen(
     Scaffold(
         topBar = {
             TopBarCentered(
-                title = "이펙트",
+                title = "Effect Control",
                 actionText = "LIST",
                 onActionClick = { showEffectListSheet = true }
             )

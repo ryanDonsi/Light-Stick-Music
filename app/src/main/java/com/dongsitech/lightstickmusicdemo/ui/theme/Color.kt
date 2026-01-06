@@ -29,6 +29,7 @@ val Outline = Color(0xFF424242)
 val Divider = Color(0xFF323232)
 val Background = Color(0xFF1F1F1F)
 val Error = Color(0xFFFF404E)
+val TextTertiary = Color(0xFF9CA3AF)  // 재생시간, 부가정보 텍스트용
 
 // Effect
 val Dimmed = Color(0x80000000)
@@ -53,9 +54,9 @@ val OnSurfaceLevel2 = Color(0x24111111)
 val OnSurfaceLevel3 = Color(0x61111111)
 val OnSurfaceLevel4 = Color(0x85111111)
 
-// Gradient
-val GradientStart = Color(0xFF3617CE)
-val GradientEnd = Color(0xFF758AFF)
+// Gradient (진행바용 - Figma 명세)
+val GradientStart = Color(0xFF9D79BC)  // ✅ 수정: #9D79BC
+val GradientEnd = Color(0xFF8A40C4)    // ✅ 수정: #8A40C4
 
 
 // ═══════════════════════════════════════════════════════════
@@ -80,6 +81,7 @@ data class CustomColors(
     val divider: Color,
     val background: Color,
     val error: Color,
+    val textTertiary: Color,  // ✅ 추가
 
     val dimmed: Color,
     val toastBg: Color,
@@ -125,6 +127,7 @@ val DefaultCustomColors = CustomColors(
     divider = Divider,
     background = Background,
     error = Error,
+    textTertiary = TextTertiary,  // ✅ 추가
 
     dimmed = Dimmed,
     toastBg = ToastBg,
@@ -157,10 +160,38 @@ internal val LocalCustomColors =
     staticCompositionLocalOf { DefaultCustomColors }
 
 /**
+ * MaterialTheme에서 커스텀 컬러에 접근
+ *
  * 사용 예:
- * MaterialTheme.customColors.primary
- * MaterialTheme.customColors.surface
+ * ```
+ * Text(
+ *     text = "Title",
+ *     color = MaterialTheme.customColors.onSurface
+ * )
+ * ```
  */
 val MaterialTheme.customColors: CustomColors
     @Composable
     get() = LocalCustomColors.current
+
+// ═══════════════════════════════════════════════════════════
+// 확장 속성 (자주 사용되는 투명도 변형)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Glass morphism 카드 배경 (OnSurface 5%)
+ */
+val CustomColors.surfaceGlass: Color
+    get() = onSurface.copy(alpha = 0.05f)
+
+/**
+ * Glass morphism 카드 테두리 (OnSurface 16%)
+ */
+val CustomColors.surfaceGlassBorder: Color
+    get() = onSurface.copy(alpha = 0.16f)
+
+/**
+ * 재생 중 강조 배경 (Primary 22%)
+ */
+val CustomColors.primaryGlass: Color
+    get() = primary.copy(alpha = 0.22f)

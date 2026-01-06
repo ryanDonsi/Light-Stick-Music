@@ -148,9 +148,8 @@ fun BaseButton(
             // ✅ Normal 상태
             Text(
                 text = text,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
+                style = MaterialTheme.customTextStyles.buttonSmall,
+                color = MaterialTheme.customColors.onPrimaryContainer
             )
         }
     }
@@ -207,7 +206,8 @@ fun BaseButton(
                 icon()
                 Text(
                     text = text,
-                    style = MaterialTheme.customTextStyles.buttonSmall
+                    style = MaterialTheme.customTextStyles.buttonSmall,
+                    color = MaterialTheme.customColors.onPrimaryContainer
                 )
             }
         }

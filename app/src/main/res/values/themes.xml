@@ -1,7 +1,9 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+    <!-- ✅ Material3 Base Theme -->
     <style name="Base.Theme.LightStickMusicPlayerDemo" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
     </style>
+
+    <!-- ✅ App Theme -->
     <style name="Theme.LightStickMusicPlayerDemo" parent="Base.Theme.LightStickMusicPlayerDemo" />
 </resources>

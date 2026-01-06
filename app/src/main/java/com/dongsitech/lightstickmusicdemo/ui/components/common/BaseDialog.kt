@@ -83,7 +83,7 @@ fun BaseDialog(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 20.dp)
                 .wrapContentHeight()
         ) {
 
@@ -172,6 +172,8 @@ fun BaseDialog(
                     ) {
                         content()
                     }
+
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     // ===== Buttons =====
                     Row(
@@ -323,6 +325,8 @@ fun BaseDialog(
                     ) {
                         content()
                     }
+
+                    Spacer(modifier = Modifier.height(24.dp))
 
                     // 확인 버튼
                     BaseButton(

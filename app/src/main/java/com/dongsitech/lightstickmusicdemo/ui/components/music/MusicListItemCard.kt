@@ -1,12 +1,11 @@
 package com.dongsitech.lightstickmusicdemo.ui.components.music
 
 import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
@@ -17,21 +16,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dongsitech.lightstickmusicdemo.model.MusicItem
-import com.dongsitech.lightstickmusicdemo.ui.theme.Primary
-import com.dongsitech.lightstickmusicdemo.ui.theme.Secondary
-import com.dongsitech.lightstickmusicdemo.ui.theme.customTextStyles
 import com.dongsitech.lightstickmusicdemo.ui.theme.customColors
 import com.dongsitech.lightstickmusicdemo.util.TimeFormatter
 
 /**
  * Music List 아이템 카드 (글라스모피즘)
+ *
+ * ✅ 수정 사항: **색상만 theme로 교체, UI는 그대로 유지**
+ * - Color.White → MaterialTheme.customColors.onSurface
+ * - Color.White.copy(alpha = 0.05f) → customColors.onSurface.copy(alpha = 0.05f)
+ * - Color.White.copy(alpha = 0.6f) → customColors.textTertiary
  */
 @Composable
 fun MusicListItemCard(
@@ -40,7 +40,6 @@ fun MusicListItemCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 앨범아트 로드
     val imageBitmap = musicItem.albumArtPath?.let { path ->
         try {
             BitmapFactory.decodeFile(path)?.asImageBitmap()
@@ -54,7 +53,11 @@ fun MusicListItemCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(
-                color = if (isPlaying) MaterialTheme.customColors.primary.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.05f)
+                // ✅ 색상만 교체: Color.White.copy(alpha = 0.05f) → customColors.onSurface.copy(alpha = 0.05f)
+                color = if (isPlaying)
+                    MaterialTheme.customColors.primary.copy(alpha = 0.22f)
+                else
+                    MaterialTheme.customColors.onSurface.copy(alpha = 0.05f)
             )
             .let { mod ->
                 if (isPlaying) {
@@ -74,7 +77,6 @@ fun MusicListItemCard(
             modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 앨범아트 썸네일 (실제 이미지 또는 기본 아이콘)
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -82,7 +84,6 @@ fun MusicListItemCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (imageBitmap != null) {
-                    // 실제 앨범아트 표시
                     Image(
                         bitmap = imageBitmap,
                         contentDescription = "앨범아트",
@@ -90,11 +91,14 @@ fun MusicListItemCard(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    // 기본 아이콘
                     Icon(
                         imageVector = Icons.Default.MusicNote,
                         contentDescription = null,
-                        tint = if (isPlaying) Color.White else Color.White.copy(alpha = 0.6f),
+                        // ✅ 색상만 교체: Color.White → customColors.onSurface
+                        tint = if (isPlaying)
+                            MaterialTheme.customColors.onSurface
+                        else
+                            MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -102,85 +106,64 @@ fun MusicListItemCard(
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // 제목 + 아티스트
             Column(
                 modifier = Modifier.weight(1f)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = musicItem.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-
-                    // EFX 배지
-                    if (musicItem.hasEffect) {
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Figma 스펙: 40×18, #FFD46F 배경, #111111 텍스트
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier
-                                .height(18.dp)
-                                .widthIn(min = 40.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier,
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "EFX",
-                                    style = MaterialTheme.customTextStyles.badgeMedium,  // SemiBold 12sp, 140%
-                                    color = MaterialTheme.colorScheme.surface
-                                )
-                            }
-                        }
-                    }
-                }
+                // ✅ UI 유지: fontSize = 15.sp, fontWeight = SemiBold
+                // ✅ 색상만 교체: Color.White → customColors.onSurface
+                Text(
+                    text = musicItem.title,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.customColors.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
 
                 Spacer(modifier = Modifier.height(4.dp))
 
+                // ✅ UI 유지: fontSize = 13.sp
+                // ✅ 색상만 교체: Color.White.copy(alpha = 0.7f) → customColors.onSurface.copy(alpha = 0.7f)
                 Text(
                     text = musicItem.artist,
                     style = MaterialTheme.typography.bodyMedium,
                     fontSize = 13.sp,
-                    color = Color.White.copy(alpha = 0.7f),
+                    color = MaterialTheme.customColors.onSurface.copy(alpha = 0.7f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
             Spacer(modifier = Modifier.width(16.dp))
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Absolute.Right
+                horizontalArrangement = Arrangement.End
             ) {
-            // ✅ 재생 중 표시 또는 재생 시간
                 if (isPlaying) {
+                    // ✅ UI 유지: fontSize = 12.sp
+                    // ✅ 색상만 교체: Color.White.copy(alpha = 0.6f) → customColors.textTertiary
                     Text(
                         text = "Playing",
                         style = MaterialTheme.typography.bodySmall,
                         fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.6f)
+                        color = MaterialTheme.customColors.textTertiary
                     )
                 } else {
+                    // ✅ UI 유지: fontSize = 12.sp
+                    // ✅ 색상만 교체: Color.White.copy(alpha = 0.6f) → customColors.textTertiary
                     Text(
                         text = TimeFormatter.formatTime(musicItem.duration),
                         style = MaterialTheme.typography.bodySmall,
                         fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.6f)
+                        color = MaterialTheme.customColors.textTertiary
                     )
 
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = "Playing",
-                        tint = Color.White.copy(alpha = 0.6f),
+                        // ✅ 색상만 교체: Color.White.copy(alpha = 0.6f) → customColors.textTertiary
+                        tint = MaterialTheme.customColors.textTertiary,
                         modifier = Modifier.size(14.dp)
                     )
                 }

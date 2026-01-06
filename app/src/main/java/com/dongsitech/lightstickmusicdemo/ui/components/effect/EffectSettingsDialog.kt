@@ -66,27 +66,29 @@ fun EffectSettingsDialog(
             is EffectViewModel.UiEffectType.On -> {
                 EffectSliderItem(
                     icon = R.drawable.ic_transit,
-                    iconTint = MaterialTheme.colorScheme.primary,
+                    iconTint = Color(0xFFA774FF),
                     label = "TRANSIT",
                     value = currentSettings.transit,
                     onValueChange = {
                         currentSettings = currentSettings.copy(transit = it)
-                    }
+                    },
+                    labels = listOf("0s", "5s", "10s")
                 )
 
                 EffectSliderItem(
                     icon = R.drawable.ic_random,
-                    iconTint = Color(0xFF8BC34A),
+                    iconTint = Color(0xFF84E366),
                     label = "RANDOM DELAY",
                     value = currentSettings.randomDelay,
                     onValueChange = {
                         currentSettings = currentSettings.copy(randomDelay = it)
-                    }
+                    },
+                    labels = listOf("0s", "5s", "10s")
                 )
 
                 EffectToggleItem(
                     icon = R.drawable.ic_color,
-                    iconTint = Color(0xFF2196F3),
+                    iconTint = Color(0xFF22D3EE),
                     label = "RANDOM COLOR",
                     checked = currentSettings.randomColor,
                     onCheckedChange = {
@@ -99,12 +101,13 @@ fun EffectSettingsDialog(
             is EffectViewModel.UiEffectType.Off -> {
                 EffectSliderItem(
                     icon = R.drawable.ic_transit,
-                    iconTint = MaterialTheme.colorScheme.primary,
+                    iconTint = Color(0xFFA774FF),
                     label = "TRANSIT",
                     value = currentSettings.transit,
                     onValueChange = {
                         currentSettings = currentSettings.copy(transit = it)
-                    }
+                    },
+                    labels = listOf("0s", "5s", "10s")
                 )
             }
 
@@ -114,27 +117,29 @@ fun EffectSettingsDialog(
             is EffectViewModel.UiEffectType.Breath -> {
                 EffectSliderItem(
                     icon = R.drawable.ic_period,
-                    iconTint = Color(0xFFFFC107),
+                    iconTint = Color(0xFFFFD46F),
                     label = "PERIOD",
                     value = currentSettings.period,
                     onValueChange = {
                         currentSettings = currentSettings.copy(period = it)
-                    }
+                    },
+                    labels = listOf("0s", "5s", "10s")
                 )
 
                 EffectSliderItem(
                     icon = R.drawable.ic_random,
-                    iconTint = Color(0xFF8BC34A),
+                    iconTint = Color(0xFF84E366),
                     label = "RANDOM DELAY",
                     value = currentSettings.randomDelay,
                     onValueChange = {
                         currentSettings = currentSettings.copy(randomDelay = it)
-                    }
+                    },
+                    labels = listOf("0s", "5s", "10s")
                 )
 
                 EffectToggleItem(
                     icon = R.drawable.ic_color,
-                    iconTint = Color(0xFF2196F3),
+                    iconTint = Color(0xFF22D3EE),
                     label = "RANDOM COLOR",
                     checked = currentSettings.randomColor,
                     onCheckedChange = {
@@ -155,137 +160,5 @@ fun EffectSettingsDialog(
             // TODO: Custom 타입은 마지막 단계에서 추가 예정
              is EffectViewModel.UiEffectType.Custom -> { }
         }
-    }
-}
-
-/**
- * ✅ 슬라이더 아이템 (아이콘 + 레이블 + CustomSlider)
- *
- * ## 구성
- * - Header: 아이콘 + 레이블
- * - Slider: CustomSlider (0~100, 99 steps)
- *
- * ## 사용 예시
- * ```kotlin
- * EffectSliderItem(
- *     icon = R.drawable.ic_transit,
- *     iconTint = Color(0xFF9C27B0),
- *     label = "TRANSIT",
- *     value = 50,
- *     onValueChange = { newValue -> }
- * )
- * ```
- */
-@Composable
-private fun EffectSliderItem(
-    icon: Int,
-    iconTint: Color,
-    label: String,
-    value: Int,
-    onValueChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.fillMaxWidth()
-    ) {
-        // ===== Header: 아이콘 + 레이블 =====
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 8.dp)
-        ) {
-            Icon(
-                painter = painterResource(id = icon),
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(20.dp)
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                color = Color.White
-            )
-        }
-
-        // ===== CustomSlider =====
-        CustomSlider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = 0..100,
-            steps = 99,
-            enableHaptic = true,
-            trackColor = Color(0xFFD9D9D9),
-            thumbColor = Color.White,
-            trackHeight = 8.dp,
-            thumbSize = 24.dp
-        )
-    }
-}
-
-/**
- * ✅ 토글 아이템 (아이콘 + 레이블 + Switch)
- *
- * ## 구성
- * - Left: 아이콘 + 레이블
- * - Right: Switch
- *
- * ## 사용 예시
- * ```kotlin
- * EffectToggleItem(
- *     icon = R.drawable.ic_color,
- *     iconTint = Color(0xFF2196F3),
- *     label = "RANDOM COLOR",
- *     checked = true,
- *     onCheckedChange = { checked -> }
- * )
- * ```
- */
-@Composable
-private fun EffectToggleItem(
-    icon: Int,
-    iconTint: Color,
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // ===== Left: 아이콘 + 레이블 =====
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(
-                painter = painterResource(id = icon),
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(20.dp)
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                color = Color.White
-            )
-        }
-
-        // ===== Right: Switch =====
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = MaterialTheme.colorScheme.primary,
-                uncheckedThumbColor = Color.White,
-                uncheckedTrackColor = Color(0xFF6C6C6C)
-            )
-        )
     }
 }

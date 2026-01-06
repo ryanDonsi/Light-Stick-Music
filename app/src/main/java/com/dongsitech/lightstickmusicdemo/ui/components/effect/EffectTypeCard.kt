@@ -1,7 +1,6 @@
 package com.dongsitech.lightstickmusicdemo.ui.components.effect
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -10,16 +9,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dongsitech.lightstickmusicdemo.R
 import com.dongsitech.lightstickmusicdemo.ui.theme.customColors
 import com.dongsitech.lightstickmusicdemo.ui.theme.customTextStyles
 import com.dongsitech.lightstickmusicdemo.viewmodel.EffectViewModel
+import java.util.Locale
 
 /**
  * ✅ EffectTypeCard - Figma 디자인 + Theme 기반 완벽 구현
@@ -232,7 +230,7 @@ private fun EffectParameters(
                 // Transit (보라색 #A774FF)
                 ParameterItem(
                     iconRes = R.drawable.ic_transit,
-                    value = "${effectSettings.transit * 0.01f}s",
+                    value = formatSeconds(effectSettings.transit),
                     iconTint = when {
                         isSelected -> Color(0xFFA774FF)  // 선택: 보라색
                         isEnabled -> MaterialTheme.customColors.surfaceVariant  // 활성화: SurfaceVariant
@@ -248,7 +246,7 @@ private fun EffectParameters(
                 // Random Delay (초록색 #84E366)
                 ParameterItem(
                     iconRes = R.drawable.ic_random,
-                    value = "${effectSettings.randomDelay * 0.01f}s",
+                    value = formatSeconds(effectSettings.randomDelay),
                     iconTint = when {
                         isSelected -> Color(0xFF84E366)  // 선택: 초록색
                         isEnabled -> MaterialTheme.customColors.surfaceVariant  // 활성화: SurfaceVariant
@@ -283,7 +281,7 @@ private fun EffectParameters(
                 // Transit (보라색 #A774FF)
                 ParameterItem(
                     iconRes = R.drawable.ic_transit,
-                    value = "${effectSettings.transit * 0.01f}s",
+                    value = formatSeconds(effectSettings.transit),
                     iconTint = when {
                         isSelected -> Color(0xFFA774FF)  // 선택: 보라색
                         isEnabled -> MaterialTheme.customColors.surfaceVariant  // 활성화: SurfaceVariant
@@ -304,7 +302,7 @@ private fun EffectParameters(
                 // Period (노란색 #FFD46F)
                 ParameterItem(
                     iconRes = R.drawable.ic_period,
-                    value = "${effectSettings.period * 0.01f}s",
+                    value = formatSeconds(effectSettings.period),
                     iconTint = when {
                         isSelected -> Color(0xFFFFD46F)  // 선택: 노란색
                         isEnabled -> MaterialTheme.customColors.surfaceVariant  // 활성화: SurfaceVariant
@@ -320,7 +318,7 @@ private fun EffectParameters(
                 // Random Delay (초록색 #84E366)
                 ParameterItem(
                     iconRes = R.drawable.ic_random,
-                    value = "${effectSettings.randomDelay * 0.01f}s",
+                    value = formatSeconds(effectSettings.randomDelay),
                     iconTint = when {
                         isSelected -> Color(0xFF84E366)  // 선택: 초록색
                         isEnabled -> MaterialTheme.customColors.surfaceVariant  // 활성화: SurfaceVariant
@@ -437,7 +435,18 @@ private fun ColorChip(
 }
 
 /**
- * ✅ Color 밝기 계산 (Luminance)
+ * UI 전용 시간 포맷 함수
+ */
+private fun formatSeconds(value: Int): String {
+    val seconds = value * 0.1
+    return String.format(Locale.US, "%.2f", seconds)
+        .trimEnd('0')
+        .trimEnd('.') + "s"
+}
+
+
+/**
+ * Color 밝기 계산 (Luminance)
  */
 private fun Color.luminance(): Float {
     return (0.299f * red + 0.587f * green + 0.114f * blue)
