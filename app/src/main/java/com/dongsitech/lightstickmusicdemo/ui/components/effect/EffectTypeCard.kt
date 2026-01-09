@@ -77,8 +77,7 @@ fun EffectTypeCard(
 
     // ✅ Figma: fillMaxWidth × 84dp
     Card(
-        onClick = onEffectClick,
-        //enabled = isEnabled,  // ✅ 기기 미연결 시 클릭 방지
+        onClick = { if (isEnabled) onEffectClick() },
         modifier = Modifier
             .fillMaxWidth()
             .height(84.dp)

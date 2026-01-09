@@ -1,44 +1,20 @@
 package com.dongsitech.lightstickmusicdemo.ui.components.effect
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.dongsitech.lightstickmusicdemo.R
 import com.dongsitech.lightstickmusicdemo.ui.components.common.BaseDialog
-import com.dongsitech.lightstickmusicdemo.ui.components.common.CustomSlider
 import com.dongsitech.lightstickmusicdemo.viewmodel.EffectViewModel
 
 /**
- * ✅ 이펙트 설정 다이얼로그
+ * ✅ (수정됨) 상태를 직접 소유하지 않는 Stateless 이펙트 설정 다이얼로그
  *
- * ## 주요 기능
- * - BaseDialog 기반 통일된 레이아웃
- * - CustomSlider 사용 (Material3 대체)
- * - 효과별 설정 항목 자동 표시
- * - Figma 스펙 구현
- *
- * ## 설정 항목 규칙
- * - ON: Transit, Random Delay, Random Color
- * - OFF: Transit만
- * - STROBE/BLINK/BREATH: Period, Random Delay, Random Color
- * - EFFECT LIST: 설정 불가
- *
- * ## 사용 예시
- * ```kotlin
- * EffectSettingsDialog(
- *     effect = UiEffectType.On,
- *     settings = effectSettings,
- *     onSettingsChange = { newSettings -> },
- *     onDismiss = { }
- * )
- * ```
+ * ## 주요 변경사항
+ * - 내부 상태 `var currentSettings by remember` 제거
+ * - 모든 컨트롤(슬라이더, 토글)이 부모로부터 전달받은 `settings` 파라미터를 직접 사용
+ * - 값이 변경될 때마다(onValueChange) 즉시 `onSettingsChange` 콜백을 호출하여 부모에게 알림 (Hoisting State Up)
  */
 @Composable
 fun EffectSettingsDialog(
@@ -47,14 +23,15 @@ fun EffectSettingsDialog(
     onSettingsChange: (EffectViewModel.EffectSettings) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var currentSettings by remember { mutableStateOf(settings) }
+    // 내부 상태를 제거하고, 모든 것을 부모가 제공하는 상태(settings)와 콜백(onSettingsChange)에 의존합니다.
 
     BaseDialog(
         title = "효과 상세 설정",
         subtitle = null,
         onDismiss = onDismiss,
         onConfirm = {
-            onSettingsChange(currentSettings)
+            // 확인 버튼은 이제 단순히 닫는 역할만 합니다.
+            // 모든 변경사항은 이미 onSettingsChange를 통해 실시간으로 부모에게 전달되었습니다.
             onDismiss()
         },
         confirmText = "확인",
@@ -68,9 +45,11 @@ fun EffectSettingsDialog(
                     icon = R.drawable.ic_transit,
                     iconTint = Color(0xFFA774FF),
                     label = "TRANSIT",
-                    value = currentSettings.transit,
-                    onValueChange = {
-                        currentSettings = currentSettings.copy(transit = it)
+                    // ✅ 수정: 부모의 상태를 직접 읽음
+                    value = settings.transit,
+                    onValueChange = { newValue ->
+                        // ✅ 수정: 변경 즉시 부모에게 알림
+                        onSettingsChange(settings.copy(transit = newValue))
                     },
                     labels = listOf("0s", "5s", "10s")
                 )
@@ -79,9 +58,11 @@ fun EffectSettingsDialog(
                     icon = R.drawable.ic_random,
                     iconTint = Color(0xFF84E366),
                     label = "RANDOM DELAY",
-                    value = currentSettings.randomDelay,
-                    onValueChange = {
-                        currentSettings = currentSettings.copy(randomDelay = it)
+                    // ✅ 수정: 부모의 상태를 직접 읽음
+                    value = settings.randomDelay,
+                    onValueChange = { newValue ->
+                        // ✅ 수정: 변경 즉시 부모에게 알림
+                        onSettingsChange(settings.copy(randomDelay = newValue))
                     },
                     labels = listOf("0s", "5s", "10s")
                 )
@@ -90,9 +71,11 @@ fun EffectSettingsDialog(
                     icon = R.drawable.ic_color,
                     iconTint = Color(0xFF22D3EE),
                     label = "RANDOM COLOR",
-                    checked = currentSettings.randomColor,
-                    onCheckedChange = {
-                        currentSettings = currentSettings.copy(randomColor = it)
+                    // ✅ 수정: 부모의 상태를 직접 읽음
+                    checked = settings.randomColor,
+                    onCheckedChange = { newCheckedState ->
+                        // ✅ 수정: 변경 즉시 부모에게 알림
+                        onSettingsChange(settings.copy(randomColor = newCheckedState))
                     }
                 )
             }
@@ -103,9 +86,11 @@ fun EffectSettingsDialog(
                     icon = R.drawable.ic_transit,
                     iconTint = Color(0xFFA774FF),
                     label = "TRANSIT",
-                    value = currentSettings.transit,
-                    onValueChange = {
-                        currentSettings = currentSettings.copy(transit = it)
+                    // ✅ 수정: 부모의 상태를 직접 읽음
+                    value = settings.transit,
+                    onValueChange = { newValue ->
+                        // ✅ 수정: 변경 즉시 부모에게 알림
+                        onSettingsChange(settings.copy(transit = newValue))
                     },
                     labels = listOf("0s", "5s", "10s")
                 )
@@ -119,9 +104,11 @@ fun EffectSettingsDialog(
                     icon = R.drawable.ic_period,
                     iconTint = Color(0xFFFFD46F),
                     label = "PERIOD",
-                    value = currentSettings.period,
-                    onValueChange = {
-                        currentSettings = currentSettings.copy(period = it)
+                    // ✅ 수정: 부모의 상태를 직접 읽음
+                    value = settings.period,
+                    onValueChange = { newValue ->
+                        // ✅ 수정: 변경 즉시 부모에게 알림
+                        onSettingsChange(settings.copy(period = newValue))
                     },
                     labels = listOf("0s", "5s", "10s")
                 )
@@ -130,9 +117,11 @@ fun EffectSettingsDialog(
                     icon = R.drawable.ic_random,
                     iconTint = Color(0xFF84E366),
                     label = "RANDOM DELAY",
-                    value = currentSettings.randomDelay,
-                    onValueChange = {
-                        currentSettings = currentSettings.copy(randomDelay = it)
+                    // ✅ 수정: 부모의 상태를 직접 읽음
+                    value = settings.randomDelay,
+                    onValueChange = { newValue ->
+                        // ✅ 수정: 변경 즉시 부모에게 알림
+                        onSettingsChange(settings.copy(randomDelay = newValue))
                     },
                     labels = listOf("0s", "5s", "10s")
                 )
@@ -141,9 +130,11 @@ fun EffectSettingsDialog(
                     icon = R.drawable.ic_color,
                     iconTint = Color(0xFF22D3EE),
                     label = "RANDOM COLOR",
-                    checked = currentSettings.randomColor,
-                    onCheckedChange = {
-                        currentSettings = currentSettings.copy(randomColor = it)
+                    // ✅ 수정: 부모의 상태를 직접 읽음
+                    checked = settings.randomColor,
+                    onCheckedChange = { newCheckedState ->
+                        // ✅ 수정: 변경 즉시 부모에게 알림
+                        onSettingsChange(settings.copy(randomColor = newCheckedState))
                     }
                 )
             }
@@ -157,8 +148,9 @@ fun EffectSettingsDialog(
                 )
             }
 
-            // TODO: Custom 타입은 마지막 단계에서 추가 예정
-             is EffectViewModel.UiEffectType.Custom -> { }
+            else -> {
+
+            }
         }
     }
 }

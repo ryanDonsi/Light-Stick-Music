@@ -38,6 +38,12 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
 
     private val prefs: SharedPreferences = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    private val _toastMessage = MutableStateFlow<String?>(null)
+    val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
+
+    private val _selectedEffectListNumber = MutableStateFlow<Int?>(null)
+    val selectedEffectListNumber: StateFlow<Int?> = _selectedEffectListNumber.asStateFlow()
+
     sealed class UiEffectType(val displayName: String, val description: String) {
         data object On : UiEffectType("ON", "LED를 선택한 색상으로 켭니다")
         data object Off : UiEffectType("OFF", "LED를 끕니다")
@@ -890,6 +896,45 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     fun getEffectSettings(effectType: UiEffectType): EffectSettings {
         val key = getEffectKey(effectType)
         return effectSettingsMapInternal[key] ?: EffectSettings.defaultFor(effectType)
+    }
+
+    /**
+     * ✅ 추가: UI에서 이벤트를 처리한 후 호출하여, Toast가 반복해서 뜨는 것을 방지
+     */
+    fun clearToastMessage() {
+        _toastMessage.value = null
+    }
+
+    /**
+     * ✅ 추가: Effect List 선택/해제 및 Toast 이벤트 발생
+     */
+    fun selectEffectList(context: Context, effectNumber: Int) {
+        if (_selectedEffectListNumber.value == effectNumber) {
+            // 이미 선택된 이펙트를 다시 누르면 선택 해제
+            stopEffect(context)
+            _selectedEffectListNumber.value = null
+            _toastMessage.value = "리스트 반복 재생을 중지합니다."
+        } else {
+            val effect = UiEffectType.EffectList(effectNumber)
+            selectEffect(effect)
+            playEffect(context, effect)
+            _selectedEffectListNumber.value = effectNumber
+            _toastMessage.value = "저장된 리스트를 반복 재생합니다."
+        }
+    }
+
+    /**
+     * ✅ 추가: '설정 해제' 클릭 시 모든 리스트 이펙트 선택 해제
+     */
+    fun clearEffectListSelection(context: Context) {
+        if (_selectedEffectListNumber.value != null) {
+            stopEffect(context)
+
+            _selectedEffect.value = null
+            _selectedEffectListNumber.value = null
+
+            _toastMessage.value = "리스트 반복 재생을 중지합니다."
+        }
     }
 
     fun clearError() {
