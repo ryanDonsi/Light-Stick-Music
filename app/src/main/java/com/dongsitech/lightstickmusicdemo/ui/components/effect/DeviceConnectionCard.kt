@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.dongsitech.lightstickmusicdemo.ui.components.common.BaseButton
+import com.dongsitech.lightstickmusicdemo.ui.components.common.ButtonStyle
 import com.dongsitech.lightstickmusicdemo.ui.theme.customColors
 import com.dongsitech.lightstickmusicdemo.viewmodel.EffectViewModel
 import com.lightstick.types.Color as LightStickColor
@@ -542,8 +543,12 @@ private fun ConnectionStateLayout(
         if (buttonText != null && onButtonClick != null) {
             @Composable {
                 BaseButton(
+                    text = buttonText,
                     onClick = onButtonClick,
-                    text = buttonText
+                    style = ButtonStyle.PRIMARY,
+                    modifier = Modifier
+                        .width(180.dp)
+                        .height(44.dp)  // ✅ Dialog 버튼은 48dp
                 )
             }
         } else {
