@@ -11,11 +11,11 @@ plugins {
 }
 
 android {
-    namespace = "com.dongsitech.lightstickmusicdemo"
+    namespace = "com.lightstick.music"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.dongsitech.lightstickmusicdemo"
+        applicationId = "com.lightstick.music"
         minSdk = 31
         targetSdk = 35
         versionCode = 1

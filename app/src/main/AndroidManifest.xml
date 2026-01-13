@@ -42,13 +42,13 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.LightStickMusicPlayerDemo">
+        android:theme="@style/Theme.LightStickMusic">
 
         <!-- ✅ SplashActivity를 시작 화면으로 설정 -->
         <activity
-            android:name=".splash.SplashActivity"
+            android:name=".presentation.screen.splash.SplashActivity"
             android:exported="true"
-            android:theme="@style/Theme.LightStickMusicPlayerDemo">
+            android:theme="@style/Theme.LightStickMusic">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -57,7 +57,7 @@
 
         <!-- ✅ MainActivity는 일반 Activity로 -->
         <activity
-            android:name=".MainActivity"
+            android:name=".app.MainActivity"
             android:exported="false"
             android:launchMode="singleTop" />
 
@@ -69,7 +69,7 @@
             android:foregroundServiceType="mediaPlayback|connectedDevice" />
 
         <receiver
-            android:name=".receiver.MusicActionReceiver"
+            android:name=".core.receiver.MusicActionReceiver"
             android:enabled="true"
             android:exported="false">
             <intent-filter>

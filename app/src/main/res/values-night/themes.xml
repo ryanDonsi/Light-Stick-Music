@@ -1,4 +1,4 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- ✅ Night Mode - Material3 사용 -->
-    <style name="Theme.LightStickMusicPlayerDemo" parent="Base.Theme.LightStickMusicPlayerDemo" />
+    <style name="Theme.LightStickMusic" parent="Base.Theme.LightStickMusic" />
 </resources>
