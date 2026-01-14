@@ -24,20 +24,20 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.runtime.SideEffect
 import com.lightstick.music.domain.effect.MusicEffectManager
-import com.lightstick.music.presentation.screen.effect.EffectScreen
-import com.lightstick.music.presentation.screen.device.DeviceListScreen
-import com.lightstick.music.presentation.theme.LightStickMusicTheme
+import com.lightstick.music.ui.screen.effect.EffectScreen
+import com.lightstick.music.ui.screen.device.DeviceListScreen
+import com.lightstick.music.ui.theme.LightStickMusicTheme
 import com.lightstick.music.data.local.storage.EffectPathPreferences
-import com.lightstick.music.presentation.viewmodel.EffectViewModel
-import com.lightstick.music.presentation.viewmodel.DeviceViewModel
-import com.lightstick.music.presentation.viewmodel.MusicViewModel
+import com.lightstick.music.ui.viewmodel.EffectViewModel
+import com.lightstick.music.ui.viewmodel.DeviceViewModel
+import com.lightstick.music.ui.viewmodel.MusicViewModel
 import com.lightstick.music.core.permission.PermissionManager
 import androidx.media3.common.util.UnstableApi
-import com.lightstick.music.presentation.screen.music.MusicControlScreen
-import com.lightstick.music.presentation.screen.music.MusicListScreen
+import com.lightstick.music.ui.screen.music.MusicControlScreen
+import com.lightstick.music.ui.screen.music.MusicListScreen
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
-import com.lightstick.music.presentation.components.common.CustomNavigationBar
+import com.lightstick.music.ui.components.common.CustomNavigationBar
 
 @UnstableApi
 class MainActivity : ComponentActivity() {

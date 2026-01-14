@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.media3.common.util.UnstableApi
-import com.lightstick.music.service.ServiceController
+import com.lightstick.music.core.service.ServiceController
 
 class MusicStopReceiver : BroadcastReceiver() {
     @UnstableApi

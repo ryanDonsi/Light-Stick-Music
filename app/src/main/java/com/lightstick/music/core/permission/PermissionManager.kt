@@ -31,22 +31,14 @@ object PermissionManager {
      * 블루투스 스캔 권한 확인
      */
     fun hasBluetoothScanPermission(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            hasPermission(context, Manifest.permission.BLUETOOTH_SCAN)
-        } else {
-            true // Android 11 이하는 권한 불필요
-        }
+        return hasPermission(context, Manifest.permission.BLUETOOTH_SCAN)
     }
 
     /**
      * 블루투스 연결 권한 확인
      */
     fun hasBluetoothConnectPermission(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            hasPermission(context, Manifest.permission.BLUETOOTH_CONNECT)
-        } else {
-            true // Android 11 이하는 권한 불필요
-        }
+        return hasPermission(context, Manifest.permission.BLUETOOTH_CONNECT)
     }
 
     /**
@@ -54,8 +46,7 @@ object PermissionManager {
      */
     fun hasAllBluetoothPermissions(context: Context): Boolean {
         return hasBluetoothScanPermission(context) &&
-                hasBluetoothConnectPermission(context) &&
-                hasLocationPermission(context)
+                hasBluetoothConnectPermission(context)
     }
 
     /**
@@ -64,30 +55,10 @@ object PermissionManager {
     fun getRequiredBluetoothPermissions(): Array<String> {
         val permissions = mutableListOf<String>()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
-            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
-        } else {
-            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
-            permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
-        }
+        permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+        permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
 
         return permissions.toTypedArray()
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // 위치 권한
-    // ═══════════════════════════════════════════════════════════
-
-    /**
-     * 위치 권한 확인 (BLE 스캔에 필요, Android 11 이하)
-     */
-    fun hasLocationPermission(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
-        } else {
-            true // Android 12+ 에서는 BLUETOOTH_SCAN으로 대체
-        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -182,8 +153,7 @@ object PermissionManager {
         Log.d(tag, "Permission Status:")
         Log.d(tag, "  Bluetooth:")
         Log.d(tag, "    ├─ SCAN: ${hasBluetoothScanPermission(context)}")
-        Log.d(tag, "    ├─ CONNECT: ${hasBluetoothConnectPermission(context)}")
-        Log.d(tag, "    └─ LOCATION: ${hasLocationPermission(context)}")
+        Log.d(tag, "    └─ CONNECT: ${hasBluetoothConnectPermission(context)}")
         Log.d(tag, "  Storage:")
         Log.d(tag, "    └─ ${hasStoragePermission(context)}")
         Log.d(tag, "  Notification:")

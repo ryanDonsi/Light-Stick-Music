@@ -4,7 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.lightstick.music.core.bus.MusicPlayerCommandBus
-import com.lightstick.music.service.MusicEffectService
+import com.lightstick.music.core.service.MusicEffectService
 
 class MusicActionReceiver : BroadcastReceiver() {
 

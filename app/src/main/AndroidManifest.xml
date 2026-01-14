@@ -46,7 +46,7 @@
 
         <!-- ✅ SplashActivity를 시작 화면으로 설정 -->
         <activity
-            android:name=".presentation.screen.splash.SplashActivity"
+            android:name=".ui.screen.splash.SplashActivity"
             android:exported="true"
             android:theme="@style/Theme.LightStickMusic">
             <intent-filter>
@@ -63,7 +63,7 @@
 
         <!-- ✅ Foreground Service 타입 명시 -->
         <service
-            android:name=".service.MusicEffectService"
+            android:name=".core.service.MusicEffectService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback|connectedDevice" />
