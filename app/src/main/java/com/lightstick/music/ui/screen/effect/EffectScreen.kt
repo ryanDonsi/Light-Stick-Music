@@ -32,6 +32,8 @@ import com.lightstick.music.ui.components.common.CustomToast
 import com.lightstick.music.ui.components.common.TopBarCentered
 import com.lightstick.music.ui.components.common.rememberToastState
 import com.lightstick.music.ui.components.effect.*
+import com.lightstick.music.ui.theme.Secondary
+import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.viewmodel.EffectViewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
@@ -191,9 +193,9 @@ fun EffectScreen(
                 title = "Effect Control",
                 actionText = "LIST",
                 actionTextColor = if (isDeviceConnected) {
-                    MaterialTheme.colorScheme.onSurface
+                    MaterialTheme.colorScheme.surface
                 } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    Color.Gray
                 },
                 onActionClick = {
                     if (isDeviceConnected) {
@@ -202,12 +204,17 @@ fun EffectScreen(
                 }
             )
 
-            Box(modifier = Modifier.weight(1f)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
                 Image(
                     painter = painterResource(id = R.drawable.background),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter
                 )
 
                 Column(

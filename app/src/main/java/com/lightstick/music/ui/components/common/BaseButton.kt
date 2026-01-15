@@ -24,7 +24,10 @@ enum class ButtonStyle {
     PRIMARY,
 
     /** Surface 버튼 - 회색 (#6F7074) */
-    SURFACE
+    SURFACE,
+
+    /** Error 버튼 - 빨간색 (#FF3B30) */
+    ERROR
 }
 
 /**
@@ -229,6 +232,10 @@ private fun getButtonColors(style: ButtonStyle): ButtonColors {
             contentColor = MaterialTheme.colorScheme.onSurface,
             disabledContainerColor = MaterialTheme.customColors.disable,
             disabledContentColor = MaterialTheme.customColors.onDisable.copy(alpha = 0.3f)
+        )
+        ButtonStyle.ERROR -> ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.error,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         )
     }
 }

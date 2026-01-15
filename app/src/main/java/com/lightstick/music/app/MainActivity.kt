@@ -33,11 +33,17 @@ import com.lightstick.music.ui.viewmodel.DeviceViewModel
 import com.lightstick.music.ui.viewmodel.MusicViewModel
 import com.lightstick.music.core.permission.PermissionManager
 import androidx.media3.common.util.UnstableApi
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.lightstick.music.ui.screen.music.MusicControlScreen
 import com.lightstick.music.ui.screen.music.MusicListScreen
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
 import com.lightstick.music.ui.components.common.CustomNavigationBar
+import com.lightstick.music.ui.components.device.DeviceInfoDialog
+import com.lightstick.music.ui.components.device.DisconnectConfirmDialog
+import com.lightstick.music.ui.components.device.OtaUpdateConfirmDialog
+import com.lightstick.music.ui.screen.device.DeviceDetailScreen
 
 @UnstableApi
 class MainActivity : ComponentActivity() {
@@ -238,16 +244,127 @@ fun AppNavigation(
             DeviceListScreen(
                 viewModel = deviceViewModel,
                 navController = navController,
+                // ✅ 추가: 상세 화면으로 이동
+                onNavigateToDetail = { device ->
+                    navController.navigate("deviceDetail/${device.mac}")
+                },
+                // ✅ 수정: 연결 토글
                 onDeviceSelected = { device: Device ->
                     if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                         Toast.makeText(context, "BLUETOOTH_CONNECT 권한 없음", Toast.LENGTH_LONG).show()
                         return@DeviceListScreen
                     }
-
                     @SuppressLint("MissingPermission")
                     deviceViewModel.toggleConnection(context, device)
                 }
             )
+        }
+
+        // ✅ 새로 추가: DeviceDetailScreen
+        composable(
+            route = "deviceDetail/{deviceMac}",
+            arguments = listOf(
+                navArgument("deviceMac") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val deviceMac = backStackEntry.arguments?.getString("deviceMac") ?: return@composable
+
+            // ViewModel에서 디바이스 정보 가져오기
+            val devices by deviceViewModel.devices.collectAsState()
+            val connectionStates by deviceViewModel.connectionStates.collectAsState()
+            val deviceDetails by deviceViewModel.deviceDetails.collectAsState()
+
+            val device = devices.find { it.mac == deviceMac }
+            val deviceDetail = deviceDetails[deviceMac]
+
+            if (device == null) {
+                // 디바이스를 찾을 수 없는 경우 뒤로가기
+                LaunchedEffect(Unit) {
+                    navController.popBackStack()
+                }
+                return@composable
+            }
+
+            // 다이얼로그 상태
+            var showDisconnectDialog by remember { mutableStateOf(false) }
+            var showDeviceInfoDialog by remember { mutableStateOf(false) }
+            var showOtaUpdateDialog by remember { mutableStateOf(false) }
+
+            DeviceDetailScreen(
+                deviceName = device.name ?: "Unknown Device",
+                macAddress = device.mac,
+                rssi = device.rssi ?: 0,
+                batteryLevel = deviceDetail?.batteryLevel,
+                deviceInfo = deviceDetail,
+                callEventEnabled = deviceDetail?.callEventEnabled ?: false,
+                smsEventEnabled = deviceDetail?.smsEventEnabled ?: false,
+                broadcastingEnabled = deviceDetail?.broadcasting ?: false,
+                onBackClick = {
+                    navController.popBackStack()
+                },
+                onDisconnectClick = {
+                    showDisconnectDialog = true
+                },
+                onDeviceInfoClick = {
+                    showDeviceInfoDialog = true
+                },
+                onCallEventToggle = { enabled ->
+                    deviceViewModel.toggleCallEvent(device, enabled)
+                },
+                onSmsEventToggle = { enabled ->
+                    deviceViewModel.toggleSmsEvent(device, enabled)
+                },
+                onBroadcastingToggle = { enabled ->
+                    deviceViewModel.toggleBroadcasting(device, enabled)
+                },
+                onFindClick = {
+                    // TODO: FIND 이펙트 전송
+                    Toast.makeText(context, "FIND 이펙트 전송", Toast.LENGTH_SHORT).show()
+                },
+                onOtaUpdateClick = {
+                    showOtaUpdateDialog = true
+                }
+            )
+
+            // ===== 다이얼로그들 =====
+
+            // 연결 해제 확인 다이얼로그
+            if (showDisconnectDialog) {
+                DisconnectConfirmDialog(
+                    deviceName = device.name ?: "Unknown Device",
+                    onDismiss = { showDisconnectDialog = false },
+                    onConfirm = {
+                        showDisconnectDialog = false
+                        @SuppressLint("MissingPermission")
+                        deviceViewModel.toggleConnection(context, device)
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            // 디바이스 정보 다이얼로그
+            if (showDeviceInfoDialog) {
+                DeviceInfoDialog(
+                    model = deviceDetail?.deviceInfo?.modelNumber ?: "Unknown",
+                    firmware = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
+                    manufacturer = deviceDetail?.deviceInfo?.manufacturer ?: "Unknown",
+                    onDismiss = { showDeviceInfoDialog = false }
+                )
+            }
+
+            // OTA 업데이트 확인 다이얼로그
+            if (showOtaUpdateDialog) {
+                OtaUpdateConfirmDialog(
+                    deviceName = device.name ?: "Unknown Device",
+                    version = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
+                    onDismiss = { showOtaUpdateDialog = false },
+                    onConfirm = {
+                        showOtaUpdateDialog = false
+                        // TODO: OTA 업데이트 시작
+                        Toast.makeText(context, "OTA 업데이트 시작", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            }
         }
     }
 }

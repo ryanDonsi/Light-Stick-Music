@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.lightstick.music.ui.theme.customColors
 
 /**
  * ✅ BaseDialog - 모든 다이얼로그의 기본 레이아웃
@@ -58,7 +59,7 @@ import androidx.compose.ui.window.DialogProperties
  */
 @Composable
 fun BaseDialog(
-    title: String,
+    title: String? = null,
     subtitle: String? = null,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
@@ -135,21 +136,20 @@ fun BaseDialog(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
-                            color = Color.White,
-                            textAlign = TextAlign.Center
-                        )
+                        title?.let {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.customColors.onSurface,
+                                textAlign = TextAlign.Center
+                            )
+                        }
 
                         subtitle?.let {
                             Text(
                                 text = it,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontSize = 14.sp,
-                                color = Color.White.copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.customColors.onSurface,
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -211,7 +211,7 @@ fun BaseDialog(
  */
 @Composable
 fun BaseDialog(
-    title: String,
+    title: String? = null,
     subtitle: String? = null,
     onDismiss: () -> Unit,
     confirmText: String = "확인",
@@ -288,21 +288,20 @@ fun BaseDialog(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
-                            color = Color.White,
-                            textAlign = TextAlign.Center
-                        )
+                        title?.let {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.customColors.onSurface,
+                                textAlign = TextAlign.Center
+                            )
+                        }
 
                         subtitle?.let {
                             Text(
                                 text = it,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontSize = 14.sp,
-                                color = Color.White.copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.customColors.onSurface,
                                 textAlign = TextAlign.Center
                             )
                         }

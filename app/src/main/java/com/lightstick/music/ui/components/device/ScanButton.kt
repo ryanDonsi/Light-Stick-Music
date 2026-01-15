@@ -2,8 +2,6 @@ package com.lightstick.music.ui.components.device
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.layout.height
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -12,10 +10,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.lightstick.music.R
+import com.lightstick.music.ui.theme.customColors
 
 /**
- * 애니메이션 스캔 버튼 (Refresh 아이콘)
+ * 애니메이션 스캔 버튼 (Figma 디자인: ic_research 아이콘 사용)
  *
  * @param isScanning 스캔 중 여부
  * @param onStartScan 스캔 시작 콜백
@@ -42,17 +43,27 @@ fun AnimatedScanButton(
         modifier = modifier,
         enabled = !isScanning,
         colors = IconButtonDefaults.iconButtonColors(
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            disabledContentColor = MaterialTheme.colorScheme.onSurface
+            contentColor = MaterialTheme.customColors.onSurface,
+            disabledContentColor = MaterialTheme.customColors.onSurface
         )
     ) {
         Icon(
-            imageVector = Icons.Default.Refresh,
+            painter = painterResource(id = R.drawable.ic_research),
             contentDescription = if (isScanning) "스캔 중" else "스캔 시작",
-            tint = if (isScanning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            tint = if (isScanning) {
+                MaterialTheme.customColors.primary
+            } else {
+                MaterialTheme.customColors.onSurface
+            },
             modifier = Modifier
                 .height(24.dp)
-                .then(if (isScanning) Modifier.graphicsLayer { rotationZ = rotation } else Modifier)
+                .then(
+                    if (isScanning) {
+                        Modifier.graphicsLayer { rotationZ = rotation }
+                    } else {
+                        Modifier
+                    }
+                )
         )
     }
 }
