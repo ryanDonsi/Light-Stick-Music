@@ -1,6 +1,7 @@
 package com.lightstick.music.ui.viewmodel
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -139,16 +140,41 @@ class DeviceViewModel : ViewModel() {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // BLE Scan
-    // ═══════════════════════════════════════════════════════════
+// BLE Scan (✅ 개선 버전)
+// ═══════════════════════════════════════════════════════════
 
+    /**
+     * ✅ 개선 사항:
+     * 1. 블루투스 어댑터 상태 확인 추가
+     * 2. 스캔 타임아웃 추가 (30초)
+     * 3. 디버그 로깅 강화 (모든 스캔 디바이스 로깅)
+     * 4. 에러 메시지 개선
+     * 5. "LS"로 끝나는 디바이스만 필터링 (주요 기능 유지)
+     */
     fun startScan(context: Context) {
+        // ✅ 1. 블루투스 권한 확인
         if (!PermissionManager.hasBluetoothScanPermission(context)) {
             Log.w(TAG, "⚠️ BLUETOOTH_SCAN permission not granted")
             PermissionManager.logPermissionStatus(context, TAG)
             return
         }
 
+        // ✅ 2. 블루투스 어댑터 상태 확인
+        val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        val bluetoothAdapter = bluetoothManager?.adapter
+
+        if (bluetoothAdapter == null) {
+            Log.e(TAG, "❌ BluetoothAdapter is null - 블루투스를 지원하지 않는 기기입니다")
+            return
+        }
+
+        if (!bluetoothAdapter.isEnabled) {
+            Log.e(TAG, "❌ Bluetooth is disabled - 블루투스를 켜주세요")
+            // TODO: UI에 토스트 메시지 표시 또는 블루투스 활성화 요청
+            return
+        }
+
+        // ✅ 3. 이미 스캔 중인지 확인
         if (_isScanning.value) {
             Log.d(TAG, "Already scanning")
             return
@@ -156,23 +182,47 @@ class DeviceViewModel : ViewModel() {
 
         Log.d(TAG, "═══════════════════════════════════════")
         Log.d(TAG, "🔍 Starting BLE scan...")
+        Log.d(TAG, "   Bluetooth Adapter: ${bluetoothAdapter.address}")
+        Log.d(TAG, "   Bluetooth Enabled: ${bluetoothAdapter.isEnabled}")
+        Log.d(TAG, "   Filter: Device name ends with 'LS'")
         _isScanning.value = true
         _devices.value = emptyList()
+
+        // ✅ 4. 스캔 타임아웃 설정 (30초)
+        val scanJob = viewModelScope.launch {
+            delay(30_000) // 30초
+            if (_isScanning.value) {
+                Log.w(TAG, "⏱️ Scan timeout (30s) - stopping scan")
+                Log.w(TAG, "   Total devices found: ${_devices.value.size}")
+                stopScan()
+            }
+        }
 
         try {
             @SuppressLint("MissingPermission")
             fun doStartScan() {
+                var scannedCount = 0
+                var filteredCount = 0
+
                 LSBluetooth.startScan { device ->
+                    scannedCount++
+
+                    // ✅ 5. 모든 스캔 결과 로깅 (디버그용)
+                    Log.v(TAG, "📡 Scanned #$scannedCount: ${device.mac} | ${device.name} | RSSI: ${device.rssi}")
+
+                    // ✅ 6. 디바이스 필터링 ("LS"로 끝나는 것만 - 주요 기능)
                     if (device.name?.endsWith("LS") == true) {
-                        Log.d(TAG, "📱 Found: ${device.mac} | ${device.name} | RSSI: ${device.rssi}")
+                        Log.d(TAG, "✅ Found LS device: ${device.mac} | ${device.name} | RSSI: ${device.rssi}")
 
                         val current = _devices.value.toMutableList()
                         val existingIndex = current.indexOfFirst { it.mac == device.mac }
 
                         if (existingIndex >= 0) {
                             current[existingIndex] = device
+                            Log.v(TAG, "   ↻ Updated existing device")
                         } else {
                             current.add(device)
+                            Log.v(TAG, "   ➕ Added new device (total: ${current.size})")
                         }
 
                         _devices.value = current.sortedWith(
@@ -182,24 +232,39 @@ class DeviceViewModel : ViewModel() {
                                 it.rssi ?: -100
                             }
                         )
+                    } else {
+                        filteredCount++
+                        Log.v(TAG, "   ⊘ Filtered out: name='${device.name}' (not ending with 'LS')")
+                    }
+
+                    // ✅ 7. 주기적으로 스캔 통계 로깅 (10개마다)
+                    if (scannedCount % 10 == 0) {
+                        Log.d(TAG, "📊 Scan statistics:")
+                        Log.d(TAG, "   ├─ Total scanned: $scannedCount")
+                        Log.d(TAG, "   ├─ Filtered out: $filteredCount")
+                        Log.d(TAG, "   └─ LS devices found: ${_devices.value.size}")
                     }
                 }
             }
 
             doStartScan()
             Log.d(TAG, "✅ Scan started successfully")
+            Log.d(TAG, "   Will auto-stop after 30 seconds")
 
         } catch (e: SecurityException) {
             Log.e(TAG, "❌ SecurityException during scan: ${e.message}")
             Log.e(TAG, "   권한이 거부되었거나 런타임에 취소되었습니다.")
             _isScanning.value = false
+            scanJob.cancel()
         } catch (e: IllegalStateException) {
             Log.e(TAG, "❌ IllegalStateException: ${e.message}")
             Log.e(TAG, "   블루투스 어댑터가 비활성화되었거나 사용 불가능합니다.")
             _isScanning.value = false
+            scanJob.cancel()
         } catch (e: Exception) {
             Log.e(TAG, "❌ Unexpected error during scan: ${e.message}", e)
             _isScanning.value = false
+            scanJob.cancel()
         }
     }
 
@@ -210,6 +275,7 @@ class DeviceViewModel : ViewModel() {
         }
 
         Log.d(TAG, "🛑 Stopping BLE scan...")
+        Log.d(TAG, "   Found devices: ${_devices.value.size}")
 
         try {
             val ctx = appContext

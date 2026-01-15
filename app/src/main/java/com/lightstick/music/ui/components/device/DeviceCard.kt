@@ -64,8 +64,7 @@ fun DeviceCard(
             .fillMaxWidth()
             .animateContentSize(),
         shape = RoundedCornerShape(20.dp),  // ✅ Figma: 20dp
-        color = MaterialTheme.customColors.surfaceGlass,
-        border = BorderStroke(1.dp, MaterialTheme.customColors.surfaceGlassBorder)
+        color = MaterialTheme.customColors.surfaceGlass
     ) {
         Column(
             modifier = Modifier
@@ -82,7 +81,7 @@ fun DeviceCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 // 좌측: 디바이스 정보
                 Column(

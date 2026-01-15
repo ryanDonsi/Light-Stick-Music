@@ -68,6 +68,7 @@ fun DeviceListScreen(
     var initialScanDone by remember { mutableStateOf(false) }
     LaunchedEffect(hasAllBluetoothPermissions) {
         if (hasAllBluetoothPermissions && !initialScanDone) {
+            viewModel.stopScan()
             viewModel.startScan(context)
             initialScanDone = true
         }
