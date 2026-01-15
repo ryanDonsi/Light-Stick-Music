@@ -29,11 +29,11 @@ fun DeviceSectionHeader(
         color = MaterialTheme.customColors.onSurface,
         modifier = modifier
             .fillMaxWidth()
-            .padding(
-                start = 16.dp,
-                end = 16.dp,
-                top = 16.dp,
-                bottom = 8.dp
-            )
+//            .padding(
+//                start = 16.dp,
+//                end = 16.dp,
+//                top = 16.dp,
+//                bottom = 8.dp
+//            )
     )
 }

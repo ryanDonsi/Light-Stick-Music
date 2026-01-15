@@ -136,9 +136,16 @@ fun DeviceListScreen(
                 if (scannedDevices.isEmpty()) {
                     // 검색된 기기 없음
                     item {
+                        /*
                         EmptyDeviceCard(
                             isScanning = isScanning,
                             isConnectedSection = false
+                        )*/
+                        EmptyDeviceCard(
+                            isScanning = isScanning,
+                            isConnectedSection = false,  // 검색된 기기 섹션
+                            onRefresh = { viewModel.startScan(context) },  // ✅ 재검색 기능 추가
+                            modifier = Modifier.padding(horizontal = 16.dp)
                         )
                     }
                 } else {

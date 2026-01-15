@@ -361,6 +361,39 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
             onConnected = {
                 _deviceConnectionState.value = DeviceConnectionState.Connected(device)
                 Log.d(TAG, "✅ Auto connected: ${device.mac}")
+
+                // ✅ 추가: 연결 성공 연출 (BLINK 3번 - 문제 2 해결)
+                viewModelScope.launch {
+                    try {
+                        val connectionAnimation = listOf(
+                            0L to LSEffectPayload.Effects.blink(3, Colors.WHITE).toByteArray(),
+                            1200L to LSEffectPayload.Effects.on(Colors.WHITE).toByteArray()
+                        )
+
+                        if (device.loadTimeline(connectionAnimation)) {
+                            Log.d(TAG, "🎬 Connection animation started")
+
+                            val startTime = System.currentTimeMillis()
+                            val duration = 1200L
+
+                            while (true) {
+                                val elapsed = System.currentTimeMillis() - startTime
+                                if (elapsed >= duration) {
+                                    device.updatePlaybackPosition(duration)
+                                    delay(50)
+                                    break
+                                }
+                                device.updatePlaybackPosition(elapsed)
+                                delay(16)
+                            }
+
+                            device.stopTimeline()
+                            Log.d(TAG, "✅ Connection animation completed")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Connection animation failed: ${e.message}")
+                    }
+                }
             },
             onFailed = { error ->
                 _deviceConnectionState.value = DeviceConnectionState.ScanFailed
