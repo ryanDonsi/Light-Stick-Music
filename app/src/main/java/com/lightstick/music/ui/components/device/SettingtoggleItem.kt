@@ -1,23 +1,14 @@
 package com.lightstick.music.ui.components.device
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.lightstick.music.ui.theme.customColors
-
-
-
+import com.lightstick.music.ui.components.common.CustomSwitch
 
 /**
  * 설정 토글 아이템 컴포넌트 (Figma 디자인 적용)
@@ -52,16 +43,9 @@ fun SettingToggleItem(
             modifier = Modifier.weight(1f)
         )
 
-        // 우측: 토글 스위치
-        Switch(
+        CustomSwitch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.customColors.onPrimary,
-                checkedTrackColor = MaterialTheme.customColors.primary,
-                uncheckedThumbColor = MaterialTheme.customColors.onSurfaceVariant,
-                uncheckedTrackColor = MaterialTheme.customColors.surfaceVariant
-            )
+            onCheckedChange = onCheckedChange
         )
     }
 }

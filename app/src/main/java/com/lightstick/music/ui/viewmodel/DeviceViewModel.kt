@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
 
 class DeviceViewModel : ViewModel() {
 
-    private val TAG = "LightStickListVM"
+    private val TAG = "DeviceVM"
 
     // ═══════════════════════════════════════════════════════════
     // State Flows
@@ -110,6 +110,51 @@ class DeviceViewModel : ViewModel() {
                 // 연결된 디바이스 true로 설정
                 connectedMacs.forEach { mac ->
                     updatedStates[mac] = true
+
+                    val deviceState = states[mac]
+
+                    // ✅ 추가: 목록에 없는 디바이스면 추가 (문제 1 해결)
+                    if (_devices.value.none { it.mac == mac }) {
+                        val device = Device(
+                            mac = mac,
+                            name = deviceState?.deviceInfo?.deviceName ?: "Unknown",
+                            rssi = deviceState?.deviceInfo?.rssi
+                        )
+                        _devices.value = _devices.value + device
+                        Log.d(TAG, "✅ [observeConnectionStates] Added connected device to list: $mac")
+                    }
+
+                    // ✅ 추가: deviceInfo 업데이트 (배터리 정보 포함)
+                    deviceState?.deviceInfo?.let { info ->
+                        _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
+                            val existing = this[mac]
+                            if (existing != null) {
+                                this[mac] = existing.copy(
+                                    deviceInfo = info,
+                                    batteryLevel = info.batteryLevel,
+                                    rssi = info.rssi
+                                )
+                                Log.d(TAG, "🔋 [observeConnectionStates] Updated deviceInfo for $mac: Battery=${info.batteryLevel}%")
+                            } else {
+                                // deviceDetail이 아직 초기화되지 않은 경우 생성
+                                this[mac] = DeviceDetailInfo(
+                                    mac = mac,
+                                    name = info.deviceName,
+                                    rssi = info.rssi,
+                                    isConnected = true,
+                                    deviceInfo = info,
+                                    batteryLevel = info.batteryLevel,
+                                    otaProgress = null,
+                                    isOtaInProgress = false,
+                                    callEventEnabled = DevicePreferences.getCallEventEnabled(mac),
+                                    smsEventEnabled = DevicePreferences.getSmsEventEnabled(mac),
+                                    broadcasting = DevicePreferences.getBroadcasting(mac)
+                                )
+                                Log.d(TAG, "📋 [observeConnectionStates] Created deviceDetail for $mac: Battery=${info.batteryLevel}%")
+                            }
+                        }
+                    }
+
                     Log.d(TAG, "✅ [observeConnectionStates] Device connected: $mac")
                 }
 
@@ -174,10 +219,10 @@ class DeviceViewModel : ViewModel() {
             return
         }
 
-        // ✅ 3. 이미 스캔 중인지 확인
+        // ✅ 3. 이미 스캔 중인지 확인 - 스캔 중이면 중단 후 재시작
         if (_isScanning.value) {
-            Log.d(TAG, "Already scanning")
-            return
+            Log.d(TAG, "Already scanning - stopping and restarting...")
+            stopScan()
         }
 
         Log.d(TAG, "═══════════════════════════════════════")
@@ -186,11 +231,17 @@ class DeviceViewModel : ViewModel() {
         Log.d(TAG, "   Bluetooth Enabled: ${bluetoothAdapter.isEnabled}")
         Log.d(TAG, "   Filter: Device name ends with 'LS'")
         _isScanning.value = true
-        _devices.value = emptyList()
+
+        // ✅ 수정: 연결된 디바이스는 유지, 미연결 디바이스만 제거
+        val connectedDevices = _devices.value.filter { device ->
+            _connectionStates.value[device.mac] == true
+        }
+        _devices.value = connectedDevices
+        Log.d(TAG, "   Preserved ${connectedDevices.size} connected devices")
 
         // ✅ 4. 스캔 타임아웃 설정 (30초)
         val scanJob = viewModelScope.launch {
-            delay(30_000) // 30초
+            delay(3_000) // 3초
             if (_isScanning.value) {
                 Log.w(TAG, "⏱️ Scan timeout (30s) - stopping scan")
                 Log.w(TAG, "   Total devices found: ${_devices.value.size}")

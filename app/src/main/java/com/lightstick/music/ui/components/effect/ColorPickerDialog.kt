@@ -75,114 +75,121 @@ fun ColorPickerDialog(
         dismissText = "취소",
         scrollable = false
     ) {
-        // ===== 색상 조절 =====
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            Text(
-                text = "색상 조절",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // ===== 색상 조절 =====
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "색상 조절",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
-            CustomSlider(
-                value = 360f - hue,  // 슬라이더에 반전된 값 표시
-                onValueChange = { hue = 360f - it },  // 입력값 반전
-                valueRange = 0f..360f,
-                steps = 359,
-                enableHaptic = true,
-                trackGradient = Brush.horizontalGradient(
-                    colors = listOf(
-                        Color(0xFFFF0000),  // Red 0°
-                        Color(0xFFFF00FF),  // Magenta 60°
-                        Color(0xFF0000FF),  // Blue 120°
-                        Color(0xFF00FFFF),  // Cyan 180°
-                        Color(0xFF00FF00),  // Green 240°
-                        Color(0xFFFFFF00),  // Yellow 300°
-                        Color(0xFFFF0000)   // Red 360°
-                    )
-                ),
-                thumbColor = MaterialTheme.colorScheme.onSurface,
-                trackHeight = 32.dp,
-                thumbSize = 28.dp
-            )
-        }
-
-        // ===== 밝기 조절 =====
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = "밝기 조절",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // 밝기 그라데이션: 밝은 색 → #161616 (Figma 속성 참조)
-            val brightnessGradient = remember(hue) {
-                Brush.horizontalGradient(
-                    colors = listOf(
-                        Color(0xFFD9D9D9),  // 1.0 (최대 밝기)
-                        Color(0xFF161616)  // 0.0 (최소 밝기 - Figma: #161616)
-                    )
+                CustomSlider(
+                    value = 360f - hue,  // 슬라이더에 반전된 값 표시
+                    onValueChange = { hue = 360f - it },  // 입력값 반전
+                    valueRange = 0f..360f,
+                    steps = 359,
+                    enableHaptic = true,
+                    trackGradient = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFFFF0000),  // Red 0°
+                            Color(0xFFFF00FF),  // Magenta 60°
+                            Color(0xFF0000FF),  // Blue 120°
+                            Color(0xFF00FFFF),  // Cyan 180°
+                            Color(0xFF00FF00),  // Green 240°
+                            Color(0xFFFFFF00),  // Yellow 300°
+                            Color(0xFFFF0000)   // Red 360°
+                        )
+                    ),
+                    thumbColor = MaterialTheme.colorScheme.onSurface,
+                    trackHeight = 32.dp,
+                    thumbSize = 28.dp
                 )
             }
 
-            CustomSlider(
-                value = 1f - brightness,  // 슬라이더 값 반전 (왼쪽=밝음)
-                onValueChange = { brightness = 1f - it },  // 입력값 반전
-                valueRange = 0f..1f,
-                steps = 99,
-                enableHaptic = true,
-                trackGradient = brightnessGradient,
-                thumbColor = MaterialTheme.colorScheme.onSurface,
-                trackHeight = 32.dp,
-                thumbSize = 28.dp
-            )
-        }
-
-        // ===== 프리셋 =====
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = "프리셋",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // 2행 5열 그리드
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(5),
-                modifier = Modifier
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            // ===== 밝기 조절 =====
+            Column(
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                itemsIndexed(presetColors) { index, color ->
-                    PresetColorBox(
-                        color = color,
-                        isSelected = index == selectedPresetIndex,
-                        onClick = {
-                            if (index == selectedPresetIndex) {
-                                // 선택된 프리셋 다시 클릭 -> 편집
-                                onPresetEdit(index)
-                            } else {
-                                // 다른 프리셋 클릭 -> 선택
-                                onPresetSelected(index)
-                                // 색상 적용
-                                val hsv = colorToHsv(color)
-                                hue = hsv[0]
-                                brightness = hsv[2]
-                            }
-                        }
+                Text(
+                    text = "밝기 조절",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 밝기 그라데이션: 밝은 색 → #161616 (Figma 속성 참조)
+                val brightnessGradient = remember(hue) {
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFFD9D9D9),  // 1.0 (최대 밝기)
+                            Color(0xFF161616)  // 0.0 (최소 밝기 - Figma: #161616)
+                        )
                     )
+                }
+
+                CustomSlider(
+                    value = 1f - brightness,  // 슬라이더 값 반전 (왼쪽=밝음)
+                    onValueChange = { brightness = 1f - it },  // 입력값 반전
+                    valueRange = 0f..1f,
+                    steps = 99,
+                    enableHaptic = true,
+                    trackGradient = brightnessGradient,
+                    thumbColor = MaterialTheme.colorScheme.onSurface,
+                    trackHeight = 32.dp,
+                    thumbSize = 28.dp
+                )
+            }
+
+            // ===== 프리셋 =====
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "프리셋",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 2행 5열 그리드
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(5),
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    itemsIndexed(presetColors) { index, color ->
+                        PresetColorBox(
+                            color = color,
+                            isSelected = index == selectedPresetIndex,
+                            onClick = {
+                                if (index == selectedPresetIndex) {
+                                    // 선택된 프리셋 다시 클릭 -> 편집
+                                    onPresetEdit(index)
+                                } else {
+                                    // 다른 프리셋 클릭 -> 선택
+                                    onPresetSelected(index)
+                                    // 색상 적용
+                                    val hsv = colorToHsv(color)
+                                    hue = hsv[0]
+                                    brightness = hsv[2]
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
+        // space
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
@@ -258,73 +265,80 @@ fun PresetColorEditDialog(
         dismissText = "취소",
         scrollable = false
     ) {
-        // ===== 색상 조절 =====
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            Text(
-                text = "색상 조절",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // ===== 색상 조절 =====
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "색상 조절",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
-            CustomSlider(
-                value = 360f - hue,  // 슬라이더에 반전된 값 표시
-                onValueChange = { hue = 360f - it },  // 입력값 반전
-                valueRange = 0f..360f,
-                steps = 359,
-                enableHaptic = true,
-                trackGradient = Brush.horizontalGradient(
-                    colors = listOf(
-                        Color(0xFFFF0000),  // Red 0°
-                        Color(0xFFFF00FF),  // Magenta 60°
-                        Color(0xFF0000FF),  // Blue 120°
-                        Color(0xFF00FFFF),  // Cyan 180°
-                        Color(0xFF00FF00),  // Green 240°
-                        Color(0xFFFFFF00),  // Yellow 300°
-                        Color(0xFFFF0000)   // Red 360°
-                    )
-                ),
-                thumbColor = MaterialTheme.colorScheme.onSurface,
-                trackHeight = 32.dp,
-                thumbSize = 28.dp
-            )
-        }
-
-        // ===== 밝기 조절 =====
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = "밝기 조절",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // 밝기 그라데이션: 밝은 색 → #161616 (Figma 속성 참조)
-            val brightnessGradient = remember(hue) {
-                Brush.horizontalGradient(
-                    colors = listOf(
-                        Color(0xFFD9D9D9),  // 1.0 (최대 밝기)
-                        Color(0xFF161616)  // 0.0 (최소 밝기 - Figma: #161616)
-                    )
+                CustomSlider(
+                    value = 360f - hue,  // 슬라이더에 반전된 값 표시
+                    onValueChange = { hue = 360f - it },  // 입력값 반전
+                    valueRange = 0f..360f,
+                    steps = 359,
+                    enableHaptic = true,
+                    trackGradient = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFFFF0000),  // Red 0°
+                            Color(0xFFFF00FF),  // Magenta 60°
+                            Color(0xFF0000FF),  // Blue 120°
+                            Color(0xFF00FFFF),  // Cyan 180°
+                            Color(0xFF00FF00),  // Green 240°
+                            Color(0xFFFFFF00),  // Yellow 300°
+                            Color(0xFFFF0000)   // Red 360°
+                        )
+                    ),
+                    thumbColor = MaterialTheme.colorScheme.onSurface,
+                    trackHeight = 32.dp,
+                    thumbSize = 28.dp
                 )
             }
 
-            CustomSlider(
-                value = 1f - brightness,  // 슬라이더 값 반전 (왼쪽=밝음)
-                onValueChange = { brightness = 1f - it },  // 입력값 반전
-                valueRange = 0f..1f,
-                steps = 99,
-                enableHaptic = true,
-                trackGradient = brightnessGradient,
-                thumbColor = MaterialTheme.colorScheme.onSurface,
-                trackHeight = 32.dp,
-                thumbSize = 28.dp
-            )
+            // ===== 밝기 조절 =====
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "밝기 조절",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 밝기 그라데이션: 밝은 색 → #161616 (Figma 속성 참조)
+                val brightnessGradient = remember(hue) {
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFFD9D9D9),  // 1.0 (최대 밝기)
+                            Color(0xFF161616)  // 0.0 (최소 밝기 - Figma: #161616)
+                        )
+                    )
+                }
+
+                CustomSlider(
+                    value = 1f - brightness,  // 슬라이더 값 반전 (왼쪽=밝음)
+                    onValueChange = { brightness = 1f - it },  // 입력값 반전
+                    valueRange = 0f..1f,
+                    steps = 99,
+                    enableHaptic = true,
+                    trackGradient = brightnessGradient,
+                    thumbColor = MaterialTheme.colorScheme.onSurface,
+                    trackHeight = 32.dp,
+                    thumbSize = 28.dp
+                )
+            }
         }
+        // space
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 

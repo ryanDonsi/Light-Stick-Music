@@ -2,11 +2,14 @@ package com.lightstick.music.ui.components.effect
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.lightstick.music.R
@@ -62,6 +65,8 @@ fun EffectSettingsDialog(
                 )
             }
         }
+        // space
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
@@ -73,7 +78,7 @@ private fun OnEffectSettingsContent(
     settings: EffectViewModel.EffectSettings,
     onSettingsChange: (EffectViewModel.EffectSettings) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
         EffectSliderItem(
             icon = R.drawable.ic_transit,
             iconTint = Color(0xFFA774FF),
@@ -126,7 +131,7 @@ private fun PeriodicEffectSettingsContent(
     settings: EffectViewModel.EffectSettings,
     onSettingsChange: (EffectViewModel.EffectSettings) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
         EffectSliderItem(
             icon = R.drawable.ic_period,
             iconTint = Color(0xFFFFD46F),

@@ -37,7 +37,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         private const val TAG = "EffectViewModel"
         private const val KEY_CUSTOM_EFFECTS = "custom_effects"
         private const val SCAN_DURATION_MS = 3000L
-        // ✅ 추가
         private const val MAX_CUSTOM_EFFECTS = 7
     }
 

@@ -1,6 +1,7 @@
 package com.lightstick.music.ui.components.common
 
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -36,12 +37,15 @@ fun CustomNavigationBar(
         modifier = modifier
             .fillMaxWidth()
             .height(62.dp)              // ✅ 높이는 여기서
-            .navigationBarsPadding(),   // ✅ padding도 여기서
-        color = MaterialTheme.customColors.surface,
-        tonalElevation = 3.dp
+            .navigationBarsPadding()   // ✅ padding도 여기서
+            .background(MaterialTheme.customColors.surface),
+//        color = MaterialTheme.customColors.surface,
+//        tonalElevation = 3.dp
     ) {
         Row(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize(),
+//                .padding(horizontal = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

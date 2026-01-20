@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.lightstick.music.ui.components.common.CustomSwitch
 import com.lightstick.music.ui.theme.customColors
 
 /**
@@ -61,15 +62,9 @@ fun EffectToggleItem(
         }
 
         // ========== Right: Switch ==========
-        Switch(
+        CustomSwitch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.customColors.onSurface,
-                checkedTrackColor = MaterialTheme.customColors.primaryContainer,
-                uncheckedThumbColor = MaterialTheme.customColors.onSurface,
-                uncheckedTrackColor = MaterialTheme.customColors.onSurface.copy(0.14f)
-            )
+            onCheckedChange = onCheckedChange
         )
     }
 }

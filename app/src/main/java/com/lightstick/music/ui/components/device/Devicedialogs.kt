@@ -19,64 +19,58 @@ import com.lightstick.music.ui.theme.customColors
  */
 
 /**
- * 1. 연결 성공 다이얼로그
+ * 1. 연결 시도 다이얼로그
  *
- * Figma: "(기기명) 기기와 연결되었습니까?"
- * - title만, content 없음
- * - 2버튼: "아니오" / "예"
+ * Figma: "(기기명) 기기와 연결할까요?"
+ * - subtitle만, content 없음
+ * - 2버튼: "취소" / "확인"
  */
 @Composable
-fun ConnectionSuccessDialog(
+fun ConnectConfirmDialog(
     deviceName: String,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
     BaseDialog(
-        title = "$deviceName 기기와 연결되었습니까?",
-        subtitle = null,
+        title = null,
+        subtitle = "$deviceName 기기와 연결할까요?",
         onDismiss = onDismiss,
         onConfirm = onConfirm,
-        confirmText = "예",
-        dismissText = "아니오",
-        scrollable = false
-    ) {
-        // content 없음
-    }
+        confirmText = "확인",
+        dismissText = "취소",
+        scrollable = false,
+        content = null
+    )
 }
 
 /**
  * 2. 재연결 확인 다이얼로그
  *
- * Figma: "연결 (이 응원봉)기기의 기기가 연결되어있습니다.
- *         이 기기의 연결을 해제 후 새로운 기기를 연결하시겠습니까?"
- * - title + content
- * - 2버튼: "아니오" / "예"
+ * Figma: "현재 (기 연결된 기기명칭) 기기가
+ *         연결되어 있습니다.
+ *         이 기기의 연결을 해제 후
+ *         새로운 기기를 연결하시겠습니까?"
+ * - subtitle만, content 없음
+ * - 2버튼: "취소" / "확인"
  */
 @Composable
 fun ReconnectConfirmDialog(
     currentDeviceName: String,
-    newDeviceName: String,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
     BaseDialog(
         title = "연결",
-        subtitle = null,
+        subtitle = "현재 $currentDeviceName 기기가 연결되어있습니다.\n" +
+                "이 기기의 연결을 해제 후\n" +
+                "새로운 기기를 연결하시겠습니까?",
         onDismiss = onDismiss,
         onConfirm = onConfirm,
-        confirmText = "예",
-        dismissText = "아니오",
-        scrollable = false
-    ) {
-        Text(
-            text = "$currentDeviceName 기기가 연결되어있습니다.\n" +
-                    "이 기기의 연결을 해제 후\n" +
-                    "새로운 기기를 연결하시겠습니까?",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.customColors.onSurface.copy(alpha = 0.7f),
-            textAlign = TextAlign.Center
-        )
-    }
+        confirmText = "확인",
+        dismissText = "취소",
+        scrollable = false,
+        content = null
+    )
 }
 
 /**
@@ -93,16 +87,15 @@ fun DisconnectConfirmDialog(
     onConfirm: () -> Unit
 ) {
     BaseDialog(
-        title = "$deviceName 기기 연결을 해제하시겠습니까?",
-        subtitle = null,
+        title = null,
+        subtitle = "$deviceName 기기 연결을 해제하시겠습니까?",
         onDismiss = onDismiss,
         onConfirm = onConfirm,
         confirmText = "예",
         dismissText = "아니오",
-        scrollable = false
-    ) {
-        // content 없음
-    }
+        scrollable = false,
+        content = null
+    )
 }
 
 /**
