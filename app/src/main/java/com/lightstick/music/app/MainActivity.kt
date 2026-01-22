@@ -40,9 +40,12 @@ import com.lightstick.music.ui.screen.music.MusicListScreen
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
 import com.lightstick.music.ui.components.common.CustomNavigationBar
+import com.lightstick.music.ui.components.device.ConnectConfirmDialog
 import com.lightstick.music.ui.components.device.DeviceInfoDialog
 import com.lightstick.music.ui.components.device.DisconnectConfirmDialog
+import com.lightstick.music.ui.components.device.FindEffectConfirmDialog
 import com.lightstick.music.ui.components.device.OtaUpdateConfirmDialog
+import com.lightstick.music.ui.components.device.ReconnectConfirmDialog
 import com.lightstick.music.ui.screen.device.DeviceDetailScreen
 
 @UnstableApi
@@ -88,6 +91,8 @@ class MainActivity : ComponentActivity() {
         // ✅ 권한 상태 로깅
         PermissionManager.logPermissionStatus(this, "MainActivity")
 
+        // MainActivity.kt의 onCreate 함수 내 Scaffold 부분 수정
+
         setContent {
             val lightBackground = !isSystemInDarkTheme()
             SideEffect {
@@ -98,7 +103,7 @@ class MainActivity : ComponentActivity() {
             LightStickMusicTheme {
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route ?: "music"
+                val currentRoute = navBackStackEntry?.destination?.route ?: "effect"
 
                 val navigateTo = intent?.getStringExtra("navigateTo")
 
@@ -117,19 +122,21 @@ class MainActivity : ComponentActivity() {
                     contentWindowInsets = WindowInsets(0),
                     bottomBar = {
                         // ✅ CustomNavigationBar 사용
-                        if (currentRoute != "musicList") {
+                        // musicList 화면에서는 Navigation Bar 숨김
+                        if (currentRoute != "musicList" && !currentRoute.startsWith("deviceDetail")) {
                             CustomNavigationBar(
                                 modifier = Modifier.navigationBarsPadding(),
                                 selectedRoute = currentRoute,
                                 onNavigate = { route ->
-                                    if (!currentRoute.startsWith(route)) {
-                                        navController.navigate(route) {
-                                            popUpTo(navController.graph.startDestinationId) {
-                                                saveState = true
-                                            }
-                                            launchSingleTop = true
-                                            restoreState = true
+                                    // ✅ 수정: 백스택 제대로 관리
+                                    navController.navigate(route) {
+                                        // 시작 화면(effect)까지 모든 화면 제거
+                                        popUpTo("effect") {
+                                            inclusive = false  // effect는 유지
                                         }
+
+                                        // 같은 화면 중복 방지
+                                        launchSingleTop = true
                                     }
                                 },
                                 connectedDeviceCount = connectedDeviceCount
@@ -193,6 +200,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// MainActivity.kt의 AppNavigation 함수 수정본
+
 @OptIn(UnstableApi::class)
 @Composable
 fun AppNavigation(
@@ -241,26 +250,85 @@ fun AppNavigation(
 
         // 📱 DeviceListScreen (디바이스 목록 화면)
         composable("deviceList") {
+            // ✅ 다이얼로그 상태 관리
+            var showConnectDialog by remember { mutableStateOf(false) }
+            var showReconnectDialog by remember { mutableStateOf(false) }
+            var selectedDevice by remember { mutableStateOf<Device?>(null) }
+
+            val connectedDevices by deviceViewModel.connectedDeviceCount.collectAsState()
+            val connectionStates by deviceViewModel.connectionStates.collectAsState()
+
             DeviceListScreen(
                 viewModel = deviceViewModel,
                 navController = navController,
-                // ✅ 추가: 상세 화면으로 이동
                 onNavigateToDetail = { device ->
                     navController.navigate("deviceDetail/${device.mac}")
                 },
-                // ✅ 수정: 연결 토글
                 onDeviceSelected = { device: Device ->
                     if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                         Toast.makeText(context, "BLUETOOTH_CONNECT 권한 없음", Toast.LENGTH_LONG).show()
                         return@DeviceListScreen
                     }
-                    @SuppressLint("MissingPermission")
-                    deviceViewModel.toggleConnection(context, device)
+
+                    selectedDevice = device
+                    val isConnected = connectionStates[device.mac] == true
+
+                    if (isConnected) {
+                        // 이미 연결된 기기 → 바로 연결 해제 (다이얼로그 없음)
+                        @SuppressLint("MissingPermission")
+                        deviceViewModel.toggleConnection(context, device)
+                    } else {
+                        // 미연결 기기 → 연결 시도
+                        if (connectedDevices > 0) {
+                            // 이미 연결된 다른 기기 있음 → ReconnectConfirmDialog
+                            showReconnectDialog = true
+                        } else {
+                            // 연결된 기기 없음 → ConnectConfirmDialog
+                            showConnectDialog = true
+                        }
+                    }
                 }
             )
+
+            // ===== 연결 확인 다이얼로그 =====
+            if (showConnectDialog && selectedDevice != null) {
+                ConnectConfirmDialog(
+                    deviceName = selectedDevice!!.name ?: "Unknown Device",
+                    onDismiss = {
+                        showConnectDialog = false
+                        selectedDevice = null
+                    },
+                    onConfirm = {
+                        showConnectDialog = false
+                        @SuppressLint("MissingPermission")
+                        deviceViewModel.toggleConnection(context, selectedDevice!!)
+                        selectedDevice = null
+                    }
+                )
+            }
+
+            // ===== 재연결 확인 다이얼로그 =====
+            if (showReconnectDialog && selectedDevice != null) {
+                val devices by deviceViewModel.devices.collectAsState()
+                val currentConnectedDevice = devices.find { connectionStates[it.mac] == true }
+
+                ReconnectConfirmDialog(
+                    currentDeviceName = currentConnectedDevice?.name ?: "Unknown Device",
+                    onDismiss = {
+                        showReconnectDialog = false
+                        selectedDevice = null
+                    },
+                    onConfirm = {
+                        showReconnectDialog = false
+                        @SuppressLint("MissingPermission")
+                        deviceViewModel.toggleConnection(context, selectedDevice!!)
+                        selectedDevice = null
+                    }
+                )
+            }
         }
 
-        // ✅ 새로 추가: DeviceDetailScreen
+        // ✅ DeviceDetailScreen (디바이스 상세 화면)
         composable(
             route = "deviceDetail/{deviceMac}",
             arguments = listOf(
@@ -285,10 +353,11 @@ fun AppNavigation(
                 return@composable
             }
 
-            // 다이얼로그 상태
+            // ✅ 다이얼로그 상태
             var showDisconnectDialog by remember { mutableStateOf(false) }
             var showDeviceInfoDialog by remember { mutableStateOf(false) }
             var showOtaUpdateDialog by remember { mutableStateOf(false) }
+            var showFindDialog by remember { mutableStateOf(false) }
 
             DeviceDetailScreen(
                 deviceName = device.name ?: "Unknown Device",
@@ -318,8 +387,7 @@ fun AppNavigation(
                     deviceViewModel.toggleBroadcasting(device, enabled)
                 },
                 onFindClick = {
-                    // TODO: FIND 이펙트 전송
-                    Toast.makeText(context, "FIND 이펙트 전송", Toast.LENGTH_SHORT).show()
+                    showFindDialog = true
                 },
                 onOtaUpdateClick = {
                     showOtaUpdateDialog = true
@@ -352,11 +420,23 @@ fun AppNavigation(
                 )
             }
 
+            // ✅ FIND 확인 다이얼로그
+            if (showFindDialog) {
+                FindEffectConfirmDialog(
+                    onDismiss = { showFindDialog = false },
+                    onConfirm = {
+                        showFindDialog = false
+                        // TODO: FIND 이펙트 전송
+                        Toast.makeText(context, "FIND 이펙트 전송", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            }
+
             // OTA 업데이트 확인 다이얼로그
             if (showOtaUpdateDialog) {
                 OtaUpdateConfirmDialog(
                     deviceName = device.name ?: "Unknown Device",
-                    newversion = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",       // TODO: 새로운 버전 정보
+                    newversion = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
                     onDismiss = { showOtaUpdateDialog = false },
                     onConfirm = {
                         showOtaUpdateDialog = false

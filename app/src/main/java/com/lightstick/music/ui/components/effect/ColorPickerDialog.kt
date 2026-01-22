@@ -23,8 +23,9 @@ import com.lightstick.music.ui.components.common.CustomSlider
  * ✅ 색상 선택 다이얼로그 (Foreground / Background)
  *
  * ## 주요 기능
- * - Hue 색상 조절 (무지개 그라데이션 슬라이더)
- * - Brightness 밝기 조절 (회색 슬라이더)
+ * - Hue 색상 조절 (무지개 그라데이션 슬라이더 - 고정)
+ * - Saturation 선명도 조절 (무채색 → 선명한 색 - 동적)
+ * - Value 밝기 조절 (밝음 → 어두움 - 동적)
  * - 10개 색상 프리셋 (2행 5열)
  * - 프리셋 클릭: 색상 선택
  * - 선택된 프리셋 다시 클릭: 프리셋 편집 다이얼로그
@@ -58,10 +59,11 @@ fun ColorPickerDialog(
     // HSV 값
     val hsv = remember { colorToHsv(initialColor) }
     var hue by remember { mutableFloatStateOf(hsv[0]) }
+    var saturation by remember { mutableFloatStateOf(hsv[1]) }
     var brightness by remember { mutableFloatStateOf(hsv[2]) }
 
-    // 현재 색상 계산 (Saturation은 1.0 고정)
-    val currentColor = hsvToColor(hue, 1f, brightness)
+    // 현재 색상 계산 (모든 HSV 값 사용)
+    val currentColor = hsvToColor(hue, saturation, brightness)
 
     BaseDialog(
         title = title,
@@ -79,7 +81,7 @@ fun ColorPickerDialog(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            // ===== 색상 조절 =====
+            // ===== 색상 조절 (Hue) - 고정 무지개 =====
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -113,7 +115,41 @@ fun ColorPickerDialog(
                 )
             }
 
-            // ===== 밝기 조절 =====
+            // ===== 선명도 조절 (Saturation) - 동적 =====
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "선명도 조절",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 선명도 그라데이션: 무채색 → 선명한 색 (현재 H, V 반영)
+                val saturationGradient = remember(hue, brightness) {
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            hsvToColor(hue, 0f, brightness),    // S=0: 무채색 (V에 따라 흰/회/검)
+                            hsvToColor(hue, 1f, brightness)     // S=1: 최대 선명도
+                        )
+                    )
+                }
+
+                CustomSlider(
+                    value = saturation,
+                    onValueChange = { saturation = it },
+                    valueRange = 0f..1f,
+                    steps = 99,
+                    enableHaptic = true,
+                    trackGradient = saturationGradient,
+                    thumbColor = MaterialTheme.colorScheme.onSurface,
+                    trackHeight = 32.dp,
+                    thumbSize = 28.dp
+                )
+            }
+
+            // ===== 밝기 조절 (Value) - 동적 =====
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -124,19 +160,19 @@ fun ColorPickerDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                // 밝기 그라데이션: 밝은 색 → #161616 (Figma 속성 참조)
-                val brightnessGradient = remember(hue) {
+                // 밝기 그라데이션: 밝은 색 → 검정 (현재 H, S 반영)
+                val brightnessGradient = remember(hue, saturation) {
                     Brush.horizontalGradient(
                         colors = listOf(
-                            Color(0xFFD9D9D9),  // 1.0 (최대 밝기)
-                            Color(0xFF161616)  // 0.0 (최소 밝기 - Figma: #161616)
+                            hsvToColor(hue, saturation, 1f),   // V=1.0: 최대 밝기
+                            hsvToColor(hue, saturation, 0f)    // V=0.0: 완전한 검정
                         )
                     )
                 }
 
                 CustomSlider(
                     value = 1f - brightness,  // 슬라이더 값 반전 (왼쪽=밝음)
-                    onValueChange = { brightness = 1f - it },  // 입력값 반전
+                    onValueChange = { brightness = 1f - it },
                     valueRange = 0f..1f,
                     steps = 99,
                     enableHaptic = true,
@@ -177,9 +213,10 @@ fun ColorPickerDialog(
                                 } else {
                                     // 다른 프리셋 클릭 -> 선택
                                     onPresetSelected(index)
-                                    // 색상 적용
+                                    // 색상 적용 (HSV 모두 적용)
                                     val hsv = colorToHsv(color)
                                     hue = hsv[0]
+                                    saturation = hsv[1]
                                     brightness = hsv[2]
                                 }
                             }
@@ -226,7 +263,7 @@ private fun PresetColorBox(
  *
  * ## 주요 기능
  * - 선택된 프리셋의 색상 편집
- * - 색상 조절 + 밝기 조절만 (프리셋 없음)
+ * - 색상 조절 + 선명도 조절 + 밝기 조절 (프리셋 없음)
  *
  * ## 사용 예시
  * ```kotlin
@@ -248,10 +285,11 @@ fun PresetColorEditDialog(
     // HSV 값
     val hsv = remember { colorToHsv(initialColor) }
     var hue by remember { mutableFloatStateOf(hsv[0]) }
+    var saturation by remember { mutableFloatStateOf(hsv[1]) }
     var brightness by remember { mutableFloatStateOf(hsv[2]) }
 
-    // 현재 색상 계산
-    val currentColor = hsvToColor(hue, 1f, brightness)
+    // 현재 색상 계산 (모든 HSV 값 사용)
+    val currentColor = hsvToColor(hue, saturation, brightness)
 
     BaseDialog(
         title = "프리셋 색상 설정",
@@ -269,7 +307,7 @@ fun PresetColorEditDialog(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            // ===== 색상 조절 =====
+            // ===== 색상 조절 (Hue) - 고정 무지개 =====
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -303,7 +341,41 @@ fun PresetColorEditDialog(
                 )
             }
 
-            // ===== 밝기 조절 =====
+            // ===== 선명도 조절 (Saturation) - 동적 =====
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "선명도 조절",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 선명도 그라데이션: 무채색 → 선명한 색 (현재 H, V 반영)
+                val saturationGradient = remember(hue, brightness) {
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            hsvToColor(hue, 0f, brightness),    // S=0: 무채색 (V에 따라 흰/회/검)
+                            hsvToColor(hue, 1f, brightness)     // S=1: 최대 선명도
+                        )
+                    )
+                }
+
+                CustomSlider(
+                    value = saturation,
+                    onValueChange = { saturation = it },
+                    valueRange = 0f..1f,
+                    steps = 99,
+                    enableHaptic = true,
+                    trackGradient = saturationGradient,
+                    thumbColor = MaterialTheme.colorScheme.onSurface,
+                    trackHeight = 32.dp,
+                    thumbSize = 28.dp
+                )
+            }
+
+            // ===== 밝기 조절 (Value) - 동적 =====
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -314,19 +386,19 @@ fun PresetColorEditDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                // 밝기 그라데이션: 밝은 색 → #161616 (Figma 속성 참조)
-                val brightnessGradient = remember(hue) {
+                // 밝기 그라데이션: 밝은 색 → 검정 (현재 H, S 반영)
+                val brightnessGradient = remember(hue, saturation) {
                     Brush.horizontalGradient(
                         colors = listOf(
-                            Color(0xFFD9D9D9),  // 1.0 (최대 밝기)
-                            Color(0xFF161616)  // 0.0 (최소 밝기 - Figma: #161616)
+                            hsvToColor(hue, saturation, 1f),   // V=1.0: 최대 밝기
+                            hsvToColor(hue, saturation, 0f)    // V=0.0: 완전한 검정
                         )
                     )
                 }
 
                 CustomSlider(
                     value = 1f - brightness,  // 슬라이더 값 반전 (왼쪽=밝음)
-                    onValueChange = { brightness = 1f - it },  // 입력값 반전
+                    onValueChange = { brightness = 1f - it },
                     valueRange = 0f..1f,
                     steps = 99,
                     enableHaptic = true,
@@ -398,16 +470,16 @@ private fun hsvToColor(hue: Float, saturation: Float, value: Float): Color {
  */
 object PresetColors {
     val defaultForegroundPresets = listOf(
-        Color(0xFF9C27B0),  // 보라
+        Color(0xFFFFFFFF),  // 흰색
         Color(0xFFFF0000),  // 빨강
         Color(0xFFFF9800),  // 주황
         Color(0xFFFFEB3B),  // 노랑
         Color(0xFF4CAF50),  // 초록
         Color(0xFF2196F3),  // 파랑
         Color(0xFF3F51B5),  // 남색
+        Color(0xFF9C27B0),  // 보라
         Color(0xFFE91E63),  // 분홍
-        Color(0xFF9E9E9E),  // 회색
-        Color(0xFF9E9E9E)   // 회색
+        Color(0xFF00FFFF)   // 청록
     )
 
     val defaultBackgroundPresets = listOf(

@@ -193,7 +193,7 @@ fun EffectScreen(
                 title = "Effect Control",
                 actionText = "LIST",
                 actionTextColor = if (isDeviceConnected) {
-                    MaterialTheme.colorScheme.surface
+                    MaterialTheme.customColors.secondary
                 } else {
                     Color.Gray
                 },
@@ -226,7 +226,14 @@ fun EffectScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     DeviceConnectionCard(
                         connectionState = deviceConnectionState,
-                        onConnectClick = { navController.navigate("deviceList") },
+                        onConnectClick = {
+                            navController.navigate("deviceList") {
+                                popUpTo("effect") {
+                                    inclusive = false
+                                }
+                                launchSingleTop = true
+                            }
+                        },
                         onRetryClick = { viewModel.retryAutoScan(context) },
                         isScrolled = isScrolled,
                         selectedEffect = selectedEffect,
