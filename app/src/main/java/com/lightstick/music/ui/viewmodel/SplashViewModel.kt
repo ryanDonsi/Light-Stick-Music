@@ -11,6 +11,7 @@ import com.lightstick.music.domain.effect.MusicEffectManager
 import com.lightstick.music.data.model.InitializationResult
 import com.lightstick.music.data.model.InitializationState
 import com.lightstick.music.data.model.MusicItem
+import com.lightstick.music.data.model.SplashState
 import com.lightstick.music.data.local.storage.EffectPathPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -25,11 +26,46 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
 
     private val context = application.applicationContext
 
+    // ✅ Splash 화면 전체 상태 관리 (로고 → 권한 안내 → 권한 요청 → 초기화)
+    private val _splashState = MutableStateFlow<SplashState>(SplashState.ShowLogo)
+    val splashState: StateFlow<SplashState> = _splashState.asStateFlow()
+
+    // 기존 초기화 상태 (내부적으로만 사용)
     private val _state = MutableStateFlow<InitializationState>(InitializationState.Idle)
     val state: StateFlow<InitializationState> = _state.asStateFlow()
 
     private val _result = MutableStateFlow<InitializationResult?>(null)
     val result: StateFlow<InitializationResult?> = _result.asStateFlow()
+
+    /**
+     * 로고 화면 표시 완료 → 권한 안내 화면으로 전환
+     */
+    fun onLogoTimeout() {
+        _splashState.value = SplashState.ShowPermissionGuide
+    }
+
+    /**
+     * 권한 안내 확인 버튼 클릭 → Activity에서 시스템 권한 요청 수행
+     * (시스템 권한 요청은 Activity에서 처리)
+     */
+    fun onPermissionGuideConfirmed() {
+        // Activity에서 시스템 권한 요청을 수행하도록 신호만 보냄
+        // 실제 권한 요청은 SplashActivity의 requestAllPermissions()에서 처리
+    }
+
+    /**
+     * 권한 허용 → 앱 초기화 시작
+     */
+    fun onPermissionAllowed() {
+        _splashState.value = SplashState.Initializing(InitializationState.Idle)
+    }
+
+    /**
+     * 권한 거부 → 앱 종료 처리
+     */
+    fun onPermissionDenied() {
+        // Activity에서 처리
+    }
 
     /**
      * 전체 초기화 시작
@@ -44,6 +80,8 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
 
                 // 2단계: Effects 폴더 자동 설정
                 _state.value = InitializationState.ConfiguringEffectsDirectory
+                _splashState.value = SplashState.Initializing(InitializationState.ConfiguringEffectsDirectory)
+
                 val configured = EffectPathPreferences.autoConfigureEffectsDirectory(context)
 
                 if (!configured) {
@@ -66,17 +104,22 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
                     duration = duration
                 )
 
-                _state.value = InitializationState.Completed(
+                val completedState = InitializationState.Completed(
                     musicCount = matchedList.size,
                     effectCount = effectCount,
                     matchedCount = matchedList.count { it.hasEffect }
                 )
 
+                _state.value = completedState
+                _splashState.value = SplashState.Initializing(completedState)
+
                 Log.d("InitVM", "✅ Initialization completed in ${duration}ms")
 
             } catch (e: Exception) {
                 Log.e("InitVM", "❌ Initialization failed: ${e.message}", e)
-                _state.value = InitializationState.Error(e.message ?: "Unknown error")
+                val errorState = InitializationState.Error(e.message ?: "Unknown error")
+                _state.value = errorState
+                _splashState.value = SplashState.Initializing(errorState)
             }
         }
     }
@@ -86,6 +129,7 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
      */
     private suspend fun scanMusicFiles(): List<MusicItem> = withContext(Dispatchers.IO) {
         _state.value = InitializationState.ScanningMusic(0, 0)
+        _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(0, 0))
 
         val resolver = context.contentResolver
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
@@ -110,6 +154,7 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
 
         Log.d("InitVM", "📀 Found ${totalFiles.size} music files")
         _state.value = InitializationState.ScanningMusic(0, totalFiles.size)
+        _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(0, totalFiles.size))
 
         // Music ID 계산하면서 스캔
         resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
@@ -125,11 +170,13 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
 
                 // 진행 상황 업데이트
                 index++
-                _state.value = InitializationState.CalculatingMusicIds(index, totalFiles.size)
+                val calcState = InitializationState.CalculatingMusicIds(index, totalFiles.size)
+                _state.value = calcState
+                _splashState.value = SplashState.Initializing(calcState)
 
                 val retriever = MediaMetadataRetriever()
                 var art: String? = null
-                var duration: Long = 0L  // ✅ 추가
+                var duration: Long = 0L
 
                 try {
                     retriever.setDataSource(path)
@@ -178,13 +225,17 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
      * 2단계: Effect 파일 스캔
      */
     private suspend fun scanEffectFiles(): Int = withContext(Dispatchers.IO) {
-        _state.value = InitializationState.ScanningEffects(0, 0)
+        val scanState = InitializationState.ScanningEffects(0, 0)
+        _state.value = scanState
+        _splashState.value = SplashState.Initializing(scanState)
 
         // SAF를 통해 초기화
         MusicEffectManager.initializeFromSAF(context)
         val effectCount = MusicEffectManager.getLoadedEffectCount()
 
-        _state.value = InitializationState.ScanningEffects(effectCount, effectCount)
+        val completedScanState = InitializationState.ScanningEffects(effectCount, effectCount)
+        _state.value = completedScanState
+        _splashState.value = SplashState.Initializing(completedScanState)
 
         Log.d("InitVM", "✅ Scanned $effectCount effect files")
         effectCount
@@ -195,7 +246,9 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
      */
     private suspend fun matchEffects(musicList: List<MusicItem>): List<MusicItem> =
         withContext(Dispatchers.IO) {
-            _state.value = InitializationState.MatchingEffects(0, musicList.size)
+            val matchState = InitializationState.MatchingEffects(0, musicList.size)
+            _state.value = matchState
+            _splashState.value = SplashState.Initializing(matchState)
 
             val matchedList = musicList.mapIndexed { index, item ->
                 val hasEffect = try {
@@ -206,7 +259,9 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
                     false
                 }
 
-                _state.value = InitializationState.MatchingEffects(index + 1, musicList.size)
+                val updatedMatchState = InitializationState.MatchingEffects(index + 1, musicList.size)
+                _state.value = updatedMatchState
+                _splashState.value = SplashState.Initializing(updatedMatchState)
 
                 // UI 업데이트를 위한 짧은 지연
                 if (index % 5 == 0) {

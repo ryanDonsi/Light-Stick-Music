@@ -36,7 +36,8 @@ class SplashActivity : ComponentActivity() {
         PermissionManager.logPermissionStatus(this, "SplashActivity")
 
         if (allGranted) {
-            // ✅ 권한 획득 성공 → SDK 초기화 → 앱 초기화 시작
+            // ✅ 권한 획득 성공 → ViewModel에 알림 → SDK 초기화 → 앱 초기화 시작
+            viewModel.onPermissionAllowed()
             initializeSdkAndStartApp()
         } else {
             // 거부된 권한 확인
@@ -46,6 +47,7 @@ class SplashActivity : ComponentActivity() {
                 "필요한 권한이 거부되었습니다: ${deniedPermissions.joinToString()}",
                 Toast.LENGTH_LONG
             ).show()
+            viewModel.onPermissionDenied()
             finish()
         }
     }
@@ -56,7 +58,7 @@ class SplashActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, true)
 
         setContent {
-            val state by viewModel.state.collectAsState()
+            val splashState by viewModel.splashState.collectAsState()
 
             LightStickMusicTheme {
                 Surface(
@@ -64,8 +66,17 @@ class SplashActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     SplashScreen(
-                        state = state,
-                        onComplete = {
+                        splashState = splashState,
+                        onLogoTimeout = {
+                            // 로고 표시 완료 → 권한 체크
+                            checkPermissionsAndProceed()
+                        },
+                        onPermissionGuideConfirmed = {
+                            // 권한 안내 다이얼로그에서 "확인" → 시스템 권한 요청
+                            viewModel.onPermissionGuideConfirmed()
+                            requestAllPermissions()
+                        },
+                        onInitializationComplete = {
                             // 초기화 완료 → MainActivity로 이동
                             viewModel.saveInitializationResult()
                             startMainActivity()
@@ -74,10 +85,30 @@ class SplashActivity : ComponentActivity() {
                 }
             }
         }
-
-        requestAllPermissions()
     }
 
+    /**
+     * 권한 체크 후 진행 방향 결정
+     * - 권한 있음 → 바로 초기화 시작
+     * - 권한 없음 → 권한 안내 다이얼로그 표시
+     */
+    private fun checkPermissionsAndProceed() {
+        val requiredPermissions = PermissionManager.getAllRequiredPermissions()
+        val deniedPermissions = PermissionManager.getDeniedPermissions(this, requiredPermissions)
+
+        if (deniedPermissions.isEmpty()) {
+            // 모든 권한이 이미 허용됨 → 바로 초기화 시작
+            viewModel.onPermissionAllowed()
+            initializeSdkAndStartApp()
+        } else {
+            // 권한 없음 → 권한 안내 다이얼로그 표시
+            viewModel.onLogoTimeout()
+        }
+    }
+
+    /**
+     * 필요한 모든 권한 요청
+     */
     private fun requestAllPermissions() {
         // 현재 권한 상태 로깅
         PermissionManager.logPermissionStatus(this, "SplashActivity")
@@ -89,6 +120,8 @@ class SplashActivity : ComponentActivity() {
         val deniedPermissions = PermissionManager.getDeniedPermissions(this, requiredPermissions)
 
         if (deniedPermissions.isEmpty()) {
+            // 모든 권한이 이미 허용됨
+            viewModel.onPermissionAllowed()
             initializeSdkAndStartApp()
         } else {
             // 거부된 권한 요청
@@ -119,6 +152,9 @@ class SplashActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * MainActivity로 이동
+     */
     private fun startMainActivity() {
         startActivity(Intent(this, MainActivity::class.java))
         finish()
