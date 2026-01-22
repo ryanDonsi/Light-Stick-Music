@@ -76,9 +76,9 @@ fun ReconnectConfirmDialog(
 /**
  * 3. 연결 해제 확인 다이얼로그
  *
- * Figma: "(기기명) 기기 연결을 해제하시겠습니까?"
- * - title만, content 없음
- * - 2버튼: "아니오" / "예"
+ * Figma: "(기기명) 기기 연결을 해제할까요?"
+ * - subtitle만, content 없음
+ * - 2버튼: "취소" / "확인"
  */
 @Composable
 fun DisconnectConfirmDialog(
@@ -88,11 +88,11 @@ fun DisconnectConfirmDialog(
 ) {
     BaseDialog(
         title = null,
-        subtitle = "$deviceName 기기 연결을 해제하시겠습니까?",
+        subtitle = "$deviceName 기기 연결을 해제할까요?",
         onDismiss = onDismiss,
         onConfirm = onConfirm,
-        confirmText = "예",
-        dismissText = "아니오",
+        confirmText = "확인",
+        dismissText = "취소",
         scrollable = false,
         content = null
     )
@@ -169,29 +169,76 @@ private fun InfoRow(
     }
 }
 
+
 /**
- * 5. OTA 업데이트 확인 다이얼로그
+ * 5. FIND 이펙트 전송 확인 다이얼로그
  *
- * Figma: "기기의 이름(버전)은 업데이트를 진행하시겠습니까?"
- * - title만, content 없음
- * - 2버튼: "아니오" / "예"
+ * Figma: "기기에 이펙트를 전송할까요?"
+ * - subtitle만, content 없음
+ * - 2버튼: "취소" / "확인"
  */
 @Composable
-fun OtaUpdateConfirmDialog(
-    deviceName: String,
-    version: String,
+fun FindEffectConfirmDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
     BaseDialog(
-        title = "$deviceName($version)은\n업데이트를 진행하시겠습니까?",
-        subtitle = null,
+        title = null,
+        subtitle = "기기에 이펙트를 전송할까요?",
         onDismiss = onDismiss,
         onConfirm = onConfirm,
-        confirmText = "예",
-        dismissText = "아니오",
-        scrollable = false
-    ) {
-        // content 없음
-    }
+        confirmText = "확인",
+        dismissText = "취소",
+        scrollable = false,
+        content = null
+    )
+}
+
+/**
+ * 6-1. 최신버전 다이얼로그
+ *
+ * Figma: "기기의 이름(버전)은 업데이트를 진행하시겠습니까?"
+ * - subtitle만, content 없음
+ * - 1버튼: "확인"
+ */
+@Composable
+fun OtaVersionInfoDialog(
+    deviceName: String,
+    version: String,
+    onDismiss: () -> Unit
+) {
+    BaseDialog(
+        title = null,
+        subtitle = "$deviceName($version)은\n최신 버전입니다.",
+        onDismiss = onDismiss,
+        confirmText = "확인",
+        scrollable = false,
+        content = null
+    )
+}
+
+/**
+ * 6-2. OTA 업데이트 확인 다이얼로그
+ *
+ * Figma: "기기의 이름(버전)은 업데이트를 진행하시겠습니까?"
+ * - subtitle만, content 없음
+ * - 2버튼: "취소" / "확인"
+ */
+@Composable
+fun OtaUpdateConfirmDialog(
+    deviceName: String,
+    newversion: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    BaseDialog(
+        title = null,
+        subtitle = "$deviceName 를\n새로운 버전($newversion)으로 업데이트를\n진행하시겠습니까?",
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
+        confirmText = "확인",
+        dismissText = "취소",
+        scrollable = false,
+        content = null
+    )
 }

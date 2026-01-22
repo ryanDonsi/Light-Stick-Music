@@ -356,7 +356,7 @@ fun AppNavigation(
             if (showOtaUpdateDialog) {
                 OtaUpdateConfirmDialog(
                     deviceName = device.name ?: "Unknown Device",
-                    version = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
+                    newversion = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",       // TODO: 새로운 버전 정보
                     onDismiss = { showOtaUpdateDialog = false },
                     onConfirm = {
                         showOtaUpdateDialog = false
