@@ -1,9 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- ✅ Material3 Base Theme -->
     <style name="Base.Theme.LightStickMusic" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- ✅ 앱 전체 배경색 설정 -->
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:colorBackground">@color/background</item>
     </style>
 
     <!-- ✅ App Theme -->
     <style name="Theme.LightStickMusic" parent="Base.Theme.LightStickMusic" />
+
+    <!-- ✅ Splash Screen Theme (Android 12+) -->
+    <style name="Theme.LightStickMusic.Splash" parent="Theme.SplashScreen">
+        <!-- 배경 색상 (Background - 0xFF1F1F1F) -->
+        <item name="windowSplashScreenBackground">@color/background</item>
+
+        <!-- 중앙 아이콘 (GLOWSYNC 로고) -->
+        <item name="windowSplashScreenAnimatedIcon">@drawable/logo_glowsync</item>
+
+        <!-- 아이콘 배경 (투명) -->
+        <item name="windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+
+        <!-- 전환 후 테마 -->
+        <item name="postSplashScreenTheme">@style/Theme.LightStickMusic</item>
+    </style>
 </resources>

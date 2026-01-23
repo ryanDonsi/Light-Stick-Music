@@ -79,6 +79,9 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.multidex)
 
+    // ✅ Splash Screen (추가)
+    implementation(libs.androidx.core.splashscreen)
+
     // Google Material
     implementation(libs.material)
 

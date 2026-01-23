@@ -7,15 +7,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
 
 /**
  * 권한 항목 컴포넌트
- * - 아이콘, 권한 이름, 설명을 표시
+ * - 아이콘 + 타이틀을 같은 Row에 배치
+ * - 설명은 아이콘 너비(24dp) + 간격(8dp) = 32dp 만큼 왼쪽 패딩
+ * - Figma 디자인 기준
  */
 @Composable
 fun PermissionItem(
@@ -24,38 +25,43 @@ fun PermissionItem(
     description: String,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
+    Column(
+        modifier = modifier.fillMaxWidth()
     ) {
-        // 아이콘
-        Icon(
-            imageVector = ImageVector.vectorResource(id = iconRes),
-            contentDescription = title,
-            tint = MaterialTheme.customColors.onSurface,
-            modifier = Modifier.size(24.dp)
-        )
+        // 아이콘 + 타이틀 Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 아이콘 (24dp)
+            Icon(
+                painter = painterResource(id = iconRes),
+                contentDescription = title,
+                tint = MaterialTheme.customColors.onSurface,
+                modifier = Modifier.size(24.dp)
+            )
 
-        Spacer(modifier = Modifier.width(16.dp))
+            // 아이콘과 타이틀 간격: 8dp
+            Spacer(modifier = Modifier.width(8.dp))
 
-        // 텍스트 영역
-        Column(modifier = Modifier.weight(1f)) {
             // 권한 이름
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.customTextStyles.bodyAccent,
                 color = MaterialTheme.customColors.onSurface
             )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // 설명
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.customColors.textTertiary,
-                lineHeight = MaterialTheme.typography.bodySmall.fontSize * 1.4
-            )
         }
+
+        // 타이틀과 설명 간격: 4dp
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // 설명 (아이콘 너비 + 간격 = 32dp 만큼 시작점 이동, end 16dp)
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.customColors.onSurfaceVariant,
+            lineHeight = MaterialTheme.typography.bodySmall.fontSize * 1.5,
+            modifier = Modifier.padding(start = 32.dp, end = 16.dp) // start: 24dp(icon) + 8dp(spacer), end: 16dp
+        )
     }
 }

@@ -1,4 +1,4 @@
-package com.lightstick.music.ui.components.init
+package com.lightstick.music.ui.components.splash
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.LinearProgressIndicator

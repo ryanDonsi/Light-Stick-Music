@@ -44,22 +44,25 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.LightStickMusic">
 
-        <!-- ✅ SplashActivity를 시작 화면으로 설정 -->
+        <!-- ✅ SplashActivity - 세로 모드 고정 + Splash Screen Theme -->
         <activity
             android:name=".ui.screen.splash.SplashActivity"
             android:exported="true"
-            android:theme="@style/Theme.LightStickMusic">
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.LightStickMusic.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- ✅ MainActivity는 일반 Activity로 -->
+        <!-- ✅ MainActivity - 세로 모드 고정 -->
         <activity
             android:name=".app.MainActivity"
             android:exported="false"
-            android:launchMode="singleTop" />
+            android:screenOrientation="portrait"
+            android:launchMode="singleTop">
+        </activity>
 
         <!-- ✅ Foreground Service 타입 명시 -->
         <service

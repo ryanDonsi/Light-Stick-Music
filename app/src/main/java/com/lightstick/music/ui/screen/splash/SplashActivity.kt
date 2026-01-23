@@ -21,6 +21,7 @@ import com.lightstick.music.app.MainActivity
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.ui.theme.LightStickMusicTheme
 import com.lightstick.music.ui.viewmodel.SplashViewModel
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen // ✅ 추가
 
 @UnstableApi
 class SplashActivity : ComponentActivity() {
@@ -53,6 +54,9 @@ class SplashActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // ✅ Splash Screen 설치 (super.onCreate() 전에 호출)
+        installSplashScreen()
+
         super.onCreate(savedInstanceState)
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
@@ -93,6 +97,11 @@ class SplashActivity : ComponentActivity() {
      * - 권한 없음 → 권한 안내 다이얼로그 표시
      */
     private fun checkPermissionsAndProceed() {
+        // ⭐ 테스트용: 항상 다이얼로그 표시
+        // TODO: 최종 릴리즈 전에 아래 주석을 해제하고 테스트 코드 삭제
+        viewModel.onLogoTimeout()
+
+        /* 원래 코드 (최종 릴리즈 시 사용)
         val requiredPermissions = PermissionManager.getAllRequiredPermissions()
         val deniedPermissions = PermissionManager.getDeniedPermissions(this, requiredPermissions)
 
@@ -104,6 +113,7 @@ class SplashActivity : ComponentActivity() {
             // 권한 없음 → 권한 안내 다이얼로그 표시
             viewModel.onLogoTimeout()
         }
+        */
     }
 
     /**

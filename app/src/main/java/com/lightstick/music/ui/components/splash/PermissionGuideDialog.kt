@@ -25,7 +25,7 @@ fun PermissionGuideDialog(
 ) {
     BaseDialog(
         title = "권한 설정",
-        subtitle = "안정적 인 사용을 위해 아래의 접근 권한이 필요합니다",
+        subtitle = null,
         onDismiss = onConfirm,  // 확인 버튼과 동일한 동작
         confirmText = "확인",
         scrollable = true,
@@ -36,42 +36,51 @@ fun PermissionGuideDialog(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            // 안내 문구
+            Text(
+                text = "원활한 앱 사용을 위해 아래의 접근 권한이 필요합니다.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.customColors.onSurfaceVariant,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth()
+            )
+
             // 1. 근처 기기 액세스 (필수)
             PermissionItem(
                 iconRes = R.drawable.ic_bluetooth,
                 title = "근처 기기 액세스 (필수)",
-                description = "블루투스 기기를 이용해 근처 기기 가기와 연결이 가능하도록 권한이 필요 합니다."
+                description = "블루투스 기기를 이용하여 근처 기기를 찾아서 연결하고 통신을 합니다."
             )
 
             // 2. 저장 공간 (필수)
             PermissionItem(
                 iconRes = R.drawable.ic_save,
                 title = "저장 공간 (필수)",
-                description = "여러 음악 파일에 대해서 어플리케에서 저장합니다."
+                description = "앱에 필요한 정보를 디바이스에 저장합니다."
             )
 
             // 3. 위치 (필수)
             PermissionItem(
                 iconRes = R.drawable.ic_location,
                 title = "위치 (필수)",
-                description = "앱을 실행시 백그라운드에서 앱을 대해도 위치 정보를 조회할 수 있도록 권한을 항상 허용으로 설정 해주세요."
+                description = "앱을 닫거나 백그라운드에 있을 때에도 위치 데이터를 수집하여 디바이스 블루투스 통신 기능을 활성화 합니다."
             )
 
             // 4. 알림 (선택)
             PermissionItem(
                 iconRes = R.drawable.ic_alram,
                 title = "알림 (선택)",
-                description = "디바이스와 음악 재생에 포함됩니다."
+                description = "디바이스와 동작 상태를 표시합니다."
             )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         // 안내 문구
         Text(
-            text = "* 접근 권한은 설정 > 어플리케이션 > GLOWSYNC에서\n변경 가능합니다.",
+            text = "* 접근 권한은 설정 > 어플리케이션 > GLOWSYNC에서 변경 가능합니다.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.customColors.textTertiary,
+            color = MaterialTheme.customColors.onSurfaceVariant,
             textAlign = TextAlign.Start,
             modifier = Modifier.fillMaxWidth()
         )
