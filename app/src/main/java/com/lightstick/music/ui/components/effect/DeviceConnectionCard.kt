@@ -175,7 +175,7 @@ fun DeviceConnectionCard(
                 lightstickColor = effectColorData?.iconColor ?: Color.White,
                 isLightStickAnimating = isPlaying,
                 statusText = "연결 됨",
-                statusTextColor = MaterialTheme.customColors.onSurface,
+                statusTextColor = MaterialTheme.customColors.secondary,
                 descriptionText = connectionState.device.name ?: "UNKNOWN",
                 descriptionTextColor = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
                 effectColorData = effectColorData,
@@ -532,22 +532,23 @@ private fun animateBreathEffect(
 
         val iconColor: Color = when {
             breathProgress < 0.25f -> {
-                // 1. Hold FG
-                finalFgColor
+                // 1. Transition BG -> FG
+                val progress = breathProgress / 0.25f
+                hsvLerp(bgColor, finalFgColor, progress)
             }
             breathProgress < 0.5f -> {
-                // 2. Transition FG -> BG
-                val progress = (breathProgress - 0.25f) / 0.25f
-                hsvLerp(finalFgColor, bgColor, progress)
+                // 2. Hold FG
+                finalFgColor
+
             }
             breathProgress < 0.75f -> {
-                // 3. Hold BG
-                bgColor
+                // 3. Transition FG -> BG
+                val progress = (breathProgress - 0.5f) / 0.25f
+                hsvLerp(finalFgColor, bgColor, progress)
             }
             else -> {
-                // 4. Transition BG -> FG
-                val progress = (breathProgress - 0.75f) / 0.25f
-                hsvLerp(bgColor, finalFgColor, progress)
+                // 4. Hold BG
+                bgColor
             }
         }
 

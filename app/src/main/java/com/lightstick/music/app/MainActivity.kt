@@ -38,6 +38,7 @@ import androidx.navigation.navArgument
 import com.lightstick.music.ui.screen.music.MusicControlScreen
 import com.lightstick.music.ui.screen.music.MusicListScreen
 import com.lightstick.LSBluetooth
+import com.lightstick.config.DeviceFilter
 import com.lightstick.device.Device
 import com.lightstick.music.ui.components.common.CustomNavigationBar
 import com.lightstick.music.ui.components.device.ConnectConfirmDialog
@@ -85,7 +86,9 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         // SDK init
-        LSBluetooth.initialize(applicationContext)
+        val filter = DeviceFilter.byName("LS", DeviceFilter.MatchMode.ENDS_WITH)
+        LSBluetooth.initialize(applicationContext, filter)
+
         deviceViewModel.initializeWithContext(applicationContext)
 
         // ✅ 권한 상태 로깅

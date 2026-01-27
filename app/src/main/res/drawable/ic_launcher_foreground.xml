@@ -1,15 +1,10 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24"
-    android:tint="#FFFFFF">
-  <group android:scaleX="0.58"
-      android:scaleY="0.58"
-      android:translateX="5.04"
-      android:translateY="5.04">
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M12,3v10.55c-0.59,-0.34 -1.27,-0.55 -2,-0.55 -2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4V7h4V3h-6z"/>
-  </group>
-</vector>
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- GLOWSYNC 로고를 Safe Zone 내에 맞게 축소 -->
+    <!-- Safe Zone: 66dp, 로고: 60dp x 20dp (3:1 비율 유지) -->
+    <item
+        android:width="60dp"
+        android:height="20dp"
+        android:gravity="center"
+        android:drawable="@drawable/logo_glowsync" />
+</layer-list>

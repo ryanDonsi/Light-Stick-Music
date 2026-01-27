@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -21,7 +22,8 @@ import com.lightstick.music.app.MainActivity
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.ui.theme.LightStickMusicTheme
 import com.lightstick.music.ui.viewmodel.SplashViewModel
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen // ✅ 추가
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.lightstick.music.data.model.SplashState
 
 @UnstableApi
 class SplashActivity : ComponentActivity() {
@@ -63,6 +65,11 @@ class SplashActivity : ComponentActivity() {
 
         setContent {
             val splashState by viewModel.splashState.collectAsState()
+
+            // ✅ 권한 안내 다이얼로그에서 백키 누르면 앱 종료
+            BackHandler(enabled = splashState is SplashState.ShowPermissionGuide) {
+                finish()  // 앱 종료
+            }
 
             LightStickMusicTheme {
                 Surface(

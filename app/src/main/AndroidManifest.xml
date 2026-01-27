@@ -20,7 +20,6 @@
 
     <!-- ✅ 미디어 권한 (Android 13+, 음악 파일 읽기용) -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
     <!-- ✅ 외부 저장소 권한 (Android 12 이하, 음악 파일 읽기용) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"

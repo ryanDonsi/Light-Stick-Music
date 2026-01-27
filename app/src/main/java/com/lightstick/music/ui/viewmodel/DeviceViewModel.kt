@@ -96,90 +96,20 @@ class DeviceViewModel : ViewModel() {
      */
     private fun observeConnectionStates() {
         viewModelScope.launch {
-            LSBluetooth.observeDeviceStates().collect { states ->
-                // 연결된 디바이스 MAC 주소 추출
-                val connectedMacs = states
-                    .filter { (_, state) ->
-                        state.connectionState is ConnectionState.Connected
-                    }
-                    .keys
+            // ✅ SDK가 이미 필터링한 상태만 받음
+            LSBluetooth.observeConnectionStates().collect { states ->
 
-                // 연결 상태 맵 업데이트
-                val updatedStates = _connectionStates.value.toMutableMap()
-
-                // 연결된 디바이스 true로 설정
-                connectedMacs.forEach { mac ->
-                    updatedStates[mac] = true
-
-                    val deviceState = states[mac]
-
-                    // ✅ 추가: 목록에 없는 디바이스면 추가 (문제 1 해결)
-                    if (_devices.value.none { it.mac == mac }) {
-                        val device = Device(
-                            mac = mac,
-                            name = deviceState?.deviceInfo?.deviceName ?: "Unknown",
-                            rssi = deviceState?.deviceInfo?.rssi
-                        )
-                        _devices.value = _devices.value + device
-                        Log.d(TAG, "✅ [observeConnectionStates] Added connected device to list: $mac")
-                    }
-
-                    // ✅ 추가: deviceInfo 업데이트 (배터리 정보 포함)
-                    deviceState?.deviceInfo?.let { info ->
-                        _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
-                            val existing = this[mac]
-                            if (existing != null) {
-                                this[mac] = existing.copy(
-                                    deviceInfo = info,
-                                    batteryLevel = info.batteryLevel,
-                                    rssi = info.rssi
-                                )
-                                Log.d(TAG, "🔋 [observeConnectionStates] Updated deviceInfo for $mac: Battery=${info.batteryLevel}%")
-                            } else {
-                                // deviceDetail이 아직 초기화되지 않은 경우 생성
-                                this[mac] = DeviceDetailInfo(
-                                    mac = mac,
-                                    name = info.deviceName,
-                                    rssi = info.rssi,
-                                    isConnected = true,
-                                    deviceInfo = info,
-                                    batteryLevel = info.batteryLevel,
-                                    otaProgress = null,
-                                    isOtaInProgress = false,
-                                    callEventEnabled = DevicePreferences.getCallEventEnabled(mac),
-                                    smsEventEnabled = DevicePreferences.getSmsEventEnabled(mac),
-                                    broadcasting = DevicePreferences.getBroadcasting(mac)
-                                )
-                                Log.d(TAG, "📋 [observeConnectionStates] Created deviceDetail for $mac: Battery=${info.batteryLevel}%")
-                            }
-                        }
-                    }
-
-                    Log.d(TAG, "✅ [observeConnectionStates] Device connected: $mac")
+                // ✅ 연결 상태 맵 업데이트
+                _connectionStates.value = states.mapValues { (_, state) ->
+                    state is ConnectionState.Connected
                 }
 
-                // 연결 끊긴 디바이스 false로 설정
-                _devices.value.forEach { device ->
-                    if (device.mac !in connectedMacs && updatedStates[device.mac] == true) {
-                        updatedStates[device.mac] = false
-                        Log.d(TAG, "⚠️ [observeConnectionStates] Device disconnected: ${device.mac}")
-                    }
+                // ✅ 연결 개수 업데이트
+                _connectedDeviceCount.value = states.count { (_, state) ->
+                    state is ConnectionState.Connected
                 }
 
-                _connectionStates.value = updatedStates
-
-                // ✅ 연결 개수 업데이트 (Navigation bar badge)
-                _connectedDeviceCount.value = connectedMacs.size
-                Log.d(TAG, "📊 [observeConnectionStates] Connected count: ${connectedMacs.size}")
-
-                // ✅ 디바이스 목록 재정렬 (연결된 것 먼저)
-                _devices.value = _devices.value.sortedWith(
-                    compareByDescending<Device> {
-                        _connectionStates.value[it.mac] ?: false
-                    }.thenByDescending {
-                        it.rssi ?: -100
-                    }
-                )
+                Log.d(TAG, "📊 Connected count: ${_connectedDeviceCount.value}")
             }
         }
     }

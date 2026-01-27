@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lightstick.music.data.model.InitializationState
 import com.lightstick.music.data.model.SplashState
+import com.lightstick.music.ui.components.init.TextSection
 import com.lightstick.music.ui.components.splash.ProgressSection
 import com.lightstick.music.ui.components.splash.LogoScreen
 import com.lightstick.music.ui.components.splash.PermissionGuideDialog
@@ -105,12 +106,7 @@ private fun InitializationScreen(
             // ✅ 초기화 프로세스 표시
             when (initState) {
                 is InitializationState.Idle -> {
-                    CircularProgressIndicator()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "초기화 준비 중...",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
+                    TextSection(title = "초기화 준비 중...")
                 }
 
                 is InitializationState.CheckingPermissions -> {
@@ -137,12 +133,7 @@ private fun InitializationScreen(
                 }
 
                 is InitializationState.ConfiguringEffectsDirectory -> {
-                    CircularProgressIndicator()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Effects 폴더 설정 중...",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
+                    TextSection(title = "Effects 폴더 설정 중...")
                 }
 
                 is InitializationState.ScanningEffects -> {
@@ -162,13 +153,7 @@ private fun InitializationScreen(
                 }
 
                 is InitializationState.Completed -> {
-                    // ✅ 완료 시 프로세스 표시만 (리포트 제거)
-                    CircularProgressIndicator()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "초기화 완료",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
+                    TextSection(title = "초기화 완료")
                 }
 
                 is InitializationState.Error -> {
