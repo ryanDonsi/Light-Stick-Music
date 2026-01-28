@@ -113,8 +113,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val connectedDeviceCount by deviceViewModel.connectedDeviceCount.collectAsState()
-
                 Scaffold(
                     contentWindowInsets = WindowInsets(0),
                     bottomBar = {
@@ -135,8 +133,7 @@ class MainActivity : ComponentActivity() {
                                         // 같은 화면 중복 방지
                                         launchSingleTop = true
                                     }
-                                },
-                                connectedDeviceCount = connectedDeviceCount
+                                }
                             )
                         }
                     }

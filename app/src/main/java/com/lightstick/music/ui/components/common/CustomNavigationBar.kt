@@ -12,7 +12,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.lightstick.music.R
 import com.lightstick.music.ui.theme.customColors
 
@@ -20,32 +19,24 @@ import com.lightstick.music.ui.theme.customColors
 fun CustomNavigationBar(
     selectedRoute: String,
     onNavigate: (String) -> Unit,
-    connectedDeviceCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val navItems = listOf(
         NavItem("effect", R.drawable.ic_navi_effect),
         NavItem("music", R.drawable.ic_navi_music),
-        NavItem(
-            route = "deviceList",
-            iconRes = R.drawable.ic_navi_device,
-            badgeCount = connectedDeviceCount
-        )
+        NavItem("deviceList", R.drawable.ic_navi_device)
     )
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(62.dp)              // ✅ 높이는 여기서
-            .navigationBarsPadding()   // ✅ padding도 여기서
+            .height(62.dp)
+            .navigationBarsPadding()
             .background(MaterialTheme.customColors.surface),
-//        color = MaterialTheme.customColors.surface,
-//        tonalElevation = 3.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize(),
-//                .padding(horizontal = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -81,22 +72,7 @@ private fun NavBarItem(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (item.badgeCount > 0) {
-            BadgedBox(
-                badge = {
-                    Badge {
-                        Text(
-                            text = item.badgeCount.toString(),
-                            fontSize = 10.sp
-                        )
-                    }
-                }
-            ) {
-                NavIcon(item.iconRes, selected)
-            }
-        } else {
-            NavIcon(item.iconRes, selected)
-        }
+        NavIcon(item.iconRes, selected)
     }
 }
 
@@ -125,5 +101,4 @@ private fun NavIcon(
 data class NavItem(
     val route: String,
     @DrawableRes val iconRes: Int,
-    val badgeCount: Int = 0
 )

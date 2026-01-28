@@ -87,27 +87,58 @@ class DeviceViewModel : ViewModel() {
         observeConnectionStates()
     }
 
-    // ✅ 추가: SDK 연결 상태 실시간 관찰
+    // DeviceViewModel.kt의 observeConnectionStates() 함수 수정
+
     /**
-     * SDK 연결 상태 실시간 관찰
+     * ✅ SDK 연결 상태 및 디바이스 목록 실시간 관찰
      * - EffectViewModel과 상태 동기화
      * - 연결/해제 즉시 반영
      * - Navigation bar 배지 자동 업데이트
+     * - _devices 리스트도 자동 동기화
      */
     private fun observeConnectionStates() {
         viewModelScope.launch {
-            // ✅ SDK가 이미 필터링한 상태만 받음
-            LSBluetooth.observeConnectionStates().collect { states ->
+            // ✅ observeDeviceStates()를 사용하여 디바이스 정보도 함께 가져옴
+            LSBluetooth.observeDeviceStates().collect { states ->
 
+                // ✅ 1. connectionStates 업데이트
                 _connectionStates.value = states.mapValues { (_, state) ->
-                    state is ConnectionState.Connected
+                    state.connectionState is ConnectionState.Connected
                 }
 
+                // ✅ 2. connectedDeviceCount 업데이트
                 _connectedDeviceCount.value = states.count { (_, state) ->
-                    state is ConnectionState.Connected
+                    state.connectionState is ConnectionState.Connected
                 }
-                Log.d(TAG, "📊 Connected device: ${_connectionStates.value}")
+
+                // ✅ 3. 연결된 디바이스를 _devices 리스트에 추가 (중요!)
+                val connectedDevices = states
+                    .filter { (_, state) -> state.connectionState is ConnectionState.Connected }
+                    .map { (mac, state) ->
+                        Device(
+                            mac = mac,
+                            name = state.deviceInfo?.deviceName,
+                            rssi = state.deviceInfo?.rssi
+                        )
+                    }
+
+                // ✅ 4. 기존 devices와 병합 (중복 제거)
+                val existingDevices = _devices.value
+                val newDevicesList = (existingDevices + connectedDevices)
+                    .distinctBy { it.mac }  // MAC 주소로 중복 제거
+                    .sortedWith(
+                        compareByDescending<Device> {
+                            _connectionStates.value[it.mac] ?: false  // 연결된 디바이스 우선
+                        }.thenByDescending {
+                            it.rssi ?: -100  // RSSI 높은 순
+                        }
+                    )
+
+                _devices.value = newDevicesList
+
+                Log.d(TAG, "📊 Connected states: ${_connectionStates.value}")
                 Log.d(TAG, "📊 Connected count: ${_connectedDeviceCount.value}")
+                Log.d(TAG, "📊 Total devices: ${_devices.value.size}")
             }
         }
     }
