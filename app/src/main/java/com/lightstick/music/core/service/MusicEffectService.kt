@@ -21,7 +21,7 @@ import android.os.IBinder
 import androidx.core.content.IntentCompat
 import androidx.core.graphics.createBitmap
 import androidx.media3.common.util.UnstableApi
-import com.lightstick.music.app.MainActivity
+import com.lightstick.music.ui.activity.MainActivity
 import com.lightstick.music.R
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.core.receiver.MusicActionReceiver

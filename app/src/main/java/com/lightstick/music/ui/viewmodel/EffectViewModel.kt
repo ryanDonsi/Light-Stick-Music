@@ -309,7 +309,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         scanJob = viewModelScope.launch {
             try {
                 val bondedDevices = LSBluetooth.bondedDevices()
-                    .filter { it.name?.endsWith("LS") == true }
                 if (bondedDevices.isEmpty()) {
                     _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
                     Log.d(TAG, "❌ No bonded LS devices")

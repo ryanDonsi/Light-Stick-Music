@@ -1,4 +1,4 @@
-package com.lightstick.music.ui.screen.splash
+package com.lightstick.music.ui.activity
 
 import android.content.Intent
 import android.os.Bundle
@@ -13,17 +13,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.getValue  // ✅ 필수
 import androidx.compose.ui.Modifier
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.media3.common.util.UnstableApi
-import com.lightstick.LSBluetooth
-import com.lightstick.music.app.MainActivity
 import com.lightstick.music.core.permission.PermissionManager
+import com.lightstick.music.data.model.SplashState
+import com.lightstick.music.ui.screen.splash.SplashScreen
 import com.lightstick.music.ui.theme.LightStickMusicTheme
 import com.lightstick.music.ui.viewmodel.SplashViewModel
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import com.lightstick.music.data.model.SplashState
 
 @UnstableApi
 class SplashActivity : ComponentActivity() {
@@ -41,7 +40,7 @@ class SplashActivity : ComponentActivity() {
         if (allGranted) {
             // ✅ 권한 획득 성공 → ViewModel에 알림 → SDK 초기화 → 앱 초기화 시작
             viewModel.onPermissionAllowed()
-            initializeSdkAndStartApp()
+            initializeStartApp()
         } else {
             // 거부된 권한 확인
             val deniedPermissions = results.filter { !it.value }.keys
@@ -73,7 +72,7 @@ class SplashActivity : ComponentActivity() {
 
             LightStickMusicTheme {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.Companion.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
                     SplashScreen(
@@ -139,7 +138,7 @@ class SplashActivity : ComponentActivity() {
         if (deniedPermissions.isEmpty()) {
             // 모든 권한이 이미 허용됨
             viewModel.onPermissionAllowed()
-            initializeSdkAndStartApp()
+            initializeStartApp()
         } else {
             // 거부된 권한 요청
             permissionLauncher.launch(deniedPermissions.toTypedArray())
@@ -149,11 +148,11 @@ class SplashActivity : ComponentActivity() {
     /**
      * ✅ SDK 초기화 후 앱 초기화 시작
      */
-    private fun initializeSdkAndStartApp() {
+    private fun initializeStartApp() {
         try {
             // ✅ 권한 확보 후 SDK 초기화
-            LSBluetooth.initialize(applicationContext)
-            Log.d("SplashActivity", "✅ LSBluetooth initialized successfully")
+//            LSBluetooth.initialize(applicationContext)
+//            Log.d("SplashActivity", "✅ LSBluetooth initialized successfully")
 
             // 앱 초기화 시작
             viewModel.startInitialization()

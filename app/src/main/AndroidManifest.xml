@@ -1,39 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 블루투스 권한 -->
+    <!-- Bluetooth Permission -->
     <uses-permission android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
 
-    <!-- ✅ Android 12+ 블루투스 권한 -->
+    <!-- Bluetooth(Android 12+) Permission -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
-    <!-- ✅ 위치 권한 (BLE 스캔에 필요, Android 11 이하만) -->
+    <!-- Location(Android 11-) Permission -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
         android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"
         android:maxSdkVersion="30" />
 
-    <!-- ✅ 미디어 권한 (Android 13+, 음악 파일 읽기용) -->
+    <!-- Media(Android 13+) Permission -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
-    <!-- ✅ 외부 저장소 권한 (Android 12 이하, 음악 파일 읽기용) -->
+    <!-- External Storage(Android 12-) Permission -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32"/>
 
-    <!-- ✅ Foreground Service 권한 -->
+    <!-- Foreground Service Permission -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
-    <!-- ✅ 알림 권한 (Android 13+) -->
+    <!-- notification(Android 13+) Permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:name=".app.LightStickMusicApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -43,9 +44,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.LightStickMusic">
 
-        <!-- ✅ SplashActivity - 세로 모드 고정 + Splash Screen Theme -->
+        <!-- SplashActivity -->
         <activity
-            android:name=".ui.screen.splash.SplashActivity"
+            android:name=".ui.activity.SplashActivity"
             android:exported="true"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.LightStickMusic.Splash">
@@ -55,21 +56,22 @@
             </intent-filter>
         </activity>
 
-        <!-- ✅ MainActivity - 세로 모드 고정 -->
+        <!-- MainActivity -->
         <activity
-            android:name=".app.MainActivity"
+            android:name=".ui.activity.MainActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:launchMode="singleTop">
         </activity>
 
-        <!-- ✅ Foreground Service 타입 명시 -->
+        <!-- Media play Foreground Service -->
         <service
             android:name=".core.service.MusicEffectService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback|connectedDevice" />
 
+        <!-- Music Control Receiver -->
         <receiver
             android:name=".core.receiver.MusicActionReceiver"
             android:enabled="true"

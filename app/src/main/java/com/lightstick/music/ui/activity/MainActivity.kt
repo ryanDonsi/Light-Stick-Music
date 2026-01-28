@@ -1,4 +1,4 @@
-package com.lightstick.music.app
+package com.lightstick.music.ui.activity
 
 import android.Manifest
 import android.os.Build
@@ -37,8 +37,6 @@ import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import com.lightstick.music.ui.screen.music.MusicControlScreen
 import com.lightstick.music.ui.screen.music.MusicListScreen
-import com.lightstick.LSBluetooth
-import com.lightstick.config.DeviceFilter
 import com.lightstick.device.Device
 import com.lightstick.music.ui.components.common.CustomNavigationBar
 import com.lightstick.music.ui.components.device.ConnectConfirmDialog
@@ -84,10 +82,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        // SDK init
-        val filter = DeviceFilter.byName("LS", DeviceFilter.MatchMode.ENDS_WITH)
-        LSBluetooth.initialize(applicationContext, filter)
 
         deviceViewModel.initializeWithContext(applicationContext)
 

@@ -99,16 +99,14 @@ class DeviceViewModel : ViewModel() {
             // ✅ SDK가 이미 필터링한 상태만 받음
             LSBluetooth.observeConnectionStates().collect { states ->
 
-                // ✅ 연결 상태 맵 업데이트
                 _connectionStates.value = states.mapValues { (_, state) ->
                     state is ConnectionState.Connected
                 }
 
-                // ✅ 연결 개수 업데이트
                 _connectedDeviceCount.value = states.count { (_, state) ->
                     state is ConnectionState.Connected
                 }
-
+                Log.d(TAG, "📊 Connected device: ${_connectionStates.value}")
                 Log.d(TAG, "📊 Connected count: ${_connectedDeviceCount.value}")
             }
         }
