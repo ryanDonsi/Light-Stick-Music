@@ -44,7 +44,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         // AUTO 모드일 때만 FFT 효과 처리
         if (_isAutoModeEnabled.value && PermissionManager.hasPermission(context, Manifest.permission.BLUETOOTH_CONNECT)) {
             try {
-                EffectEngineController.processFftEffect(band, context)
+                effectEngineController.processFftEffect(band, context)
             } catch (e: SecurityException) {
                 Log.e("MusicPlayerVM", "FFT effect send failed: ${e.message}")
             }
@@ -211,6 +211,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * ✅ 음악 재생 (AUTO 모드 체크 포함)
+     *
+     * 타임라인 동기화 순서:
+     * 1. 타임라인 로드
+     * 2. 초기 위치(0ms) 동기화
+     * 3. 음악 재생 시작
      */
     fun playMusic(item: MusicItem) {
         _nowPlaying.value = item
@@ -218,12 +223,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _duration.value = 0
         _currentPosition.value = 0
 
-        // ✅ AUTO 모드일 때만 EFX 로드
+        // ✅ 1. 먼저 타임라인 로드 (음악 재생 전!)
         if (_isAutoModeEnabled.value) {
             val musicFile = File(item.filePath)
             EffectEngineController.reset()
             EffectEngineController.loadEffectsFor(musicFile, context)
-            Log.d("MusicPlayerVM", "🎵 AUTO ON - EFX loaded for: ${item.title}")
+            Log.d("MusicPlayerVM", "🎵 AUTO ON - Timeline loaded for: ${item.title}")
         } else {
             // AUTO OFF - EFX 로드 안 함
             EffectEngineController.reset()
@@ -241,6 +246,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val mediaItem = MediaItem.fromUri(item.filePath)
         player.setMediaItem(mediaItem)
         player.prepare()
+
+        // ✅ 2. 재생 전 초기 위치(0ms) 동기화
+        if (_isAutoModeEnabled.value) {
+            try {
+                EffectEngineController.updatePlaybackPosition(context, 0L)
+                Log.d("MusicPlayerVM", "📍 Initial position synced at 0ms")
+            } catch (e: Exception) {
+                Log.e("MusicPlayerVM", "Initial sync failed: ${e.message}")
+            }
+        }
+
+        // ✅ 3. 음악 재생 시작
         player.play()
     }
 
@@ -274,7 +291,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val musicFile = File(currentMusic.filePath)
                 effectEngineController.reset()
                 effectEngineController.loadEffectsFor(musicFile, context)
-                Log.d("MusicPlayerVM", "🎵 AUTO ON - EFX loaded for: ${currentMusic.title}")
+
+                // ✅ 현재 재생 위치로 동기화
+                val currentPosition = _currentPosition.value.toLong()
+                try {
+                    effectEngineController.updatePlaybackPosition(context, currentPosition)
+                    Log.d("MusicPlayerVM", "🎵 AUTO ON - EFX loaded and synced at ${currentPosition}ms for: ${currentMusic.title}")
+                } catch (e: Exception) {
+                    Log.e("MusicPlayerVM", "AUTO ON sync failed: ${e.message}")
+                }
             }
         }
 
@@ -291,9 +316,22 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _musicList.value.getOrNull(index - 1)?.let { playMusic(it) }
     }
 
+    /**
+     * ✅ Seek 처리 개선
+     */
     fun seekTo(position: Long) {
         player.seekTo(position)
         _currentPosition.value = position.toInt()
+
+        // ✅ Seek 시 즉시 타임라인 위치 업데이트
+        if (_isAutoModeEnabled.value) {
+            try {
+                EffectEngineController.handleSeek(context, position)
+            } catch (e: SecurityException) {
+                Log.e("MusicPlayerVM", "handleSeek() failed: ${e.message}")
+            }
+        }
+
         updateNotificationProgress()
     }
 
@@ -302,30 +340,33 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * ✅ 위치 모니터링 (AUTO 모드 체크 포함)
+     * ✅ 위치 모니터링 (100ms마다 정확하게 업데이트)
+     *
+     * 주요 변경점:
+     * 1. 매 100ms마다 updatePlaybackPosition() 호출 (1초 제한 제거)
+     * 2. SDK가 내부적으로 타이밍을 정확하게 관리
      */
     @SuppressLint("MissingPermission")
     private fun monitorPosition() {
         viewModelScope.launch {
-            var lastSecond = -1
             while (true) {
                 val current = player.currentPosition.toInt()
                 val duration = player.duration.toInt()
                 _currentPosition.value = current
                 _duration.value = duration
 
-                // ✅ AUTO 모드일 때만 타임라인 효과 처리
-                if (player.isPlaying && _isAutoModeEnabled.value && current / 1000 != lastSecond) {
+                // ✅ AUTO 모드이고 재생 중일 때 매 100ms마다 위치 업데이트
+                if (player.isPlaying && _isAutoModeEnabled.value) {
                     try {
-                        EffectEngineController.processPosition(context, current)
+                        // SDK의 updatePlaybackPosition() 호출
+                        // SDK 내부에서 정확한 타이밍에 이펙트 전송
+                        EffectEngineController.updatePlaybackPosition(context, current.toLong())
                     } catch (e: SecurityException) {
-                        Log.e("MusicPlayerVM", "processPosition() failed: ${e.message}")
+                        Log.e("MusicPlayerVM", "updatePlaybackPosition() failed: ${e.message}")
                     }
-                    updateNotificationProgress()
-                    lastSecond = current / 1000
                 }
 
-                delay(100)
+                delay(100)  // 100ms마다 업데이트 (SDK 권장 주기)
             }
         }
     }

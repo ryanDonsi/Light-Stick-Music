@@ -1,6 +1,5 @@
 package com.lightstick.music.ui.components.effect
 
-import android.graphics.Color as AndroidColor
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -19,8 +18,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -28,30 +25,33 @@ import com.lightstick.music.core.util.toComposeColor
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.ui.components.common.BaseButton
-import com.lightstick.music.ui.components.common.ButtonStyle
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.viewmodel.EffectViewModel
 import com.lightstick.types.EffectType
-import kotlin.math.abs
+import com.lightstick.types.Color as LightStickColor
+
+/**
+ * ✅ BLACK 색상 체크 (RGB가 모두 0.1 미만)
+ */
+private fun Color.isBlack(): Boolean {
+    return this.red < 0.1f && this.green < 0.1f && this.blue < 0.1f
+}
 
 /**
  * Device Connection Card
  *
- * ✅ Phase 2-4 개선:
- * - latestTransmission 파라미터 추가
- * - 모든 탭의 BLE 전송을 실시간 표시
- * - Manual/Timeline/FFT/Connection 효과 통합 표시
+ * ✅ 원본 UI 유지 + latestTransmission 기능 추가
  */
 @Composable
 fun DeviceConnectionCard(
     connectionState: EffectViewModel.DeviceConnectionState,
-    latestTransmission: BleTransmissionEvent? = null,  // ✅ 추가
+    onConnectClick: () -> Unit,
+    onRetryClick: () -> Unit = {},
+    isScrolled: Boolean = false,
     selectedEffect: EffectViewModel.UiEffectType? = null,
     effectSettings: EffectViewModel.EffectSettings? = null,
     isPlaying: Boolean = false,
-    onConnectClick: () -> Unit,
-    onRetryClick: () -> Unit,
-    isScrolled: Boolean,
+    latestTransmission: BleTransmissionEvent? = null,  // ✅ 새로 추가 (기본값 null)
     modifier: Modifier = Modifier
 ) {
     val animatedBoxSize by animateDpAsState(
@@ -81,20 +81,16 @@ fun DeviceConnectionCard(
         label = "cornerRadius"
     )
 
-    val cardBackgroundColor = if (connectionState is EffectViewModel.DeviceConnectionState.Connected) {
-        Color(0xFFA774FF).copy(alpha = 0.22f)
+    // ✅ latestTransmission 우선 → selectedEffect fallback
+    val effectColorData = if (latestTransmission != null) {
+        calculateEffectColorFromTransmission(latestTransmission)
     } else {
-        Color.White.copy(alpha = 0.06f)
+        calculateEffectColor(
+            isPlaying = isPlaying,
+            selectedEffect = selectedEffect,
+            effectSettings = effectSettings
+        )
     }
-
-    // ✅ 개선: latestTransmission 우선, 없으면 기존 로직 사용
-    val effectColorData = calculateEffectColorFromTransmission(
-        transmission = latestTransmission,
-        isPlaying = isPlaying,
-        selectedEffect = selectedEffect,
-        effectSettings = effectSettings,
-        backgroundColor = cardBackgroundColor
-    )
 
     when (connectionState) {
         is EffectViewModel.DeviceConnectionState.NoBondedDevice -> {
@@ -103,19 +99,16 @@ fun DeviceConnectionCard(
                 effectSize = animatedEffectSize,
                 cornerRadius = animatedCornerRadius,
                 isScrolled = isScrolled,
-                backgroundColor = cardBackgroundColor,
+                backgroundColor = Color.White.copy(alpha = 0.06f),
                 lightstickColor = Color.White.copy(alpha = 0.6f),
                 isLightStickAnimating = false,
-                statusText = "등록된 기기 없음",
-                statusTextColor = Color.White.copy(alpha = 0.6f),
-                descriptionText = "기기 등록하러 가기",
-                descriptionTextColor = MaterialTheme.customColors.secondary,
-                descriptionIcon = null,
-                isDescriptionIconAnimating = false,
-                onDescriptionIconClick = null,
+                statusText = "연결된 기기 없음",
+                statusTextColor = MaterialTheme.customColors.surfaceVariant,
+                descriptionText = null,
+                descriptionTextColor = null,
                 effectColorData = null,
-                buttonText = null,
-                onButtonClick = null
+                buttonText = "기기 연결하기",
+                onButtonClick = onConnectClick
             )
         }
 
@@ -125,15 +118,15 @@ fun DeviceConnectionCard(
                 effectSize = animatedEffectSize,
                 cornerRadius = animatedCornerRadius,
                 isScrolled = isScrolled,
-                backgroundColor = cardBackgroundColor,
+                backgroundColor = Color.White.copy(alpha = 0.06f),
                 lightstickColor = Color.White.copy(alpha = 0.6f),
-                isLightStickAnimating = true,
-                statusText = "기기 검색 중...",
-                statusTextColor = Color.White.copy(alpha = 0.6f),
-                descriptionText = null,
-                descriptionTextColor = Color.Transparent,
-                descriptionIcon = null,
-                isDescriptionIconAnimating = false,
+                isLightStickAnimating = false,
+                statusText = "연결된 기기 없음",
+                statusTextColor = MaterialTheme.customColors.surfaceVariant,
+                descriptionText = "등록된 기기 확인 중",
+                descriptionTextColor = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
+                descriptionIcon = Icons.Default.Refresh,
+                isDescriptionIconAnimating = true,
                 onDescriptionIconClick = null,
                 effectColorData = null,
                 buttonText = null,
@@ -147,7 +140,7 @@ fun DeviceConnectionCard(
                 effectSize = animatedEffectSize,
                 cornerRadius = animatedCornerRadius,
                 isScrolled = isScrolled,
-                backgroundColor = cardBackgroundColor,
+                backgroundColor = Color.White.copy(alpha = 0.06f),
                 lightstickColor = Color.White.copy(alpha = 0.6f),
                 isLightStickAnimating = false,
                 statusText = "연결된 기기 없음",
@@ -169,11 +162,11 @@ fun DeviceConnectionCard(
                 effectSize = animatedEffectSize,
                 cornerRadius = animatedCornerRadius,
                 isScrolled = isScrolled,
-                backgroundColor = cardBackgroundColor,
+                backgroundColor = Color(0xFFA774FF).copy(alpha = 0.22f),
                 lightstickColor = effectColorData?.iconColor ?: Color.White,
                 isLightStickAnimating = isPlaying,
                 statusText = "연결 됨",
-                statusTextColor = MaterialTheme.customColors.secondary,
+                statusTextColor = MaterialTheme.customColors.onSurface,
                 descriptionText = connectionState.device.name ?: "UNKNOWN",
                 descriptionTextColor = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
                 effectColorData = effectColorData,
@@ -191,117 +184,90 @@ data class EffectColorData(
 )
 
 /**
- * ✅ Phase 2-4: transmission 기반 색상 계산 (우선)
+ * ✅ 새로 추가: transmission 기반 색상 계산
  */
 @Composable
 private fun calculateEffectColorFromTransmission(
-    transmission: BleTransmissionEvent?,
-    isPlaying: Boolean,
-    selectedEffect: EffectViewModel.UiEffectType?,
-    effectSettings: EffectViewModel.EffectSettings?,
-    backgroundColor: Color
+    transmission: BleTransmissionEvent
 ): EffectColorData? {
-    // ✅ transmission이 있으면 우선 사용
-    if (transmission != null) {
-        return when (transmission.source) {
-            TransmissionSource.MANUAL_EFFECT, TransmissionSource.TIMELINE_EFFECT -> {
-                when (transmission.effectType) {
-                    EffectType.ON -> {
-                        EffectColorData(
-                            iconColor = transmission.color?.toComposeColor() ?: Color.White,
-                            iconBrush = null,
-                            gradientColor = null
-                        )
-                    }
-                    EffectType.OFF -> {
-                        EffectColorData(
-                            iconColor = Color.White.copy(alpha = 0.3f),
-                            iconBrush = null,
-                            gradientColor = null
-                        )
-                    }
-                    EffectType.STROBE, EffectType.BLINK -> {
-                        val period = transmission.period ?: 30
-                        animatePeriodicEffect(
-                            fgColor = transmission.color?.toComposeColor() ?: Color.White,
-                            bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black,
-                            period = period,
-                            randomColor = false,
-                            fgThreshold = if (transmission.effectType == EffectType.STROBE) 0.1f else 0.5f,
-                            backgroundColor = backgroundColor
-                        )
-                    }
-                    EffectType.BREATH -> {
-                        val period = transmission.period ?: 30
-                        animateBreathEffect(
-                            fgColor = transmission.color?.toComposeColor() ?: Color.White,
-                            bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black,
-                            period = period,
-                            randomColor = false,
-                            backgroundColor = backgroundColor,
-                            onColorUpdate = {}
-                        )
-                    }
-                    else -> {
-                        EffectColorData(
-                            iconColor = Color.White,
-                            iconBrush = null,
-                            gradientColor = null
-                        )
-                    }
+    return when (transmission.source) {
+        TransmissionSource.MANUAL_EFFECT, TransmissionSource.TIMELINE_EFFECT -> {
+            when (transmission.effectType) {
+                EffectType.ON -> {
+                    buildEffectData(transmission.color?.toComposeColor() ?: Color.White)
                 }
-            }
-            TransmissionSource.FFT_EFFECT -> {
-                val fftColor = transmission.color?.toComposeColor() ?: Color.White
-                EffectColorData(
-                    iconColor = fftColor,
-                    iconBrush = Brush.linearGradient(
-                        colors = listOf(
-                            fftColor,
-                            fftColor.copy(alpha = 0.7f),
-                            fftColor.copy(alpha = 0.4f)
-                        )
-                    ),
-                    gradientColor = null
-                )
-            }
-            TransmissionSource.CONNECTION_EFFECT, TransmissionSource.BROADCAST -> {
-                EffectColorData(
-                    iconColor = Color.White,
-                    iconBrush = null,
-                    gradientColor = null
-                )
+                EffectType.OFF -> {
+                    buildEffectData(Color.White.copy(alpha = 0.3f))
+                }
+                EffectType.STROBE -> {
+                    val period = transmission.period ?: 20
+                    animatePeriodicEffect(
+                        fgColor = transmission.color?.toComposeColor() ?: Color.White,
+                        bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black,
+                        period = period,
+                        randomColor = false,
+                        fgThreshold = 0.1f
+                    )
+                }
+                EffectType.BLINK -> {
+                    val period = transmission.period ?: 30
+                    animatePeriodicEffect(
+                        fgColor = transmission.color?.toComposeColor() ?: Color.White,
+                        bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black,
+                        period = period,
+                        randomColor = false,
+                        fgThreshold = 0.5f
+                    )
+                }
+                EffectType.BREATH -> {
+                    val period = transmission.period ?: 40
+                    animateBreathEffect(
+                        fgColor = transmission.color?.toComposeColor() ?: Color.White,
+                        bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black,
+                        period = period,
+                        randomColor = false
+                    )
+                }
+                else -> buildEffectData(Color.White)
             }
         }
+        TransmissionSource.FFT_EFFECT -> {
+            val fftColor = transmission.color?.toComposeColor() ?: Color.White
+            EffectColorData(
+                iconColor = fftColor,
+                iconBrush = Brush.linearGradient(
+                    colors = listOf(
+                        fftColor,
+                        fftColor.copy(alpha = 0.7f),
+                        fftColor.copy(alpha = 0.4f)
+                    )
+                ),
+                gradientColor = null
+            )
+        }
+        TransmissionSource.CONNECTION_EFFECT, TransmissionSource.BROADCAST -> {
+            buildEffectData(Color.White)
+        }
     }
-
-    // ✅ transmission이 없으면 기존 로직 사용
-    return calculateEffectColor(
-        isPlaying = isPlaying,
-        selectedEffect = selectedEffect,
-        effectSettings = effectSettings,
-        backgroundColor = backgroundColor
-    )
 }
 
 /**
- * ✅ 기존 calculateEffectColor - selectedEffect 기반
+ * ✅ 원본: calculateEffectColor - key를 사용해서 완전히 격리
  */
 @Composable
 private fun calculateEffectColor(
     isPlaying: Boolean,
     selectedEffect: EffectViewModel.UiEffectType?,
-    effectSettings: EffectViewModel.EffectSettings?,
-    backgroundColor: Color
+    effectSettings: EffectViewModel.EffectSettings?
 ): EffectColorData? {
     val lastColorRef = remember { mutableStateOf(Color.White) }
 
     if (!isPlaying || selectedEffect == null || effectSettings == null) {
         lastColorRef.value = Color.White
-        return EffectColorData(
-            iconColor = Color.White,
-            iconBrush = null,
-            gradientColor = null
+        return createEffectColorData(
+            color = Color.White,
+            alpha = 1f,
+            randomColor = false
         )
     }
 
@@ -313,16 +279,14 @@ private fun calculateEffectColor(
                     targetColor = effectSettings.color.toComposeColor(),
                     transit = effectSettings.transit,
                     randomColor = effectSettings.randomColor,
-                    onColorUpdate = { lastColorRef.value = it },
-                    backgroundColor = backgroundColor
+                    onColorUpdate = { lastColorRef.value = it }
                 )
             }
             is EffectViewModel.UiEffectType.Off -> {
                 animateOffEffect(
                     fromColor = lastColorRef.value,
                     transit = effectSettings.transit,
-                    onColorUpdate = { lastColorRef.value = it },
-                    backgroundColor = backgroundColor
+                    onColorUpdate = { lastColorRef.value = it }
                 )
             }
             is EffectViewModel.UiEffectType.Strobe -> {
@@ -331,8 +295,7 @@ private fun calculateEffectColor(
                     bgColor = effectSettings.backgroundColor.toComposeColor(),
                     period = effectSettings.period,
                     randomColor = effectSettings.randomColor,
-                    fgThreshold = 0.1f,
-                    backgroundColor = backgroundColor
+                    fgThreshold = 0.1f
                 )
             }
             is EffectViewModel.UiEffectType.Blink -> {
@@ -341,8 +304,7 @@ private fun calculateEffectColor(
                     bgColor = effectSettings.backgroundColor.toComposeColor(),
                     period = effectSettings.period,
                     randomColor = effectSettings.randomColor,
-                    fgThreshold = 0.5f,
-                    backgroundColor = backgroundColor
+                    fgThreshold = 0.5f
                 )
             }
             is EffectViewModel.UiEffectType.Breath -> {
@@ -350,257 +312,26 @@ private fun calculateEffectColor(
                     fgColor = effectSettings.color.toComposeColor(),
                     bgColor = effectSettings.backgroundColor.toComposeColor(),
                     period = effectSettings.period,
-                    randomColor = effectSettings.randomColor,
-                    backgroundColor = backgroundColor,
-                    onColorUpdate = { lastColorRef.value = it }
+                    randomColor = effectSettings.randomColor
                 )
             }
-            is EffectViewModel.UiEffectType.Custom -> {
-                when (selectedEffect.baseType) {
-                    EffectViewModel.UiEffectType.BaseEffectType.ON -> {
-                        animateOnEffect(
-                            fromColor = lastColorRef.value,
-                            targetColor = effectSettings.color.toComposeColor(),
-                            transit = effectSettings.transit,
-                            randomColor = effectSettings.randomColor,
-                            onColorUpdate = { lastColorRef.value = it },
-                            backgroundColor = backgroundColor
-                        )
-                    }
-                    EffectViewModel.UiEffectType.BaseEffectType.OFF -> {
-                        animateOffEffect(
-                            fromColor = lastColorRef.value,
-                            transit = effectSettings.transit,
-                            onColorUpdate = { lastColorRef.value = it },
-                            backgroundColor = backgroundColor
-                        )
-                    }
-                    EffectViewModel.UiEffectType.BaseEffectType.STROBE -> {
-                        animatePeriodicEffect(
-                            fgColor = effectSettings.color.toComposeColor(),
-                            bgColor = effectSettings.backgroundColor.toComposeColor(),
-                            period = effectSettings.period,
-                            randomColor = effectSettings.randomColor,
-                            fgThreshold = 0.1f,
-                            backgroundColor = backgroundColor
-                        )
-                    }
-                    EffectViewModel.UiEffectType.BaseEffectType.BLINK -> {
-                        animatePeriodicEffect(
-                            fgColor = effectSettings.color.toComposeColor(),
-                            bgColor = effectSettings.backgroundColor.toComposeColor(),
-                            period = effectSettings.period,
-                            randomColor = effectSettings.randomColor,
-                            fgThreshold = 0.5f,
-                            backgroundColor = backgroundColor
-                        )
-                    }
-                    EffectViewModel.UiEffectType.BaseEffectType.BREATH -> {
-                        animateBreathEffect(
-                            fgColor = effectSettings.color.toComposeColor(),
-                            bgColor = effectSettings.backgroundColor.toComposeColor(),
-                            period = effectSettings.period,
-                            randomColor = effectSettings.randomColor,
-                            backgroundColor = backgroundColor,
-                            onColorUpdate = { lastColorRef.value = it }
-                        )
-                    }
-                }
-            }
-            is EffectViewModel.UiEffectType.EffectList -> {
-                if (isPlaying) {
-                    // 재생 중이면 흰색 점등 애니메이션 표시
-                    EffectColorData(
-                        iconColor = Color.White,
-                        iconBrush = null,
-                        gradientColor = lerp(Color.White, backgroundColor, 0.5f)
-                    )
-                } else {
-                    // 재생 중이 아니면 기본 표시
-                    EffectColorData(
-                        iconColor = Color.White,
-                        iconBrush = null,
-                        gradientColor = null
-                    )
-                }
-            }
+            else -> null  // ✅ 원본: EffectList 등은 null 반환
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// Animation Helper Functions
-// ═══════════════════════════════════════════════════════════
-
-@Composable
-private fun animateOnEffect(
-    fromColor: Color,
-    targetColor: Color,
-    transit: Int,
-    randomColor: Boolean,
-    onColorUpdate: (Color) -> Unit,
-    backgroundColor: Color
+private fun createEffectColorData(
+    color: Color,
+    alpha: Float = 1f,
+    randomColor: Boolean
 ): EffectColorData {
-    val animatable = remember { Animatable(0f) }
-    val initialColor = remember { fromColor }
-
-    LaunchedEffect(transit, targetColor, randomColor) {
-        animatable.snapTo(0f)
-        animatable.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = transit * 100, easing = LinearEasing)
-        )
-    }
-
-    val progress = animatable.value
-
-    val iconColor = if (randomColor) {
-        rememberRandomHueColor(alpha = progress)
-    } else {
-        hsvLerp(initialColor, targetColor, progress)
-    }
-
-    onColorUpdate(iconColor)
-
-    val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
+    val isBlackColor = color.isBlack()
 
     return EffectColorData(
-        iconColor = iconColor,
+        iconColor = color.copy(alpha = alpha),
         iconBrush = null,
-        gradientColor = blendedGradientColor
+        gradientColor = if (isBlackColor) null else color.copy(alpha = alpha)
     )
-}
-
-@Composable
-private fun animateOffEffect(
-    fromColor: Color,
-    transit: Int,
-    onColorUpdate: (Color) -> Unit,
-    backgroundColor: Color
-): EffectColorData {
-    val animatable = remember { Animatable(0f) }
-    val initialColor = remember { fromColor.copy(alpha = 1f) }
-
-    LaunchedEffect(transit) {
-        animatable.snapTo(0f)
-        animatable.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = transit * 100, easing = LinearEasing)
-        )
-    }
-
-    val progress = animatable.value
-    val iconColor = hsvLerp(initialColor, Color.Black, progress)
-    onColorUpdate(iconColor)
-
-    val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
-
-    return EffectColorData(
-        iconColor = iconColor,
-        iconBrush = null,
-        gradientColor = blendedGradientColor
-    )
-}
-
-@Composable
-private fun animatePeriodicEffect(
-    fgColor: Color,
-    bgColor: Color,
-    period: Int,
-    randomColor: Boolean,
-    fgThreshold: Float,
-    backgroundColor: Color
-): EffectColorData {
-    if (period <= 0) {
-        val blendedGradientColor = lerp(fgColor, backgroundColor, 0.5f)
-        return EffectColorData(
-            iconColor = fgColor,
-            iconBrush = null,
-            gradientColor = if (fgColor.isBlack()) null else blendedGradientColor
-        )
-    }
-
-    return key(period, randomColor, bgColor) {
-        val infiniteTransition = rememberInfiniteTransition(label = "periodicEffect")
-        val progress by infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(period * 100, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "periodicProgress"
-        )
-
-        val isFg = progress < fgThreshold
-        val finalFgColor = if (randomColor) rememberRandomHueColor(alpha = 1f) else fgColor
-
-        val iconColor = if (isFg) finalFgColor else bgColor
-        val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
-
-        EffectColorData(
-            iconColor = iconColor,
-            iconBrush = null,
-            gradientColor = blendedGradientColor
-        )
-    }
-}
-
-@Composable
-private fun animateBreathEffect(
-    fgColor: Color,
-    bgColor: Color,
-    period: Int,
-    randomColor: Boolean,
-    backgroundColor: Color,
-    onColorUpdate: (Color) -> Unit
-): EffectColorData {
-    if (period <= 0) {
-        onColorUpdate(fgColor)
-        val blendedGradientColor = lerp(fgColor, backgroundColor, 0.5f)
-        return EffectColorData(
-            iconColor = fgColor,
-            iconBrush = null,
-            gradientColor = if (fgColor.isBlack()) null else blendedGradientColor
-        )
-    }
-
-    return key(period, randomColor, bgColor) {
-        val breathProgress by rememberInfiniteTransition(label = "breathEffect").animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(period * 100, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "breathProgress"
-        )
-
-        val finalFgColor = if (randomColor) rememberRandomHueColor(alpha = 1f) else fgColor
-
-        val iconColor: Color = when {
-            breathProgress < 0.25f -> {
-                val progress = breathProgress / 0.25f
-                hsvLerp(bgColor, finalFgColor, progress)
-            }
-            breathProgress < 0.5f -> finalFgColor
-            breathProgress < 0.75f -> {
-                val progress = (breathProgress - 0.5f) / 0.25f
-                hsvLerp(finalFgColor, bgColor, progress)
-            }
-            else -> bgColor
-        }
-
-        onColorUpdate(iconColor)
-
-        val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
-
-        EffectColorData(
-            iconColor = iconColor,
-            iconBrush = null,
-            gradientColor = if (iconColor.isBlack()) null else blendedGradientColor
-        )
-    }
 }
 
 @Composable
@@ -620,43 +351,204 @@ private fun rememberRandomHueColor(alpha: Float = 1f): Color {
     return Color.hsv(hue, 1f, 1f).copy(alpha = alpha)
 }
 
-private fun hsvLerp(start: Color, end: Color, fraction: Float): Color {
-    val startHsv = FloatArray(3)
-    AndroidColor.colorToHSV(start.toArgb(), startHsv)
+/**
+ * ✅ 통합 헬퍼 함수
+ */
+private fun buildEffectData(finalColor: Color): EffectColorData {
+    val iconColor = finalColor.copy(alpha = 1f)
+    val gradientColor = if (finalColor.isBlack()) null else finalColor
 
-    val endHsv = FloatArray(3)
-    AndroidColor.colorToHSV(end.toArgb(), endHsv)
+    return EffectColorData(
+        iconColor = iconColor,
+        iconBrush = null,
+        gradientColor = gradientColor
+    )
+}
 
-    if (startHsv[1] < 0.01f) startHsv[0] = endHsv[0]
-    if (endHsv[1] < 0.01f) endHsv[0] = startHsv[0]
+/**
+ * ✅ 원본: ON - LaunchedEffect만 사용
+ */
+@Composable
+private fun animateOnEffect(
+    fromColor: Color,
+    targetColor: Color,
+    transit: Int,
+    randomColor: Boolean,
+    onColorUpdate: (Color) -> Unit
+): EffectColorData {
+    val animatable = remember { Animatable(0f) }
+    val initialColor = remember { fromColor }
 
-    val hue: Float
-    val hueDiff = endHsv[0] - startHsv[0]
-    if (abs(hueDiff) > 180) {
-        if (hueDiff > 0) {
-            hue = (startHsv[0] + (hueDiff - 360) * fraction)
-        } else {
-            hue = (startHsv[0] + (hueDiff + 360) * fraction)
-        }
-    } else {
-        hue = startHsv[0] + hueDiff * fraction
+    LaunchedEffect(transit, targetColor, randomColor) {
+        animatable.snapTo(0f)
+        animatable.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = transit * 100, easing = LinearEasing)  // ✅ 원본: * 100
+        )
     }
 
-    val finalHue = (hue + 360) % 360
-    val saturation = startHsv[1] + (endHsv[1] - startHsv[1]) * fraction
-    val value = startHsv[2] + (endHsv[2] - startHsv[2]) * fraction
-    val alpha = start.alpha + (end.alpha - start.alpha) * fraction
+    val progress = animatable.value
 
-    return Color.hsv(finalHue, saturation, value, alpha)
+    return if (randomColor) {
+        val randomHue = rememberRandomHueColor(alpha = 1f)
+        onColorUpdate(randomHue)
+        buildEffectData(randomHue.copy(alpha = progress))
+    } else {
+        val interpolatedColor = lerp(initialColor, targetColor, progress)
+        onColorUpdate(interpolatedColor.copy(alpha = 1f))
+        buildEffectData(interpolatedColor)
+    }
 }
 
-private fun Color.isBlack(): Boolean {
-    return this.red < 0.1f && this.green < 0.1f && this.blue < 0.1f
+/**
+ * ✅ 원본: OFF
+ */
+@Composable
+private fun animateOffEffect(
+    fromColor: Color,
+    transit: Int,
+    onColorUpdate: (Color) -> Unit
+): EffectColorData {
+    val animatable = remember { Animatable(0f) }
+    val initialColor = remember { fromColor }
+
+    LaunchedEffect(transit) {
+        animatable.snapTo(0f)
+        animatable.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = transit * 100, easing = LinearEasing)  // ✅ 원본: * 100
+        )
+    }
+
+    val progress = animatable.value
+    val interpolatedColor = lerp(initialColor, Color.Black, progress)
+
+    onColorUpdate(interpolatedColor.copy(alpha = 1f))
+
+    return buildEffectData(interpolatedColor)
 }
 
-// ═══════════════════════════════════════════════════════════
-// Layout Components
-// ═══════════════════════════════════════════════════════════
+/**
+ * ✅ 원본: STROBE, BLINK
+ */
+@Composable
+private fun animatePeriodicEffect(
+    fgColor: Color,
+    bgColor: Color,
+    period: Int,
+    randomColor: Boolean,
+    fgThreshold: Float
+): EffectColorData {
+    return key(period, randomColor, bgColor) {
+        val infiniteTransition = rememberInfiniteTransition(label = "periodicEffect")
+        val progress by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(period * 100, easing = LinearEasing),  // ✅ 원본: * 100
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "periodicProgress"
+        )
+
+        val isFg = progress < fgThreshold
+        val finalFgColor = if (randomColor) rememberRandomHueColor(alpha = 1f) else fgColor
+
+        if (isFg) {
+            buildEffectData(finalFgColor)
+        } else {
+            buildEffectData(bgColor)
+        }
+    }
+}
+
+/**
+ * ✅ 원본: BREATH
+ */
+@Composable
+private fun animateBreathEffect(
+    fgColor: Color,
+    bgColor: Color,
+    period: Int,
+    randomColor: Boolean
+): EffectColorData {
+    return key(period, randomColor, bgColor) {
+        val breathTransition = rememberInfiniteTransition(label = "breathEffect")
+        val breathProgress by breathTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(period * 100, easing = LinearEasing),  // ✅ 원본: * 100
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "breathProgress"
+        )
+
+        val finalFgColor = if (randomColor) rememberRandomHueColor(alpha = 1f) else fgColor
+
+        val interpolatedColor = if (breathProgress < 0.5f) {
+            lerp(bgColor, finalFgColor, breathProgress / 0.5f)
+        } else {
+            lerp(finalFgColor, bgColor, (breathProgress - 0.5f) / 0.5f)
+        }
+
+        buildEffectData(interpolatedColor)
+    }
+}
+
+private fun lerp(start: Color, end: Color, fraction: Float): Color {
+    return Color(
+        red = start.red + (end.red - start.red) * fraction,
+        green = start.green + (end.green - start.green) * fraction,
+        blue = start.blue + (end.blue - start.blue) * fraction,
+        alpha = start.alpha + (end.alpha - start.alpha) * fraction
+    )
+}
+
+@Composable
+private fun DescriptionIcon(
+    icon: ImageVector,
+    isAnimating: Boolean,
+    onClick: (() -> Unit)?,
+    tint: Color
+) {
+    val rotation by if (isAnimating) {
+        val infiniteTransition = rememberInfiniteTransition(label = "description_icon_rotation")
+        infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(2000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "rotation"
+        )
+    } else {
+        remember { mutableFloatStateOf(0f) }
+    }
+
+    val modifier = Modifier.rotate(rotation)
+
+    if (onClick != null) {
+        IconButton(onClick = onClick, modifier = Modifier.size(20.dp)) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = modifier.size(16.dp),
+                tint = tint
+            )
+        }
+    } else {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = modifier
+                .padding(2.dp)
+                .size(16.dp),
+            tint = tint
+        )
+    }
+}
 
 @Composable
 private fun ConnectionStateLayout(
@@ -700,19 +592,21 @@ private fun ConnectionStateLayout(
                     }
                 }
             }
-        } else null
+        } else {
+            null
+        }
 
     val button: @Composable (() -> Unit)? =
         if (buttonText != null && onButtonClick != null) {
             @Composable {
                 BaseButton(
-                    text = buttonText,
                     onClick = onButtonClick,
-                    style = ButtonStyle.PRIMARY,
-                    modifier = Modifier.width(180.dp).height(44.dp)
+                    text = buttonText
                 )
             }
-        } else null
+        } else {
+            null
+        }
 
     if (isScrolled) {
         Row(
@@ -734,13 +628,17 @@ private fun ConnectionStateLayout(
                 )
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 Text(
                     text = statusText,
                     style = MaterialTheme.typography.titleLarge,
                     color = statusTextColor
                 )
+
                 description?.invoke()
+
                 if (button != null) {
                     Spacer(modifier = Modifier.height(4.dp))
                     button()
@@ -749,7 +647,7 @@ private fun ConnectionStateLayout(
         }
     } else {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -783,6 +681,9 @@ private fun ConnectionStateLayout(
     }
 }
 
+/**
+ * ✅ 원본: RoundedIconBox
+ */
 @Composable
 private fun RoundedIconBox(
     size: Dp,
@@ -824,6 +725,9 @@ private fun RoundedIconBox(
     }
 }
 
+/**
+ * ✅ 원본: LightStickIcon
+ */
 @Composable
 private fun LightStickIcon(
     size: Dp,
@@ -831,82 +735,44 @@ private fun LightStickIcon(
     brush: Brush? = null,
     isAnimating: Boolean = false
 ) {
-    val rotation by if (isAnimating) {
-        val infiniteTransition = rememberInfiniteTransition(label = "icon_rotation")
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(2000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "rotation"
-        )
-    } else {
-        remember { mutableFloatStateOf(0f) }
-    }
+    val infiniteTransition = rememberInfiniteTransition(label = "rotation")
+    val scanRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = if (isAnimating) 360f else 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "scanRotation"
+    )
 
-    Canvas(modifier = Modifier.size(size).rotate(rotation)) {
-        val centerX = this.size.width / 2f
-        val centerY = this.size.height / 2f
-        val radius = this.size.width / 2f
+    Canvas(
+        modifier = Modifier
+            .size(size)
+            .rotate(scanRotation)
+    ) {
+        val strokeWidth = this.size.width * 0.15f
+        val radius = (this.size.width - strokeWidth) / 2
+        val center = Offset(this.size.width / 2f, this.size.height / 2f)
 
-        // Ring
-        drawCircle(
-            brush = brush ?: Brush.linearGradient(colors = listOf(color, color)),
-            radius = radius,
-            center = Offset(centerX, centerY),
-            style = Stroke(width = radius * 0.15f, cap = StrokeCap.Round)
-        )
-
-        // Center dot
-        drawCircle(
-            brush = brush ?: Brush.linearGradient(colors = listOf(color, color)),
-            radius = radius * 0.15f,
-            center = Offset(centerX, centerY)
-        )
-    }
-}
-
-@Composable
-private fun DescriptionIcon(
-    icon: ImageVector,
-    isAnimating: Boolean,
-    onClick: (() -> Unit)?,
-    tint: Color
-) {
-    val rotation by if (isAnimating) {
-        val infiniteTransition = rememberInfiniteTransition(label = "description_icon_rotation")
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(2000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "rotation"
-        )
-    } else {
-        remember { mutableFloatStateOf(0f) }
-    }
-
-    val modifier = Modifier.rotate(rotation)
-
-    if (onClick != null) {
-        IconButton(onClick = onClick, modifier = Modifier.size(20.dp)) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = modifier.size(16.dp),
-                tint = tint
+        if (brush != null) {
+            drawCircle(
+                brush = brush,
+                radius = this.size.width / 2f,
+                center = center
+            )
+            drawCircle(
+                color = Color.Transparent,
+                radius = radius - strokeWidth / 2,
+                center = center,
+                blendMode = androidx.compose.ui.graphics.BlendMode.Clear
+            )
+        } else {
+            drawCircle(
+                color = color,
+                radius = radius,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
         }
-    } else {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = modifier.padding(2.dp).size(16.dp),
-            tint = tint
-        )
     }
 }
