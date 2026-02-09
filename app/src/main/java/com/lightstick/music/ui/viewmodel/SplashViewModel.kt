@@ -134,6 +134,7 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
         val resolver = context.contentResolver
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
+            MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.DATA
@@ -158,6 +159,7 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
 
         // Music ID 계산하면서 스캔
         resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
+            val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
             val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
@@ -165,7 +167,13 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
             var index = 0
             while (cursor.moveToNext()) {
                 val path = cursor.getString(dataCol)
-                val title = cursor.getString(nameCol) ?: "Unknown"
+                val metaTitle = cursor.getString(titleCol)
+                val fileName = cursor.getString(nameCol) ?: "Unknown"
+                val title = if (!metaTitle.isNullOrBlank()) {
+                    metaTitle
+                } else {
+                    fileName.substringBeforeLast(".")
+                }
                 val artist = cursor.getString(artistCol) ?: "Unknown"
 
                 // 진행 상황 업데이트

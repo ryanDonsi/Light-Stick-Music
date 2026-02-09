@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.core.util.TimeFormatter
+import com.lightstick.music.ui.theme.customTextStyles
 
 /**
  * Music List 아이템 카드 (글라스모피즘)
@@ -109,16 +110,42 @@ fun MusicListItemCard(
             Column(
                 modifier = Modifier.weight(1f)
             ) {
-                // ✅ UI 유지: fontSize = 15.sp, fontWeight = SemiBold
-                // ✅ 색상만 교체: Color.White → customColors.onSurface
-                Text(
-                    text = musicItem.title,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    color = MaterialTheme.customColors.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // ✅ UI 유지: fontSize = 15.sp, fontWeight = SemiBold
+                    // ✅ 색상만 교체: Color.White → customColors.onSurface
+                    Text(
+                        text = musicItem.title,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.customColors.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    // ✅ EFX 배지 추가!
+                    if (musicItem.hasEffect) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier
+                                .height(16.dp)
+                                .widthIn(min = 32.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            ) {
+                                Text(
+                                    text = "EFX",
+                                    style = MaterialTheme.customTextStyles.badgeSmall,
+                                    color = MaterialTheme.colorScheme.onSecondary
+                                )
+                            }
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 

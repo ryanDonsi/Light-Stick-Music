@@ -28,6 +28,7 @@ import com.lightstick.music.ui.screen.effect.EffectScreen
 import com.lightstick.music.ui.screen.device.DeviceListScreen
 import com.lightstick.music.ui.theme.LightStickMusicTheme
 import com.lightstick.music.data.local.storage.EffectPathPreferences
+import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.music.ui.viewmodel.EffectViewModel
 import com.lightstick.music.ui.viewmodel.DeviceViewModel
 import com.lightstick.music.ui.viewmodel.MusicViewModel
@@ -353,15 +354,23 @@ fun AppNavigation(
             var showOtaUpdateDialog by remember { mutableStateOf(false) }
             var showFindDialog by remember { mutableStateOf(false) }
 
+            // ✅ 수정: deviceDetail이 null이면 Preferences에서 로드
+            val callEventEnabled = deviceDetail?.callEventEnabled
+                ?: DevicePreferences.getCallEventEnabled(deviceMac)
+            val smsEventEnabled = deviceDetail?.smsEventEnabled
+                ?: DevicePreferences.getSmsEventEnabled(deviceMac)
+            val broadcastingEnabled = deviceDetail?.broadcasting
+                ?: DevicePreferences.getBroadcasting(deviceMac)
+
             DeviceDetailScreen(
                 deviceName = device.name ?: "Unknown Device",
                 macAddress = device.mac,
                 rssi = device.rssi ?: 0,
                 batteryLevel = deviceDetail?.batteryLevel,
                 deviceInfo = deviceDetail,
-                callEventEnabled = deviceDetail?.callEventEnabled ?: false,
-                smsEventEnabled = deviceDetail?.smsEventEnabled ?: false,
-                broadcastingEnabled = deviceDetail?.broadcasting ?: false,
+                callEventEnabled = callEventEnabled,       // ✅ 수정
+                smsEventEnabled = smsEventEnabled,         // ✅ 수정
+                broadcastingEnabled = broadcastingEnabled, // ✅ 수정
                 onBackClick = {
                     navController.popBackStack()
                 },
@@ -414,19 +423,18 @@ fun AppNavigation(
                 )
             }
 
-            // ✅ FIND 확인 다이얼로그
+            // ✅ FIND 확인 다이얼로그 (deviceName 파라미터 제거)
             if (showFindDialog) {
                 FindEffectConfirmDialog(
                     onDismiss = { showFindDialog = false },
                     onConfirm = {
                         showFindDialog = false
-                        // TODO: FIND 이펙트 전송
-                        Toast.makeText(context, "FIND 이펙트 전송", Toast.LENGTH_SHORT).show()
+                        deviceViewModel.sendFindEffect(device)
                     }
                 )
             }
 
-            // OTA 업데이트 확인 다이얼로그
+            // ✅ OTA 업데이트 확인 다이얼로그 (uri 파라미터 제거, newversion 추가)
             if (showOtaUpdateDialog) {
                 OtaUpdateConfirmDialog(
                     deviceName = device.name ?: "Unknown Device",
@@ -434,7 +442,7 @@ fun AppNavigation(
                     onDismiss = { showOtaUpdateDialog = false },
                     onConfirm = {
                         showOtaUpdateDialog = false
-                        // TODO: OTA 업데이트 시작
+                        // TODO: OTA 파일 선택 기능 구현 필요
                         Toast.makeText(context, "OTA 업데이트 시작", Toast.LENGTH_SHORT).show()
                     }
                 )

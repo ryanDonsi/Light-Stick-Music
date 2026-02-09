@@ -129,6 +129,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             val resolver = context.contentResolver
             val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
             val projection = arrayOf(
+                MediaStore.Audio.Media.TITLE,
                 MediaStore.Audio.Media.DISPLAY_NAME,
                 MediaStore.Audio.Media.ARTIST,
                 MediaStore.Audio.Media.DATA
@@ -138,13 +139,22 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
             val musicItems = mutableListOf<MusicItem>()
             resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
+                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
                 val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
                 val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
 
                 while (cursor.moveToNext()) {
                     val path = cursor.getString(dataCol)
-                    val title = cursor.getString(nameCol) ?: "Unknown"
+
+                    val metaTitle = cursor.getString(titleCol)
+                    val fileName = cursor.getString(nameCol)
+                    val title = if (!metaTitle.isNullOrBlank()) {
+                        metaTitle
+                    } else {
+                        fileName.substringBeforeLast(".")
+                    }
+
                     val artist = cursor.getString(artistCol) ?: "Unknown"
 
                     val musicFile = File(path)

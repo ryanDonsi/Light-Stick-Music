@@ -637,6 +637,17 @@ class DeviceViewModel : ViewModel() {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // Event Toggle Functions (완전 수정)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * ✅ CALL Event 토글
+     *
+     * 수정 사항:
+     * - deviceDetail이 null일 때 새로운 DeviceDetailInfo 생성
+     * - mac, name, rssi 필수 파라미터 전달
+     */
     fun toggleCallEvent(device: Device, enabled: Boolean) {
         DevicePreferences.setCallEventEnabled(device.mac, enabled)
 
@@ -649,7 +660,23 @@ class DeviceViewModel : ViewModel() {
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[device.mac]
             if (existing != null) {
+                // ✅ 기존 데이터가 있으면 업데이트
                 this[device.mac] = existing.copy(callEventEnabled = enabled)
+            } else {
+                // ✅ 기존 데이터가 없으면 새로 생성
+                this[device.mac] = DeviceDetailInfo(
+                    mac = device.mac,
+                    name = device.name,
+                    rssi = device.rssi,
+                    isConnected = _connectionStates.value[device.mac] ?: false,
+                    deviceInfo = null,
+                    batteryLevel = null,
+                    otaProgress = null,
+                    isOtaInProgress = false,
+                    callEventEnabled = enabled,
+                    smsEventEnabled = DevicePreferences.getSmsEventEnabled(device.mac),
+                    broadcasting = DevicePreferences.getBroadcasting(device.mac)
+                )
             }
         }
 
@@ -660,6 +687,13 @@ class DeviceViewModel : ViewModel() {
         }
     }
 
+    /**
+     * ✅ SMS Event 토글
+     *
+     * 수정 사항:
+     * - deviceDetail이 null일 때 새로운 DeviceDetailInfo 생성
+     * - mac, name, rssi 필수 파라미터 전달
+     */
     fun toggleSmsEvent(device: Device, enabled: Boolean) {
         DevicePreferences.setSmsEventEnabled(device.mac, enabled)
 
@@ -672,7 +706,23 @@ class DeviceViewModel : ViewModel() {
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[device.mac]
             if (existing != null) {
+                // ✅ 기존 데이터가 있으면 업데이트
                 this[device.mac] = existing.copy(smsEventEnabled = enabled)
+            } else {
+                // ✅ 기존 데이터가 없으면 새로 생성
+                this[device.mac] = DeviceDetailInfo(
+                    mac = device.mac,
+                    name = device.name,
+                    rssi = device.rssi,
+                    isConnected = _connectionStates.value[device.mac] ?: false,
+                    deviceInfo = null,
+                    batteryLevel = null,
+                    otaProgress = null,
+                    isOtaInProgress = false,
+                    callEventEnabled = DevicePreferences.getCallEventEnabled(device.mac),
+                    smsEventEnabled = enabled,
+                    broadcasting = DevicePreferences.getBroadcasting(device.mac)
+                )
             }
         }
 
@@ -683,13 +733,36 @@ class DeviceViewModel : ViewModel() {
         }
     }
 
+    /**
+     * ✅ Broadcasting 토글
+     *
+     * 수정 사항:
+     * - deviceDetail이 null일 때 새로운 DeviceDetailInfo 생성
+     * - mac, name, rssi 필수 파라미터 전달
+     */
     fun toggleBroadcasting(device: Device, enabled: Boolean) {
         DevicePreferences.setBroadcasting(device.mac, enabled)
 
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[device.mac]
             if (existing != null) {
+                // ✅ 기존 데이터가 있으면 업데이트
                 this[device.mac] = existing.copy(broadcasting = enabled)
+            } else {
+                // ✅ 기존 데이터가 없으면 새로 생성
+                this[device.mac] = DeviceDetailInfo(
+                    mac = device.mac,
+                    name = device.name,
+                    rssi = device.rssi,
+                    isConnected = _connectionStates.value[device.mac] ?: false,
+                    deviceInfo = null,
+                    batteryLevel = null,
+                    otaProgress = null,
+                    isOtaInProgress = false,
+                    callEventEnabled = DevicePreferences.getCallEventEnabled(device.mac),
+                    smsEventEnabled = DevicePreferences.getSmsEventEnabled(device.mac),
+                    broadcasting = enabled
+                )
             }
         }
 
@@ -853,5 +926,55 @@ class DeviceViewModel : ViewModel() {
 
         connectedDevices.clear()
         Log.d(TAG, "✅ Cleanup completed")
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // FIND Effect (디바이스 찾기)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * ✅ FIND 이펙트 전송
+     *
+     * 연결된 디바이스에 밝은 색상으로 깜빡이는 효과를 전송하여 기기를 찾을 수 있도록 함
+     *
+     * @param device 효과를 전송할 디바이스
+     */
+    @SuppressLint("MissingPermission")
+    fun sendFindEffect(device: Device) {
+        val ctx = appContext
+        if (ctx == null || !PermissionManager.hasBluetoothConnectPermission(ctx)) {
+            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                // 연결 확인
+                if (_connectionStates.value[device.mac] != true) {
+                    Log.w(TAG, "⚠️ Device ${device.mac} is not connected")
+                    return@launch
+                }
+
+                Log.d(TAG, "📍 Sending FIND effect to ${device.mac}")
+
+                // FIND 효과: 빠르게 깜빡이는 흰색 (3초간)
+                val findPayload = LSEffectPayload.Effects.blink(
+                    period = 3,           // 빠른 깜빡임 (30ms)
+                    color = Colors.WHITE, // 흰색
+                    randomColor = 1
+                )
+
+                device.sendEffect(findPayload)
+
+                Log.d(TAG, "✅ FIND effect sent to ${device.mac}")
+
+                // 3초 후 자동으로 꺼짐
+                delay(3000)
+                device.sendEffect(LSEffectPayload.Effects.on(Colors.WHITE))
+
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to send FIND effect: ${e.message}", e)
+            }
+        }
     }
 }

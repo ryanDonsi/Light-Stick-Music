@@ -104,6 +104,7 @@ fun MusicPlayerCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .aspectRatio(1f)
                         .heightIn(max = 280.dp)
                         .clip(RoundedCornerShape(20.dp))
                         .background(MaterialTheme.colorScheme.background),
@@ -116,7 +117,6 @@ fun MusicPlayerCard(
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .aspectRatio(1f)
                                 .clip(RoundedCornerShape(20.dp))
                         )
                     } else {
@@ -125,7 +125,6 @@ fun MusicPlayerCard(
                             contentDescription = "Default Music Icon",
                             modifier = Modifier
                                 .fillMaxSize()
-                                .aspectRatio(1f)
                                 .clip(RoundedCornerShape(20.dp)),
                             // ✅ 색상 교체: Color(0xFF8E8E93) → customColors.surfaceVariant
                             tint = MaterialTheme.customColors.surfaceVariant
