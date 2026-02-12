@@ -5,7 +5,6 @@ import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import androidx.compose.foundation.layout.add
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,6 +15,8 @@ import com.lightstick.music.ui.components.effect.PresetColors
 import com.lightstick.LSBluetooth
 import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
+import com.lightstick.music.domain.ble.BleTransmissionEvent
+import com.lightstick.music.domain.ble.BleTransmissionMonitor
 import com.lightstick.types.Color as LightStickColor
 import com.lightstick.types.Colors
 import com.lightstick.types.LSEffectPayload
@@ -165,6 +166,9 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     private val _selectedBgPreset = MutableStateFlow<Int?>(null)
     val selectedBgPreset: StateFlow<Int?> = _selectedBgPreset.asStateFlow()
 
+    // ✅ BLE 전송 모니터링 (음악 재생 시 실시간 이펙트 표시)
+    val latestTransmission: StateFlow<BleTransmissionEvent?> = BleTransmissionMonitor.latestTransmission
+
     private var effectListJob: Job? = null
     private var scanJob: Job? = null
 
@@ -177,7 +181,8 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
             checkExistingConnection()
         }
 
-        observeDeviceStates()
+        // ✅ 수정: UseCase 사용
+        observeDeviceConnection()
     }
 
     // (기존의 프리셋, 연결, 스캔 관련 함수들은 그대로 유지)
@@ -261,32 +266,31 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun observeDeviceStates() {
+    private fun observeDeviceConnection() {
         viewModelScope.launch {
             LSBluetooth.observeDeviceStates().collect { states ->
-                if (_deviceConnectionState.value is DeviceConnectionState.Scanning) {
-                    return@collect
-                }
+                val lsDevice = states
+                    .filter { (_, state) -> state.connectionState is ConnectionState.Connected }
+                    .filter { (_, state) -> state.deviceInfo?.deviceName?.endsWith("LS") == true }
+                    .map { (mac, state) ->
+                        Device(
+                            mac = mac,
+                            name = state.deviceInfo?.deviceName,
+                            rssi = state.deviceInfo?.rssi
+                        )
+                    }
+                    .firstOrNull()
 
-                val connectedState = states.values.firstOrNull { state ->
-                    state.connectionState is ConnectionState.Connected
-                }
-
-                if (connectedState != null) {
-                    val device = Device(
-                        mac = connectedState.macAddress,
-                        name = connectedState.deviceInfo?.deviceName ?: "Unknown",
-                        rssi = connectedState.deviceInfo?.rssi
-                    )
-
-                    if (_deviceConnectionState.value !is DeviceConnectionState.Connected) {
-                        _deviceConnectionState.value = DeviceConnectionState.Connected(device)
-                        Log.d(TAG, "✅ Device connected via observeDeviceStates: ${device.mac}")
+                if (lsDevice != null) {
+                    if (_deviceConnectionState.value !is DeviceConnectionState.Connected ||
+                        (_deviceConnectionState.value as? DeviceConnectionState.Connected)?.device?.mac != lsDevice.mac) {
+                        _deviceConnectionState.value = DeviceConnectionState.Connected(lsDevice)
+                        scanJob?.cancel()
                     }
                 } else {
                     if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
                         _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
-                        Log.d(TAG, "⚠️ Device disconnected via observeDeviceStates")
+                        scanJob?.cancel()
                     }
                 }
             }

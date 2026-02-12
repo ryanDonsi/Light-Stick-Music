@@ -11,7 +11,7 @@ import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.LSBluetooth
-import com.lightstick.device.ConnectionState  // ✅ 추가
+import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
 import com.lightstick.device.DeviceInfo
 import com.lightstick.events.EventAction
@@ -70,7 +70,12 @@ class DeviceViewModel : ViewModel() {
     // ═══════════════════════════════════════════════════════════
 
     fun initializeWithContext(context: Context) {
-        if (appContext != null) return
+        if (appContext != null) {
+            Log.d(TAG, "⏭️ Already initialized, skipping")
+            return
+        }
+
+        Log.d(TAG, "🚀 Initializing DeviceViewModel...")
         appContext = context.applicationContext
 
         DevicePreferences.initialize(context.applicationContext)
@@ -84,34 +89,25 @@ class DeviceViewModel : ViewModel() {
         PermissionManager.logPermissionStatus(appContext!!, TAG)
 
         // ✅ 추가: SDK 연결 상태 실시간 관찰
+        Log.d(TAG, "📡 Starting to observe connection states...")
+        // ✅ 수정: UseCase 사용
         observeConnectionStates()
     }
 
-    // DeviceViewModel.kt의 observeConnectionStates() 함수 수정
-
-    /**
-     * ✅ SDK 연결 상태 및 디바이스 목록 실시간 관찰
-     * - EffectViewModel과 상태 동기화
-     * - 연결/해제 즉시 반영
-     * - Navigation bar 배지 자동 업데이트
-     * - _devices 리스트도 자동 동기화
-     */
     private fun observeConnectionStates() {
         viewModelScope.launch {
-            // ✅ observeDeviceStates()를 사용하여 디바이스 정보도 함께 가져옴
             LSBluetooth.observeDeviceStates().collect { states ->
-
-                // ✅ 1. connectionStates 업데이트
+                // 연결 상태 Map 업데이트
                 _connectionStates.value = states.mapValues { (_, state) ->
                     state.connectionState is ConnectionState.Connected
                 }
 
-                // ✅ 2. connectedDeviceCount 업데이트
+                // 연결된 디바이스 개수 업데이트
                 _connectedDeviceCount.value = states.count { (_, state) ->
                     state.connectionState is ConnectionState.Connected
                 }
 
-                // ✅ 3. 연결된 디바이스를 _devices 리스트에 추가 (중요!)
+                // 연결된 디바이스를 _devices 리스트에 추가
                 val connectedDevices = states
                     .filter { (_, state) -> state.connectionState is ConnectionState.Connected }
                     .map { (mac, state) ->
@@ -122,30 +118,22 @@ class DeviceViewModel : ViewModel() {
                         )
                     }
 
-                // ✅ 4. 기존 devices와 병합 (중복 제거)
-                val existingDevices = _devices.value
-                val newDevicesList = (existingDevices + connectedDevices)
-                    .distinctBy { it.mac }  // MAC 주소로 중복 제거
+                // 기존 devices와 병합 (중복 제거)
+                val merged = (_devices.value + connectedDevices)
+                    .distinctBy { it.mac }
                     .sortedWith(
-                        compareByDescending<Device> {
-                            _connectionStates.value[it.mac] ?: false  // 연결된 디바이스 우선
-                        }.thenByDescending {
-                            it.rssi ?: -100  // RSSI 높은 순
-                        }
+                        compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
+                            .thenByDescending { it.rssi ?: -100 }
                     )
 
-                _devices.value = newDevicesList
-
-                Log.d(TAG, "📊 Connected states: ${_connectionStates.value}")
-                Log.d(TAG, "📊 Connected count: ${_connectedDeviceCount.value}")
-                Log.d(TAG, "📊 Total devices: ${_devices.value.size}")
+                _devices.value = merged
             }
         }
     }
 
     // ═══════════════════════════════════════════════════════════
-// BLE Scan (✅ 개선 버전)
-// ═══════════════════════════════════════════════════════════
+    // BLE Scan
+    // ═══════════════════════════════════════════════════════════
 
     /**
      * ✅ 개선 사항:
@@ -156,125 +144,53 @@ class DeviceViewModel : ViewModel() {
      * 5. "LS"로 끝나는 디바이스만 필터링 (주요 기능 유지)
      */
     fun startScan(context: Context) {
-        // ✅ 1. 블루투스 권한 확인
+        // 1. 권한 확인
         if (!PermissionManager.hasBluetoothScanPermission(context)) {
-            Log.w(TAG, "⚠️ BLUETOOTH_SCAN permission not granted")
-            PermissionManager.logPermissionStatus(context, TAG)
+            Log.w(TAG, "BLUETOOTH_SCAN permission not granted")
             return
         }
 
-        // ✅ 2. 블루투스 어댑터 상태 확인
-        val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-        val bluetoothAdapter = bluetoothManager?.adapter
+        // 2. 재시작
+        if (_isScanning.value) stopScan()
 
-        if (bluetoothAdapter == null) {
-            Log.e(TAG, "❌ BluetoothAdapter is null - 블루투스를 지원하지 않는 기기입니다")
-            return
-        }
-
-        if (!bluetoothAdapter.isEnabled) {
-            Log.e(TAG, "❌ Bluetooth is disabled - 블루투스를 켜주세요")
-            // TODO: UI에 토스트 메시지 표시 또는 블루투스 활성화 요청
-            return
-        }
-
-        // ✅ 3. 이미 스캔 중인지 확인 - 스캔 중이면 중단 후 재시작
-        if (_isScanning.value) {
-            Log.d(TAG, "Already scanning - stopping and restarting...")
-            stopScan()
-        }
-
-        Log.d(TAG, "═══════════════════════════════════════")
-        Log.d(TAG, "🔍 Starting BLE scan...")
-        Log.d(TAG, "   Bluetooth Adapter: ${bluetoothAdapter.address}")
-        Log.d(TAG, "   Bluetooth Enabled: ${bluetoothAdapter.isEnabled}")
-        Log.d(TAG, "   Filter: Device name ends with 'LS'")
         _isScanning.value = true
 
-        // ✅ 수정: 연결된 디바이스는 유지, 미연결 디바이스만 제거
-        val connectedDevices = _devices.value.filter { device ->
-            _connectionStates.value[device.mac] == true
+        // 3. 연결된 디바이스만 유지
+        _devices.value = _devices.value.filter {
+            _connectionStates.value[it.mac] == true
         }
-        _devices.value = connectedDevices
-        Log.d(TAG, "   Preserved ${connectedDevices.size} connected devices")
 
-        // ✅ 4. 스캔 타임아웃 설정 (30초)
-        val scanJob = viewModelScope.launch {
-            delay(3_000) // 3초
-            if (_isScanning.value) {
-                Log.w(TAG, "⏱️ Scan timeout (30s) - stopping scan")
-                Log.w(TAG, "   Total devices found: ${_devices.value.size}")
-                stopScan()
+        // 4. 30초 타임아웃
+        viewModelScope.launch {
+            delay(3_000)
+            if (_isScanning.value) stopScan()
+        }
+
+        // 5. 스캔 시작 (SDK가 이미 필터링함)
+        @SuppressLint("MissingPermission")
+        fun doStartScan() {
+            LSBluetooth.startScan { device ->
+                val current = _devices.value.toMutableList()
+                val existingIndex = current.indexOfFirst { it.mac == device.mac }
+
+                if (existingIndex >= 0) {
+                    current[existingIndex] = device
+                } else {
+                    current.add(device)
+                }
+
+                _devices.value = current.sortedWith(
+                    compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
+                        .thenByDescending { it.rssi ?: -100 }
+                )
             }
         }
 
         try {
-            @SuppressLint("MissingPermission")
-            fun doStartScan() {
-                var scannedCount = 0
-                var filteredCount = 0
-
-                LSBluetooth.startScan { device ->
-                    scannedCount++
-
-                    // ✅ 5. 모든 스캔 결과 로깅 (디버그용)
-                    Log.v(TAG, "📡 Scanned #$scannedCount: ${device.mac} | ${device.name} | RSSI: ${device.rssi}")
-
-                    // ✅ 6. 디바이스 필터링 ("LS"로 끝나는 것만 - 주요 기능)
-                    if (device.name?.endsWith("LS") == true) {
-                        Log.d(TAG, "✅ Found LS device: ${device.mac} | ${device.name} | RSSI: ${device.rssi}")
-
-                        val current = _devices.value.toMutableList()
-                        val existingIndex = current.indexOfFirst { it.mac == device.mac }
-
-                        if (existingIndex >= 0) {
-                            current[existingIndex] = device
-                            Log.v(TAG, "   ↻ Updated existing device")
-                        } else {
-                            current.add(device)
-                            Log.v(TAG, "   ➕ Added new device (total: ${current.size})")
-                        }
-
-                        _devices.value = current.sortedWith(
-                            compareByDescending<Device> {
-                                _connectionStates.value[it.mac] ?: false
-                            }.thenByDescending {
-                                it.rssi ?: -100
-                            }
-                        )
-                    } else {
-                        filteredCount++
-                        Log.v(TAG, "   ⊘ Filtered out: name='${device.name}' (not ending with 'LS')")
-                    }
-
-                    // ✅ 7. 주기적으로 스캔 통계 로깅 (10개마다)
-                    if (scannedCount % 10 == 0) {
-                        Log.d(TAG, "📊 Scan statistics:")
-                        Log.d(TAG, "   ├─ Total scanned: $scannedCount")
-                        Log.d(TAG, "   ├─ Filtered out: $filteredCount")
-                        Log.d(TAG, "   └─ LS devices found: ${_devices.value.size}")
-                    }
-                }
-            }
-
             doStartScan()
-            Log.d(TAG, "✅ Scan started successfully")
-            Log.d(TAG, "   Will auto-stop after 30 seconds")
-
-        } catch (e: SecurityException) {
-            Log.e(TAG, "❌ SecurityException during scan: ${e.message}")
-            Log.e(TAG, "   권한이 거부되었거나 런타임에 취소되었습니다.")
-            _isScanning.value = false
-            scanJob.cancel()
-        } catch (e: IllegalStateException) {
-            Log.e(TAG, "❌ IllegalStateException: ${e.message}")
-            Log.e(TAG, "   블루투스 어댑터가 비활성화되었거나 사용 불가능합니다.")
-            _isScanning.value = false
-            scanJob.cancel()
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Unexpected error during scan: ${e.message}", e)
+            Log.e(TAG, "Scan error: ${e.message}")
             _isScanning.value = false
-            scanJob.cancel()
         }
     }
 

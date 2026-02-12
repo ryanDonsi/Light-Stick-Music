@@ -534,7 +534,7 @@ private fun animatePeriodicEffect(
     fgThreshold: Float,
     backgroundColor: Color
 ): EffectColorData {
-    // ✅ [수정] 주기가 0 이하이면 애니메이션을 실행하지 않고 즉시 반환합니다.
+    // TODO : period가 0일때는 period가 1인 것으로 처리 필요
     if (period <= 0) {
         val blendedGradientColor = lerp(fgColor, backgroundColor, 0.5f)
         return EffectColorData(
@@ -579,7 +579,7 @@ private fun animateBreathEffect(
     backgroundColor: Color,
     onColorUpdate: (Color) -> Unit
 ): EffectColorData {
-    // ✅ [수정] 주기가 0 이하이면 애니메이션을 실행하지 않고 즉시 반환합니다.
+    // TODO : period가 0일때는 period가 1인 것으로 처리 필요
     if (period <= 0) {
         onColorUpdate(fgColor)
         val blendedGradientColor = lerp(fgColor, backgroundColor, 0.5f)

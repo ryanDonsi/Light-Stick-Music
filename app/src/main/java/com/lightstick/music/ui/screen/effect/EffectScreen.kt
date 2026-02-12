@@ -52,6 +52,9 @@ fun EffectScreen(
     val effectSettingsMap by viewModel.effectSettingsMap.collectAsState()
     val deviceConnectionState by viewModel.deviceConnectionState.collectAsState()
 
+    // ✅ BLE 전송 모니터링 (음악 재생 시 실시간 이펙트)
+    val latestTransmission by viewModel.latestTransmission.collectAsState()
+
     var settingsDialogEffect by remember { mutableStateOf<EffectViewModel.UiEffectType?>(null) }
     var colorPickerState by remember { mutableStateOf<Pair<EffectViewModel.UiEffectType, Boolean>?>(null) }
     var showEffectListSheet by remember { mutableStateOf(false) }
@@ -238,7 +241,8 @@ fun EffectScreen(
                         isScrolled = isScrolled,
                         selectedEffect = selectedEffect,
                         effectSettings = previewSettings,
-                        isPlaying = isPlaying || overrideSettings != null
+                        isPlaying = isPlaying || overrideSettings != null,
+                        latestTransmission = latestTransmission
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     errorMessage?.let { error ->
