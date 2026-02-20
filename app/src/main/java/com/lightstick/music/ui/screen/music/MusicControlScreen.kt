@@ -20,7 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import com.lightstick.music.R
-import com.lightstick.music.domain.effect.MusicEffectManager
+import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.ui.components.common.TopBarCentered
 import com.lightstick.music.ui.components.common.CustomToast
 import com.lightstick.music.ui.components.common.rememberToastState

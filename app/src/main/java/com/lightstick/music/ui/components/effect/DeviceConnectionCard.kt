@@ -59,6 +59,8 @@ fun DeviceConnectionCard(
     latestTransmission: BleTransmissionEvent? = null,  // ✅ 새로 추가 (기본값 null)
     modifier: Modifier = Modifier
 ) {
+    val lastColorRef = remember { mutableStateOf(Color.White) }
+
     val animatedBoxSize by animateDpAsState(
         targetValue = if (isScrolled) 124.dp else 180.dp,
         animationSpec = spring(
@@ -94,13 +96,18 @@ fun DeviceConnectionCard(
 
     // ✅ latestTransmission 우선 → selectedEffect fallback
     val effectColorData = if (latestTransmission != null) {
-        calculateEffectColorFromTransmission(latestTransmission, cardBackgroundColor)
+        calculateEffectColorFromTransmission(
+            transmission = latestTransmission,
+            backgroundColor = cardBackgroundColor,
+            lastColorRef = lastColorRef
+        )
     } else {
         calculateEffectColor(
             isPlaying = isPlaying,
             selectedEffect = selectedEffect,
             effectSettings = effectSettings,
-            backgroundColor = cardBackgroundColor
+            backgroundColor = cardBackgroundColor,
+            lastColorRef = lastColorRef
         )
     }
 
@@ -196,23 +203,38 @@ data class EffectColorData(
 )
 
 /**
- * ✅ 새로 추가: transmission 기반 색상 계산
+ * ✅ 수정: transmission 기반 색상 계산 (transit 애니메이션 추가)
  */
 @Composable
 private fun calculateEffectColorFromTransmission(
     transmission: BleTransmissionEvent,
-    backgroundColor: Color
+    backgroundColor: Color,
+    lastColorRef: MutableState<Color>  // ✅ 외부에서 전달받음
 ): EffectColorData? {
-    val lastColorRef = remember { mutableStateOf(Color.White) }
-
     return when (transmission.source) {
         TransmissionSource.MANUAL_EFFECT, TransmissionSource.TIMELINE_EFFECT -> {
             when (transmission.effectType) {
                 EffectType.ON -> {
-                    buildEffectData(transmission.color?.toComposeColor() ?: Color.White)
+                    // ✅ 수정: animateOnEffect 사용 (transit 애니메이션)
+                    val transit = transmission.transit ?: 10
+                    animateOnEffect(
+                        fromColor = lastColorRef.value,
+                        targetColor = transmission.color?.toComposeColor() ?: Color.White,
+                        transit = transit,
+                        randomColor = false,
+                        onColorUpdate = { lastColorRef.value = it },
+                        backgroundColor = backgroundColor
+                    )
                 }
                 EffectType.OFF -> {
-                    buildEffectData(Color.White.copy(alpha = 0.3f))
+                    // ✅ 수정: animateOffEffect 사용
+                    val transit = transmission.transit ?: 10
+                    animateOffEffect(
+                        fromColor = lastColorRef.value,
+                        transit = transit,
+                        onColorUpdate = { lastColorRef.value = it },
+                        backgroundColor = backgroundColor
+                    )
                 }
                 EffectType.STROBE -> {
                     val period = transmission.period ?: 20
@@ -239,6 +261,7 @@ private fun calculateEffectColorFromTransmission(
                 EffectType.BREATH -> {
                     val period = transmission.period ?: 40
                     animateBreathEffect(
+                        fromColor = lastColorRef.value,
                         fgColor = transmission.color?.toComposeColor() ?: Color.White,
                         bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black,
                         period = period,
@@ -278,10 +301,9 @@ private fun calculateEffectColor(
     isPlaying: Boolean,
     selectedEffect: EffectViewModel.UiEffectType?,
     effectSettings: EffectViewModel.EffectSettings?,
-    backgroundColor: Color
+    backgroundColor: Color,
+    lastColorRef: MutableState<Color>
 ): EffectColorData? {
-    val lastColorRef = remember { mutableStateOf(Color.White) }
-
     if (!isPlaying || selectedEffect == null || effectSettings == null) {
         lastColorRef.value = Color.White
         return EffectColorData(
@@ -333,6 +355,7 @@ private fun calculateEffectColor(
             }
             is EffectViewModel.UiEffectType.Breath -> {
                 animateBreathEffect(
+                    fromColor = lastColorRef.value,
                     fgColor = effectSettings.color.toComposeColor(),
                     bgColor = effectSettings.backgroundColor.toComposeColor(),
                     period = effectSettings.period,
@@ -383,6 +406,7 @@ private fun calculateEffectColor(
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.BREATH -> {
                         animateBreathEffect(
+                            fromColor = lastColorRef.value,
                             fgColor = effectSettings.color.toComposeColor(),
                             bgColor = effectSettings.backgroundColor.toComposeColor(),
                             period = effectSettings.period,
@@ -444,7 +468,7 @@ private fun buildEffectData(finalColor: Color): EffectColorData {
 }
 
 /**
- * ✅ 원본: ON - LaunchedEffect만 사용
+ * ✅ 최종 수정: ON Effect 애니메이션 (깜빡임 제거)
  */
 @Composable
 private fun animateOnEffect(
@@ -455,40 +479,40 @@ private fun animateOnEffect(
     onColorUpdate: (Color) -> Unit,
     backgroundColor: Color
 ): EffectColorData {
-    val animatable = remember { Animatable(0f) }
-    val initialColor = remember { fromColor }
+    // ✅ key를 사용해서 targetColor가 바뀌면 완전히 새로 시작
+    return key(targetColor) {
+        val startColor = fromColor  // ✅ 새 key → fromColor 새로 캡처
+        val animatable = remember { Animatable(0f) }
 
-    LaunchedEffect(transit, targetColor, randomColor) {
-        animatable.snapTo(0f)
-        animatable.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = transit * 100, easing = LinearEasing)  // ✅ 원본: * 100
+        LaunchedEffect(Unit) {
+            animatable.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = transit * 100, easing = LinearEasing)
+            )
+        }
+
+        val progress = animatable.value
+
+        val iconColor = if (randomColor) {
+            rememberRandomHueColor(alpha = progress)
+        } else {
+            hsvLerp(startColor, targetColor, progress)
+        }
+
+        onColorUpdate(iconColor)
+
+        val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
+
+        EffectColorData(
+            iconColor = iconColor,
+            iconBrush = null,
+            gradientColor = blendedGradientColor
         )
     }
-
-    val progress = animatable.value
-
-    val iconColor = if (randomColor) {
-        rememberRandomHueColor(alpha = progress)
-    } else {
-        hsvLerp(initialColor, targetColor, progress)
-    }
-
-    onColorUpdate(iconColor)
-
-    // 아이콘 색상과 카드 배경을 혼합하여 빛 번짐 색상을 만듭니다.
-    val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
-
-    return EffectColorData(
-        iconColor = iconColor,
-        iconBrush = null,
-        // 아이콘이 검은색이면 빛 번짐도 없습니다.
-        gradientColor = blendedGradientColor
-    )
 }
 
 /**
- * ✅ OFF: RingIcon과 배경 그라데이션의 색상을 분리하여 제어
+ * ✅ 최종 수정: OFF Effect 애니메이션
  */
 @Composable
 private fun animateOffEffect(
@@ -497,11 +521,11 @@ private fun animateOffEffect(
     onColorUpdate: (Color) -> Unit,
     backgroundColor: Color
 ): EffectColorData {
+    // ✅ OFF는 한 번만 실행되므로 key 불필요하지만 일관성을 위해 유지
+    val startColor = fromColor.copy(alpha = 1f)
     val animatable = remember { Animatable(0f) }
-    val initialColor = remember { fromColor.copy(alpha = 1f) }
 
-    LaunchedEffect(transit) {
-        animatable.snapTo(0f)
+    LaunchedEffect(Unit) {
         animatable.animateTo(
             targetValue = 1f,
             animationSpec = tween(durationMillis = transit * 100, easing = LinearEasing)
@@ -509,18 +533,15 @@ private fun animateOffEffect(
     }
 
     val progress = animatable.value
+    val iconColor = hsvLerp(startColor, Color.Black, progress)
 
-    // Icon color fades to black
-    val iconColor = hsvLerp(initialColor, Color.Black, progress)
     onColorUpdate(iconColor)
 
-    // 아이콘 색상과 카드 배경을 혼합하여 빛 번짐 색상을 만듭니다.
     val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
 
     return EffectColorData(
         iconColor = iconColor,
         iconBrush = null,
-        // 아이콘이 검은색이 되면 빛 번짐도 자연스럽게 사라집니다.
         gradientColor = blendedGradientColor
     )
 }
@@ -570,8 +591,18 @@ private fun animatePeriodicEffect(
     }
 }
 
+/**
+ * ✅ 최종: Breath Effect 애니메이션
+ *
+ * period를 4등분:
+ * 1. 0~25%: current → FG
+ * 2. 25~50%: FG 유지
+ * 3. 50~75%: FG → BG
+ * 4. 75~100%: BG 유지
+ */
 @Composable
 private fun animateBreathEffect(
+    fromColor: Color,
     fgColor: Color,
     bgColor: Color,
     period: Int,
@@ -579,7 +610,6 @@ private fun animateBreathEffect(
     backgroundColor: Color,
     onColorUpdate: (Color) -> Unit
 ): EffectColorData {
-    // TODO : period가 0일때는 period가 1인 것으로 처리 필요
     if (period <= 0) {
         onColorUpdate(fgColor)
         val blendedGradientColor = lerp(fgColor, backgroundColor, 0.5f)
@@ -590,44 +620,64 @@ private fun animateBreathEffect(
         )
     }
 
-    return key(period, randomColor, bgColor) {
+    return key(fgColor, bgColor) {
+        val startColor = fromColor
+
+        // ✅ 첫 사이클 여부
+        val isFirstCycle = remember { mutableStateOf(true) }
+
+        // ✅ Breath 애니메이션 (period를 4등분)
         val breathProgress by rememberInfiniteTransition(label = "breathEffect").animateFloat(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(period * 100, easing = LinearEasing),
+                animation = tween(period * 100, easing = LinearEasing),  // ✅ period * 100
                 repeatMode = RepeatMode.Restart
             ),
             label = "breathProgress"
         )
 
+        // ✅ 첫 사이클 완료 체크
+        LaunchedEffect(breathProgress) {
+            if (breathProgress >= 0.99f && isFirstCycle.value) {
+                isFirstCycle.value = false
+            }
+        }
+
         val finalFgColor = if (randomColor) rememberRandomHueColor(alpha = 1f) else fgColor
 
         val iconColor: Color = when {
+            // [1단계] 0~25%: 상승 (current → FG)
             breathProgress < 0.25f -> {
-                // 1. Transition BG -> FG
                 val progress = breathProgress / 0.25f
-                hsvLerp(bgColor, finalFgColor, progress)
+                if (isFirstCycle.value) {
+                    // 첫 사이클: fromColor에서 시작
+                    hsvLerp(startColor, finalFgColor, progress)
+                } else {
+                    // 이후: bgColor에서 시작
+                    hsvLerp(bgColor, finalFgColor, progress)
+                }
             }
-            breathProgress < 0.5f -> {
-                // 2. Hold FG
-                finalFgColor
 
+            // [2단계] 25~50%: FG 유지
+            breathProgress < 0.5f -> {
+                finalFgColor
             }
+
+            // [3단계] 50~75%: 하강 (FG → BG)
             breathProgress < 0.75f -> {
-                // 3. Transition FG -> BG
                 val progress = (breathProgress - 0.5f) / 0.25f
                 hsvLerp(finalFgColor, bgColor, progress)
             }
+
+            // [4단계] 75~100%: BG 유지
             else -> {
-                // 4. Hold BG
                 bgColor
             }
         }
 
         onColorUpdate(iconColor)
 
-        // Blend current icon color with the card background for the gradient
         val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
 
         EffectColorData(

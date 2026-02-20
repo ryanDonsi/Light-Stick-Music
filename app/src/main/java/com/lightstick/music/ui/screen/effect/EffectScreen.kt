@@ -366,7 +366,7 @@ fun EffectScreen(
             initialName = effectToRename.name,
             onDismiss = { showRenameDialogFor = null },
             onConfirm = { newName ->
-                viewModel.renameCustomEffect(effectToRename.id, newName)
+                viewModel.renameCustomEffect(effectToRename, newName)
                 showRenameDialogFor = null
             }
         )

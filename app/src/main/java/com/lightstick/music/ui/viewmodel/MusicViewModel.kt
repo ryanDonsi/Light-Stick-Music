@@ -13,7 +13,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.lightstick.music.domain.effect.EffectEngineController
-import com.lightstick.music.domain.effect.MusicEffectManager
+import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.domain.music.FftAudioProcessor
@@ -22,6 +22,10 @@ import com.lightstick.music.data.local.storage.EffectPathPreferences
 import com.lightstick.music.core.bus.MusicPlayerCommandBus
 import com.lightstick.music.core.service.ServiceController
 import com.lightstick.music.data.local.preferences.AutoModePreferences
+import com.lightstick.music.domain.usecase.music.HandleSeekUseCase
+import com.lightstick.music.domain.usecase.music.LoadMusicTimelineUseCase
+import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
+import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,19 +37,31 @@ import java.io.File
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context = application.applicationContext
-    private val effectEngineController = EffectEngineController
 
-    // ✅ AUTO 모드 상태
+    // ═══════════════════════════════════════════════════════════
+    // ✅ UseCase 인스턴스
+    // ═══════════════════════════════════════════════════════════
+
+    private val loadMusicTimelineUseCase = LoadMusicTimelineUseCase()
+    private val updatePlaybackPositionUseCase = UpdatePlaybackPositionUseCase()
+    private val handleSeekUseCase = HandleSeekUseCase()
+    private val processFFTUseCase = ProcessFFTUseCase()
+
+    // ═══════════════════════════════════════════════════════════
+    // State
+    // ═══════════════════════════════════════════════════════════
+
     private val _isAutoModeEnabled = MutableStateFlow(true)
     val isAutoModeEnabled: StateFlow<Boolean> = _isAutoModeEnabled.asStateFlow()
 
-    // ✅ FFT -> LED 전송 (AUTO 모드 체크 포함)
+    // ✅ FFT -> LED 전송 (AUTO 모드 체크 포함, UseCase 사용)
     val audioProcessor = FftAudioProcessor { band ->
         // AUTO 모드일 때만 FFT 효과 처리
-        if (_isAutoModeEnabled.value && PermissionManager.hasPermission(context, Manifest.permission.BLUETOOTH_CONNECT)) {
+        if (_isAutoModeEnabled.value && PermissionManager.hasBluetoothConnectPermission(context)) {
             try {
-                effectEngineController.processFftEffect(band, context)
-            } catch (e: SecurityException) {
+                // ✅ UseCase 호출
+                processFFTUseCase(context, band)
+            } catch (e: Exception) {
                 Log.e("MusicPlayerVM", "FFT effect send failed: ${e.message}")
             }
         }
@@ -220,7 +236,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * ✅ 음악 재생 (AUTO 모드 체크 포함)
+     * ✅ 음악 재생 (UseCase 사용)
      *
      * 타임라인 동기화 순서:
      * 1. 타임라인 로드
@@ -237,7 +253,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (_isAutoModeEnabled.value) {
             val musicFile = File(item.filePath)
             EffectEngineController.reset()
-            EffectEngineController.loadEffectsFor(musicFile, context)
+
+            // ✅ UseCase 호출
+            loadMusicTimelineUseCase(context, musicFile)
+
             Log.d("MusicPlayerVM", "🎵 AUTO ON - Timeline loaded for: ${item.title}")
         } else {
             // AUTO OFF - EFX 로드 안 함
@@ -260,7 +279,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         // ✅ 2. 재생 전 초기 위치(0ms) 동기화
         if (_isAutoModeEnabled.value) {
             try {
-                EffectEngineController.updatePlaybackPosition(context, 0L)
+                // ✅ UseCase 호출
+                updatePlaybackPositionUseCase(context, 0L)
                 Log.d("MusicPlayerVM", "📍 Initial position synced at 0ms")
             } catch (e: Exception) {
                 Log.e("MusicPlayerVM", "Initial sync failed: ${e.message}")
@@ -283,7 +303,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * ✅ AUTO 모드 토글 (완전 구현)
+     * ✅ AUTO 모드 토글 (UseCase 사용)
      */
     fun toggleAutoMode(): Boolean {
         val context = getApplication<Application>()
@@ -292,20 +312,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
         if (!newState) {
             // ✅ AUTO OFF - EFX 언로드
-            effectEngineController.reset()
+            EffectEngineController.reset()
             Log.d("MusicPlayerVM", "🔕 AUTO OFF - EFX unloaded, FFT analysis disabled")
         } else {
             // ✅ AUTO ON - 현재 재생 중인 곡이 있으면 EFX 로드
             val currentMusic = _nowPlaying.value
             if (currentMusic != null) {
                 val musicFile = File(currentMusic.filePath)
-                effectEngineController.reset()
-                effectEngineController.loadEffectsFor(musicFile, context)
+                EffectEngineController.reset()
+
+                // ✅ UseCase 호출
+                loadMusicTimelineUseCase(context, musicFile)
 
                 // ✅ 현재 재생 위치로 동기화
                 val currentPosition = _currentPosition.value.toLong()
                 try {
-                    effectEngineController.updatePlaybackPosition(context, currentPosition)
+                    // ✅ UseCase 호출
+                    updatePlaybackPositionUseCase(context, currentPosition)
                     Log.d("MusicPlayerVM", "🎵 AUTO ON - EFX loaded and synced at ${currentPosition}ms for: ${currentMusic.title}")
                 } catch (e: Exception) {
                     Log.e("MusicPlayerVM", "AUTO ON sync failed: ${e.message}")
@@ -327,7 +350,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * ✅ Seek 처리 개선
+     * ✅ Seek 처리 (UseCase 사용)
      */
     fun seekTo(position: Long) {
         player.seekTo(position)
@@ -336,8 +359,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         // ✅ Seek 시 즉시 타임라인 위치 업데이트
         if (_isAutoModeEnabled.value) {
             try {
-                EffectEngineController.handleSeek(context, position)
-            } catch (e: SecurityException) {
+                // ✅ UseCase 호출
+                handleSeekUseCase(context, position)
+            } catch (e: Exception) {
                 Log.e("MusicPlayerVM", "handleSeek() failed: ${e.message}")
             }
         }
@@ -345,15 +369,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         updateNotificationProgress()
     }
 
-    fun setTargetAddress(address: String?) {
-        EffectEngineController.setTargetAddress(address)
-    }
-
     /**
-     * ✅ 위치 모니터링 (100ms마다 정확하게 업데이트)
+     * ✅ 위치 모니터링 (UseCase 사용)
      *
      * 주요 변경점:
-     * 1. 매 100ms마다 updatePlaybackPosition() 호출 (1초 제한 제거)
+     * 1. 매 100ms마다 updatePlaybackPosition() 호출
      * 2. SDK가 내부적으로 타이밍을 정확하게 관리
      */
     @SuppressLint("MissingPermission")
@@ -368,10 +388,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 // ✅ AUTO 모드이고 재생 중일 때 매 100ms마다 위치 업데이트
                 if (player.isPlaying && _isAutoModeEnabled.value) {
                     try {
-                        // SDK의 updatePlaybackPosition() 호출
-                        // SDK 내부에서 정확한 타이밍에 이펙트 전송
-                        EffectEngineController.updatePlaybackPosition(context, current.toLong())
-                    } catch (e: SecurityException) {
+                        // ✅ UseCase 호출
+                        updatePlaybackPositionUseCase(context, current.toLong())
+                    } catch (e: Exception) {
                         Log.e("MusicPlayerVM", "updatePlaybackPosition() failed: ${e.message}")
                     }
                 }

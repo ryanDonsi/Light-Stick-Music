@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.data.local.preferences.DevicePreferences
+import com.lightstick.music.domain.usecase.device.SendFindEffectUseCase
 import com.lightstick.LSBluetooth
 import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
@@ -32,6 +33,12 @@ import kotlinx.coroutines.launch
 class DeviceViewModel : ViewModel() {
 
     private val TAG = "DeviceVM"
+
+    // ═══════════════════════════════════════════════════════════
+    // UseCase 인스턴스
+    // ═══════════════════════════════════════════════════════════
+
+    private val sendFindEffectUseCase = SendFindEffectUseCase()
 
     // ═══════════════════════════════════════════════════════════
     // State Flows
@@ -849,13 +856,12 @@ class DeviceViewModel : ViewModel() {
     // ═══════════════════════════════════════════════════════════
 
     /**
-     * ✅ FIND 이펙트 전송
+     * ✅ FIND 이펙트 전송 (UseCase 사용)
      *
      * 연결된 디바이스에 밝은 색상으로 깜빡이는 효과를 전송하여 기기를 찾을 수 있도록 함
      *
      * @param device 효과를 전송할 디바이스
      */
-    @SuppressLint("MissingPermission")
     fun sendFindEffect(device: Device) {
         val ctx = appContext
         if (ctx == null || !PermissionManager.hasBluetoothConnectPermission(ctx)) {
@@ -865,7 +871,7 @@ class DeviceViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                // 연결 확인
+                // ✅ 연결 확인
                 if (_connectionStates.value[device.mac] != true) {
                     Log.w(TAG, "⚠️ Device ${device.mac} is not connected")
                     return@launch
@@ -873,20 +879,17 @@ class DeviceViewModel : ViewModel() {
 
                 Log.d(TAG, "📍 Sending FIND effect to ${device.mac}")
 
-                // FIND 효과: 빠르게 깜빡이는 흰색 (3초간)
-                val findPayload = LSEffectPayload.Effects.blink(
-                    period = 3,           // 빠른 깜빡임 (30ms)
-                    color = Colors.WHITE, // 흰색
-                    randomColor = 1
+                // ✅ UseCase 호출
+                val result = sendFindEffectUseCase(
+                    context = ctx,
+                    deviceMac = device.mac
                 )
 
-                device.sendEffect(findPayload)
-
-                Log.d(TAG, "✅ FIND effect sent to ${device.mac}")
-
-                // 3초 후 자동으로 꺼짐
-                delay(3000)
-                device.sendEffect(LSEffectPayload.Effects.on(Colors.WHITE))
+                result.onSuccess {
+                    Log.d(TAG, "✅ FIND effect sent to ${device.mac}")
+                }.onFailure { error ->
+                    Log.e(TAG, "❌ Failed to send FIND effect: ${error.message}")
+                }
 
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Failed to send FIND effect: ${e.message}", e)

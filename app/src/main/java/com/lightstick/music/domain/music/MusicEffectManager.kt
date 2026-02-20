@@ -1,4 +1,4 @@
-package com.lightstick.music.domain.effect
+package com.lightstick.music.domain.music
 
 import android.content.Context
 import android.net.Uri

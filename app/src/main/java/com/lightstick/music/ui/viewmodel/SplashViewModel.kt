@@ -7,7 +7,7 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.lightstick.music.domain.effect.MusicEffectManager
+import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.data.model.InitializationResult
 import com.lightstick.music.data.model.InitializationState
 import com.lightstick.music.data.model.MusicItem

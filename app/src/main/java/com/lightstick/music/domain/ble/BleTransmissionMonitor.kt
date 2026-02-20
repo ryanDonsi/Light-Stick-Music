@@ -65,9 +65,39 @@ object BleTransmissionMonitor {
     /**
      * BLE 전송 이벤트 기록
      *
+     * **우선순위 규칙**:
+     * - MANUAL_EFFECT > TIMELINE_EFFECT > FFT_EFFECT
+     * - 마지막 전달된 이펙트가 항상 화면에 연출됨
+     *
      * @param event 전송 이벤트
      */
     fun recordTransmission(event: BleTransmissionEvent) {
+        // ✅ 우선순위 기반 업데이트 로직
+        val currentLatest = _latestTransmission.value
+
+        if (currentLatest != null) {
+            // 같은 디바이스에 대한 전송만 비교
+            if (currentLatest.deviceMac == event.deviceMac) {
+                val timeSinceLast = event.timestamp - currentLatest.timestamp
+
+                // 우선순위 정의
+                val currentPriority = getSourcePriority(currentLatest.source)
+                val newPriority = getSourcePriority(event.source)
+
+                // 우선순위가 낮은 소스는 최근(500ms 이내) 높은 우선순위 이벤트를 덮어쓰지 못함
+                if (newPriority < currentPriority && timeSinceLast < 500) {
+                    Log.d(TAG, "⏭️ Skipping lower priority event: ${event.source} (current: ${currentLatest.source})")
+
+                    // 히스토리에는 추가 (통계용)
+                    val updated = (_transmissionHistory.value + event)
+                        .takeLast(AppConstants.MAX_TRANSMISSION_HISTORY)
+                    _transmissionHistory.value = updated
+
+                    return // latestTransmission은 업데이트하지 않음
+                }
+            }
+        }
+
         // 최신 전송 업데이트
         _latestTransmission.value = event
 
@@ -83,6 +113,20 @@ object BleTransmissionMonitor {
         // 디버그 로깅
         if (AppConstants.DEBUG_MODE && AppConstants.VERBOSE_LOGGING) {
             Log.d(TAG, "📤 [${event.getSourceDisplayName()}] ${event.getEffectTypeDisplayName()} → ${event.deviceMac}")
+        }
+    }
+
+    /**
+     * 소스별 우선순위 반환
+     * 숫자가 클수록 높은 우선순위
+     */
+    private fun getSourcePriority(source: TransmissionSource): Int {
+        return when (source) {
+            TransmissionSource.CONNECTION_EFFECT -> 100
+            TransmissionSource.MANUAL_EFFECT -> 80
+            TransmissionSource.TIMELINE_EFFECT -> 60
+            TransmissionSource.FFT_EFFECT -> 40
+            TransmissionSource.BROADCAST -> 20
         }
     }
 

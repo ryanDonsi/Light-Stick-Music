@@ -23,7 +23,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.runtime.SideEffect
-import com.lightstick.music.domain.effect.MusicEffectManager
+import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.ui.screen.effect.EffectScreen
 import com.lightstick.music.ui.screen.device.DeviceListScreen
 import com.lightstick.music.ui.theme.LightStickMusicTheme
