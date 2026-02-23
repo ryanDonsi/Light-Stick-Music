@@ -63,23 +63,36 @@ class PlayManualEffectUseCase {
         effectType: EffectViewModel.UiEffectType,
         settings: EffectViewModel.EffectSettings
     ): LSEffectPayload? {
+        // ✅ 공통 파라미터 변환
+        val broadcastingValue = if (settings.broadcasting) 1 else 0
+        val randomColorValue = if (settings.randomColor) 1 else 0
+        val randomDelayValue = settings.randomDelay
+
         return when (effectType) {
             is EffectViewModel.UiEffectType.On -> {
                 LSEffectPayload.Effects.on(
                     color = settings.color,
                     transit = settings.transit,
-                    randomColor = if (settings.randomColor) 1 else 0
+                    randomColor = randomColorValue,
+                    randomDelay = randomDelayValue,
+                    broadcasting = broadcastingValue
                 )
             }
             is EffectViewModel.UiEffectType.Off -> {
-                LSEffectPayload.Effects.off(transit = settings.transit)
+                LSEffectPayload.Effects.off(
+                    transit = settings.transit,
+                    randomDelay = randomDelayValue,
+                    broadcasting = broadcastingValue
+                )
             }
             is EffectViewModel.UiEffectType.Strobe -> {
                 LSEffectPayload.Effects.strobe(
                     period = settings.period,
                     color = settings.color,
                     backgroundColor = settings.backgroundColor,
-                    randomColor = if (settings.randomColor) 1 else 0
+                    randomColor = randomColorValue,
+                    randomDelay = randomDelayValue,
+                    broadcasting = broadcastingValue
                 )
             }
             is EffectViewModel.UiEffectType.Blink -> {
@@ -87,7 +100,9 @@ class PlayManualEffectUseCase {
                     period = settings.period,
                     color = settings.color,
                     backgroundColor = settings.backgroundColor,
-                    randomColor = if (settings.randomColor) 1 else 0
+                    randomColor = randomColorValue,
+                    randomDelay = randomDelayValue,
+                    broadcasting = broadcastingValue
                 )
             }
             is EffectViewModel.UiEffectType.Breath -> {
@@ -95,7 +110,9 @@ class PlayManualEffectUseCase {
                     period = settings.period,
                     color = settings.color,
                     backgroundColor = settings.backgroundColor,
-                    randomColor = if (settings.randomColor) 1 else 0
+                    randomColor = randomColorValue,
+                    randomDelay = randomDelayValue,
+                    broadcasting = broadcastingValue
                 )
             }
             is EffectViewModel.UiEffectType.Custom -> {
@@ -105,18 +122,26 @@ class PlayManualEffectUseCase {
                         LSEffectPayload.Effects.on(
                             color = settings.color,
                             transit = settings.transit,
-                            randomColor = if (settings.randomColor) 1 else 0
+                            randomColor = randomColorValue,
+                            randomDelay = randomDelayValue,
+                            broadcasting = broadcastingValue
                         )
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.OFF -> {
-                        LSEffectPayload.Effects.off(transit = settings.transit)
+                        LSEffectPayload.Effects.off(
+                            transit = settings.transit,
+                            randomDelay = randomDelayValue,
+                            broadcasting = broadcastingValue
+                        )
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.STROBE -> {
                         LSEffectPayload.Effects.strobe(
                             period = settings.period,
                             color = settings.color,
                             backgroundColor = settings.backgroundColor,
-                            randomColor = if (settings.randomColor) 1 else 0
+                            randomColor = randomColorValue,
+                            randomDelay = randomDelayValue,
+                            broadcasting = broadcastingValue
                         )
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.BLINK -> {
@@ -124,7 +149,9 @@ class PlayManualEffectUseCase {
                             period = settings.period,
                             color = settings.color,
                             backgroundColor = settings.backgroundColor,
-                            randomColor = if (settings.randomColor) 1 else 0
+                            randomColor = randomColorValue,
+                            randomDelay = randomDelayValue,
+                            broadcasting = broadcastingValue
                         )
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.BREATH -> {
@@ -132,7 +159,9 @@ class PlayManualEffectUseCase {
                             period = settings.period,
                             color = settings.color,
                             backgroundColor = settings.backgroundColor,
-                            randomColor = if (settings.randomColor) 1 else 0
+                            randomColor = randomColorValue,
+                            randomDelay = randomDelayValue,
+                            broadcasting = broadcastingValue
                         )
                     }
                 }
