@@ -11,6 +11,7 @@ import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.music.domain.usecase.device.SendFindEffectUseCase
+import com.lightstick.music.domain.usecase.device.SendConnectionEffectUseCase
 import com.lightstick.LSBluetooth
 import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
@@ -39,6 +40,7 @@ class DeviceViewModel : ViewModel() {
     // ═══════════════════════════════════════════════════════════
 
     private val sendFindEffectUseCase = SendFindEffectUseCase()
+    private val sendConnectionEffectUseCase = SendConnectionEffectUseCase()
 
     // ═══════════════════════════════════════════════════════════
     // State Flows
@@ -88,33 +90,28 @@ class DeviceViewModel : ViewModel() {
         DevicePreferences.initialize(context.applicationContext)
 
         if (PermissionManager.hasBluetoothConnectPermission(appContext!!)) {
-            // ✅ SDK에서 이미 연결된 디바이스 동기화 추가
             syncConnectedDevicesOnInit()
             updateConnectedCount()
         }
 
         PermissionManager.logPermissionStatus(appContext!!, TAG)
 
-        // ✅ 추가: SDK 연결 상태 실시간 관찰
+        // ✅ SDK 연결 상태 실시간 관찰
         Log.d(TAG, "📡 Starting to observe connection states...")
-        // ✅ 수정: UseCase 사용
         observeConnectionStates()
     }
 
     private fun observeConnectionStates() {
         viewModelScope.launch {
             LSBluetooth.observeDeviceStates().collect { states ->
-                // 연결 상태 Map 업데이트
                 _connectionStates.value = states.mapValues { (_, state) ->
                     state.connectionState is ConnectionState.Connected
                 }
 
-                // 연결된 디바이스 개수 업데이트
                 _connectedDeviceCount.value = states.count { (_, state) ->
                     state.connectionState is ConnectionState.Connected
                 }
 
-                // 연결된 디바이스를 _devices 리스트에 추가
                 val connectedDevices = states
                     .filter { (_, state) -> state.connectionState is ConnectionState.Connected }
                     .map { (mac, state) ->
@@ -125,7 +122,6 @@ class DeviceViewModel : ViewModel() {
                         )
                     }
 
-                // 기존 devices와 병합 (중복 제거)
                 val merged = (_devices.value + connectedDevices)
                     .distinctBy { it.mac }
                     .sortedWith(
@@ -142,38 +138,25 @@ class DeviceViewModel : ViewModel() {
     // BLE Scan
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * ✅ 개선 사항:
-     * 1. 블루투스 어댑터 상태 확인 추가
-     * 2. 스캔 타임아웃 추가 (30초)
-     * 3. 디버그 로깅 강화 (모든 스캔 디바이스 로깅)
-     * 4. 에러 메시지 개선
-     * 5. "LS"로 끝나는 디바이스만 필터링 (주요 기능 유지)
-     */
     fun startScan(context: Context) {
-        // 1. 권한 확인
         if (!PermissionManager.hasBluetoothScanPermission(context)) {
             Log.w(TAG, "BLUETOOTH_SCAN permission not granted")
             return
         }
 
-        // 2. 재시작
         if (_isScanning.value) stopScan()
 
         _isScanning.value = true
 
-        // 3. 연결된 디바이스만 유지
         _devices.value = _devices.value.filter {
             _connectionStates.value[it.mac] == true
         }
 
-        // 4. 30초 타임아웃
         viewModelScope.launch {
-            delay(3_000)
+            delay(30_000)
             if (_isScanning.value) stopScan()
         }
 
-        // 5. 스캔 시작 (SDK가 이미 필터링함)
         @SuppressLint("MissingPermission")
         fun doStartScan() {
             LSBluetooth.startScan { device ->
@@ -208,7 +191,6 @@ class DeviceViewModel : ViewModel() {
         }
 
         Log.d(TAG, "🛑 Stopping BLE scan...")
-        Log.d(TAG, "   Found devices: ${_devices.value.size}")
 
         try {
             val ctx = appContext
@@ -229,7 +211,6 @@ class DeviceViewModel : ViewModel() {
 
         } catch (e: SecurityException) {
             Log.e(TAG, "❌ SecurityException during stopScan: ${e.message}")
-            Log.e(TAG, "   BLUETOOTH_SCAN 권한이 런타임에 취소되었습니다.")
             _isScanning.value = false
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error stopping scan: ${e.message}", e)
@@ -278,38 +259,11 @@ class DeviceViewModel : ViewModel() {
                             updateConnectionState(device.mac, true)
                             updateConnectedCount()
 
-                            // 연결 성공 연출 (타임라인 기반)
+                            // ✅ UseCase 사용: 연결 애니메이션
                             viewModelScope.launch {
-                                try {
-                                    val connectionAnimation = listOf(
-                                        0L to LSEffectPayload.Effects.blink(3, Colors.WHITE).toByteArray(),
-                                        1200L to LSEffectPayload.Effects.on(Colors.WHITE).toByteArray()
-                                    )
-
-                                    if (device.loadTimeline(connectionAnimation)) {
-                                        Log.d(TAG, "🎬 Connection animation timeline loaded (2 frames)")
-
-                                        val startTime = System.currentTimeMillis()
-                                        val duration = 1200L
-
-                                        while (true) {
-                                            val elapsed = System.currentTimeMillis() - startTime
-                                            if (elapsed >= duration) {
-                                                device.updatePlaybackPosition(duration)
-                                                delay(50)
-                                                break
-                                            }
-                                            device.updatePlaybackPosition(elapsed)
-                                            delay(16)
-                                        }
-
-                                        device.stopTimeline()
-                                        Log.d(TAG, "✅ Connection animation completed")
-                                    } else {
-                                        Log.w(TAG, "⚠️ Failed to load connection animation timeline")
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "❌ 연결 연출 실패: ${e.message}")
+                                val result = sendConnectionEffectUseCase(ctx, device)
+                                result.onFailure { error ->
+                                    Log.e(TAG, "❌ Connection animation failed: ${error.message}")
                                 }
                             }
 
@@ -340,11 +294,9 @@ class DeviceViewModel : ViewModel() {
 
             } catch (e: SecurityException) {
                 Log.e(TAG, "❌ SecurityException during connect: ${e.message}")
-                Log.e(TAG, "   BLUETOOTH_CONNECT 권한이 거부되었습니다.")
                 updateConnectionState(device.mac, false)
             } catch (e: IllegalStateException) {
                 Log.e(TAG, "❌ IllegalStateException during connect: ${e.message}")
-                Log.e(TAG, "   블루투스가 비활성화되었거나 디바이스가 범위를 벗어났습니다.")
                 updateConnectionState(device.mac, false)
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Unexpected error during connect: ${e.message}", e)
@@ -481,219 +433,120 @@ class DeviceViewModel : ViewModel() {
                 doStartOta()
 
             } catch (e: Exception) {
-                Log.e(TAG, "❌ startOta error", e)
+                Log.e(TAG, "❌ Failed to start OTA: ${e.message}", e)
                 _otaInProgress.update { it + (device.mac to false) }
-            }
-        }
-    }
-
-    fun abortOta(device: Device) {
-        val ctx = appContext
-        if (ctx == null || !PermissionManager.hasBluetoothConnectPermission(ctx)) {
-            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음")
-            return
-        }
-
-        viewModelScope.launch {
-            try {
-                Log.d(TAG, "🛑 Aborting OTA for ${device.mac}")
-
-                @SuppressLint("MissingPermission")
-                fun doAbortOta() {
-                    device.abortOta()
-                }
-
-                doAbortOta()
-                _otaInProgress.update { it + (device.mac to false) }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ abortOta error", e)
             }
         }
     }
 
     // ═══════════════════════════════════════════════════════════
-    // Event Implementation
+    // Event Rules (SDK v1.4 API)
     // ═══════════════════════════════════════════════════════════
 
     private fun registerDeviceEventRules(device: Device) {
         try {
-            val callRule = EventRule(
-                id = "call-${device.mac}",
-                trigger = EventTrigger(
-                    type = EventType.CALL_RINGING,
-                    filter = EventFilter()
-                ),
-                action = EventAction.SendEffectFrame(
-                    bytes20 = LSEffectPayload.Effects.blink(4,Colors.CYAN).toByteArray()
-                ),
-                target = EventTarget.THIS_DEVICE,
-                stopAfterMatch = false
-            )
+            val callEnabled = DevicePreferences.getCallEventEnabled(device.mac)
+            val smsEnabled = DevicePreferences.getSmsEventEnabled(device.mac)
 
-            val smsRule = EventRule(
-                id = "sms-${device.mac}",
-                trigger = EventTrigger(
-                    type = EventType.SMS_RECEIVED,
-                    filter = EventFilter()
-                ),
-                action = EventAction.SendEffectFrame(
-                    bytes20 = LSEffectPayload.Effects.blink(6, Colors.GREEN).toByteArray()
-                ),
-                target = EventTarget.THIS_DEVICE,
-                stopAfterMatch = true
-            )
+            val rules = mutableListOf<EventRule>()
 
-            device.registerEventRules(listOf(callRule, smsRule))
+            if (callEnabled) {
+                rules.add(
+                    EventRule(
+                        id = "call-${device.mac}",
+                        trigger = EventTrigger(
+                            type = EventType.CALL_RINGING,
+                            filter = EventFilter()
+                        ),
+                        action = EventAction.SendEffectFrame(
+                            bytes20 = LSEffectPayload.Effects.blink(4, Colors.CYAN).toByteArray()
+                        ),
+                        target = EventTarget.THIS_DEVICE,
+                        stopAfterMatch = false
+                    )
+                )
+            }
 
+            if (smsEnabled) {
+                rules.add(
+                    EventRule(
+                        id = "sms-${device.mac}",
+                        trigger = EventTrigger(
+                            type = EventType.SMS_RECEIVED,
+                            filter = EventFilter()
+                        ),
+                        action = EventAction.SendEffectFrame(
+                            bytes20 = LSEffectPayload.Effects.blink(6, Colors.GREEN).toByteArray()
+                        ),
+                        target = EventTarget.THIS_DEVICE,
+                        stopAfterMatch = true
+                    )
+                )
+            }
+
+            // ✅ SDK v1.4 API: Device.registerEventRules() 사용
+            device.registerEventRules(rules)
+
+            // ✅ Event States 업데이트
             _eventStates.update { states ->
                 val deviceStates = states[device.mac]?.toMutableMap() ?: mutableMapOf()
-                deviceStates[EventType.CALL_RINGING] = false
-                deviceStates[EventType.SMS_RECEIVED] = false
+                deviceStates[EventType.CALL_RINGING] = callEnabled
+                deviceStates[EventType.SMS_RECEIVED] = smsEnabled
                 states + (device.mac to deviceStates)
             }
 
-            Log.d(TAG, "✅ Event rules registered for ${device.mac}: 2 rules")
+            Log.d(TAG, "✅ Event rules registered for ${device.mac}: ${rules.size} rules")
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to register event rules for ${device.mac}: ${e.message}", e)
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Event Toggle Functions (완전 수정)
-    // ═══════════════════════════════════════════════════════════
-
-    /**
-     * ✅ CALL Event 토글
-     *
-     * 수정 사항:
-     * - deviceDetail이 null일 때 새로운 DeviceDetailInfo 생성
-     * - mac, name, rssi 필수 파라미터 전달
-     */
     fun toggleCallEvent(device: Device, enabled: Boolean) {
         DevicePreferences.setCallEventEnabled(device.mac, enabled)
 
-        _eventStates.update { states ->
-            val deviceStates = states[device.mac]?.toMutableMap() ?: mutableMapOf()
-            deviceStates[EventType.CALL_RINGING] = enabled
-            states + (device.mac to deviceStates)
-        }
-
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[device.mac]
             if (existing != null) {
-                // ✅ 기존 데이터가 있으면 업데이트
                 this[device.mac] = existing.copy(callEventEnabled = enabled)
-            } else {
-                // ✅ 기존 데이터가 없으면 새로 생성
-                this[device.mac] = DeviceDetailInfo(
-                    mac = device.mac,
-                    name = device.name,
-                    rssi = device.rssi,
-                    isConnected = _connectionStates.value[device.mac] ?: false,
-                    deviceInfo = null,
-                    batteryLevel = null,
-                    otaProgress = null,
-                    isOtaInProgress = false,
-                    callEventEnabled = enabled,
-                    smsEventEnabled = DevicePreferences.getSmsEventEnabled(device.mac),
-                    broadcasting = DevicePreferences.getBroadcasting(device.mac)
-                )
             }
         }
 
-        if (enabled) {
-            Log.d(TAG, "✅ CALL event enabled for ${device.mac}")
-        } else {
-            Log.d(TAG, "🔕 CALL event disabled for ${device.mac}")
-        }
+        // ✅ 이벤트 룰 재등록
+        registerDeviceEventRules(device)
+
+        Log.d(TAG, "📝 Call event ${if (enabled) "enabled" else "disabled"} for ${device.mac}")
     }
 
-    /**
-     * ✅ SMS Event 토글
-     *
-     * 수정 사항:
-     * - deviceDetail이 null일 때 새로운 DeviceDetailInfo 생성
-     * - mac, name, rssi 필수 파라미터 전달
-     */
     fun toggleSmsEvent(device: Device, enabled: Boolean) {
         DevicePreferences.setSmsEventEnabled(device.mac, enabled)
 
-        _eventStates.update { states ->
-            val deviceStates = states[device.mac]?.toMutableMap() ?: mutableMapOf()
-            deviceStates[EventType.SMS_RECEIVED] = enabled
-            states + (device.mac to deviceStates)
-        }
-
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[device.mac]
             if (existing != null) {
-                // ✅ 기존 데이터가 있으면 업데이트
                 this[device.mac] = existing.copy(smsEventEnabled = enabled)
-            } else {
-                // ✅ 기존 데이터가 없으면 새로 생성
-                this[device.mac] = DeviceDetailInfo(
-                    mac = device.mac,
-                    name = device.name,
-                    rssi = device.rssi,
-                    isConnected = _connectionStates.value[device.mac] ?: false,
-                    deviceInfo = null,
-                    batteryLevel = null,
-                    otaProgress = null,
-                    isOtaInProgress = false,
-                    callEventEnabled = DevicePreferences.getCallEventEnabled(device.mac),
-                    smsEventEnabled = enabled,
-                    broadcasting = DevicePreferences.getBroadcasting(device.mac)
-                )
             }
         }
 
-        if (enabled) {
-            Log.d(TAG, "✅ SMS event enabled for ${device.mac}")
-        } else {
-            Log.d(TAG, "🔕 SMS event disabled for ${device.mac}")
-        }
+        // ✅ 이벤트 룰 재등록
+        registerDeviceEventRules(device)
+
+        Log.d(TAG, "📝 SMS event ${if (enabled) "enabled" else "disabled"} for ${device.mac}")
     }
 
-    /**
-     * ✅ Broadcasting 토글
-     *
-     * 수정 사항:
-     * - deviceDetail이 null일 때 새로운 DeviceDetailInfo 생성
-     * - mac, name, rssi 필수 파라미터 전달
-     */
     fun toggleBroadcasting(device: Device, enabled: Boolean) {
         DevicePreferences.setBroadcasting(device.mac, enabled)
 
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[device.mac]
             if (existing != null) {
-                // ✅ 기존 데이터가 있으면 업데이트
                 this[device.mac] = existing.copy(broadcasting = enabled)
-            } else {
-                // ✅ 기존 데이터가 없으면 새로 생성
-                this[device.mac] = DeviceDetailInfo(
-                    mac = device.mac,
-                    name = device.name,
-                    rssi = device.rssi,
-                    isConnected = _connectionStates.value[device.mac] ?: false,
-                    deviceInfo = null,
-                    batteryLevel = null,
-                    otaProgress = null,
-                    isOtaInProgress = false,
-                    callEventEnabled = DevicePreferences.getCallEventEnabled(device.mac),
-                    smsEventEnabled = DevicePreferences.getSmsEventEnabled(device.mac),
-                    broadcasting = enabled
-                )
             }
         }
 
-        if (enabled) {
-            Log.d(TAG, "✅ Broadcasting enabled for ${device.mac}")
-        } else {
-            Log.d(TAG, "🔕 Broadcasting disabled for ${device.mac}")
-        }
+        // ✅ Note: setBroadcasting() API가 SDK v1.4에서 제거됨
+        // Broadcasting 설정은 Preferences에만 저장
+        Log.d(TAG, "📡 Broadcasting ${if (enabled) "enabled" else "disabled"} for ${device.mac}")
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -701,24 +554,9 @@ class DeviceViewModel : ViewModel() {
     // ═══════════════════════════════════════════════════════════
 
     private fun updateConnectionState(mac: String, isConnected: Boolean) {
-        _connectionStates.value += (mac to isConnected)
-
-        Log.d(TAG, "📍 Connection state updated: $mac -> $isConnected")
-
-        _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
-            val existing = this[mac]
-            if (existing != null) {
-                this[mac] = existing.copy(isConnected = isConnected)
-            }
+        _connectionStates.value = _connectionStates.value.toMutableMap().apply {
+            this[mac] = isConnected
         }
-
-        _devices.value = _devices.value.sortedWith(
-            compareByDescending<Device> {
-                _connectionStates.value[it.mac] ?: false
-            }.thenByDescending {
-                it.rssi ?: -100
-            }
-        )
     }
 
     private fun updateConnectedCount() {
@@ -767,14 +605,6 @@ class DeviceViewModel : ViewModel() {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // ✅ SDK 연결 디바이스 동기화 (기존)
-    // ═══════════════════════════════════════════════════════════
-
-    /**
-     * 앱 시작 시 SDK에서 이미 연결된 디바이스 동기화
-     * Effect 화면에서 연결한 디바이스를 Device 화면에서도 인식하도록 함
-     */
     @SuppressLint("MissingPermission")
     private fun syncConnectedDevicesOnInit() {
         try {
@@ -784,7 +614,6 @@ class DeviceViewModel : ViewModel() {
                 return
             }
 
-            // ✅ SDK에서 실제 연결된 디바이스 조회
             val systemConnected = LSBluetooth.connectedDevices()
 
             Log.d(TAG, "═══════════════════════════════════════")
@@ -793,17 +622,11 @@ class DeviceViewModel : ViewModel() {
             systemConnected.forEach { device ->
                 Log.d(TAG, "  - ${device.mac} (${device.name}) RSSI: ${device.rssi}")
 
-                // ✅ connectedDevices Map에 추가 (중요!)
                 if (!connectedDevices.containsKey(device.mac)) {
                     connectedDevices[device.mac] = device
                     updateConnectionState(device.mac, true)
-
-                    // ✅ DeviceDetailInfo 초기화
                     initializeDeviceDetail(device)
-
-                    // ✅ 이벤트 규칙 등록
                     registerDeviceEventRules(device)
-
                     Log.d(TAG, "✅ Synced device: ${device.mac}")
                 } else {
                     Log.d(TAG, "⏭️ Already synced: ${device.mac}")
@@ -852,16 +675,9 @@ class DeviceViewModel : ViewModel() {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // FIND Effect (디바이스 찾기)
+    // FIND Effect
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * ✅ FIND 이펙트 전송 (UseCase 사용)
-     *
-     * 연결된 디바이스에 밝은 색상으로 깜빡이는 효과를 전송하여 기기를 찾을 수 있도록 함
-     *
-     * @param device 효과를 전송할 디바이스
-     */
     fun sendFindEffect(device: Device) {
         val ctx = appContext
         if (ctx == null || !PermissionManager.hasBluetoothConnectPermission(ctx)) {
@@ -871,7 +687,6 @@ class DeviceViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                // ✅ 연결 확인
                 if (_connectionStates.value[device.mac] != true) {
                     Log.w(TAG, "⚠️ Device ${device.mac} is not connected")
                     return@launch
@@ -879,7 +694,6 @@ class DeviceViewModel : ViewModel() {
 
                 Log.d(TAG, "📍 Sending FIND effect to ${device.mac}")
 
-                // ✅ UseCase 호출
                 val result = sendFindEffectUseCase(
                     context = ctx,
                     deviceMac = device.mac

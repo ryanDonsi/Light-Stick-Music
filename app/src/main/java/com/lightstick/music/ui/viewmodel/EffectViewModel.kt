@@ -1,6 +1,5 @@
 package com.lightstick.music.ui.viewmodel
 
-import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
@@ -12,8 +11,6 @@ import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.core.util.toComposeColor
 import com.lightstick.music.core.util.toLightStickColor
 import com.lightstick.music.ui.components.effect.PresetColors
-import com.lightstick.LSBluetooth
-import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.BleTransmissionMonitor
@@ -21,11 +18,14 @@ import com.lightstick.music.domain.usecase.effect.PlayEffectListUseCase
 import com.lightstick.music.domain.usecase.effect.PlayManualEffectUseCase
 import com.lightstick.music.domain.usecase.effect.StopEffectUseCase
 import com.lightstick.music.domain.usecase.device.SendConnectionEffectUseCase
+import com.lightstick.music.domain.usecase.device.GetBondedDevicesUseCase
+import com.lightstick.music.domain.usecase.device.StartScanUseCase
+import com.lightstick.music.domain.usecase.device.StopScanUseCase
+import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
+import com.lightstick.music.domain.device.ObserveDeviceStatesUseCase
 import com.lightstick.types.Color as LightStickColor
 import com.lightstick.types.Colors
-import com.lightstick.types.LSEffectPayload
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -54,6 +54,10 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     private val playEffectListUseCase = PlayEffectListUseCase()
     private val stopEffectUseCase = StopEffectUseCase()
     private val sendConnectionEffectUseCase = SendConnectionEffectUseCase()
+    private val getBondedDevicesUseCase = GetBondedDevicesUseCase()
+    private val startScanUseCase = StartScanUseCase()
+    private val stopScanUseCase = StopScanUseCase()
+    private val connectDeviceUseCase = ConnectDeviceUseCase()
 
     // ═══════════════════════════════════════════════════════════
     // 상태 (State)
@@ -117,12 +121,154 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     init {
         loadCustomEffects()
         loadAllSettings()
-
-        // ✅ 수정: delay 제거, 즉시 실행
-        checkExistingConnection()
-
-        // ✅ 연결 상태 관찰 시작
         observeDeviceConnection()
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ✅ Step 5: observeDeviceConnection() - UseCase 사용
+    // ═══════════════════════════════════════════════════════════
+
+    private fun observeDeviceConnection() {
+        Log.d(TAG, "🚀 observeDeviceConnection() started")
+
+        viewModelScope.launch {
+            // ✅ UseCase 사용
+            ObserveDeviceStatesUseCase.observeFirstConnectedDevice(preferLsDevice = false).collect { connectedDevice ->
+                Log.d(TAG, "🎯 Connected device: ${connectedDevice?.mac ?: "none"}")
+
+                if (connectedDevice != null) {
+                    val currentState = _deviceConnectionState.value
+                    Log.d(TAG, "📊 Current state: ${currentState::class.simpleName}")
+
+                    if (currentState !is DeviceConnectionState.Connected ||
+                        (currentState as? DeviceConnectionState.Connected)?.device?.mac != connectedDevice.mac) {
+
+                        _deviceConnectionState.value = DeviceConnectionState.Connected(connectedDevice)
+                        scanJob?.cancel()
+
+                        Log.d(TAG, "✅ State updated: Connected(${connectedDevice.mac})")
+                    } else {
+                        Log.d(TAG, "⏭️ Already in correct state")
+                    }
+                } else {
+                    if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
+                        _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
+                        scanJob?.cancel()
+
+                        Log.d(TAG, "⚠️ State updated: NoBondedDevice")
+                    }
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ✅ Step 5: startAutoScan() - UseCase 조합으로 완전 재작성
+    // ═══════════════════════════════════════════════════════════
+
+    fun startAutoScan(context: Context) {
+        if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
+            Log.d(TAG, "✅ Already connected, skipping auto scan")
+            return
+        }
+
+        if (!PermissionManager.hasAllBluetoothPermissions(context)) {
+            _errorMessage.value = "Bluetooth 권한이 필요합니다"
+            return
+        }
+
+        scanJob?.cancel()
+        scanJob = viewModelScope.launch {
+            try {
+                // ✅ 1단계: Bonded 디바이스 조회 (UseCase)
+                val bondedResult = getBondedDevicesUseCase(context)
+
+                bondedResult.onFailure { error ->
+                    _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
+                    Log.e(TAG, "❌ Failed to get bonded devices: ${error.message}")
+                    return@launch
+                }
+
+                val bondedDevices = bondedResult.getOrNull() ?: emptyList()
+
+                if (bondedDevices.isEmpty()) {
+                    _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
+                    Log.d(TAG, "❌ No bonded devices")
+                    return@launch
+                }
+
+                Log.d(TAG, "✅ Found ${bondedDevices.size} bonded devices")
+
+                // ✅ 2단계: 스캔 시작 (UseCase)
+                _deviceConnectionState.value = DeviceConnectionState.Scanning
+
+                val scanResult = startScanUseCase(
+                    context = context,
+                    durationMs = SCAN_DURATION_MS,
+                    filter = { device ->
+                        // Bonded 디바이스만 필터링
+                        bondedDevices.any { it.mac == device.mac }
+                    }
+                )
+
+                scanResult.onFailure { error ->
+                    _deviceConnectionState.value = DeviceConnectionState.ScanFailed
+                    Log.e(TAG, "❌ Scan failed: ${error.message}")
+                    return@launch
+                }
+
+                val scannedDevices = scanResult.getOrNull() ?: emptyList()
+
+                // ✅ 3단계: 최적 디바이스 선택 (가장 강한 RSSI)
+                val bestDevice = scannedDevices
+                    .filter { it.rssi != null }
+                    .maxByOrNull { it.rssi!! }
+
+                if (bestDevice == null) {
+                    _deviceConnectionState.value = DeviceConnectionState.ScanFailed
+                    Log.d(TAG, "❌ No devices found during scan")
+                    return@launch
+                }
+
+                Log.d(TAG, "🎯 Best device found: ${bestDevice.mac} RSSI=${bestDevice.rssi}")
+
+                // ✅ 4단계: 연결 (UseCase)
+                val connectResult = connectDeviceUseCase(
+                    context = context,
+                    device = bestDevice,
+                    onConnected = {
+                        _deviceConnectionState.value = DeviceConnectionState.Connected(bestDevice)
+                        Log.d(TAG, "✅ Auto connected: ${bestDevice.mac}")
+
+                        // ✅ 5단계: 연결 애니메이션 (UseCase)
+                        viewModelScope.launch {
+                            val animResult = sendConnectionEffectUseCase(context, bestDevice)
+                            animResult.onFailure { error ->
+                                Log.e(TAG, "❌ Connection animation failed: ${error.message}")
+                            }
+                        }
+                    },
+                    onFailed = { error ->
+                        _deviceConnectionState.value = DeviceConnectionState.ScanFailed
+                        _errorMessage.value = "연결 실패: ${error.message}"
+                        Log.e(TAG, "❌ Connection failed: ${error.message}")
+                    }
+                )
+
+                connectResult.onFailure { error ->
+                    _deviceConnectionState.value = DeviceConnectionState.ScanFailed
+                    Log.e(TAG, "❌ Connect error: ${error.message}")
+                }
+
+            } catch (e: Exception) {
+                _deviceConnectionState.value = DeviceConnectionState.ScanFailed
+                Log.e(TAG, "❌ Auto scan error: ${e.message}")
+            }
+        }
+    }
+
+    fun retryAutoScan(context: Context) {
+        startAutoScan(context)
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -424,24 +570,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         saveBgPresetColors(colors)
     }
 
-    private fun saveFgPresetColors(colors: List<Color>) {
-        colors.forEachIndexed { index, color ->
-            prefs.edit().apply {
-                putInt("fg_preset_$index", colorToRgb(color.toLightStickColor()))
-                apply()
-            }
-        }
-    }
-
-    private fun saveBgPresetColors(colors: List<Color>) {
-        colors.forEachIndexed { index, color ->
-            prefs.edit().apply {
-                putInt("bg_preset_$index", colorToRgb(color.toLightStickColor()))
-                apply()
-            }
-        }
-    }
-
     private fun loadFgPresetColors(): List<Color> {
         return (0..9).map { index ->
             val rgb = prefs.getInt("fg_preset_$index", -1)
@@ -464,175 +592,22 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Device Connection
-    // ═══════════════════════════════════════════════════════════
-
-    @SuppressLint("MissingPermission")
-    private fun checkExistingConnection() {
-        try {
-            if (!PermissionManager.hasBluetoothConnectPermission(getApplication())) {
-                Log.w(TAG, "⚠️ No BLUETOOTH_CONNECT permission")
-                return
+    private fun saveFgPresetColors(colors: List<Color>) {
+        prefs.edit().apply {
+            colors.forEachIndexed { index, color ->
+                putInt("fg_preset_$index", colorToRgb(color.toLightStickColor()))
             }
-
-            val connected = LSBluetooth.connectedDevices()
-            Log.d(TAG, "📱 Checking existing connections: ${connected.size} devices")
-
-            // ✅ 초기화: 연결된 디바이스 중에 있는지 확인
-            if (connected.isNotEmpty()) {
-                // 첫 번째 연결된 디바이스 사용 (어떤 디바이스든 OK)
-                val firstDevice = connected.first()
-                _deviceConnectionState.value = DeviceConnectionState.Connected(firstDevice)
-                Log.d(TAG, "✅ Found existing connection: ${firstDevice.mac}")
-            } else {
-                Log.d(TAG, "⚠️ No existing connection")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error checking existing connection: ${e.message}")
+            apply()
         }
     }
 
-    private fun observeDeviceConnection() {
-        Log.d(TAG, "🚀 observeDeviceConnection() started")
-
-        viewModelScope.launch {
-            LSBluetooth.observeDeviceStates().collect { states ->
-                Log.d(TAG, "🔄 Device states changed: ${states.size} devices")
-
-                // ✅ 단순히 연결된 디바이스가 있는지만 확인 (LS 필터링 X)
-                val connectedDevice = states
-                    .filter { (_, state) ->
-                        val isConnected = state.connectionState is ConnectionState.Connected
-                        isConnected
-                    }
-                    .map { (mac, state) ->
-                        Device(
-                            mac = mac,
-                            name = state.deviceInfo?.deviceName,
-                            rssi = state.deviceInfo?.rssi
-                        )
-                    }
-                    .firstOrNull()
-
-                Log.d(TAG, "🎯 Connected device: ${connectedDevice?.mac ?: "none"}")
-
-                if (connectedDevice != null) {
-                    // 연결된 디바이스 있음
-                    val currentState = _deviceConnectionState.value
-                    Log.d(TAG, "📊 Current state: ${currentState::class.simpleName}")
-
-                    if (currentState !is DeviceConnectionState.Connected ||
-                        (currentState as? DeviceConnectionState.Connected)?.device?.mac != connectedDevice.mac) {
-
-                        _deviceConnectionState.value = DeviceConnectionState.Connected(connectedDevice)
-                        scanJob?.cancel()
-
-                        Log.d(TAG, "✅ State updated: Connected(${connectedDevice.mac})")
-                    } else {
-                        Log.d(TAG, "⏭️ Already in correct state")
-                    }
-                } else {
-                    // 연결된 디바이스 없음
-                    if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
-                        _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
-                        scanJob?.cancel()
-
-                        Log.d(TAG, "⚠️ State updated: NoBondedDevice")
-                    }
-                }
+    private fun saveBgPresetColors(colors: List<Color>) {
+        prefs.edit().apply {
+            colors.forEachIndexed { index, color ->
+                putInt("bg_preset_$index", colorToRgb(color.toLightStickColor()))
             }
+            apply()
         }
-    }
-
-    @SuppressLint("MissingPermission")
-    fun startAutoScan(context: Context) {
-        if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
-            Log.d(TAG, "✅ Already connected, skipping auto scan")
-            return
-        }
-
-        if (!PermissionManager.hasAllBluetoothPermissions(context)) {
-            _errorMessage.value = "Bluetooth 권한이 필요합니다"
-            return
-        }
-
-        scanJob?.cancel()
-        scanJob = viewModelScope.launch {
-            try {
-                val bondedDevices = LSBluetooth.bondedDevices()
-                if (bondedDevices.isEmpty()) {
-                    _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
-                    Log.d(TAG, "❌ No bonded devices")
-                    return@launch
-                }
-
-                Log.d(TAG, "✅ Found ${bondedDevices.size} bonded devices")
-
-                _deviceConnectionState.value = DeviceConnectionState.Scanning
-
-                val scannedDevices = mutableMapOf<String, Device>()
-
-                LSBluetooth.startScan { device ->
-                    if (bondedDevices.any { it.mac == device.mac }) {
-                        scannedDevices[device.mac] = device
-                        Log.d(TAG, "📡 Scanned: ${device.mac} RSSI=${device.rssi}")
-                    }
-                }
-
-                delay(SCAN_DURATION_MS)
-
-                LSBluetooth.stopScan()
-
-                val bestDevice = scannedDevices.values
-                    .filter { it.rssi != null }
-                    .maxByOrNull { it.rssi!! }
-
-                if (bestDevice == null) {
-                    _deviceConnectionState.value = DeviceConnectionState.ScanFailed
-                    Log.d(TAG, "❌ No devices found during scan")
-                    return@launch
-                }
-
-                Log.d(TAG, "🎯 Best device found: ${bestDevice.mac} RSSI=${bestDevice.rssi}")
-
-                // ✅ 수정: connectToDevice() 호출
-                connectToDevice(context, bestDevice)
-
-            } catch (e: Exception) {
-                _deviceConnectionState.value = DeviceConnectionState.ScanFailed
-                Log.e(TAG, "❌ Auto scan error: ${e.message}")
-            }
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun connectToDevice(context: Context, device: Device) {
-        device.connect(
-            onConnected = {
-                // ✅ 즉시 상태 업데이트
-                _deviceConnectionState.value = DeviceConnectionState.Connected(device)
-                Log.d(TAG, "✅ Auto connected: ${device.mac}")
-                Log.d(TAG, "✅ State updated to: Connected(${device.mac})")
-
-                // ✅ UseCase 사용: 연결 애니메이션
-                viewModelScope.launch {
-                    val result = sendConnectionEffectUseCase(context, device)
-                    result.onFailure { error ->
-                        Log.e(TAG, "❌ Connection animation failed: ${error.message}")
-                    }
-                }
-            },
-            onFailed = { error ->
-                _deviceConnectionState.value = DeviceConnectionState.ScanFailed
-                _errorMessage.value = "연결 실패: ${error.message}"
-                Log.e(TAG, "❌ Connection failed: ${error.message}")
-            }
-        )
-    }
-
-    fun retryAutoScan(context: Context) {
-        startAutoScan(context)
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -705,63 +680,83 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                     is UiEffectType.On -> EffectSettings(
                         color = Colors.WHITE,
                         backgroundColor = Colors.BLACK,
-                        period = 10,
-                        transit = 10,
+                        period = 0,
+                        transit = 50,
                         randomColor = false,
                         randomDelay = 0,
-                        broadcasting = false
+                        broadcasting = true
                     )
                     is UiEffectType.Off -> EffectSettings(
-                        color = Colors.BLACK,
+                        color = Colors.WHITE,
                         backgroundColor = Colors.BLACK,
-                        period = 10,
-                        transit = 10,
+                        period = 0,
+                        transit = 100,
                         randomColor = false,
                         randomDelay = 0,
-                        broadcasting = false
+                        broadcasting = true
                     )
-                    is UiEffectType.Strobe, is UiEffectType.Blink, is UiEffectType.Breath -> EffectSettings(
-                        color = Colors.RED,
+                    is UiEffectType.Strobe -> EffectSettings(
+                        color = Colors.WHITE,
                         backgroundColor = Colors.BLACK,
                         period = 10,
-                        transit = 10,
+                        transit = 0,
                         randomColor = false,
                         randomDelay = 0,
-                        broadcasting = false
+                        broadcasting = true
+                    )
+                    is UiEffectType.Blink -> EffectSettings(
+                        color = Colors.WHITE,
+                        backgroundColor = Colors.BLACK,
+                        period = 30,
+                        transit = 0,
+                        randomColor = false,
+                        randomDelay = 0,
+                        broadcasting = true
+                    )
+                    is UiEffectType.Breath -> EffectSettings(
+                        color = Colors.WHITE,
+                        backgroundColor = Colors.BLACK,
+                        period = 30,
+                        transit = 0,
+                        randomColor = false,
+                        randomDelay = 0,
+                        broadcasting = true
                     )
                     is UiEffectType.EffectList -> EffectSettings(
                         color = Colors.WHITE,
                         backgroundColor = Colors.BLACK,
-                        period = 10,
-                        transit = 10,
+                        period = 0,
+                        transit = 0,
                         randomColor = false,
                         randomDelay = 0,
-                        broadcasting = false
+                        broadcasting = true
                     )
                     is UiEffectType.Custom -> {
-                        when (effectType.baseType) {
-                            UiEffectType.BaseEffectType.ON -> defaultFor(UiEffectType.On)
-                            UiEffectType.BaseEffectType.OFF -> defaultFor(UiEffectType.Off)
-                            UiEffectType.BaseEffectType.STROBE -> defaultFor(UiEffectType.Strobe)
-                            UiEffectType.BaseEffectType.BLINK -> defaultFor(UiEffectType.Blink)
-                            UiEffectType.BaseEffectType.BREATH -> defaultFor(UiEffectType.Breath)
-                        }
+                        defaultFor(
+                            when (effectType.baseType) {
+                                UiEffectType.BaseEffectType.ON -> UiEffectType.On
+                                UiEffectType.BaseEffectType.OFF -> UiEffectType.Off
+                                UiEffectType.BaseEffectType.STROBE -> UiEffectType.Strobe
+                                UiEffectType.BaseEffectType.BLINK -> UiEffectType.Blink
+                                UiEffectType.BaseEffectType.BREATH -> UiEffectType.Breath
+                            }
+                        )
                     }
                 }
             }
 
-            fun fromJson(json: String): EffectSettings {
-                val obj = JSONObject(json)
+            fun fromJson(jsonString: String): EffectSettings {
+                val obj = JSONObject(jsonString)
                 return EffectSettings(
                     color = LightStickColor(
-                        r = obj.getInt("color_r"),
-                        g = obj.getInt("color_g"),
-                        b = obj.getInt("color_b")
+                        r = obj.getInt("colorR"),
+                        g = obj.getInt("colorG"),
+                        b = obj.getInt("colorB")
                     ),
                     backgroundColor = LightStickColor(
-                        r = obj.getInt("backgroundColor_r"),
-                        g = obj.getInt("backgroundColor_g"),
-                        b = obj.getInt("backgroundColor_b")
+                        r = obj.getInt("bgColorR"),
+                        g = obj.getInt("bgColorG"),
+                        b = obj.getInt("bgColorB")
                     ),
                     period = obj.getInt("period"),
                     transit = obj.getInt("transit"),
@@ -774,12 +769,12 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
 
         fun toJson(): String {
             val obj = JSONObject()
-            obj.put("color_r", color.r)
-            obj.put("color_g", color.g)
-            obj.put("color_b", color.b)
-            obj.put("backgroundColor_r", backgroundColor.r)
-            obj.put("backgroundColor_g", backgroundColor.g)
-            obj.put("backgroundColor_b", backgroundColor.b)
+            obj.put("colorR", color.r)
+            obj.put("colorG", color.g)
+            obj.put("colorB", color.b)
+            obj.put("bgColorR", backgroundColor.r)
+            obj.put("bgColorG", backgroundColor.g)
+            obj.put("bgColorB", backgroundColor.b)
             obj.put("period", period)
             obj.put("transit", transit)
             obj.put("randomColor", randomColor)

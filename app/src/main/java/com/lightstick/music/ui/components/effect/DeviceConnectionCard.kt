@@ -501,7 +501,7 @@ private fun animateOnEffect(
 
         onColorUpdate(iconColor)
 
-        val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
+        val blendedGradientColor = lerp(iconColor, backgroundColor, 0.2f)
 
         EffectColorData(
             iconColor = iconColor,
@@ -537,7 +537,7 @@ private fun animateOffEffect(
 
     onColorUpdate(iconColor)
 
-    val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
+    val blendedGradientColor = lerp(iconColor, backgroundColor, 0.2f)
 
     return EffectColorData(
         iconColor = iconColor,
@@ -581,7 +581,7 @@ private fun animatePeriodicEffect(
         val finalFgColor = if (randomColor) rememberRandomHueColor(alpha = 1f) else fgColor
 
         val iconColor = if (isFg) finalFgColor else bgColor
-        val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
+        val blendedGradientColor = lerp(iconColor, backgroundColor, 0.2f)
 
         EffectColorData(
             iconColor = iconColor,
@@ -678,7 +678,7 @@ private fun animateBreathEffect(
 
         onColorUpdate(iconColor)
 
-        val blendedGradientColor = lerp(iconColor, backgroundColor, 0.5f)
+        val blendedGradientColor = lerp(iconColor, backgroundColor, 0.2f)
 
         EffectColorData(
             iconColor = iconColor,
