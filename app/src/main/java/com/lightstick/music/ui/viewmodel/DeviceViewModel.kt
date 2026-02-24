@@ -9,6 +9,8 @@ import androidx.lifecycle.viewModelScope
 import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.data.local.preferences.DevicePreferences
+import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
+import com.lightstick.music.domain.usecase.device.DisconnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.SendFindEffectUseCase
 import com.lightstick.music.domain.usecase.device.SendConnectionEffectUseCase
 import com.lightstick.music.domain.usecase.device.GetConnectedDevicesUseCase
@@ -39,6 +41,8 @@ class DeviceViewModel : ViewModel() {
     // ═══════════════════════════════════════════════════════════
 
     private val sendFindEffectUseCase = SendFindEffectUseCase()
+    private val connectDeviceUseCase = ConnectDeviceUseCase()
+    private val disconnectDeviceUseCase = DisconnectDeviceUseCase()
     private val sendConnectionEffectUseCase = SendConnectionEffectUseCase()
     private val getConnectedDevicesUseCase = GetConnectedDevicesUseCase()
     private val startScanUseCase = StartScanUseCase()
@@ -251,60 +255,69 @@ class DeviceViewModel : ViewModel() {
                 Log.d(TAG, "═══════════════════════════════════════")
                 Log.d(TAG, "🔗 Connecting to ${device.mac}...")
 
-                @SuppressLint("MissingPermission")
-                fun doConnect() {
-                    device.connect(
-                        onConnected = {
-                            Log.d(TAG, "✅ Connected to ${device.mac}")
+                val result = connectDeviceUseCase(
+                    context = ctx,
+                    device = device,
+                    onConnected = {
+                        Log.d(TAG, "✅ Connected to ${device.mac}")
 
-                            connectedDevices[device.mac] = device
-                            updateConnectionState(device.mac, true)
-                            updateConnectedCount()
+                        connectedDevices[device.mac] = device
+                        updateConnectionState(device.mac, true)
+                        updateConnectedCount()
 
-                            viewModelScope.launch {
-                                val result = sendConnectionEffectUseCase(ctx, device)
-                                result.onFailure { error ->
-                                    Log.e(TAG, "❌ Connection animation failed: ${error.message}")
-                                }
+                        // ✅ UseCase 사용: 연결 애니메이션
+                        viewModelScope.launch {
+                            val animResult = sendConnectionEffectUseCase(ctx, device)
+                            animResult.onFailure { error ->
+                                Log.e(TAG, "❌ Connection animation failed: ${error.message}")
                             }
-
-                            initializeDeviceDetail(device)
-                            registerDeviceEventRules(device)
-                        },
-                        onFailed = { error ->
-                            Log.e(TAG, "❌ Connection failed for ${device.mac}")
-                            Log.e(TAG, "   Error: ${error.message}", error)
-
-                            updateConnectionState(device.mac, false)
-                            connectedDevices.remove(device.mac)
-                        },
-                        onDeviceInfo = { info ->
-                            Log.d(TAG, "📋 DeviceInfo received for ${device.mac}:")
-                            Log.d(TAG, "   ├─ Device Name: ${info.deviceName}")
-                            Log.d(TAG, "   ├─ Model Number: ${info.modelNumber}")
-                            Log.d(TAG, "   ├─ Firmware Revision: ${info.firmwareRevision}")
-                            Log.d(TAG, "   ├─ Manufacturer: ${info.manufacturer}")
-                            Log.d(TAG, "   └─ Battery: ${info.batteryLevel}%")
-
-                            updateDeviceInfoFromCallback(device.mac, info)
                         }
-                    )
-                }
 
-                doConnect()
+                        initializeDeviceDetail(device)
+                        registerDeviceEventRules(device)
+                    },
+                    onFailed = { error ->
+                        Log.e(TAG, "❌ Connection failed for ${device.mac}")
+                        Log.e(TAG, "   Error: ${error.message}", error)
+                    },
+                    onDeviceInfo = { info ->
+                        Log.d(TAG, "📋 DeviceInfo received for ${device.mac}:")
+                        Log.d(TAG, "   ├─ Device Name: ${info.deviceName}")
+                        Log.d(TAG, "   ├─ Model Number: ${info.modelNumber}")
+                        Log.d(TAG, "   ├─ Firmware Revision: ${info.firmwareRevision}")
+                        Log.d(TAG, "   ├─ Manufacturer: ${info.manufacturer}")
+                        Log.d(TAG, "   └─ Battery: ${info.batteryLevel}%")
+
+                        updateDeviceInfoFromCallback(device.mac, info)
+                    }
+                )
+
+                result.onFailure { error ->
+                    Log.e(TAG, "❌ Connect use case failed for ${device.mac}: ${error.message}")
+                    connectedDevices.remove(device.mac)
+                    updateConnectionState(device.mac, false)
+                    updateConnectedCount()
+                }
 
             } catch (e: SecurityException) {
                 Log.e(TAG, "❌ SecurityException during connect: ${e.message}")
+                connectedDevices.remove(device.mac)
                 updateConnectionState(device.mac, false)
+                updateConnectedCount()
             } catch (e: IllegalStateException) {
                 Log.e(TAG, "❌ IllegalStateException during connect: ${e.message}")
+                connectedDevices.remove(device.mac)
                 updateConnectionState(device.mac, false)
+                updateConnectedCount()
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Unexpected error during connect: ${e.message}", e)
+                connectedDevices.remove(device.mac)
                 updateConnectionState(device.mac, false)
+                updateConnectedCount()
             }
         }
     }
+
 
     private fun disconnect(device: Device) {
         viewModelScope.launch {

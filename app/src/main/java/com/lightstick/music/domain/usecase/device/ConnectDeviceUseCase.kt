@@ -3,6 +3,7 @@ package com.lightstick.music.domain.usecase.device
 import android.annotation.SuppressLint
 import android.content.Context
 import com.lightstick.device.Device
+import com.lightstick.device.DeviceInfo
 import com.lightstick.music.core.permission.PermissionManager
 import kotlinx.coroutines.CompletableDeferred
 
@@ -34,7 +35,8 @@ class ConnectDeviceUseCase {
         context: Context,
         device: Device,
         onConnected: () -> Unit = {},
-        onFailed: (Throwable) -> Unit = {}
+        onFailed: (Throwable) -> Unit = {},
+        onDeviceInfo: (DeviceInfo) -> Unit = {}
     ): Result<Unit> {
         return try {
             // ✅ 1. Permission 체크
@@ -55,6 +57,9 @@ class ConnectDeviceUseCase {
                 onFailed = { error ->
                     onFailed(error)
                     completionDeferred.complete(Result.failure(error))
+                },
+                onDeviceInfo = { info ->
+                    onDeviceInfo(info)
                 }
             )
 
