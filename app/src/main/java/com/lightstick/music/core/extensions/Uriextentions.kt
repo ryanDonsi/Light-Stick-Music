@@ -3,7 +3,7 @@ package com.lightstick.music.core.extensions
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import androidx.documentfile.provider.DocumentFile
 import com.lightstick.music.core.util.SafHelper
 import java.io.File

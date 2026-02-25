@@ -4,9 +4,10 @@ import android.app.Application
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.provider.MediaStore
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lightstick.music.core.constants.PrefsKeys
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.data.model.InitializationResult
 import com.lightstick.music.data.model.InitializationState
@@ -291,13 +292,13 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
     fun saveInitializationResult() {
         val result = _result.value ?: return
 
-        context.getSharedPreferences("app_state", Context.MODE_PRIVATE)
+        context.getSharedPreferences(PrefsKeys.PREFS_APP_STATE, Context.MODE_PRIVATE)
             .edit()
-            .putBoolean("is_initialized", true)
-            .putInt("music_count", result.musicList.size)
-            .putInt("effect_count", result.effectCount)
-            .putInt("matched_count", result.matchedCount)
-            .putLong("last_init_time", System.currentTimeMillis())
+            .putBoolean(PrefsKeys.KEY_IS_INITIALIZED, true)
+            .putInt(PrefsKeys.KEY_MUSIC_COUNT, result.musicList.size)
+            .putInt(PrefsKeys.KEY_EFFECT_COUNT, result.effectCount)
+            .putInt(PrefsKeys.KEY_MATCHED_COUNT, result.matchedCount)
+            .putLong(PrefsKeys.KEY_LAST_INIT_TIME, System.currentTimeMillis())
             .apply()
 
         Log.d("InitVM", "💾 Saved initialization result")

@@ -9,7 +9,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.ui.components.common.CustomTopBar
@@ -79,8 +78,7 @@ fun DeviceListScreen(
     var initialScanDone by remember { mutableStateOf(false) }
     LaunchedEffect(hasAllBluetoothPermissions) {
         if (hasAllBluetoothPermissions && !initialScanDone) {
-            viewModel.stopScan()
-            viewModel.startScan(context)
+            viewModel.startScan(context)  // ✅ 최초 1회: startScan (이미 스캔 중 아니므로 안전)
             initialScanDone = true
         }
     }
@@ -103,9 +101,12 @@ fun DeviceListScreen(
             // ===== 정상 화면 (Pull-to-Refresh 적용) =====
             StretchPullRefreshContainer(
                 isRefreshing = isScanning,
+                // ✅ [수정] stopScan() + startScan() 분리 호출 → refreshScan() 단일 호출
+                //    문제: stopScan()이 비동기(코루틴)라 startScan()이 먼저 실행되는 Race Condition 발생
+                //          → stopScan 코루틴이 뒤늦게 _isScanning = false 리셋하여 상태 꼬임
+                //    해결: refreshScan()이 하나의 코루틴 안에서 stop → start 순서를 보장
                 onRefresh = {
-                    viewModel.stopScan()
-                    viewModel.startScan(context)
+                    viewModel.refreshScan(context)
                 },
                 canScrollUp = canScrollUp,
                 fillColor = pullFill,
@@ -116,14 +117,13 @@ fun DeviceListScreen(
                     .padding(paddingValues)
             ) {
                 LazyColumn(
-                    state = listState,  // ✅ LazyListState 연결
+                    state = listState,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp, vertical = 24.dp),
-//                        .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.Top
                 ) {
-//                    item { Spacer(modifier = Modifier.height(8.dp)) }
+                    item { Spacer(modifier = Modifier.height(8.dp)) }
 
                     // ===== 연결된 기기 섹션 =====
                     item {
@@ -133,7 +133,6 @@ fun DeviceListScreen(
                     item { Spacer(modifier = Modifier.height(8.dp)) }
 
                     if (connectedDevices.isEmpty()) {
-                        // 연결된 기기 없음
                         item {
                             EmptyDeviceCard(
                                 isScanning = false,
@@ -141,7 +140,6 @@ fun DeviceListScreen(
                             )
                         }
                     } else {
-                        // 연결된 기기 목록
                         items(connectedDevices, key = { it.mac }) { device ->
                             DeviceCard(
                                 device = device,
@@ -164,16 +162,15 @@ fun DeviceListScreen(
                     item { Spacer(modifier = Modifier.height(8.dp)) }
 
                     if (scannedDevices.isEmpty()) {
-                        // 검색된 기기 없음
                         item {
                             EmptyDeviceCard(
                                 isScanning = isScanning,
                                 isConnectedSection = false,
-                                onRefresh = { viewModel.startScan(context) }
+                                // ✅ [수정] startScan() → refreshScan() (동일한 Race Condition 방지)
+                                onRefresh = { viewModel.refreshScan(context) }
                             )
                         }
                     } else {
-                        // 검색된 기기 목록
                         items(scannedDevices, key = { it.mac }) { device ->
                             DeviceCard(
                                 device = device,
@@ -199,33 +196,34 @@ fun DeviceListScreen(
 }
 
 /**
- * ✅ [추가] 화면 하단 설명 텍스트
+ * 화면 하단 설명 텍스트
  */
 @Composable
-private fun DeviceInfoFooter(modifier: Modifier = Modifier) {Column(
-    modifier = modifier
-        .fillMaxWidth()
-        .padding(horizontal = 8.dp), // 상/하단 여백 추가
-    verticalArrangement = Arrangement.spacedBy(8.dp)
-) {
-    val style = MaterialTheme.typography.bodySmall
-    val color = MaterialTheme.colorScheme.surfaceVariant
+private fun DeviceInfoFooter(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        val style = MaterialTheme.typography.bodySmall
+        val color = MaterialTheme.colorScheme.surfaceVariant
 
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("・", style = style, color = color)
-        Text(
-            text = "연결된 기기가 있을 경우 검색된 기기로 연결하면 새롭게 연결한 기기로 대체됩니다.",
-            style = style,
-            color = color
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("・", style = style, color = color)
+            Text(
+                text = "연결된 기기가 있을 경우 검색된 기기로 연결하면 새롭게 연결한 기기로 대체됩니다.",
+                style = style,
+                color = color
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("・", style = style, color = color)
+            Text(
+                text = "어플 실행 시 연결된 기기로 자동 연결을 진행합니다.",
+                style = style,
+                color = color
+            )
+        }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("・", style = style, color = color)
-        Text(
-            text = "어플 실행 시 연결된 기기로 자동 연결을 진행합니다.",
-            style = style,
-            color = color
-        )
-    }
-}
 }

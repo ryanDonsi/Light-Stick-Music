@@ -2,7 +2,7 @@ package com.lightstick.music.domain.music
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import com.lightstick.efx.Efx
 import com.lightstick.efx.EfxEntry
 import com.lightstick.efx.MusicId

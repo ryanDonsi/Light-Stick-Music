@@ -2,7 +2,7 @@ package com.lightstick.music.ui.activity
 
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler

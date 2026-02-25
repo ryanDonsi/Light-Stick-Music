@@ -4,9 +4,10 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import androidx.core.content.ContextCompat
 import com.lightstick.device.Device
+import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.BleTransmissionMonitor
 import com.lightstick.music.domain.ble.TransmissionSource
@@ -30,7 +31,7 @@ import kotlinx.coroutines.delay
 @SuppressLint("MissingPermission")
 class SendConnectionEffectUseCase {
 
-    private val TAG = "SendConnectionEffectUseCase"
+    private val TAG = AppConstants.Feature.UC_CONNECTION_EFFECT
 
     /**
      * Connection Effect 재생

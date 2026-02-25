@@ -3,133 +3,259 @@ package com.lightstick.music.core.constants
 /**
  * 앱 전역 상수 관리
  *
- * 매직 넘버를 방지하고 중요한 설정값을 한 곳에서 관리
+ * 매직 넘버를 방지하고 중요한 설정값을 한 곳에서 관리합니다.
  */
 object AppConstants {
+
+
 
     // ═══════════════════════════════════════════════════════════
     // BLE Scan Configuration
     // ═══════════════════════════════════════════════════════════
 
-    /** 기본 스캔 지속 시간 (밀리초) */
-    const val DEFAULT_SCAN_DURATION_MS = 3000L
-
-    /** 스캔 타임아웃 (밀리초) */
-    const val SCAN_TIMEOUT_MS = 30000L
-
-    /** 디바이스 이름 필터 (LS로 끝나는 디바이스) */
+    const val DEVICE_SCAN_DURATION_MS   = 30_000L
+    const val EFFECT_SCAN_DURATION_MS   = 3_000L
     const val DEVICE_NAME_FILTER_SUFFIX = "LS"
 
     // ═══════════════════════════════════════════════════════════
     // BLE Connection Configuration
     // ═══════════════════════════════════════════════════════════
 
-    /** 연결 타임아웃 (밀리초) */
-    const val CONNECTION_TIMEOUT_MS = 10000L
-
-    /** 연결 재시도 횟수 */
-    const val CONNECTION_RETRY_COUNT = 3
-
-    /** 연결 재시도 딜레이 (밀리초) */
-    const val CONNECTION_RETRY_DELAY_MS = 1000L
+    const val CONNECTION_TIMEOUT_MS = 10_000L
 
     // ═══════════════════════════════════════════════════════════
     // Effect Configuration
     // ═══════════════════════════════════════════════════════════
 
-    /** Manual Effect 반복 간격 (밀리초) */
-    const val MANUAL_EFFECT_INTERVAL_MS = 1000L
-
-    /** Timeline Effect 최소 간격 (밀리초) */
-    const val TIMELINE_EFFECT_MIN_INTERVAL_MS = 100L
-
-    /** FFT Effect 처리 간격 (밀리초) */
-    const val FFT_EFFECT_INTERVAL_MS = 16L
-
-    /** Custom Effect 최대 개수 */
-    const val MAX_CUSTOM_EFFECTS = 7
+    const val MANUAL_EFFECT_INTERVAL_MS = 1_000L
+    const val MAX_CUSTOM_EFFECTS        = 7
 
     // ═══════════════════════════════════════════════════════════
     // Music Player Configuration
     // ═══════════════════════════════════════════════════════════
 
-    /** 위치 모니터링 간격 (밀리초) */
     const val POSITION_MONITOR_INTERVAL_MS = 100L
-
-    /** Seek backward 감지 임계값 (밀리초) */
-    const val SEEK_BACKWARD_THRESHOLD_MS = 1000L
-
-    /** Seek forward 감지 임계값 (밀리초) */
-    const val SEEK_FORWARD_THRESHOLD_MS = 10000L
-
-    // ═══════════════════════════════════════════════════════════
-    // UI Configuration
-    // ═══════════════════════════════════════════════════════════
-
-    /** Toast 표시 시간 (밀리초) */
-    const val TOAST_DURATION_SHORT_MS = 2000L
-    const val TOAST_DURATION_LONG_MS = 3500L
-
-    /** Animation 지속 시간 (밀리초) */
-    const val ANIMATION_DURATION_SHORT_MS = 200L
-    const val ANIMATION_DURATION_MEDIUM_MS = 300L
-    const val ANIMATION_DURATION_LONG_MS = 500L
-
-    /** 글라스모피즘 코너 반경 (dp) */
-    const val GLASSMORPHISM_CORNER_RADIUS_DP = 20
-
-    /** 최소 터치 영역 크기 (dp) */
-    const val MIN_TOUCH_TARGET_SIZE_DP = 48
-
-    // ═══════════════════════════════════════════════════════════
-    // Storage Configuration
-    // ═══════════════════════════════════════════════════════════
-
-    /** 캐시 파일 최대 크기 (bytes) */
-    const val MAX_CACHE_FILE_SIZE_BYTES = 5 * 1024 * 1024 // 5MB
-
-    /** 앨범아트 캐시 최대 개수 */
-    const val MAX_ALBUM_ART_CACHE_COUNT = 100
 
     // ═══════════════════════════════════════════════════════════
     // BLE Transmission Monitor Configuration
     // ═══════════════════════════════════════════════════════════
 
-    /** 전송 히스토리 최대 개수 */
-    const val MAX_TRANSMISSION_HISTORY = 100
-
-    /** 전송 모니터 업데이트 간격 (밀리초) */
+    const val MAX_TRANSMISSION_HISTORY              = 100
     const val TRANSMISSION_MONITOR_UPDATE_INTERVAL_MS = 50L
+
+    // ═══════════════════════════════════════════════════════════
+    // UI Configuration
+    // ═══════════════════════════════════════════════════════════
+
+    const val TOAST_DURATION_SHORT_MS = 2_000L
+    const val TOAST_DURATION_LONG_MS  = 3_500L
 
     // ═══════════════════════════════════════════════════════════
     // File Extensions
     // ═══════════════════════════════════════════════════════════
 
-    const val EFX_FILE_EXTENSION = "efx"
-    const val MP3_FILE_EXTENSION = "mp3"
-    const val WAV_FILE_EXTENSION = "wav"
+    const val EFX_FILE_EXTENSION  = "efx"
+    const val MP3_FILE_EXTENSION  = "mp3"
+    const val WAV_FILE_EXTENSION  = "wav"
     const val FLAC_FILE_EXTENSION = "flac"
 
-    /** 지원하는 음악 파일 확장자 목록 */
-    val SUPPORTED_AUDIO_EXTENSIONS = setOf(
-        MP3_FILE_EXTENSION,
-        WAV_FILE_EXTENSION,
-        FLAC_FILE_EXTENSION,
-        "m4a",
-        "aac",
-        "ogg"
+    val SUPPORTED_AUDIO_EXTENSIONS = setOf("mp3", "wav", "flac", "m4a", "aac", "ogg")
+
+    // ═══════════════════════════════════════════════════════════
+    // Feature Log TAG 정의
+    //
+    // 기존 raw string TAG 와의 매핑:
+    //   "LightStickApp"            → Feature.APP
+    //   "MainActivity"             → Feature.ACTIVITY_MAIN
+    //   "DeviceVM"                 → Feature.VM_DEVICE
+    //   "EffectViewModel"          → Feature.VM_EFFECT
+    //   "MusicPlayerVM"            → Feature.VM_MUSIC
+    //   "BleCoordinator"           → Feature.BLE_COORDINATOR
+    //   "BleTransmissionMonitor"   → Feature.BLE_MONITOR
+    //   "ObserveDeviceStatesUseCase" → Feature.UC_OBSERVE_DEVICE
+    //   "SendConnectionEffectUseCase" → Feature.UC_CONNECTION_EFFECT
+    //   "FileHelper"               → Feature.UTIL_FILE
+    //   "SafHelper"                → Feature.UTIL_SAF
+    //   "EffectDirManager"         → Feature.STORAGE_EFFECT_PATH
+    // ═══════════════════════════════════════════════════════════
+
+    object Feature {
+
+        // ── Application ───────────────────────────────────────
+        /** LightStickMusicApp.kt */
+        const val APP                   = "App"
+
+        // ── Activity ──────────────────────────────────────────
+        /** MainActivity.kt */
+        const val ACTIVITY_MAIN         = "MainActivity"
+
+        // ── ViewModel ─────────────────────────────────────────
+        /** DeviceViewModel.kt */
+        const val VM_DEVICE             = "DeviceVM"
+        /** EffectViewModel.kt */
+        const val VM_EFFECT             = "EffectVM"
+        /** MusicViewModel.kt */
+        const val VM_MUSIC              = "MusicVM"
+
+        // ── BLE Core ──────────────────────────────────────────
+        /** BleTransmissionCoordinator.kt */
+        const val BLE_COORDINATOR       = "BleCoordinator"
+        /** BleTransmissionMonitor.kt */
+        const val BLE_MONITOR           = "BleMonitor"
+
+        // ── UseCase - Device ──────────────────────────────────
+        /** ObserveDeviceStatesUseCase.kt */
+        const val UC_OBSERVE_DEVICE     = "UC_ObserveDevice"
+        /** StartScanUseCase.kt */
+        const val UC_START_SCAN         = "UC_StartScan"
+        /** StopScanUseCase.kt */
+        const val UC_STOP_SCAN          = "UC_StopScan"
+        /** ConnectDeviceUseCase.kt */
+        const val UC_CONNECT            = "UC_Connect"
+        /** DisconnectDeviceUseCase.kt */
+        const val UC_DISCONNECT         = "UC_Disconnect"
+        /** GetConnectedDevicesUseCase.kt */
+        const val UC_GET_CONNECTED      = "UC_GetConnected"
+        /** GetBondedDevicesUseCase.kt */
+        const val UC_GET_BONDED         = "UC_GetBonded"
+        /** SendFindEffectUseCase.kt */
+        const val UC_FIND_EFFECT        = "UC_FindEffect"
+        /** SendConnectionEffectUseCase.kt */
+        const val UC_CONNECTION_EFFECT  = "UC_ConnectionEffect"
+        /** RegisterEventRulesUseCase.kt */
+        const val UC_REGIST_EVENTRULES  = "UC_RegisterEventRules"
+
+
+        // ── UseCase - Effect ──────────────────────────────────
+        /** PlayManualEffectUseCase.kt */
+        const val UC_PLAY_MANUAL        = "UC_PlayManual"
+        /** PlayEffectListUseCase.kt */
+        const val UC_PLAY_EFFECT_LIST   = "UC_PlayEffectList"
+        /** StopEffectUseCase.kt */
+        const val UC_STOP_EFFECT        = "UC_StopEffect"
+
+        // ── UseCase - Music ───────────────────────────────────
+        /** LoadMusicTimelineUseCase.kt */
+        const val UC_LOAD_TIMELINE      = "UC_LoadTimeline"
+        /** UpdatePlaybackPositionUseCase.kt */
+        const val UC_UPDATE_POSITION    = "UC_UpdatePosition"
+        /** HandleSeekUseCase.kt */
+        const val UC_HANDLE_SEEK        = "UC_HandleSeek"
+        /** ProcessFFTUseCase.kt */
+        const val UC_PROCESS_FFT        = "UC_ProcessFFT"
+
+        // ── Domain ────────────────────────────────────────────
+        /** EffectEngineController.kt */
+        const val EFFECT_ENGINE         = "EffectEngine"
+        /** MusicEffectManager.kt */
+        const val MUSIC_EFFECT_MANAGER  = "MusicEffectMgr"
+        /** FftAudioProcessor.kt */
+        const val FFT_PROCESSOR         = "FftProcessor"
+
+        // ── Data / Storage ────────────────────────────────────
+        /** EffectPathPreferences.kt */
+        const val STORAGE_EFFECT_PATH   = "EffectDirMgr"
+        /** DevicePreferences.kt */
+        const val PREFS_DEVICE          = "DevicePrefs"
+        /** AutoModePreferences.kt */
+        const val PREFS_AUTO_MODE       = "AutoModePrefs"
+
+        // ── Core / Util ───────────────────────────────────────
+        /** FileHelper.kt */
+        const val UTIL_FILE             = "FileHelper"
+        /** SafHelper.kt */
+        const val UTIL_SAF              = "SafHelper"
+        /** PermissionManager.kt */
+        const val PERMISSION_MANAGER    = "PermissionMgr"
+        /** MusicPlayerCommandBus.kt */
+        const val COMMAND_BUS           = "CommandBus"
+        /** ServiceController.kt */
+        const val SERVICE_CONTROLLER    = "ServiceCtrl"
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Log Configuration
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * 전체 로그 출력 여부
+     * - true  : LOG_ENABLED_FEATURES 화이트리스트에 따라 출력
+     * - false : E 레벨을 제외한 모든 로그 차단 (릴리즈 배포 시)
+     */
+    const val LOG_ENABLED = true
+
+    /**
+     * Verbose 로그 출력 여부
+     * - true  : V 레벨 출력 허용
+     * - false : V 레벨 차단 (D/I/W/E 는 유지)
+     */
+    const val LOG_VERBOSE_ENABLED = false
+
+    /**
+     * Feature 별 로그 화이트리스트
+     *
+     * 여기 포함된 TAG 만 로그가 출력됩니다.
+     * 디버깅 시 필요한 Feature 만 남기고 나머지를 주석 처리하세요.
+     *
+     * 예시 - BLE 디버깅 시:
+     *   Feature.BLE_COORDINATOR, Feature.BLE_MONITOR 만 남기고 나머지 주석 처리
+     *
+     * 예시 - 음악 재생 디버깅 시:
+     *   Feature.VM_MUSIC, Feature.UC_LOAD_TIMELINE, Feature.UC_PROCESS_FFT 만 남기기
+     */
+    val LOG_ENABLED_FEATURES: Set<String> = setOf(
+
+        // ── Application / Activity ────────────────────────────
+        Feature.APP,
+        Feature.ACTIVITY_MAIN,
+
+        // ── ViewModel ─────────────────────────────────────────
+        Feature.VM_DEVICE,
+        Feature.VM_EFFECT,
+        Feature.VM_MUSIC,
+
+        // ── BLE Core ──────────────────────────────────────────
+        Feature.BLE_COORDINATOR,
+        Feature.BLE_MONITOR,
+
+        // ── UseCase - Device ──────────────────────────────────
+        Feature.UC_OBSERVE_DEVICE,
+        Feature.UC_START_SCAN,
+        Feature.UC_STOP_SCAN,
+        Feature.UC_CONNECT,
+        Feature.UC_DISCONNECT,
+        Feature.UC_GET_CONNECTED,
+        Feature.UC_GET_BONDED,
+        Feature.UC_FIND_EFFECT,
+        Feature.UC_CONNECTION_EFFECT,
+        Feature.UC_REGIST_EVENTRULES,
+
+        // ── UseCase - Effect ──────────────────────────────────
+        Feature.UC_PLAY_MANUAL,
+        Feature.UC_PLAY_EFFECT_LIST,
+        Feature.UC_STOP_EFFECT,
+
+        // ── UseCase - Music ───────────────────────────────────
+        Feature.UC_LOAD_TIMELINE,
+        Feature.UC_UPDATE_POSITION,
+        Feature.UC_HANDLE_SEEK,
+        Feature.UC_PROCESS_FFT,
+
+        // ── Domain ────────────────────────────────────────────
+        Feature.EFFECT_ENGINE,
+        Feature.MUSIC_EFFECT_MANAGER,
+        Feature.FFT_PROCESSOR,
+
+        // ── Data / Storage ────────────────────────────────────
+        Feature.STORAGE_EFFECT_PATH,
+        Feature.PREFS_DEVICE,
+        Feature.PREFS_AUTO_MODE,
+
+        // ── Core / Util ───────────────────────────────────────
+        Feature.UTIL_FILE,
+        Feature.UTIL_SAF,
+        Feature.PERMISSION_MANAGER,
+        Feature.COMMAND_BUS,
+        Feature.SERVICE_CONTROLLER,
     )
-
-    // ═══════════════════════════════════════════════════════════
-    // Debug Configuration
-    // ═══════════════════════════════════════════════════════════
-
-    /** 디버그 모드 활성화 여부 */
-    const val DEBUG_MODE = true
-
-    /** 상세 로그 출력 여부 */
-    const val VERBOSE_LOGGING = true
-
-    /** BLE 패킷 로깅 여부 */
-    const val LOG_BLE_PACKETS = false
 }

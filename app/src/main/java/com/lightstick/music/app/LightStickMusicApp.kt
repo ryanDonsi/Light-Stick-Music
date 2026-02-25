@@ -1,9 +1,10 @@
 package com.lightstick.music.app
 
 import android.app.Application
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import com.lightstick.LSBluetooth
 import com.lightstick.config.DeviceFilter
+import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.data.local.preferences.DevicePreferences
 
 /**
@@ -13,7 +14,7 @@ import com.lightstick.music.data.local.preferences.DevicePreferences
 class LightStickMusicApp : Application() {
 
     companion object {
-        private const val TAG = "LightStickApp"
+        private const val TAG = AppConstants.Feature.APP
     }
 
     override fun onCreate() {

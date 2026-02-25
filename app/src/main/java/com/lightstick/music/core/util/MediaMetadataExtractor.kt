@@ -3,7 +3,7 @@ package com.lightstick.music.core.util
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import java.io.File
 
 /**

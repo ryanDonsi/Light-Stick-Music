@@ -3,7 +3,7 @@ package com.lightstick.music.domain.effect
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
 import com.lightstick.efx.EfxEntry

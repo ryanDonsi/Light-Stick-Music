@@ -1,6 +1,6 @@
 package com.lightstick.music.domain.ble
 
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import com.lightstick.music.core.constants.AppConstants
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,7 +38,7 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 object BleTransmissionMonitor {
 
-    private const val TAG = "BleTransmissionMonitor"
+    private const val TAG = AppConstants.Feature.BLE_MONITOR
 
     // ═══════════════════════════════════════════════════════════
     // State
@@ -111,9 +111,7 @@ object BleTransmissionMonitor {
         lastTransmissionByDevice[event.deviceMac] = event.timestamp
 
         // 디버그 로깅
-        if (AppConstants.DEBUG_MODE && AppConstants.VERBOSE_LOGGING) {
-            Log.d(TAG, "📤 [${event.getSourceDisplayName()}] ${event.getEffectTypeDisplayName()} → ${event.deviceMac}")
-        }
+        Log.d(TAG, "📤 [${event.getSourceDisplayName()}] ${event.getEffectTypeDisplayName()} → ${event.deviceMac}")
     }
 
     /**

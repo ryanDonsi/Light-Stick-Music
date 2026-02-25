@@ -1,9 +1,10 @@
 package com.lightstick.music.domain.device
 
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import com.lightstick.LSBluetooth
 import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
+import com.lightstick.music.core.constants.AppConstants
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -21,7 +22,7 @@ import kotlinx.coroutines.flow.map
  */
 object ObserveDeviceStatesUseCase {
 
-    private const val TAG = "ObserveDeviceStatesUseCase"
+    private const val TAG = AppConstants.Feature.UC_OBSERVE_DEVICE
 
     /**
      * 연결된 디바이스 목록을 관찰합니다.

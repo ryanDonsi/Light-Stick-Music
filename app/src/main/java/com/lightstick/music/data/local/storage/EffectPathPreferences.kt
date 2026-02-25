@@ -5,8 +5,10 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import androidx.documentfile.provider.DocumentFile
+import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.music.core.constants.PrefsKeys
 import java.io.File
 import java.io.InputStream
 
@@ -16,23 +18,28 @@ import java.io.InputStream
  * Music/Effects 폴더를 자동으로 사용
  * - Android 10 이하: File API 직접 사용
  * - Android 11+: 제한적 접근 (SAF 필요시 폴백)
+ *
+ * [수정] 하드코딩 문자열 → PrefsKeys 참조
+ *   PREFS_NAME          : "effect_directory" → PrefsKeys.PREFS_EFFECT_DIRECTORY
+ *   KEY_DIRECTORY_PATH  : "directory_path"  → PrefsKeys.KEY_DIRECTORY_PATH
+ *   KEY_DIRECTORY_URI   : "directory_uri"   → PrefsKeys.KEY_DIRECTORY_URI
+ *   KEY_AUTO_CONFIGURED : "auto_configured" → PrefsKeys.KEY_AUTO_CONFIGURED
  */
 object EffectPathPreferences {
 
-    private const val TAG = "EffectDirManager"
-    private const val PREFS_NAME = "effect_directory"
-    private const val KEY_DIRECTORY_PATH = "directory_path"
-    private const val KEY_DIRECTORY_URI = "directory_uri"
-    private const val KEY_AUTO_CONFIGURED = "auto_configured"
+    private const val TAG = AppConstants.Feature.STORAGE_EFFECT_PATH
+
+    // ═══════════════════════════════════════════════════════════
+    // 디렉토리 설정
+    // ═══════════════════════════════════════════════════════════
 
     /**
-     * ✅ 자동으로 Music/Effects 폴더 설정
+     * 자동으로 Music/Effects 폴더 설정
      */
     fun autoConfigureEffectsDirectory(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(PrefsKeys.PREFS_EFFECT_DIRECTORY, Context.MODE_PRIVATE)
 
-        // 이미 설정되어 있으면 스킵
-        if (prefs.getBoolean(KEY_AUTO_CONFIGURED, false)) {
+        if (prefs.getBoolean(PrefsKeys.KEY_AUTO_CONFIGURED, false)) {
             Log.d(TAG, "✓ Already auto-configured")
             return true
         }
@@ -48,8 +55,8 @@ object EffectPathPreferences {
             }
 
             prefs.edit()
-                .putString(KEY_DIRECTORY_PATH, effectsDir.absolutePath)
-                .putBoolean(KEY_AUTO_CONFIGURED, true)
+                .putString(PrefsKeys.KEY_DIRECTORY_PATH, effectsDir.absolutePath)
+                .putBoolean(PrefsKeys.KEY_AUTO_CONFIGURED, true)
                 .apply()
 
             Log.d(TAG, "✅ Auto-configured: ${effectsDir.absolutePath}")
@@ -64,16 +71,16 @@ object EffectPathPreferences {
      * 저장된 Effects 디렉토리 경로 가져오기
      */
     fun getSavedDirectoryPath(context: Context): String? {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_DIRECTORY_PATH, null)
+        val prefs = context.getSharedPreferences(PrefsKeys.PREFS_EFFECT_DIRECTORY, Context.MODE_PRIVATE)
+        return prefs.getString(PrefsKeys.KEY_DIRECTORY_PATH, null)
     }
 
     /**
      * 저장된 Effects 디렉토리 URI 가져오기 (SAF용)
      */
     fun getSavedDirectoryUri(context: Context): Uri? {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val uriString = prefs.getString(KEY_DIRECTORY_URI, null) ?: return null
+        val prefs = context.getSharedPreferences(PrefsKeys.PREFS_EFFECT_DIRECTORY, Context.MODE_PRIVATE)
+        val uriString = prefs.getString(PrefsKeys.KEY_DIRECTORY_URI, null) ?: return null
         return Uri.parse(uriString)
     }
 
@@ -81,13 +88,12 @@ object EffectPathPreferences {
      * Effects 디렉토리 URI 저장 (수동 선택)
      */
     fun saveDirectoryUri(context: Context, uri: Uri) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(PrefsKeys.PREFS_EFFECT_DIRECTORY, Context.MODE_PRIVATE)
         prefs.edit()
-            .putString(KEY_DIRECTORY_URI, uri.toString())
-            .putBoolean(KEY_AUTO_CONFIGURED, false) // 수동 설정
+            .putString(PrefsKeys.KEY_DIRECTORY_URI, uri.toString())
+            .putBoolean(PrefsKeys.KEY_AUTO_CONFIGURED, false) // 수동 설정 시 auto 플래그 해제
             .apply()
 
-        // 영구 권한 부여
         try {
             val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             context.contentResolver.takePersistableUriPermission(uri, takeFlags)
@@ -102,24 +108,21 @@ object EffectPathPreferences {
      * Effects 디렉토리가 설정되었는지 확인
      */
     fun isDirectoryConfigured(context: Context): Boolean {
-        // 먼저 자동 설정 경로 확인
         val path = getSavedDirectoryPath(context)
-        if (path != null) {
-            val file = File(path)
-            if (file.exists()) return true
-        }
+        if (path != null && File(path).exists()) return true
 
-        // SAF URI 확인
         val uri = getSavedDirectoryUri(context) ?: return false
-
         return try {
-            val docFile = DocumentFile.fromTreeUri(context, uri)
-            docFile?.exists() == true
+            DocumentFile.fromTreeUri(context, uri)?.exists() == true
         } catch (e: Exception) {
             Log.e(TAG, "Error checking directory: ${e.message}")
             false
         }
     }
+
+    // ═══════════════════════════════════════════════════════════
+    // 디렉토리 선택 Intent
+    // ═══════════════════════════════════════════════════════════
 
     /**
      * 디렉토리 선택 Intent 생성 (수동 선택용)
@@ -132,7 +135,6 @@ object EffectPathPreferences {
             addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
         }
 
-        // ✅ Music 폴더를 초기 위치로 힌트 제공
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val musicUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic")
             intent.putExtra("android.provider.extra.INITIAL_URI", musicUri)
@@ -141,28 +143,14 @@ object EffectPathPreferences {
         return intent
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // 파일 목록 / 스트림
+    // ═══════════════════════════════════════════════════════════
+
     /**
      * Effects 디렉토리의 모든 EFX 파일 목록 가져오기
      */
     fun listEffectFiles(context: Context): List<DocumentFile> {
-        // 먼저 File 경로 시도
-//        val path = getSavedDirectoryPath(context)
-//        if (path != null) {
-//            val dir = File(path)
-//            if (dir.exists()) {
-//                val files = dir.listFiles()
-//                files?.forEach { file ->
-//                    Log.d(TAG, "checking: ${file.name}")
-//                }
-//                return files?.filter {
-//                    it.isFile && it.extension.equals("efx", ignoreCase = true)
-//                }?.map { file ->
-//                    DocumentFile.fromFile(file)
-//                } ?: emptyList()
-//            }
-//        }
-
-        // SAF URI 시도
         val uri = getSavedDirectoryUri(context) ?: return emptyList()
 
         return try {
@@ -172,9 +160,7 @@ object EffectPathPreferences {
                 .filter { it.isFile && it.name?.endsWith(".efx", ignoreCase = true) == true }
                 .also { files ->
                     Log.d(TAG, "📂 Found ${files.size} EFX files")
-                    files.forEach { file ->
-                        Log.d(TAG, "  - ${file.name}")
-                    }
+                    files.forEach { Log.d(TAG, "  - ${it.name}") }
                 }
         } catch (e: Exception) {
             Log.e(TAG, "Error listing files: ${e.message}")
@@ -200,13 +186,11 @@ object EffectPathPreferences {
     fun copyToTempFile(context: Context, documentFile: DocumentFile): File? {
         return try {
             val tempFile = File(context.cacheDir, documentFile.name ?: "temp.efx")
-
             openInputStream(context, documentFile)?.use { input ->
                 tempFile.outputStream().use { output ->
                     input.copyTo(output)
                 }
             }
-
             Log.d(TAG, "✅ Copied to temp: ${tempFile.absolutePath}")
             tempFile
         } catch (e: Exception) {
@@ -215,15 +199,19 @@ object EffectPathPreferences {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // 초기화
+    // ═══════════════════════════════════════════════════════════
+
     /**
-     * 디렉토리 설정 초기화
+     * 디렉토리 설정 전체 초기화
      */
     fun clearDirectory(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(PrefsKeys.PREFS_EFFECT_DIRECTORY, Context.MODE_PRIVATE)
         prefs.edit()
-            .remove(KEY_DIRECTORY_PATH)
-            .remove(KEY_DIRECTORY_URI)
-            .remove(KEY_AUTO_CONFIGURED)
+            .remove(PrefsKeys.KEY_DIRECTORY_PATH)
+            .remove(PrefsKeys.KEY_DIRECTORY_URI)
+            .remove(PrefsKeys.KEY_AUTO_CONFIGURED)
             .apply()
         Log.d(TAG, "🗑️ Cleared directory configuration")
     }

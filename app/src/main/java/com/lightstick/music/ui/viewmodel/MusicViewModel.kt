@@ -1,17 +1,17 @@
 package com.lightstick.music.ui.viewmodel
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.provider.MediaStore
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import com.lightstick.music.core.state.MusicPlaybackState
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.data.model.MusicItem
@@ -20,6 +20,7 @@ import com.lightstick.music.domain.music.FftAudioProcessor
 import com.lightstick.music.domain.music.createFftPlayer
 import com.lightstick.music.data.local.storage.EffectPathPreferences
 import com.lightstick.music.core.bus.MusicPlayerCommandBus
+import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.service.ServiceController
 import com.lightstick.music.data.local.preferences.AutoModePreferences
 import com.lightstick.music.domain.usecase.music.HandleSeekUseCase
@@ -30,22 +31,27 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.io.File
 
 @UnstableApi
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        private const val TAG = AppConstants.Feature.VM_MUSIC
+    }
+
     private val context = application.applicationContext
 
     // ═══════════════════════════════════════════════════════════
-    // ✅ UseCase 인스턴스
+    // UseCase 인스턴스
     // ═══════════════════════════════════════════════════════════
 
-    private val loadMusicTimelineUseCase = LoadMusicTimelineUseCase()
+    private val loadMusicTimelineUseCase      = LoadMusicTimelineUseCase()
     private val updatePlaybackPositionUseCase = UpdatePlaybackPositionUseCase()
-    private val handleSeekUseCase = HandleSeekUseCase()
-    private val processFFTUseCase = ProcessFFTUseCase()
+    private val handleSeekUseCase             = HandleSeekUseCase()
+    private val processFFTUseCase             = ProcessFFTUseCase()
 
     // ═══════════════════════════════════════════════════════════
     // State
@@ -54,15 +60,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAutoModeEnabled = MutableStateFlow(true)
     val isAutoModeEnabled: StateFlow<Boolean> = _isAutoModeEnabled.asStateFlow()
 
-    // ✅ FFT -> LED 전송 (AUTO 모드 체크 포함, UseCase 사용)
+    // FFT → LED 전송 (AUTO 모드 체크 포함)
     val audioProcessor = FftAudioProcessor { band ->
-        // AUTO 모드일 때만 FFT 효과 처리
         if (_isAutoModeEnabled.value && PermissionManager.hasBluetoothConnectPermission(context)) {
             try {
-                // ✅ UseCase 호출
                 processFFTUseCase(context, band)
             } catch (e: Exception) {
-                Log.e("MusicPlayerVM", "FFT effect send failed: ${e.message}")
+                Log.e(TAG, "FFT effect send failed: ${e.message}")
             }
         }
     }
@@ -88,20 +92,31 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         initializeEffects()
         EffectEngineController.reset()
 
-        // ✅ AUTO 모드 초기값 로드
         _isAutoModeEnabled.value = AutoModePreferences.isAutoModeEnabled(getApplication())
 
+        // ── [추가] isPlaying + isAutoModeEnabled 상태를 MusicPlaybackState 에 실시간 전파 ──
+        // EffectViewModel 의 EXCLUSIVE 모드 잠금 판단에 사용됩니다.
         viewModelScope.launch {
-            monitorPosition()
+            combine(_isPlaying, _isAutoModeEnabled) { playing, autoMode ->
+                playing && autoMode
+            }.collect { playingWithAutoMode ->
+                MusicPlaybackState.update(
+                    isPlaying  = _isPlaying.value,
+                    isAutoMode = _isAutoModeEnabled.value
+                )
+                Log.d(TAG, "MusicPlaybackState → playingWithAutoMode=$playingWithAutoMode")
+            }
         }
+
+        viewModelScope.launch { monitorPosition() }
 
         viewModelScope.launch {
             MusicPlayerCommandBus.commands.collect { command ->
                 when (command) {
                     is MusicPlayerCommandBus.Command.TogglePlay -> togglePlayPause()
-                    is MusicPlayerCommandBus.Command.Next -> playNext()
-                    is MusicPlayerCommandBus.Command.Previous -> playPrevious()
-                    is MusicPlayerCommandBus.Command.SeekTo -> seekTo(command.position)
+                    is MusicPlayerCommandBus.Command.Next       -> playNext()
+                    is MusicPlayerCommandBus.Command.Previous   -> playPrevious()
+                    is MusicPlayerCommandBus.Command.SeekTo     -> seekTo(command.position)
                 }
             }
         }
@@ -119,31 +134,25 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (EffectPathPreferences.isDirectoryConfigured(context)) {
             MusicEffectManager.initializeFromSAF(context)
             val count = MusicEffectManager.getLoadedEffectCount()
-            Log.d("MusicPlayerVM", "✅ Initialized $count effects")
+            Log.d(TAG, "Initialized $count effects")
         } else {
-            Log.w("MusicPlayerVM", "⚠️ Effects directory not configured")
+            Log.w(TAG, "Effects directory not configured")
         }
     }
 
     private fun loadCachedMusicOrScan() {
         viewModelScope.launch {
-            val prefs = context.getSharedPreferences("app_state", Context.MODE_PRIVATE)
-            val isInitialized = prefs.getBoolean("is_initialized", false)
-
-            if (isInitialized) {
-                Log.d("MusicPlayerVM", "📦 Loading from initialized state")
-                loadMusic()
-            } else {
-                Log.d("MusicPlayerVM", "🔍 First launch, scanning music...")
-                loadMusic()
-            }
+            val prefs       = context.getSharedPreferences("app_state", Context.MODE_PRIVATE)
+            val initialized = prefs.getBoolean("is_initialized", false)
+            Log.d(TAG, if (initialized) "Loading from initialized state" else "First launch, scanning music...")
+            loadMusic()
         }
     }
 
     fun loadMusic() {
         viewModelScope.launch {
-            val resolver = context.contentResolver
-            val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            val resolver   = context.contentResolver
+            val uri        = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
             val projection = arrayOf(
                 MediaStore.Audio.Media.TITLE,
                 MediaStore.Audio.Media.DISPLAY_NAME,
@@ -151,92 +160,80 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 MediaStore.Audio.Media.DATA
             )
             val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-            val sort = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
+            val sort      = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
             val musicItems = mutableListOf<MusicItem>()
             resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
-                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
                 val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
 
                 while (cursor.moveToNext()) {
-                    val path = cursor.getString(dataCol)
-
+                    val path      = cursor.getString(dataCol)
                     val metaTitle = cursor.getString(titleCol)
-                    val fileName = cursor.getString(nameCol)
-                    val title = if (!metaTitle.isNullOrBlank()) {
-                        metaTitle
-                    } else {
-                        fileName.substringBeforeLast(".")
-                    }
-
-                    val artist = cursor.getString(artistCol) ?: "Unknown"
+                    val fileName  = cursor.getString(nameCol)
+                    val title     = if (!metaTitle.isNullOrBlank()) metaTitle
+                    else fileName.substringBeforeLast(".")
+                    val artist    = cursor.getString(artistCol) ?: "Unknown"
 
                     val musicFile = File(path)
                     val hasEffect = try {
                         MusicEffectManager.hasEffectFor(musicFile)
                     } catch (e: Exception) {
-                        Log.e("MusicPlayerVM", "Failed to check effect: ${e.message}")
+                        Log.e(TAG, "Failed to check effect: ${e.message}")
                         false
                     }
 
-                    // MediaMetadataRetriever로 앨범아트 + duration 추출
                     val retriever = MediaMetadataRetriever()
                     var art: String? = null
                     var duration: Long = 0L
-
                     try {
                         retriever.setDataSource(path)
-
-                        // 앨범아트 추출
                         art = retriever.embeddedPicture?.let { bytes ->
                             val file = File(context.cacheDir, "${title.hashCode()}.jpg")
                             file.writeBytes(bytes)
                             file.absolutePath
                         }
-
-                        // Duration 추출
                         val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                         duration = durationStr?.toLongOrNull() ?: 0L
-
                     } catch (e: Exception) {
-                        Log.e("MusicPlayerVM", "Failed to extract metadata: ${e.message}")
+                        Log.e(TAG, "Failed to extract metadata: ${e.message}")
                     } finally {
                         retriever.release()
                     }
 
                     musicItems.add(
                         MusicItem(
-                            title = title,
-                            artist = artist,
-                            filePath = path,
+                            title        = title,
+                            artist       = artist,
+                            filePath     = path,
                             albumArtPath = art,
-                            hasEffect = hasEffect,
-                            duration = duration
+                            hasEffect    = hasEffect,
+                            duration     = duration
                         )
                     )
                 }
             }
 
             _musicList.value = musicItems
-            Log.d("MusicPlayerVM", "📀 Loaded ${musicItems.size} music files, ${musicItems.count { it.hasEffect }} with effects")
+            Log.d(TAG, "Loaded ${musicItems.size} music files, ${musicItems.count { it.hasEffect }} with effects")
         }
     }
 
     fun updateNotificationProgress() {
         val item = _nowPlaying.value ?: return
         ServiceController.updateNotificationProgress(
-            context = context,
+            context   = context,
             musicItem = item,
             isPlaying = _isPlaying.value,
-            position = _currentPosition.value.toLong(),
-            duration = _duration.value.toLong()
+            position  = _currentPosition.value.toLong(),
+            duration  = _duration.value.toLong()
         )
     }
 
     /**
-     * ✅ 음악 재생 (UseCase 사용)
+     * 음악 재생
      *
      * 타임라인 동기화 순서:
      * 1. 타임라인 로드
@@ -244,50 +241,45 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * 3. 음악 재생 시작
      */
     fun playMusic(item: MusicItem) {
-        _nowPlaying.value = item
-        _isPlaying.value = true
-        _duration.value = 0
+        _nowPlaying.value      = item
+        _isPlaying.value       = true
+        _duration.value        = 0
         _currentPosition.value = 0
 
-        // ✅ 1. 먼저 타임라인 로드 (음악 재생 전!)
+        // 1. 타임라인 로드
         if (_isAutoModeEnabled.value) {
             val musicFile = File(item.filePath)
             EffectEngineController.reset()
-
-            // ✅ UseCase 호출
             loadMusicTimelineUseCase(context, musicFile)
-
-            Log.d("MusicPlayerVM", "🎵 AUTO ON - Timeline loaded for: ${item.title}")
+            Log.d(TAG, "AUTO ON - Timeline loaded for: ${item.title}")
         } else {
-            // AUTO OFF - EFX 로드 안 함
             EffectEngineController.reset()
-            Log.d("MusicPlayerVM", "🔕 AUTO OFF - EFX not loaded")
+            Log.d(TAG, "AUTO OFF - EFX not loaded")
         }
 
         ServiceController.startMusicEffectService(
-            context = context,
+            context   = context,
             musicItem = item,
             isPlaying = true,
-            position = 0L,
-            duration = 0L
+            position  = 0L,
+            duration  = 0L
         )
 
         val mediaItem = MediaItem.fromUri(item.filePath)
         player.setMediaItem(mediaItem)
         player.prepare()
 
-        // ✅ 2. 재생 전 초기 위치(0ms) 동기화
+        // 2. 초기 위치(0ms) 동기화
         if (_isAutoModeEnabled.value) {
             try {
-                // ✅ UseCase 호출
                 updatePlaybackPositionUseCase(context, 0L)
-                Log.d("MusicPlayerVM", "📍 Initial position synced at 0ms")
+                Log.d(TAG, "Initial position synced at 0ms")
             } catch (e: Exception) {
-                Log.e("MusicPlayerVM", "Initial sync failed: ${e.message}")
+                Log.e(TAG, "Initial sync failed: ${e.message}")
             }
         }
 
-        // ✅ 3. 음악 재생 시작
+        // 3. 재생 시작
         player.play()
     }
 
@@ -303,35 +295,29 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * ✅ AUTO 모드 토글 (UseCase 사용)
+     * AUTO 모드 토글
      */
     fun toggleAutoMode(): Boolean {
-        val context = getApplication<Application>()
+        val context  = getApplication<Application>()
         val newState = AutoModePreferences.toggleAutoMode(context)
         _isAutoModeEnabled.value = newState
 
         if (!newState) {
-            // ✅ AUTO OFF - EFX 언로드
             EffectEngineController.reset()
-            Log.d("MusicPlayerVM", "🔕 AUTO OFF - EFX unloaded, FFT analysis disabled")
+            Log.d(TAG, "AUTO OFF - EFX unloaded, FFT analysis disabled")
         } else {
-            // ✅ AUTO ON - 현재 재생 중인 곡이 있으면 EFX 로드
             val currentMusic = _nowPlaying.value
             if (currentMusic != null) {
                 val musicFile = File(currentMusic.filePath)
                 EffectEngineController.reset()
-
-                // ✅ UseCase 호출
                 loadMusicTimelineUseCase(context, musicFile)
 
-                // ✅ 현재 재생 위치로 동기화
-                val currentPosition = _currentPosition.value.toLong()
+                val currentPos = _currentPosition.value.toLong()
                 try {
-                    // ✅ UseCase 호출
-                    updatePlaybackPositionUseCase(context, currentPosition)
-                    Log.d("MusicPlayerVM", "🎵 AUTO ON - EFX loaded and synced at ${currentPosition}ms for: ${currentMusic.title}")
+                    updatePlaybackPositionUseCase(context, currentPos)
+                    Log.d(TAG, "AUTO ON - synced at ${currentPos}ms for: ${currentMusic.title}")
                 } catch (e: Exception) {
-                    Log.e("MusicPlayerVM", "AUTO ON sync failed: ${e.message}")
+                    Log.e(TAG, "AUTO ON sync failed: ${e.message}")
                 }
             }
         }
@@ -350,19 +336,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * ✅ Seek 처리 (UseCase 사용)
+     * Seek 처리
      */
     fun seekTo(position: Long) {
         player.seekTo(position)
         _currentPosition.value = position.toInt()
 
-        // ✅ Seek 시 즉시 타임라인 위치 업데이트
         if (_isAutoModeEnabled.value) {
             try {
-                // ✅ UseCase 호출
                 handleSeekUseCase(context, position)
             } catch (e: Exception) {
-                Log.e("MusicPlayerVM", "handleSeek() failed: ${e.message}")
+                Log.e(TAG, "handleSeek() failed: ${e.message}")
             }
         }
 
@@ -370,37 +354,32 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * ✅ 위치 모니터링 (UseCase 사용)
-     *
-     * 주요 변경점:
-     * 1. 매 100ms마다 updatePlaybackPosition() 호출
-     * 2. SDK가 내부적으로 타이밍을 정확하게 관리
+     * 위치 모니터링 - 매 POSITION_MONITOR_INTERVAL_MS 마다 SDK에 재생 위치 전달
      */
     @SuppressLint("MissingPermission")
     private fun monitorPosition() {
         viewModelScope.launch {
             while (true) {
-                val current = player.currentPosition.toInt()
+                val current  = player.currentPosition.toInt()
                 val duration = player.duration.toInt()
                 _currentPosition.value = current
-                _duration.value = duration
+                _duration.value        = duration
 
-                // ✅ AUTO 모드이고 재생 중일 때 매 100ms마다 위치 업데이트
                 if (player.isPlaying && _isAutoModeEnabled.value) {
                     try {
-                        // ✅ UseCase 호출
                         updatePlaybackPositionUseCase(context, current.toLong())
                     } catch (e: Exception) {
-                        Log.e("MusicPlayerVM", "updatePlaybackPosition() failed: ${e.message}")
+                        Log.e(TAG, "updatePlaybackPosition() failed: ${e.message}")
                     }
                 }
 
-                delay(100)  // 100ms마다 업데이트 (SDK 권장 주기)
+                delay(AppConstants.POSITION_MONITOR_INTERVAL_MS)
             }
         }
     }
 
     override fun onCleared() {
+        MusicPlaybackState.reset()
         player.release()
         super.onCleared()
     }

@@ -3,7 +3,7 @@ package com.lightstick.music.core.util
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.util.Log
+import com.lightstick.music.core.util.Log
 import com.lightstick.music.core.constants.AppConstants
 import java.io.File
 
@@ -14,7 +14,7 @@ import java.io.File
  */
 object FileHelper {
 
-    private const val TAG = "FileHelper"
+    private const val TAG = AppConstants.Feature.UTIL_FILE
 
     /**
      * 파일이 EFX 파일인지 확인
