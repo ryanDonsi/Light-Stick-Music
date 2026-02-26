@@ -32,7 +32,6 @@ import com.lightstick.music.ui.components.common.ButtonStyle
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.viewmodel.EffectViewModel
 import com.lightstick.types.EffectType
-import com.lightstick.types.Color as LightStickColor
 import kotlin.math.abs
 
 /**
@@ -212,7 +211,7 @@ private fun calculateEffectColorFromTransmission(
     lastColorRef: MutableState<Color>  // ✅ 외부에서 전달받음
 ): EffectColorData? {
     return when (transmission.source) {
-        TransmissionSource.MANUAL_EFFECT, TransmissionSource.TIMELINE_EFFECT -> {
+        TransmissionSource.PAYLOAD_EFFECT, TransmissionSource.TIMELINE_EFFECT -> {
             when (transmission.effectType) {
                 EffectType.ON -> {
                     // ✅ 수정: animateOnEffect 사용 (transit 애니메이션)
@@ -286,9 +285,6 @@ private fun calculateEffectColorFromTransmission(
                 ),
                 gradientColor = null
             )
-        }
-        TransmissionSource.CONNECTION_EFFECT, TransmissionSource.BROADCAST -> {
-            buildEffectData(Color.White)
         }
     }
 }

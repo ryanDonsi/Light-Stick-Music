@@ -178,7 +178,7 @@ class PlayEffectListUseCase {
 
         BleTransmissionMonitor.recordTransmission(
             BleTransmissionEvent(
-                source = TransmissionSource.MANUAL_EFFECT,
+                source = TransmissionSource.PAYLOAD_EFFECT,
                 deviceMac = deviceMac,
                 effectType = payload.effectType,
                 payload = payload,

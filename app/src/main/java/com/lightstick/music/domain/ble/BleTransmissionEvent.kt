@@ -46,11 +46,9 @@ data class BleTransmissionEvent(
      */
     fun getSourceDisplayName(): String {
         return when (source) {
-            TransmissionSource.MANUAL_EFFECT -> "수동 효과"
+            TransmissionSource.PAYLOAD_EFFECT -> "일반 효과"
             TransmissionSource.TIMELINE_EFFECT -> "타임라인 효과"
             TransmissionSource.FFT_EFFECT -> "FFT 효과"
-            TransmissionSource.CONNECTION_EFFECT -> "연결 효과"
-            TransmissionSource.BROADCAST -> "브로드캐스트"
         }
     }
 
@@ -99,17 +97,11 @@ data class BleTransmissionEvent(
  */
 enum class TransmissionSource {
     /** Effect 탭에서 수동으로 실행하는 효과 */
-    MANUAL_EFFECT,
+    PAYLOAD_EFFECT,
 
     /** Music 재생 중 타임라인 동기화 효과 */
     TIMELINE_EFFECT,
 
     /** Music 재생 중 주파수 분석 효과 */
     FFT_EFFECT,
-
-    /** Device 연결 시 연출 효과 */
-    CONNECTION_EFFECT,
-
-    /** 모든 디바이스에 브로드캐스트 */
-    BROADCAST
 }

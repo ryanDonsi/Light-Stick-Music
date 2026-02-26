@@ -1,6 +1,5 @@
 package com.lightstick.music.domain.effect
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import com.lightstick.music.core.util.Log
@@ -527,7 +526,7 @@ object EffectEngineController {
             if (latestTransmission != null) {
                 val timeSinceLastTransmission = System.currentTimeMillis() - latestTransmission.timestamp
 
-                if (latestTransmission.source == TransmissionSource.MANUAL_EFFECT &&
+                if (latestTransmission.source == TransmissionSource.PAYLOAD_EFFECT &&
                     timeSinceLastTransmission < 500) {
                     return
                 }

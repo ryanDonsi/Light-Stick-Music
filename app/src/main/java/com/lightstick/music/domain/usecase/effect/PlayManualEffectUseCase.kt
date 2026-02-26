@@ -41,7 +41,7 @@ class PlayManualEffectUseCase {
             val success = EffectEngineController.sendEffect(
                 context = context,
                 payload = payload,
-                source = TransmissionSource.MANUAL_EFFECT,
+                source = TransmissionSource.PAYLOAD_EFFECT,
                 metadata = mapOf("effectType" to effectType.displayName)
             )
 

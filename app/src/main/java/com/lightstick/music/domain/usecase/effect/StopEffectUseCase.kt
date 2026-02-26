@@ -40,7 +40,7 @@ class StopEffectUseCase {
             EffectEngineController.sendEffect(
                 context = context,
                 payload = offPayload,
-                source = TransmissionSource.MANUAL_EFFECT,
+                source = TransmissionSource.PAYLOAD_EFFECT,
                 metadata = mapOf("type" to "manual_stop")
             )
 

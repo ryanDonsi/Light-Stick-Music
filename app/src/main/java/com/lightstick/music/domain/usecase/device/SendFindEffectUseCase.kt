@@ -44,7 +44,7 @@ class SendFindEffectUseCase {
                 context = context,
                 deviceMac = deviceMac,
                 payload = findPayload,
-                source = TransmissionSource.MANUAL_EFFECT,
+                source = TransmissionSource.PAYLOAD_EFFECT,
                 metadata = mapOf("type" to "find_effect")
             )
 
@@ -60,7 +60,7 @@ class SendFindEffectUseCase {
                 context = context,
                 deviceMac = deviceMac,
                 payload = offPayload,
-                source = TransmissionSource.MANUAL_EFFECT,
+                source = TransmissionSource.PAYLOAD_EFFECT,
                 metadata = mapOf("type" to "find_effect_end")
             )
 

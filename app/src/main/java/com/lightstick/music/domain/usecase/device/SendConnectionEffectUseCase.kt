@@ -1,11 +1,8 @@
 package com.lightstick.music.domain.usecase.device
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.pm.PackageManager
 import com.lightstick.music.core.util.Log
-import androidx.core.content.ContextCompat
 import com.lightstick.device.Device
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.domain.ble.BleTransmissionEvent
@@ -63,7 +60,7 @@ class SendConnectionEffectUseCase {
 
             // ✅ 3. Monitor 기록 (시작)
             val startEvent = BleTransmissionEvent(
-                source = TransmissionSource.CONNECTION_EFFECT,
+                source = TransmissionSource.PAYLOAD_EFFECT,
                 deviceMac = device.mac,
                 effectType = EffectType.BLINK,
                 payload = LSEffectPayload.Effects.blink(3, Colors.WHITE),
@@ -92,7 +89,7 @@ class SendConnectionEffectUseCase {
 
             // ✅ 6. Monitor 기록 (종료)
             val endEvent = BleTransmissionEvent(
-                source = TransmissionSource.CONNECTION_EFFECT,
+                source = TransmissionSource.PAYLOAD_EFFECT,
                 deviceMac = device.mac,
                 effectType = EffectType.ON,
                 payload = LSEffectPayload.Effects.on(Colors.WHITE),
@@ -121,13 +118,4 @@ class SendConnectionEffectUseCase {
             1200L to LSEffectPayload.Effects.on(Colors.WHITE).toByteArray()
         )
     }
-
-//    /**
-//     * BLUETOOTH_CONNECT 권한 확인
-//     */
-//    private fun hasBleConnectPermission(context: Context): Boolean =
-//        ContextCompat.checkSelfPermission(
-//            context,
-//            Manifest.permission.BLUETOOTH_CONNECT
-//        ) == PackageManager.PERMISSION_GRANTED
 }
