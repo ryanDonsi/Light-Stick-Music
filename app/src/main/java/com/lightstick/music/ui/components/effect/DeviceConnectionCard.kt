@@ -35,7 +35,7 @@ import com.lightstick.types.EffectType
 import kotlin.math.abs
 
 /**
- * ✅ BLACK 색상 체크 (RGB가 모두 0.1 미만)
+ * BLACK 색상 체크 (RGB가 모두 0.1 미만)
  */
 private fun Color.isBlack(): Boolean {
     return this.red < 0.1f && this.green < 0.1f && this.blue < 0.1f
@@ -43,8 +43,6 @@ private fun Color.isBlack(): Boolean {
 
 /**
  * Device Connection Card
- *
- * ✅ 원본 UI 유지 + latestTransmission 기능 추가
  */
 @Composable
 fun DeviceConnectionCard(
@@ -55,7 +53,7 @@ fun DeviceConnectionCard(
     selectedEffect: EffectViewModel.UiEffectType? = null,
     effectSettings: EffectViewModel.EffectSettings? = null,
     isPlaying: Boolean = false,
-    latestTransmission: BleTransmissionEvent? = null,  // ✅ 새로 추가 (기본값 null)
+    latestTransmission: BleTransmissionEvent? = null,
     modifier: Modifier = Modifier
 ) {
     val lastColorRef = remember { mutableStateOf(Color.White) }
@@ -93,7 +91,6 @@ fun DeviceConnectionCard(
         Color.White.copy(alpha = 0.06f)
     }
 
-    // ✅ latestTransmission 우선 → selectedEffect fallback
     val effectColorData = if (latestTransmission != null) {
         calculateEffectColorFromTransmission(
             transmission = latestTransmission,
@@ -111,85 +108,95 @@ fun DeviceConnectionCard(
     }
 
     when (connectionState) {
+
+        // ── NoBondedDevice ────────────────────────────────────
         is EffectViewModel.DeviceConnectionState.NoBondedDevice -> {
             ConnectionStateLayout(
-                boxSize = animatedBoxSize,
-                effectSize = animatedEffectSize,
-                cornerRadius = animatedCornerRadius,
-                isScrolled = isScrolled,
+                boxSize         = animatedBoxSize,
+                effectSize      = animatedEffectSize,
+                cornerRadius    = animatedCornerRadius,
+                isScrolled      = isScrolled,
                 backgroundColor = cardBackgroundColor,
-                lightstickColor = Color.White.copy(alpha = 0.6f),
-                isLightStickAnimating = false,
-                statusText = "연결된 기기 없음",
+                lightstickColor = Color.White.copy(alpha = 0.1f),
+                statusText      = "연결된 기기 없음",
                 statusTextColor = MaterialTheme.customColors.surfaceVariant,
-                descriptionText = null,
-                descriptionTextColor = null,
                 effectColorData = null,
-                buttonText = "기기 연결하기",
-                onButtonClick = onConnectClick
+                buttonText      = "기기 연결하기",
+                onButtonClick   = onConnectClick
             )
         }
 
+        // ── Scanning ──────────────────────────────────────────
         is EffectViewModel.DeviceConnectionState.Scanning -> {
             ConnectionStateLayout(
-                boxSize = animatedBoxSize,
-                effectSize = animatedEffectSize,
-                cornerRadius = animatedCornerRadius,
-                isScrolled = isScrolled,
-                backgroundColor = cardBackgroundColor,
-                lightstickColor = Color.White.copy(alpha = 0.6f),
-                isLightStickAnimating = false,
-                statusText = "연결된 기기 없음",
-                statusTextColor = MaterialTheme.customColors.surfaceVariant,
-                descriptionText = "등록된 기기 확인 중",
-                descriptionTextColor = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
-                descriptionIcon = Icons.Default.Refresh,
+                boxSize                    = animatedBoxSize,
+                effectSize                 = animatedEffectSize,
+                cornerRadius               = animatedCornerRadius,
+                isScrolled                 = isScrolled,
+                backgroundColor            = cardBackgroundColor,
+                lightstickColor            = Color.White.copy(alpha = 0.1f),
+                statusText                 = "연결된 기기 없음",
+                statusTextColor            = MaterialTheme.customColors.surfaceVariant,
+                descriptionText            = "등록된 기기 확인 중",
+                descriptionTextColor       = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
+                descriptionIcon            = Icons.Default.Refresh,
                 isDescriptionIconAnimating = true,
-                onDescriptionIconClick = null,
-                effectColorData = null,
-                buttonText = null,
-                onButtonClick = null
+                effectColorData            = null
             )
         }
 
+        // ── ScanFailed ────────────────────────────────────────
         is EffectViewModel.DeviceConnectionState.ScanFailed -> {
             ConnectionStateLayout(
-                boxSize = animatedBoxSize,
-                effectSize = animatedEffectSize,
-                cornerRadius = animatedCornerRadius,
-                isScrolled = isScrolled,
-                backgroundColor = cardBackgroundColor,
-                lightstickColor = Color.White.copy(alpha = 0.6f),
-                isLightStickAnimating = false,
-                statusText = "연결된 기기 없음",
-                statusTextColor = MaterialTheme.customColors.surfaceVariant,
-                descriptionText = "연결 가능한 기기가 없습니다",
-                descriptionTextColor = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
-                descriptionIcon = Icons.Default.Refresh,
-                isDescriptionIconAnimating = false,
+                boxSize                = animatedBoxSize,
+                effectSize             = animatedEffectSize,
+                cornerRadius           = animatedCornerRadius,
+                isScrolled             = isScrolled,
+                backgroundColor        = cardBackgroundColor,
+                lightstickColor        = Color.White.copy(alpha = 0.1f),
+                statusText             = "연결된 기기 없음",
+                statusTextColor        = MaterialTheme.customColors.surfaceVariant,
+                descriptionText        = "연결 가능한 기기가 없습니다",
+                descriptionTextColor   = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
+                descriptionIcon        = Icons.Default.Refresh,
                 onDescriptionIconClick = onRetryClick,
-                effectColorData = null,
-                buttonText = null,
-                onButtonClick = null
+                effectColorData        = null
             )
         }
 
+        // ── Disconnected ──────────────────────────────────────
+        is EffectViewModel.DeviceConnectionState.Disconnected -> {
+            ConnectionStateLayout(
+                boxSize                = animatedBoxSize,
+                effectSize             = animatedEffectSize,
+                cornerRadius           = animatedCornerRadius,
+                isScrolled             = isScrolled,
+                lightstickColor        = Color.White.copy(alpha = 0.1f),
+                statusText             = "연결된 기기 없음",
+                statusTextColor        = MaterialTheme.customColors.surfaceVariant,
+                descriptionText        = "연결 가능한 기기가 없습니다",
+                descriptionTextColor   = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
+                descriptionIcon        = Icons.Default.Refresh,
+                onDescriptionIconClick = onRetryClick,
+                effectColorData        = null
+            )
+        }
+
+        // ── Connected ─────────────────────────────────────────
         is EffectViewModel.DeviceConnectionState.Connected -> {
             ConnectionStateLayout(
-                boxSize = animatedBoxSize,
-                effectSize = animatedEffectSize,
-                cornerRadius = animatedCornerRadius,
-                isScrolled = isScrolled,
-                backgroundColor = cardBackgroundColor,
-                lightstickColor = effectColorData?.iconColor ?: Color.White,
+                boxSize               = animatedBoxSize,
+                effectSize            = animatedEffectSize,
+                cornerRadius          = animatedCornerRadius,
+                isScrolled            = isScrolled,
+                backgroundColor       = cardBackgroundColor,
+                lightstickColor       = effectColorData?.iconColor ?: Color.White,
                 isLightStickAnimating = isPlaying,
-                statusText = "연결 됨",
-                statusTextColor = MaterialTheme.customColors.secondary,
-                descriptionText = connectionState.device.name ?: "UNKNOWN",
-                descriptionTextColor = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
-                effectColorData = effectColorData,
-                buttonText = null,
-                onButtonClick = null
+                statusText            = "연결 됨",
+                statusTextColor       = MaterialTheme.customColors.secondary,
+                descriptionText       = connectionState.device.name ?: "UNKNOWN",
+                descriptionTextColor  = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
+                effectColorData       = effectColorData
             )
         }
     }
@@ -202,7 +209,7 @@ data class EffectColorData(
 )
 
 /**
- * ✅ 수정: transmission 기반 색상 계산 (transit 애니메이션 추가)
+ * transmission 기반 색상 계산 (transit 애니메이션 추가)
  */
 @Composable
 private fun calculateEffectColorFromTransmission(
@@ -214,7 +221,7 @@ private fun calculateEffectColorFromTransmission(
         TransmissionSource.PAYLOAD_EFFECT, TransmissionSource.TIMELINE_EFFECT -> {
             when (transmission.effectType) {
                 EffectType.ON -> {
-                    // ✅ 수정: animateOnEffect 사용 (transit 애니메이션)
+                    // animateOnEffect 사용 (transit 애니메이션)
                     val transit = transmission.transit ?: 10
                     animateOnEffect(
                         fromColor = lastColorRef.value,
@@ -226,7 +233,7 @@ private fun calculateEffectColorFromTransmission(
                     )
                 }
                 EffectType.OFF -> {
-                    // ✅ 수정: animateOffEffect 사용
+                    // animateOffEffect 사용
                     val transit = transmission.transit ?: 10
                     animateOffEffect(
                         fromColor = lastColorRef.value,
@@ -290,7 +297,7 @@ private fun calculateEffectColorFromTransmission(
 }
 
 /**
- * ✅ 원본: calculateEffectColor - key를 사용해서 완전히 격리
+ * calculateEffectColor - key를 사용해서 완전히 격리
  */
 @Composable
 private fun calculateEffectColor(
@@ -418,20 +425,6 @@ private fun calculateEffectColor(
     }
 }
 
-private fun createEffectColorData(
-    color: Color,
-    alpha: Float = 1f,
-    randomColor: Boolean
-): EffectColorData {
-    val isBlackColor = color.isBlack()
-
-    return EffectColorData(
-        iconColor = color.copy(alpha = alpha),
-        iconBrush = null,
-        gradientColor = if (isBlackColor) null else color.copy(alpha = alpha)
-    )
-}
-
 @Composable
 private fun rememberRandomHueColor(alpha: Float = 1f): Color {
     val infiniteTransition = rememberInfiniteTransition(label = "hueRotation")
@@ -450,7 +443,7 @@ private fun rememberRandomHueColor(alpha: Float = 1f): Color {
 }
 
 /**
- * ✅ 통합 헬퍼 함수
+ * 통합 헬퍼 함수
  */
 private fun buildEffectData(finalColor: Color): EffectColorData {
     val iconColor = finalColor.copy(alpha = 1f)
@@ -464,7 +457,7 @@ private fun buildEffectData(finalColor: Color): EffectColorData {
 }
 
 /**
- * ✅ 최종 수정: ON Effect 애니메이션 (깜빡임 제거)
+ * ON Effect 애니메이션
  */
 @Composable
 private fun animateOnEffect(
@@ -475,9 +468,8 @@ private fun animateOnEffect(
     onColorUpdate: (Color) -> Unit,
     backgroundColor: Color
 ): EffectColorData {
-    // ✅ key를 사용해서 targetColor가 바뀌면 완전히 새로 시작
     return key(targetColor) {
-        val startColor = fromColor  // ✅ 새 key → fromColor 새로 캡처
+        val startColor = fromColor
         val animatable = remember { Animatable(0f) }
 
         LaunchedEffect(Unit) {
@@ -502,13 +494,13 @@ private fun animateOnEffect(
         EffectColorData(
             iconColor = iconColor,
             iconBrush = null,
-            gradientColor = blendedGradientColor
+            gradientColor =  if (iconColor.isBlack()) null else blendedGradientColor
         )
     }
 }
 
 /**
- * ✅ 최종 수정: OFF Effect 애니메이션
+ * OFF Effect 애니메이션
  */
 @Composable
 private fun animateOffEffect(
@@ -517,7 +509,7 @@ private fun animateOffEffect(
     onColorUpdate: (Color) -> Unit,
     backgroundColor: Color
 ): EffectColorData {
-    // ✅ OFF는 한 번만 실행되므로 key 불필요하지만 일관성을 위해 유지
+    // OFF는 한 번만 실행되므로 key 불필요하지만 일관성을 위해 유지
     val startColor = fromColor.copy(alpha = 1f)
     val animatable = remember { Animatable(0f) }
 
@@ -538,7 +530,7 @@ private fun animateOffEffect(
     return EffectColorData(
         iconColor = iconColor,
         iconBrush = null,
-        gradientColor = blendedGradientColor
+        gradientColor =  if (iconColor.isBlack()) null else blendedGradientColor
     )
 }
 
@@ -582,13 +574,13 @@ private fun animatePeriodicEffect(
         EffectColorData(
             iconColor = iconColor,
             iconBrush = null,
-            gradientColor = blendedGradientColor
+            gradientColor =  if (iconColor.isBlack()) null else blendedGradientColor
         )
     }
 }
 
 /**
- * ✅ 최종: Breath Effect 애니메이션
+ * Breath Effect 애니메이션
  *
  * period를 4등분:
  * 1. 0~25%: current → FG
@@ -619,21 +611,21 @@ private fun animateBreathEffect(
     return key(fgColor, bgColor) {
         val startColor = fromColor
 
-        // ✅ 첫 사이클 여부
+        // 첫 사이클 여부
         val isFirstCycle = remember { mutableStateOf(true) }
 
-        // ✅ Breath 애니메이션 (period를 4등분)
+        // Breath 애니메이션 (period를 4등분)
         val breathProgress by rememberInfiniteTransition(label = "breathEffect").animateFloat(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(period * 100, easing = LinearEasing),  // ✅ period * 100
+                animation = tween(period * 100, easing = LinearEasing),
                 repeatMode = RepeatMode.Restart
             ),
             label = "breathProgress"
         )
 
-        // ✅ 첫 사이클 완료 체크
+        // 첫 사이클 완료 체크
         LaunchedEffect(breathProgress) {
             if (breathProgress >= 0.99f && isFirstCycle.value) {
                 isFirstCycle.value = false
@@ -684,9 +676,6 @@ private fun animateBreathEffect(
     }
 }
 
-// Delete the old buildEffectData and createEffectColorData functions
-
-// 기존에 중복되던 lerp 함수 하나를 삭제하고, 아래 코드로 교체합니다.
 private fun hsvLerp(start: Color, end: Color, fraction: Float): Color {
     val startHsv = FloatArray(3)
     AndroidColor.colorToHSV(start.toArgb(), startHsv)
@@ -827,7 +816,7 @@ private fun ConnectionStateLayout(
                     style = ButtonStyle.PRIMARY,
                     modifier = Modifier
                         .width(180.dp)
-                        .height(44.dp)  // ✅ Dialog 버튼은 48dp
+                        .height(44.dp)
                 )
             }
         } else {
@@ -876,7 +865,7 @@ private fun ConnectionStateLayout(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 16.dp), // ✅ 큰 카드일 때 상하 여백 추가
+                .padding(vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -911,7 +900,7 @@ private fun ConnectionStateLayout(
 }
 
 /**
- * ✅ RoundedIconBox - 동적 radius 계산
+ * RoundedIconBox - 동적 radius 계산
  */
 @Composable
 private fun RoundedIconBox(
@@ -954,7 +943,7 @@ private fun RoundedIconBox(
 }
 
 /**
- * ✅ 원본: LightStickIcon
+ * LightStickIcon
  */
 @Composable
 private fun LightStickIcon(

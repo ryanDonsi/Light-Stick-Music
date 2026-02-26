@@ -65,6 +65,7 @@ class SendConnectionEffectUseCase {
                 effectType = EffectType.BLINK,
                 payload = LSEffectPayload.Effects.blink(3, Colors.WHITE),
                 color = Colors.WHITE,
+                period = 3,
                 metadata = mapOf("animation" to "connection_start")
             )
             BleTransmissionMonitor.recordTransmission(startEvent)
@@ -94,6 +95,7 @@ class SendConnectionEffectUseCase {
                 effectType = EffectType.ON,
                 payload = LSEffectPayload.Effects.on(Colors.WHITE),
                 color = Colors.WHITE,
+                transit = 0,
                 metadata = mapOf("animation" to "connection_end")
             )
             BleTransmissionMonitor.recordTransmission(endEvent)

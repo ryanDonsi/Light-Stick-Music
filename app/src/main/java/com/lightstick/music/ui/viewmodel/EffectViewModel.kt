@@ -7,6 +7,8 @@ import com.lightstick.music.core.util.Log
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lightstick.device.ConnectionState
+import com.lightstick.music.core.ble.ControlMode
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.constants.PrefsKeys
 import com.lightstick.music.core.permission.PermissionManager
@@ -49,30 +51,51 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     // UseCase 인스턴스
     // ═══════════════════════════════════════════════════════════
 
-    private val playManualEffectUseCase    = PlayManualEffectUseCase()
-    private val playEffectListUseCase      = PlayEffectListUseCase()
-    private val stopEffectUseCase          = StopEffectUseCase()
+    private val playManualEffectUseCase     = PlayManualEffectUseCase()
+    private val playEffectListUseCase       = PlayEffectListUseCase()
+    private val stopEffectUseCase           = StopEffectUseCase()
     private val sendConnectionEffectUseCase = SendConnectionEffectUseCase()
-    private val getBondedDevicesUseCase    = GetBondedDevicesUseCase()
-    private val startScanUseCase           = StartScanUseCase()
-    private val connectDeviceUseCase       = ConnectDeviceUseCase()
+    private val getBondedDevicesUseCase     = GetBondedDevicesUseCase()
+    private val startScanUseCase            = StartScanUseCase()
+    private val connectDeviceUseCase        = ConnectDeviceUseCase()
 
     // ═══════════════════════════════════════════════════════════
     // Control Mode
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * Effect 제어 모드
-     *
-     * [EXCLUSIVE] - Effect 와 PlayList 는 동시에 선택될 수 없습니다.
-     *   - Effect 선택 중 PlayList 선택 → Effect 자동 해제
-     *   - PlayList 재생 중 Effect 선택 → PlayList 자동 해제
-     *   - AutoMode + 음악 재생 중 → Effect/PlayList 선택 잠금
-     */
-    enum class ControlMode { EXCLUSIVE }
+    private val controlMode: ControlMode = AppConstants.EFFECT_CONTROL_MODE
 
-    // 현재 앱은 항상 EXCLUSIVE 모드로 동작합니다.
-    private val controlMode = ControlMode.EXCLUSIVE
+    // ═══════════════════════════════════════════════════════════
+    // DeviceConnectionState
+    //
+    // 상태 전환 규칙:
+    //   NoBondedDevice : 페어링된 기기 없음      → "기기 연결하기" 버튼
+    //   Scanning       : 등록 기기 스캔 중        → 스피너
+    //   ScanFailed     : 스캔/연결 실패           → Retry 아이콘
+    //   Disconnected   : Connected 후 연결 해제   → Retry 아이콘 (ScanFailed 동일 UI)
+    //   Connected      : 연결 완료
+    //
+    // ScanFailed vs Disconnected:
+    //   ScanFailed   → 아직 Connected 된 적 없거나 연결 시도 자체 실패
+    //   Disconnected → Connected 상태에서 해제됨 (reason 은 로그로만 확인)
+    // ═══════════════════════════════════════════════════════════
+
+    sealed class DeviceConnectionState {
+        /** 페어링된 기기가 전혀 없음 → "기기 연결하기" 버튼 표시 */
+        data object NoBondedDevice : DeviceConnectionState()
+
+        /** 페어링된 기기 스캔 중 → 스피너 표시 */
+        data object Scanning       : DeviceConnectionState()
+
+        /** 스캔 실패 또는 연결 불가 (기기 범위 밖, 연결 시도 실패) → Retry 아이콘 */
+        data object ScanFailed     : DeviceConnectionState()
+
+        /** Connected 상태에서 연결 해제됨 → Retry 아이콘 (reason은 로그로만 확인) */
+        data object Disconnected   : DeviceConnectionState()
+
+        /** 연결 완료 */
+        data class  Connected(val device: Device) : DeviceConnectionState()
+    }
 
     // ═══════════════════════════════════════════════════════════
     // State Flows
@@ -81,7 +104,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     private val _toastMessage = MutableStateFlow<String?>(null)
     val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
 
-    // PlayList 선택 번호 - default null (설정 해제 상태)
     private val _selectedEffectListNumber = MutableStateFlow<Int?>(null)
     val selectedEffectListNumber: StateFlow<Int?> = _selectedEffectListNumber.asStateFlow()
 
@@ -107,13 +129,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     private val _customEffects = MutableStateFlow<List<UiEffectType.Custom>>(emptyList())
     val customEffects: StateFlow<List<UiEffectType.Custom>> = _customEffects.asStateFlow()
 
-    sealed class DeviceConnectionState {
-        data object NoBondedDevice : DeviceConnectionState()
-        data object Scanning       : DeviceConnectionState()
-        data object ScanFailed     : DeviceConnectionState()
-        data class  Connected(val device: Device) : DeviceConnectionState()
-    }
-
     private val _deviceConnectionState =
         MutableStateFlow<DeviceConnectionState>(DeviceConnectionState.NoBondedDevice)
     val deviceConnectionState: StateFlow<DeviceConnectionState> =
@@ -134,8 +149,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     val latestTransmission: StateFlow<BleTransmissionEvent?> =
         BleTransmissionMonitor.latestTransmission
 
-    // ── [추가] Effect 선택/재생 잠금 상태 ────────────────────────
-    // EXCLUSIVE 모드에서 음악 재생 중 + AutoMode 활성화 시 true 로 설정됩니다.
     private val _isEffectBlocked = MutableStateFlow(false)
     val isEffectBlocked: StateFlow<Boolean> = _isEffectBlocked.asStateFlow()
 
@@ -150,69 +163,89 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         loadCustomEffects()
         loadAllSettings()
         observeDeviceConnection()
+        observeDeviceDisconnect()
         observeMusicPlaybackState()
     }
 
     // ═══════════════════════════════════════════════════════════
-    // [추가] 음악 재생 상태 관찰 → Effect 잠금 처리
+    // Device Connection Observer  (연결 감지)
     // ═══════════════════════════════════════════════════════════
 
     /**
-     * MusicPlaybackState 를 관찰하여 EXCLUSIVE 모드에서
-     * 음악 재생 중 + AutoMode 활성화 시 Effect 선택을 차단합니다.
-     *
-     * 잠금이 해제되면 현재 선택/재생 중인 Effect 상태는 유지됩니다.
+     * 기기 연결 이벤트를 관찰합니다.
+     * 연결(Connected) 전환만 처리합니다.
+     * 해제(null) 처리는 [observeDeviceDisconnect] 에서 담당합니다.
      */
-    private fun observeMusicPlaybackState() {
-        viewModelScope.launch {
-            MusicPlaybackState.isPlayingWithAutoMode.collect { playingWithAutoMode ->
-                val blocked = playingWithAutoMode && controlMode == ControlMode.EXCLUSIVE
-                _isEffectBlocked.value = blocked
-                Log.d(TAG, "Effect blocked: $blocked (EXCLUSIVE mode, music playing with AutoMode)")
-
-                // 잠금 시작 시 현재 진행 중인 Effect/PlayList 도 즉시 중지
-                if (blocked) {
-                    effectListJob?.cancel()
-                    effectListJob = null
-                    _selectedEffectListNumber.value = null
-                    _selectedEffect.value           = null
-                    _isPlaying.value                = false
-                    _playingEffect.value            = null
-                    Log.d(TAG, "Effect/PlayList stopped by music AutoMode lock")
-                }
-            }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // Device Connection Observer
-    // ═══════════════════════════════════════════════════════════
-
     private fun observeDeviceConnection() {
-        Log.d(TAG, "observeDeviceConnection() started")
-
         viewModelScope.launch {
-            ObserveDeviceStatesUseCase.observeFirstConnectedDevice(preferLsDevice = false)
+            ObserveDeviceStatesUseCase
+                .observeFirstConnectedDevice(preferLsDevice = false)
                 .collect { connectedDevice ->
-                    Log.d(TAG, "Connected device: ${connectedDevice?.mac ?: "none"}")
-
                     if (connectedDevice != null) {
-                        val currentState   = _deviceConnectionState.value
-                        val alreadyConnected = currentState is DeviceConnectionState.Connected &&
-                                currentState.device.mac == connectedDevice.mac
-
+                        val current = _deviceConnectionState.value
+                        val alreadyConnected =
+                            current is DeviceConnectionState.Connected &&
+                                    current.device.mac == connectedDevice.mac
                         if (!alreadyConnected) {
                             _deviceConnectionState.value =
                                 DeviceConnectionState.Connected(connectedDevice)
                             Log.d(TAG, "Device state → Connected: ${connectedDevice.mac}")
                         }
-                    } else {
-                        if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
-                            _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
-                            Log.d(TAG, "Device state → NoBondedDevice")
-                        }
                     }
+                    // null 처리는 observeDeviceDisconnect 에서 reason 로그와 함께 처리
                 }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Device Disconnect Observer  (해제 감지)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * 기기 연결 해제 이벤트를 관찰합니다.
+     *
+     * Connected → Disconnected 전환 시 호출됩니다.
+     * reason은 로그로만 출력하고 상태는 [DeviceConnectionState.Disconnected]로 전환합니다.
+     */
+    private fun observeDeviceDisconnect() {
+        viewModelScope.launch {
+            ObserveDeviceStatesUseCase.observeDisconnectEvents()
+                .collect { event ->
+                    // reason 로그 출력
+                    Log.d(TAG, "Disconnect detected: mac=${event.mac} reason=${event.reason}")
+
+                    // Connected 상태일 때만 처리 (중복 이벤트 방지)
+                    if (_deviceConnectionState.value !is DeviceConnectionState.Connected) {
+                        Log.d(TAG, "Disconnect ignored: current state is not Connected")
+                        return@collect
+                    }
+
+                    _deviceConnectionState.value = DeviceConnectionState.Disconnected
+                    Log.d(TAG, "Device state → Disconnected")
+                }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // 음악 재생 상태 관찰 → Effect 잠금 처리
+    // ═══════════════════════════════════════════════════════════
+
+    private fun observeMusicPlaybackState() {
+        viewModelScope.launch {
+            MusicPlaybackState.isPlayingWithAutoMode.collect { playingWithAutoMode ->
+                val blocked = playingWithAutoMode && controlMode == ControlMode.EXCLUSIVE
+                _isEffectBlocked.value = blocked
+                Log.d(TAG, "Effect blocked: $blocked (${controlMode.getDescription()})")
+
+                if (blocked) {
+                    effectListJob?.cancel()
+                    effectListJob                   = null
+                    _selectedEffectListNumber.value = null
+                    _selectedEffect.value           = null
+                    _isPlaying.value                = false
+                    _playingEffect.value            = null
+                }
+            }
         }
     }
 
@@ -237,10 +270,9 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                 val bondedDevices = getBondedDevicesUseCase(context).getOrNull() ?: emptyList()
                 if (bondedDevices.isEmpty()) {
                     _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
-                    Log.d(TAG, "No bonded devices")
+                    Log.d(TAG, "No bonded devices → NoBondedDevice")
                     return@launch
                 }
-                Log.d(TAG, "Found ${bondedDevices.size} bonded device(s)")
 
                 _deviceConnectionState.value = DeviceConnectionState.Scanning
                 val scanResult = startScanUseCase(
@@ -255,18 +287,15 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                     return@launch
                 }
 
-                val scannedDevices = scanResult.getOrNull() ?: emptyList()
-                val bestDevice     = scannedDevices
-                    .filter { it.rssi != null }
-                    .maxByOrNull { it.rssi!! }
+                val bestDevice = scanResult.getOrNull()
+                    ?.filter { it.rssi != null }
+                    ?.maxByOrNull { it.rssi!! }
 
                 if (bestDevice == null) {
                     _deviceConnectionState.value = DeviceConnectionState.ScanFailed
-                    Log.d(TAG, "No suitable device found during scan")
+                    Log.d(TAG, "No device found → ScanFailed")
                     return@launch
                 }
-
-                Log.d(TAG, "Best device: ${bestDevice.mac} RSSI=${bestDevice.rssi}")
 
                 connectDeviceUseCase(
                     context     = context,
@@ -274,7 +303,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                     onConnected = {
                         _deviceConnectionState.value = DeviceConnectionState.Connected(bestDevice)
                         Log.d(TAG, "Auto connected: ${bestDevice.mac}")
-
                         viewModelScope.launch {
                             sendConnectionEffectUseCase(context, bestDevice)
                                 .onFailure { Log.e(TAG, "Connection animation failed: ${it.message}") }
@@ -317,106 +345,71 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                     ?: EffectSettings.defaultFor(effectType)
 
                 if (effectType is UiEffectType.EffectList) {
-                    val result = playEffectListUseCase(
-                        context        = context,
+                    playEffectListUseCase(
+                        context          = context,
                         effectListNumber = effectType.number,
-                        coroutineScope = viewModelScope
-                    )
-
-                    result.onSuccess { job ->
+                        coroutineScope   = viewModelScope
+                    ).onSuccess { job ->
                         effectListJob?.cancel()
-                        effectListJob  = job
+                        effectListJob        = job
                         _playingEffect.value = effectType
                         _isPlaying.value     = true
-                        Log.d(TAG, "EffectList play started: ${effectType.displayName}")
                     }.onFailure { error ->
                         _errorMessage.value = "EffectList 재생 실패: ${error.message}"
-                        Log.e(TAG, "playEffect error: ${error.message}")
                     }
                     return@launch
                 }
 
-                val result = playManualEffectUseCase(
+                playManualEffectUseCase(
                     context    = context,
                     effectType = effectType,
                     settings   = settings
-                )
-
-                result.onSuccess {
-                    _playingEffect.value             = effectType
-                    _isPlaying.value                 = true
-                    _selectedEffectListNumber.value  = null
-                    Log.d(TAG, "Effect sent: ${effectType.displayName}")
+                ).onSuccess {
+                    _playingEffect.value            = effectType
+                    _isPlaying.value                = true
+                    _selectedEffectListNumber.value = null
                 }.onFailure { error ->
                     _errorMessage.value = "Effect 전송 실패: ${error.message}"
-                    Log.e(TAG, "playEffect error: ${error.message}")
                 }
-
             } catch (e: Exception) {
                 _errorMessage.value = "Effect 전송 실패: ${e.message}"
-                Log.e(TAG, "playEffect error: ${e.message}")
             }
         }
     }
 
     fun stopEffect(context: Context) {
         viewModelScope.launch {
-            try {
-                val result = stopEffectUseCase(context = context, effectListJob = effectListJob)
-                result.onSuccess {
-                    effectListJob   = null
+            stopEffectUseCase(context = context, effectListJob = effectListJob)
+                .onSuccess {
+                    effectListJob                   = null
                     _playingEffect.value            = null
                     _isPlaying.value                = false
-                    _selectedEffectListNumber.value  = null
-                    Log.d(TAG, "Effect stopped")
-                }.onFailure { error ->
-                    Log.e(TAG, "stopEffect error: ${error.message}")
+                    _selectedEffectListNumber.value = null
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "stopEffect error: ${e.message}")
-            }
         }
     }
 
     // ═══════════════════════════════════════════════════════════
-    // [추가] toggleEffect - 요구사항 1, 2, 3 통합 처리
+    // toggleEffect
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * Effect 카드 클릭 시 호출합니다.
-     *
-     * ### 처리 순서
-     * 1. [요구사항 3] EXCLUSIVE + AutoMode + 음악 재생 중 → 선택 차단 (toast 표시)
-     * 2. [요구사항 1] 이미 선택된 Effect 재클릭 → 선택 해제 & Effect 중지
-     * 3. [요구사항 2-a] EXCLUSIVE 모드에서 PlayList 재생 중 → PlayList 즉시 해제 후 Effect 재생
-     * 4. 새로운 Effect 선택 & 재생
-     */
     fun toggleEffect(context: Context, effect: UiEffectType) {
-        // [요구사항 3] 음악 AutoMode 잠금 확인
         if (_isEffectBlocked.value) {
             _toastMessage.value = "음악 자동 재생 중에는 Effect를 선택할 수 없습니다"
-            Log.d(TAG, "toggleEffect blocked: music playing with AutoMode")
             return
         }
-
-        // [요구사항 1] 동일 Effect 재클릭 → 선택 해제
         if (_selectedEffect.value == effect && _isPlaying.value) {
             stopEffect(context)
             _selectedEffect.value = null
-            Log.d(TAG, "Effect deselected: ${effect.displayName}")
             return
         }
-
-        // [요구사항 2-a] EXCLUSIVE: PlayList 재생 중이면 즉시 취소 후 Effect 재생
         if (controlMode == ControlMode.EXCLUSIVE && _selectedEffectListNumber.value != null) {
             effectListJob?.cancel()
-            effectListJob = null
+            effectListJob                   = null
             _selectedEffectListNumber.value = null
             _isPlaying.value                = false
             _playingEffect.value            = null
-            Log.d(TAG, "EXCLUSIVE: PlayList cleared before playing Effect")
         }
-
         selectEffect(effect)
         playEffect(context, effect)
     }
@@ -426,8 +419,8 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     // ═══════════════════════════════════════════════════════════
 
     fun selectEffect(effect: UiEffectType) {
-        _selectedEffect.value   = effect
-        _currentSettings.value  = getEffectSettings(effect)
+        _selectedEffect.value  = effect
+        _currentSettings.value = getEffectSettings(effect)
     }
 
     fun updateColor(context: Context, color: LightStickColor) {
@@ -476,67 +469,41 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // ═══════════════════════════════════════════════════════════
-    // EffectList 선택 (EXCLUSIVE 로직 포함)
+    // EffectList 선택
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * EffectList 카드 클릭 시 호출합니다.
-     *
-     * ### 처리 순서
-     * 1. [요구사항 3] EXCLUSIVE + AutoMode + 음악 재생 중 → 선택 차단
-     * 2. 동일 PlayList 재클릭 → 선택 해제 (기본 해제 상태)
-     * 3. [요구사항 2-b] EXCLUSIVE 모드에서 Effect 재생 중 → Effect 먼저 중지 후 PlayList 재생
-     * 4. 새로운 PlayList 선택 & 재생
-     */
     fun selectEffectList(context: Context, effectNumber: Int) {
-        // [요구사항 3] 음악 AutoMode 잠금 확인
         if (_isEffectBlocked.value) {
             _toastMessage.value = "음악 자동 재생 중에는 Effect List를 선택할 수 없습니다"
-            Log.d(TAG, "selectEffectList blocked: music playing with AutoMode")
             return
         }
-
-        // 동일 PlayList 토글 → 해제 (default = 설정 해제 상태)
         if (_selectedEffectListNumber.value == effectNumber) {
             stopEffect(context)
             _selectedEffectListNumber.value = null
             _selectedEffect.value           = null
             _toastMessage.value = "리스트 반복 재생을 중지합니다"
-            Log.d(TAG, "PlayList $effectNumber deselected")
             return
         }
-
-        // [요구사항 2-b] EXCLUSIVE: Effect 선택 중이면 먼저 중지
-        if (controlMode == ControlMode.EXCLUSIVE && _isPlaying.value && _selectedEffectListNumber.value == null) {
-            // EffectList 가 아닌 일반 Effect 재생 중인 경우
-            viewModelScope.launch {
-                stopEffectUseCase(context = context, effectListJob = null)
-                    .onSuccess { Log.d(TAG, "EXCLUSIVE: Effect stopped before PlayList") }
-            }
-            _isPlaying.value     = false
-            _playingEffect.value = null
+        if (controlMode == ControlMode.EXCLUSIVE &&
+            _isPlaying.value && _selectedEffectListNumber.value == null) {
+            viewModelScope.launch { stopEffectUseCase(context = context, effectListJob = null) }
+            _isPlaying.value      = false
+            _playingEffect.value  = null
             _selectedEffect.value = null
         }
-
-        // PlayList 재생 시작
         val effect = UiEffectType.EffectList(effectNumber)
         selectEffect(effect)
         playEffect(context, effect)
         _selectedEffectListNumber.value = effectNumber
         _toastMessage.value = "저장된 리스트를 반복 재생합니다"
-        Log.d(TAG, "PlayList $effectNumber selected")
     }
 
-    /**
-     * PlayList 선택 강제 해제 (Sheet 닫기 버튼 등에서 호출)
-     */
     fun clearEffectListSelection(context: Context) {
         if (_selectedEffectListNumber.value != null) {
             stopEffect(context)
             _selectedEffect.value           = null
             _selectedEffectListNumber.value = null
             _toastMessage.value = "리스트 반복 재생을 중지합니다"
-            Log.d(TAG, "PlayList selection cleared")
         }
     }
 
@@ -552,14 +519,10 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
             _toastMessage.value = "커스텀 이펙트는 최대 ${AppConstants.MAX_CUSTOM_EFFECTS}개까지 추가 가능합니다"
             return
         }
-        val newEffect = UiEffectType.Custom(
-            id       = UUID.randomUUID().toString(),
-            baseType = baseType,
-            name     = name
+        _customEffects.value = _customEffects.value + UiEffectType.Custom(
+            id = UUID.randomUUID().toString(), baseType = baseType, name = name
         )
-        _customEffects.value = _customEffects.value + newEffect
         saveCustomEffects()
-        Log.d(TAG, "Custom effect added: $name")
     }
 
     fun renameCustomEffect(effect: UiEffectType.Custom, newName: String) {
@@ -567,7 +530,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
             if (it.id == effect.id) it.copy(name = newName) else it
         }
         saveCustomEffects()
-        Log.d(TAG, "Custom effect renamed: ${effect.name} → $newName")
     }
 
     fun deleteCustomEffect(effect: UiEffectType.Custom) {
@@ -575,47 +537,34 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         effectSettingsMapInternal.remove(getEffectKey(effect))
         _effectSettingsMap.value = effectSettingsMapInternal.toMap()
         saveCustomEffects()
-        Log.d(TAG, "Custom effect deleted: ${effect.name}")
     }
 
     private fun loadCustomEffects() {
         val json = prefs.getString(PrefsKeys.KEY_CUSTOM_EFFECTS, null) ?: return
         try {
-            val jsonArray = JSONArray(json)
-            val effects   = mutableListOf<UiEffectType.Custom>()
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                effects.add(
+            val arr = JSONArray(json)
+            _customEffects.value = (0 until arr.length()).map { i ->
+                arr.getJSONObject(i).let { obj ->
                     UiEffectType.Custom(
                         id       = obj.getString("id"),
                         baseType = UiEffectType.BaseEffectType.valueOf(obj.getString("baseType")),
                         name     = obj.getString("name")
                     )
-                )
+                }
             }
-            _customEffects.value = effects
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to load custom effects: ${e.message}")
-        }
+        } catch (e: Exception) { Log.e(TAG, "loadCustomEffects: ${e.message}") }
     }
 
     private fun saveCustomEffects() {
         try {
-            val jsonArray = JSONArray()
-            _customEffects.value.forEach { custom ->
-                jsonArray.put(JSONObject().apply {
-                    put("id",       custom.id)
-                    put("baseType", custom.baseType.name)
-                    put("name",     custom.name)
+            val arr = JSONArray()
+            _customEffects.value.forEach { c ->
+                arr.put(JSONObject().apply {
+                    put("id", c.id); put("baseType", c.baseType.name); put("name", c.name)
                 })
             }
-            prefs.edit().apply {
-                putString(PrefsKeys.KEY_CUSTOM_EFFECTS, jsonArray.toString())
-                apply()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save custom effects: ${e.message}")
-        }
+            prefs.edit().putString(PrefsKeys.KEY_CUSTOM_EFFECTS, arr.toString()).apply()
+        } catch (e: Exception) { Log.e(TAG, "saveCustomEffects: ${e.message}") }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -626,49 +575,35 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     fun selectBgPreset(index: Int) { _selectedBgPreset.value = index }
 
     fun updateFgPresetColor(index: Int, color: Color) {
-        val colors = _fgPresetColors.value.toMutableList()
-        colors[index] = color
-        _fgPresetColors.value = colors
-        saveFgPresetColors(colors)
+        val c = _fgPresetColors.value.toMutableList().also { it[index] = color }
+        _fgPresetColors.value = c; saveFgPresetColors(c)
     }
 
     fun updateBgPresetColor(index: Int, color: Color) {
-        val colors = _bgPresetColors.value.toMutableList()
-        colors[index] = color
-        _bgPresetColors.value = colors
-        saveBgPresetColors(colors)
+        val c = _bgPresetColors.value.toMutableList().also { it[index] = color }
+        _bgPresetColors.value = c; saveBgPresetColors(c)
     }
 
-    private fun loadFgPresetColors(): List<Color> {
-        return (0..9).map { index ->
-            val rgb = prefs.getInt(PrefsKeys.fgPresetKey(index), -1)
-            if (rgb != -1) rgbToColor(rgb).toComposeColor()
-            else PresetColors.defaultForegroundPresets[index]
-        }
+    private fun loadFgPresetColors(): List<Color> = (0..9).map { i ->
+        val rgb = prefs.getInt(PrefsKeys.fgPresetKey(i), -1)
+        if (rgb != -1) rgbToColor(rgb).toComposeColor() else PresetColors.defaultForegroundPresets[i]
     }
 
-    private fun loadBgPresetColors(): List<Color> {
-        return (0..9).map { index ->
-            val rgb = prefs.getInt(PrefsKeys.bgPresetKey(index), -1)
-            if (rgb != -1) rgbToColor(rgb).toComposeColor()
-            else PresetColors.defaultBackgroundPresets[index]
-        }
+    private fun loadBgPresetColors(): List<Color> = (0..9).map { i ->
+        val rgb = prefs.getInt(PrefsKeys.bgPresetKey(i), -1)
+        if (rgb != -1) rgbToColor(rgb).toComposeColor() else PresetColors.defaultBackgroundPresets[i]
     }
 
     private fun saveFgPresetColors(colors: List<Color>) {
         prefs.edit().apply {
-            colors.forEachIndexed { index, color ->
-                putInt(PrefsKeys.fgPresetKey(index), colorToRgb(color.toLightStickColor()))
-            }
+            colors.forEachIndexed { i, c -> putInt(PrefsKeys.fgPresetKey(i), colorToRgb(c.toLightStickColor())) }
             apply()
         }
     }
 
     private fun saveBgPresetColors(colors: List<Color>) {
         prefs.edit().apply {
-            colors.forEachIndexed { index, color ->
-                putInt(PrefsKeys.bgPresetKey(index), colorToRgb(color.toLightStickColor()))
-            }
+            colors.forEachIndexed { i, c -> putInt(PrefsKeys.bgPresetKey(i), colorToRgb(c.toLightStickColor())) }
             apply()
         }
     }
@@ -681,28 +616,23 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     fun clearError()         { _errorMessage.value = null }
 
     private fun loadAllSettings() {
-        val allKeys = prefs.all.keys.filter {
-            it != PrefsKeys.KEY_CUSTOM_EFFECTS &&
-                    !it.startsWith(PrefsKeys.KEY_FG_PRESET_PREFIX) &&
-                    !it.startsWith(PrefsKeys.KEY_BG_PRESET_PREFIX)
-        }
-        allKeys.forEach { key ->
-            try {
-                val json     = prefs.getString(key, null) ?: return@forEach
-                val settings = EffectSettings.fromJson(json)
-                effectSettingsMapInternal[key] = settings
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to load settings for $key: ${e.message}")
+        prefs.all.keys
+            .filter {
+                it != PrefsKeys.KEY_CUSTOM_EFFECTS &&
+                        !it.startsWith(PrefsKeys.KEY_FG_PRESET_PREFIX) &&
+                        !it.startsWith(PrefsKeys.KEY_BG_PRESET_PREFIX)
             }
-        }
+            .forEach { key ->
+                try {
+                    effectSettingsMapInternal[key] =
+                        EffectSettings.fromJson(prefs.getString(key, null) ?: return@forEach)
+                } catch (e: Exception) { Log.e(TAG, "loadAllSettings[$key]: ${e.message}") }
+            }
         _effectSettingsMap.value = effectSettingsMapInternal.toMap()
     }
 
     private fun saveSettings(key: String, settings: EffectSettings) {
-        prefs.edit().apply {
-            putString(key, settings.toJson())
-            apply()
-        }
+        prefs.edit().putString(key, settings.toJson()).apply()
     }
 
     private fun colorToRgb(color: LightStickColor): Int =
@@ -718,7 +648,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         super.onCleared()
         scanJob?.cancel()
         effectListJob?.cancel()
-        Log.d(TAG, "EffectViewModel cleared")
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -735,40 +664,35 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         val broadcasting:    Boolean         = true
     ) {
         fun toJson(): String = JSONObject().apply {
-            put("colorR",      color.r)
-            put("colorG",      color.g)
-            put("colorB",      color.b)
+            put("colorR",      color.r);   put("colorG",   color.g);   put("colorB",   color.b)
             put("bgColorR",    backgroundColor.r)
             put("bgColorG",    backgroundColor.g)
             put("bgColorB",    backgroundColor.b)
-            put("period",      period)
-            put("transit",     transit)
-            put("randomColor", randomColor)
-            put("randomDelay", randomDelay)
-            put("broadcasting",broadcasting)
+            put("period",      period);    put("transit",  transit)
+            put("randomColor", randomColor); put("randomDelay", randomDelay)
+            put("broadcasting", broadcasting)
         }.toString()
 
         companion object {
             fun defaultFor(effectType: UiEffectType): EffectSettings = when (effectType) {
-                is UiEffectType.On         -> EffectSettings(color = Colors.WHITE, backgroundColor = Colors.BLACK, period = 0,  transit = 50,  randomColor = false, randomDelay = 0, broadcasting = true)
-                is UiEffectType.Off        -> EffectSettings(color = Colors.WHITE, backgroundColor = Colors.BLACK, period = 0,  transit = 100, randomColor = false, randomDelay = 0, broadcasting = true)
-                is UiEffectType.Strobe     -> EffectSettings(color = Colors.WHITE, backgroundColor = Colors.BLACK, period = 10, transit = 0,   randomColor = false, randomDelay = 0, broadcasting = true)
-                is UiEffectType.Blink      -> EffectSettings(color = Colors.WHITE, backgroundColor = Colors.BLACK, period = 30, transit = 0,   randomColor = false, randomDelay = 0, broadcasting = true)
-                is UiEffectType.Breath     -> EffectSettings(color = Colors.WHITE, backgroundColor = Colors.BLACK, period = 30, transit = 0,   randomColor = false, randomDelay = 0, broadcasting = true)
-                is UiEffectType.EffectList -> EffectSettings(color = Colors.WHITE, backgroundColor = Colors.BLACK, period = 0,  transit = 0,   randomColor = false, randomDelay = 0, broadcasting = true)
-                is UiEffectType.Custom     -> EffectSettings(color = Colors.WHITE, backgroundColor = Colors.BLACK, period = 30, transit = 0,   randomColor = false, randomDelay = 0, broadcasting = true)
+                is UiEffectType.On         -> EffectSettings(period = 0,  transit = 50)
+                is UiEffectType.Off        -> EffectSettings(period = 0,  transit = 100)
+                is UiEffectType.Strobe     -> EffectSettings(period = 10, transit = 0)
+                is UiEffectType.Blink      -> EffectSettings(period = 30, transit = 0)
+                is UiEffectType.Breath     -> EffectSettings(period = 30, transit = 0)
+                is UiEffectType.EffectList -> EffectSettings(period = 0,  transit = 0)
+                is UiEffectType.Custom     -> EffectSettings(period = 30, transit = 0)
             }
 
             fun fromJson(json: String): EffectSettings {
-                val obj = JSONObject(json)
+                val o = JSONObject(json)
                 return EffectSettings(
-                    color           = LightStickColor(r = obj.optInt("colorR", 255),   g = obj.optInt("colorG", 255),  b = obj.optInt("colorB", 255)),
-                    backgroundColor = LightStickColor(r = obj.optInt("bgColorR", 0),   g = obj.optInt("bgColorG", 0),  b = obj.optInt("bgColorB", 0)),
-                    period          = obj.optInt("period", 10),
-                    transit         = obj.optInt("transit", 0),
-                    randomColor     = obj.optBoolean("randomColor", false),
-                    randomDelay     = obj.optInt("randomDelay", 0),
-                    broadcasting    = obj.optBoolean("broadcasting", true)
+                    color           = LightStickColor(o.optInt("colorR",255), o.optInt("colorG",255), o.optInt("colorB",255)),
+                    backgroundColor = LightStickColor(o.optInt("bgColorR",0), o.optInt("bgColorG",0), o.optInt("bgColorB",0)),
+                    period          = o.optInt("period",10),   transit  = o.optInt("transit",0),
+                    randomColor     = o.optBoolean("randomColor",false),
+                    randomDelay     = o.optInt("randomDelay",0),
+                    broadcasting    = o.optBoolean("broadcasting",true)
                 )
             }
         }
@@ -781,28 +705,27 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     sealed class UiEffectType(val displayName: String, val description: String) {
         data object On     : UiEffectType("ON",     "LED를 선택한 색상으로 켭니다")
         data object Off    : UiEffectType("OFF",    "LED를 끕니다")
-        data object Strobe : UiEffectType("STROBE", "플래시 터지는 효과 (period: 0~255)")
-        data object Blink  : UiEffectType("BLINK",  "깜빡이는 효과 (period: 0~255)")
-        data object Breath : UiEffectType("BREATH", "숨쉬듯 밝아졌다 어두워지는 효과 (period: 0~255)")
+        data object Strobe : UiEffectType("STROBE", "플래시 터지는 효과")
+        data object Blink  : UiEffectType("BLINK",  "깜빡이는 효과")
+        data object Breath : UiEffectType("BREATH", "숨쉬듯 밝아졌다 어두워지는 효과")
 
         data class EffectList(val number: Int, val subName: String = "") :
             UiEffectType(
-                displayName = "EFFECT LIST $number${if (subName.isNotEmpty()) " ($subName)" else ""}",
-                description = "내장 이펙트 리스트 재생"
+                "EFFECT LIST $number${if (subName.isNotEmpty()) " ($subName)" else ""}",
+                "내장 이펙트 리스트 재생"
             )
 
-        data class Custom(
-            val id:       String,
-            val baseType: BaseEffectType,
-            val name:     String
-        ) : UiEffectType(name, getDescriptionForBase(baseType))
+        data class Custom(val id: String, val baseType: BaseEffectType, val name: String) :
+            UiEffectType(name, getDescriptionForBase(baseType))
 
         enum class BaseEffectType(val displayName: String) {
             ON("ON"), OFF("OFF"), STROBE("STROBE"), BLINK("BLINK"), BREATH("BREATH")
         }
 
+        fun isConfigurable(): Boolean = this !is EffectList
+
         companion object {
-            private fun getDescriptionForBase(baseType: BaseEffectType): String = when (baseType) {
+            private fun getDescriptionForBase(b: BaseEffectType) = when (b) {
                 BaseEffectType.ON     -> "커스텀 ON 효과"
                 BaseEffectType.OFF    -> "커스텀 OFF 효과"
                 BaseEffectType.STROBE -> "커스텀 STROBE 효과"

@@ -1,11 +1,35 @@
 package com.lightstick.music.core.constants
 
+import com.lightstick.music.core.ble.ControlMode
+
 /**
  * 앱 전역 상수 관리
  *
  * 매직 넘버를 방지하고 중요한 설정값을 한 곳에서 관리합니다.
  */
 object AppConstants {
+
+    // ═══════════════════════════════════════════════════════════
+    // App Policy Configuration
+    //
+    // 앱 전체 동작 정책을 정의합니다.
+    // ViewModel 이 아닌 앱 수준에서 초기화되어야 하는 값들입니다.
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Effect 제어 모드 기본값 (앱 전체 정책)
+     *
+     * [ControlMode.EXCLUSIVE]  - Effect 와 PlayList 는 동시에 선택될 수 없습니다.
+     *   - Effect 선택 중 PlayList 선택 → Effect 자동 해제
+     *   - PlayList 재생 중 Effect 선택 → PlayList 자동 해제
+     *   - AutoMode + 음악 재생 중 → Effect/PlayList 선택 잠금
+     *
+     * [ControlMode.COOPERATIVE] - 특정 소스와 협력하여 동시에 전송 가능
+     * [ControlMode.BACKGROUND]  - 우선순위 높은 소스가 있으면 자동 양보
+     *
+     * @see ControlMode
+     */
+    val EFFECT_CONTROL_MODE: ControlMode = ControlMode.EXCLUSIVE
 
 
 
