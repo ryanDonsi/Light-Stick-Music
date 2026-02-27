@@ -159,12 +159,59 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     // Init
     // ═══════════════════════════════════════════════════════════
 
+//    init {
+//        loadCustomEffects()
+//        loadAllSettings()
+//        observeDeviceConnection()
+//        observeDeviceDisconnect()
+//        observeMusicPlaybackState()
+//    }
+
     init {
         loadCustomEffects()
         loadAllSettings()
-        observeDeviceConnection()
-        observeDeviceDisconnect()
+        observeDeviceStateEvents()
         observeMusicPlaybackState()
+    }
+
+    // ═══════════════════════════════════════════════════════════
+// Device State Event Observer
+// ═══════════════════════════════════════════════════════════
+
+    /**
+     * SDK SharedFlow 기반 디바이스 상태 이벤트 관찰
+     *
+     * Connected / Disconnected 전환을 단일 옵저버에서 처리합니다.
+     * 기존 observeDeviceConnection() + observeDeviceDisconnect() 2개 통합.
+     */
+    private fun observeDeviceStateEvents() {
+        viewModelScope.launch {
+            ObserveDeviceStatesUseCase.observeDeviceStateEvents()
+                .collect { event ->
+                    when (val state = event.state) {
+                        is ConnectionState.Connected -> {
+                            val current = _deviceConnectionState.value
+                            val alreadyConnected =
+                                current is DeviceConnectionState.Connected &&
+                                        current.device.mac == event.mac
+                            if (!alreadyConnected) {
+                                val device = Device(mac = event.mac, name = null, rssi = null)
+                                _deviceConnectionState.value =
+                                    DeviceConnectionState.Connected(device)
+                                Log.d(TAG, "Device state → Connected: ${event.mac}")
+                            }
+                        }
+                        is ConnectionState.Disconnected -> {
+                            Log.d(TAG, "Disconnect: mac=${event.mac} reason=${state.reason}")
+                            if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
+                                _deviceConnectionState.value = DeviceConnectionState.Disconnected
+                                Log.d(TAG, "Device state → Disconnected")
+                            }
+                        }
+                        else -> Unit  // Connecting / Disconnecting → UI 변경 없음
+                    }
+                }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -176,26 +223,26 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
      * 연결(Connected) 전환만 처리합니다.
      * 해제(null) 처리는 [observeDeviceDisconnect] 에서 담당합니다.
      */
-    private fun observeDeviceConnection() {
-        viewModelScope.launch {
-            ObserveDeviceStatesUseCase
-                .observeFirstConnectedDevice(preferLsDevice = false)
-                .collect { connectedDevice ->
-                    if (connectedDevice != null) {
-                        val current = _deviceConnectionState.value
-                        val alreadyConnected =
-                            current is DeviceConnectionState.Connected &&
-                                    current.device.mac == connectedDevice.mac
-                        if (!alreadyConnected) {
-                            _deviceConnectionState.value =
-                                DeviceConnectionState.Connected(connectedDevice)
-                            Log.d(TAG, "Device state → Connected: ${connectedDevice.mac}")
-                        }
-                    }
-                    // null 처리는 observeDeviceDisconnect 에서 reason 로그와 함께 처리
-                }
-        }
-    }
+//    private fun observeDeviceConnection() {
+//        viewModelScope.launch {
+//            ObserveDeviceStatesUseCase
+//                .observeFirstConnectedDevice(preferLsDevice = false)
+//                .collect { connectedDevice ->
+//                    if (connectedDevice != null) {
+//                        val current = _deviceConnectionState.value
+//                        val alreadyConnected =
+//                            current is DeviceConnectionState.Connected &&
+//                                    current.device.mac == connectedDevice.mac
+//                        if (!alreadyConnected) {
+//                            _deviceConnectionState.value =
+//                                DeviceConnectionState.Connected(connectedDevice)
+//                            Log.d(TAG, "Device state → Connected: ${connectedDevice.mac}")
+//                        }
+//                    }
+//                    // null 처리는 observeDeviceDisconnect 에서 reason 로그와 함께 처리
+//                }
+//        }
+//    }
 
     // ═══════════════════════════════════════════════════════════
     // Device Disconnect Observer  (해제 감지)
@@ -207,24 +254,24 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
      * Connected → Disconnected 전환 시 호출됩니다.
      * reason은 로그로만 출력하고 상태는 [DeviceConnectionState.Disconnected]로 전환합니다.
      */
-    private fun observeDeviceDisconnect() {
-        viewModelScope.launch {
-            ObserveDeviceStatesUseCase.observeDisconnectEvents()
-                .collect { event ->
-                    // reason 로그 출력
-                    Log.d(TAG, "Disconnect detected: mac=${event.mac} reason=${event.reason}")
-
-                    // Connected 상태일 때만 처리 (중복 이벤트 방지)
-                    if (_deviceConnectionState.value !is DeviceConnectionState.Connected) {
-                        Log.d(TAG, "Disconnect ignored: current state is not Connected")
-                        return@collect
-                    }
-
-                    _deviceConnectionState.value = DeviceConnectionState.Disconnected
-                    Log.d(TAG, "Device state → Disconnected")
-                }
-        }
-    }
+//    private fun observeDeviceDisconnect() {
+//        viewModelScope.launch {
+//            ObserveDeviceStatesUseCase.observeDisconnectEvents()
+//                .collect { event ->
+//                    // reason 로그 출력
+//                    Log.d(TAG, "Disconnect detected: mac=${event.mac} reason=${event.reason}")
+//
+//                    // Connected 상태일 때만 처리 (중복 이벤트 방지)
+//                    if (_deviceConnectionState.value !is DeviceConnectionState.Connected) {
+//                        Log.d(TAG, "Disconnect ignored: current state is not Connected")
+//                        return@collect
+//                    }
+//
+//                    _deviceConnectionState.value = DeviceConnectionState.Disconnected
+//                    Log.d(TAG, "Device state → Disconnected")
+//                }
+//        }
+//    }
 
     // ═══════════════════════════════════════════════════════════
     // 음악 재생 상태 관찰 → Effect 잠금 처리

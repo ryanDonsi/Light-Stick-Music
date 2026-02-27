@@ -48,6 +48,13 @@ object AppConstants {
     const val CONNECTION_TIMEOUT_MS = 10_000L
 
     // ═══════════════════════════════════════════════════════════
+    // Battery Monitoring Configuration
+    // ═══════════════════════════════════════════════════════════
+
+    /** 배터리 모니터링 주기 - 펌웨어 BAS Notification 미지원으로 인한 Polling 방식 (30초) */
+    const val BATTERY_MONITOR_INTERVAL_MS = 30_000L
+
+    // ═══════════════════════════════════════════════════════════
     // Effect Configuration
     // ═══════════════════════════════════════════════════════════
 
@@ -138,8 +145,6 @@ object AppConstants {
         const val UC_CONNECT            = "UC_Connect"
         /** DisconnectDeviceUseCase.kt */
         const val UC_DISCONNECT         = "UC_Disconnect"
-        /** GetConnectedDevicesUseCase.kt */
-        const val UC_GET_CONNECTED      = "UC_GetConnected"
         /** GetBondedDevicesUseCase.kt */
         const val UC_GET_BONDED         = "UC_GetBonded"
         /** SendFindEffectUseCase.kt */
@@ -248,7 +253,6 @@ object AppConstants {
         Feature.UC_STOP_SCAN,
         Feature.UC_CONNECT,
         Feature.UC_DISCONNECT,
-        Feature.UC_GET_CONNECTED,
         Feature.UC_GET_BONDED,
         Feature.UC_FIND_EFFECT,
         Feature.UC_CONNECTION_EFFECT,
