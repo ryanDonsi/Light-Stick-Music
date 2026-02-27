@@ -26,7 +26,7 @@ import com.lightstick.music.domain.usecase.device.SendConnectionEffectUseCase
 import com.lightstick.music.domain.usecase.device.GetBondedDevicesUseCase
 import com.lightstick.music.domain.usecase.device.StartScanUseCase
 import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
-import com.lightstick.music.domain.device.ObserveDeviceStatesUseCase
+import com.lightstick.music.domain.usecase.device.ObserveDeviceStatesUseCase
 import com.lightstick.types.Color as LightStickColor
 import com.lightstick.types.Colors
 import kotlinx.coroutines.Job

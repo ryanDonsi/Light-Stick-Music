@@ -1,4 +1,4 @@
-package com.lightstick.music.domain.device
+package com.lightstick.music.domain.usecase.device
 
 import com.lightstick.LSBluetooth
 import com.lightstick.device.ConnectionState

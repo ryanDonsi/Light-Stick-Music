@@ -18,7 +18,7 @@ import com.lightstick.music.domain.usecase.device.SendConnectionEffectUseCase
 import com.lightstick.music.domain.usecase.device.GetCachedDeviceInfoUseCase
 import com.lightstick.music.domain.usecase.device.StartScanUseCase
 import com.lightstick.music.domain.usecase.device.StopScanUseCase
-import com.lightstick.music.domain.device.ObserveDeviceStatesUseCase
+import com.lightstick.music.domain.usecase.device.ObserveDeviceStatesUseCase
 import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
 import com.lightstick.device.DeviceInfo
@@ -101,7 +101,6 @@ class DeviceViewModel : ViewModel() {
         appContext = context.applicationContext
 
         DevicePreferences.initialize(context.applicationContext)
-
         PermissionManager.logPermissionStatus(appContext!!, TAG)
 
         Log.d(TAG, "📡 Starting to observe device state events...")
@@ -114,8 +113,7 @@ class DeviceViewModel : ViewModel() {
 
     /**
      * SDK SharedFlow 기반 디바이스 상태 이벤트 관찰
-     * - StateFlow Conflation 문제 없이 Connected/Disconnected 수신
-     * - previousConnectionStates 수동 비교 불필요
+     * - StateFlow Conflation 없이 Connected/Disconnected 이벤트 수신
      * - 기존 3개 Job → 1개로 통합
      */
     private fun observeDeviceStateEvents() {
@@ -138,6 +136,9 @@ class DeviceViewModel : ViewModel() {
     /**
      * SDK에서 연결 이벤트 감지 시 처리.
      * DeviceViewModel.connect()를 통해 이미 처리된 경우는 skip.
+     *
+     * [수정] 스캔 없이 복원된 기기도 _devices에 즉시 추가
+     * → 스캔 중 연결되어도 "연결된 기기" 섹션에 즉시 표시
      */
     private fun onDeviceConnectedFromSdk(mac: String) {
         Log.d(TAG, "🔗 [SDK] Connected: $mac")
@@ -150,13 +151,22 @@ class DeviceViewModel : ViewModel() {
             ?: Device(mac = mac, name = null, rssi = null)
 
         connectedDevices[mac] = device
+
+        // ✅ _devices에 없는 기기(스캔 외 복원/외부 연결)도 즉시 목록에 추가
+        if (_devices.value.none { it.mac == mac }) {
+            _devices.value = (_devices.value + device).sortedWith(
+                compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
+                    .thenByDescending { it.rssi ?: -100 }
+            )
+            Log.d(TAG, "📋 Device added to list: $mac")
+        }
+
         updateConnectionState(mac, true)
 
         if (!_deviceDetails.value.containsKey(mac)) {
             initializeDeviceDetail(device)
         }
 
-        // Connected 후 캐시된 DeviceInfo 조회
         val deviceInfo = getCachedDeviceInfoUseCase(mac)
         if (deviceInfo != null) {
             updateDeviceInfoFromCallback(mac, deviceInfo)
@@ -164,8 +174,6 @@ class DeviceViewModel : ViewModel() {
         }
 
         registerDeviceEventRules(device)
-
-        // 배터리 모니터링 시작
         startBatteryMonitoring(mac)
 
         Log.d(TAG, "✅ 연결 처리 완료: $mac")
@@ -179,8 +187,6 @@ class DeviceViewModel : ViewModel() {
 
         connectedDevices.remove(mac)
         updateConnectionState(mac, false)
-
-        // 배터리 모니터링 중지
         stopBatteryMonitoring(mac)
 
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
@@ -195,6 +201,27 @@ class DeviceViewModel : ViewModel() {
     // BLE Scan
     // ═══════════════════════════════════════════════════════════
 
+    /**
+     * 스캔 결과 단건을 _devices에 즉시 반영 (실시간 업데이트용)
+     * onFound 콜백에서 호출됩니다.
+     */
+    private fun applyScannedDevice(device: Device) {
+        val current = _devices.value.toMutableList()
+        val idx = current.indexOfFirst { it.mac == device.mac }
+        if (idx >= 0) {
+            current[idx] = device  // RSSI 등 정보 갱신
+        } else {
+            current.add(device)    // 신규 디바이스 추가
+        }
+        _devices.value = current.sortedWith(
+            compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
+                .thenByDescending { it.rssi ?: -100 }
+        )
+    }
+
+    /**
+     * 스캔 완료 후 전체 결과를 일괄 반영
+     */
     private fun applyScannedDevices(scannedDevices: List<Device>) {
         val current = _devices.value.toMutableList()
         scannedDevices.forEach { device ->
@@ -207,6 +234,10 @@ class DeviceViewModel : ViewModel() {
         )
     }
 
+    /**
+     * 최초 1회 스캔.
+     * 이미 스캔 중이라면 skip → 재시작은 [refreshScan] 사용.
+     */
     fun startScan(context: Context) {
         if (!PermissionManager.hasBluetoothScanPermission(context)) {
             Log.w(TAG, "BLUETOOTH_SCAN permission not granted"); return
@@ -216,6 +247,7 @@ class DeviceViewModel : ViewModel() {
         }
 
         _isScanning.value = true
+        // 연결된 기기는 유지, 미연결 기기만 초기화
         _devices.value = _devices.value.filter { _connectionStates.value[it.mac] == true }
 
         scanJob = viewModelScope.launch {
@@ -224,9 +256,10 @@ class DeviceViewModel : ViewModel() {
                 startScanUseCase(
                     context    = context,
                     durationMs = AppConstants.DEVICE_SCAN_DURATION_MS,
-                    filter     = { true }
+                    filter     = { true },
+                    // ✅ 발견 즉시 _devices 업데이트
+                    onFound    = { device -> applyScannedDevice(device) }
                 ).onSuccess { scannedDevices ->
-                    applyScannedDevices(scannedDevices)
                     Log.d(TAG, "✅ Scan completed: ${scannedDevices.size} devices found")
                 }.onFailure { error ->
                     Log.e(TAG, "❌ Scan failed: ${error.message}")
@@ -239,6 +272,15 @@ class DeviceViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Pull-to-Refresh 전용 재스캔.
+     *
+     * [수정] 기존 문제: 외부 launch의 finally { _isScanning = false }가
+     * 내부 scanJob 완료 전 즉시 실행 → PullToRefresh 인디케이터 즉시 사라짐
+     *
+     * 해결: stop 처리 후 startScan() 재사용
+     * → startScan() 내부 finally에서 _isScanning 생명주기 전담
+     */
     fun refreshScan(context: Context) {
         if (!PermissionManager.hasBluetoothScanPermission(context)) {
             Log.w(TAG, "BLUETOOTH_SCAN permission not granted"); return
@@ -247,26 +289,44 @@ class DeviceViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                scanJob?.cancel()
-                scanJob = null
+                // 1. 이전 스캔 Job 취소
+                if (scanJob?.isActive == true) {
+                    Log.d(TAG, "🛑 Cancelling previous scan job...")
+                    scanJob?.cancel()
+                    scanJob = null
+                }
+
+                // 2. BLE 하드웨어 스캔 중지
                 stopScanUseCase(ctx)
                 _isScanning.value = false
-                _devices.value = _devices.value.filter { _connectionStates.value[it.mac] == true }
-                startScan(context)
+                Log.d(TAG, "✅ Previous scan stopped")
+
             } catch (e: Exception) {
                 _isScanning.value = false
-                Log.e(TAG, "❌ Refresh scan error: ${e.message}")
+                Log.e(TAG, "❌ Stop scan error: ${e.message}")
+                return@launch
             }
+
+            // 3. startScan() 재사용 → _isScanning 생명주기는 startScan이 관리
+            startScan(context)
         }
     }
 
-    fun stopScan(context: Context) {
+    fun stopScan() {
+        if (!_isScanning.value) {
+            Log.d(TAG, "Not scanning, skip stopScan()"); return
+        }
+
         scanJob?.cancel()
         scanJob = null
+
+        val ctx = appContext ?: run { _isScanning.value = false; return }
+
         viewModelScope.launch {
-            stopScanUseCase(context)
+            stopScanUseCase(ctx)
+                .onSuccess { Log.d(TAG, "✅ Scan stopped") }
+                .onFailure { Log.e(TAG, "❌ Error stopping scan: ${it.message}") }
             _isScanning.value = false
-            Log.d(TAG, "⏹️ Scan stopped")
         }
     }
 
@@ -289,12 +349,12 @@ class DeviceViewModel : ViewModel() {
                 Log.d(TAG, "🔗 Connecting to ${device.mac}...")
 
                 connectDeviceUseCase(
-                    context     = context,
-                    device      = device,
-                    onConnected = {
+                    context      = context,
+                    device       = device,
+                    onConnected  = {
                         Log.d(TAG, "✅ Connected: ${device.mac}")
-                        // SDK 이벤트로 onDeviceConnectedFromSdk 호출되지만
-                        // connect()를 통한 경우 중복 처리 방지를 위해 먼저 등록
+                        // SDK 이벤트로 onDeviceConnectedFromSdk 호출 전에 먼저 등록
+                        // → 중복 처리 방지
                         connectedDevices[device.mac] = device
                         viewModelScope.launch {
                             sendConnectionEffectUseCase(context, device).onFailure { error ->
@@ -302,7 +362,7 @@ class DeviceViewModel : ViewModel() {
                             }
                         }
                     },
-                    onFailed    = { error ->
+                    onFailed     = { error ->
                         Log.e(TAG, "❌ Connection failed: ${error.message}")
                         connectedDevices.remove(device.mac)
                     },
@@ -345,20 +405,17 @@ class DeviceViewModel : ViewModel() {
     // Find Effect
     // ═══════════════════════════════════════════════════════════
 
-    fun sendFindEffect(device: Device) {   // ← context 파라미터 제거 (기존 GitHub 패턴 유지)
+    fun sendFindEffect(device: Device) {
         val ctx = appContext
         if (ctx == null || !PermissionManager.hasBluetoothConnectPermission(ctx)) {
-            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음")
-            return
+            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음"); return
         }
 
         viewModelScope.launch {
             try {
                 if (_connectionStates.value[device.mac] != true) {
-                    Log.w(TAG, "⚠️ Device not connected: ${device.mac}")
-                    return@launch
+                    Log.w(TAG, "⚠️ Device not connected: ${device.mac}"); return@launch
                 }
-                // ✅ UseCase 시그니처: invoke(context: Context, deviceMac: String)
                 sendFindEffectUseCase(context = ctx, deviceMac = device.mac)
                     .onSuccess { Log.d(TAG, "✅ FIND effect sent: ${device.mac}") }
                     .onFailure { error -> Log.e(TAG, "❌ FIND effect failed: ${error.message}") }
@@ -416,7 +473,6 @@ class DeviceViewModel : ViewModel() {
 
     private fun registerDeviceEventRules(device: Device) {
         val ctx = appContext ?: return
-        // RegisterEventRulesUseCase.invoke(context: Context, device: Device)
         registerEventRulesUseCase(ctx, device).onFailure { error ->
             Log.e(TAG, "❌ Failed to register event rules for ${device.mac}: ${error.message}")
         }
@@ -475,9 +531,7 @@ class DeviceViewModel : ViewModel() {
     /**
      * 배터리 레벨 모니터링 시작
      *
-     * 펌웨어가 BAS Notification 미지원(CCCD 없음)이므로
-     * 주기적으로 readBattery()를 호출하여 배터리 상태를 갱신합니다.
-     *
+     * 펌웨어 BAS Notification 미지원으로 주기적 readBattery() 방식 사용.
      * - Connected 시 즉시 1회 조회
      * - 이후 [AppConstants.BATTERY_MONITOR_INTERVAL_MS] 간격으로 반복 조회
      * - Disconnected 시 [stopBatteryMonitoring]으로 자동 중지
@@ -488,10 +542,8 @@ class DeviceViewModel : ViewModel() {
         batteryMonitoringJobs[mac] = viewModelScope.launch {
             Log.d(TAG, "🔋 Battery monitoring started: $mac")
 
-            // 연결 직후 즉시 1회 조회
-            readBatteryLevel(mac)
+            readBatteryLevel(mac)  // 연결 직후 즉시 1회
 
-            // 이후 주기적 조회
             while (true) {
                 delay(AppConstants.BATTERY_MONITOR_INTERVAL_MS)
                 if (!connectedDevices.containsKey(mac)) break
@@ -619,5 +671,33 @@ class DeviceViewModel : ViewModel() {
             compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
                 .thenByDescending { it.rssi ?: -100 }
         )
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Cleanup
+    // ═══════════════════════════════════════════════════════════
+
+    override fun onCleared() {
+        super.onCleared()
+        Log.d(TAG, "🧹 Cleaning up ViewModel...")
+
+        scanJob?.cancel()
+        batteryMonitoringJobs.values.forEach { it.cancel() }
+        batteryMonitoringJobs.clear()
+
+        val ctx = appContext
+        if (ctx != null && PermissionManager.hasBluetoothConnectPermission(ctx)) {
+            connectedDevices.values.forEach { device ->
+                try {
+                    disconnectDeviceUseCase(ctx, device)
+                    Log.d(TAG, "   Disconnected: ${device.mac}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "   Error disconnecting ${device.mac}: ${e.message}")
+                }
+            }
+        }
+
+        connectedDevices.clear()
+        Log.d(TAG, "✅ Cleanup completed")
     }
 }
