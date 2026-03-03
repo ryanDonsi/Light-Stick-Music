@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.lightstick.music.R
+import com.lightstick.music.core.constants.EffectKeys
 import com.lightstick.music.core.util.toComposeColor
 import com.lightstick.music.core.util.toLightStickColor
 import com.lightstick.music.ui.components.common.CustomToast
@@ -297,7 +298,7 @@ fun EffectScreen(
                     ) {
                         // ── Basic Effects ─────────────────────────────────
                         items(basicEffects) { effect ->
-                            val effectSettings = effectSettingsMap[viewModel.getEffectKey(effect)]
+                            val effectSettings = effectSettingsMap[EffectKeys.of(effect)]
                                 ?: EffectViewModel.EffectSettings.defaultFor(effect)
                             EffectTypeCard(
                                 effect         = effect,
@@ -319,7 +320,7 @@ fun EffectScreen(
 
                         // ── Custom Effects ────────────────────────────────
                         items(customEffects) { effect ->
-                            val effectSettings = effectSettingsMap[viewModel.getEffectKey(effect)]
+                            val effectSettings = effectSettingsMap[EffectKeys.of(effect)]
                                 ?: EffectViewModel.EffectSettings.defaultFor(effect)
                             EffectTypeCard(
                                 effect         = effect,
@@ -439,7 +440,7 @@ fun EffectScreen(
 
     // Effect Settings Dialog
     settingsDialogEffect?.let { effect ->
-        val initialSettings = effectSettingsMap[viewModel.getEffectKey(effect)]
+        val initialSettings = effectSettingsMap[EffectKeys.of(effect)]
             ?: EffectViewModel.EffectSettings.defaultFor(effect)
         LaunchedEffect(effect) { overrideSettings = initialSettings }
         EffectSettingsDialog(
@@ -461,7 +462,7 @@ fun EffectScreen(
 
     // Color Picker Dialog
     colorPickerState?.let { (effect, isBackground) ->
-        val settings     = effectSettingsMap[viewModel.getEffectKey(effect)]
+        val settings     = effectSettingsMap[EffectKeys.of(effect)]
             ?: EffectViewModel.EffectSettings.defaultFor(effect)
         val currentColor = if (isBackground) settings.backgroundColor else settings.color
         ColorPickerDialog(

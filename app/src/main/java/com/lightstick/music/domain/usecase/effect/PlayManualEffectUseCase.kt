@@ -1,6 +1,7 @@
 package com.lightstick.music.domain.usecase.effect
 
 import android.content.Context
+import com.lightstick.music.core.constants.EffectKeys
 import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.ui.viewmodel.EffectViewModel
@@ -42,7 +43,7 @@ class PlayManualEffectUseCase {
                 context = context,
                 payload = payload,
                 source = TransmissionSource.PAYLOAD_EFFECT,
-                metadata = mapOf("effectType" to effectType.displayName)
+                metadata = mapOf("effectType" to EffectKeys.of(effectType))
             )
 
             if (success) {

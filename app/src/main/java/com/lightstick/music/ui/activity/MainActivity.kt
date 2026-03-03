@@ -172,9 +172,7 @@ class MainActivity : ComponentActivity() {
             PermissionManager.logPermissionStatus(this, "PermissionResult")
 
             val allGranted = results.values.all { it }
-            if (allGranted) {
-                deviceViewModel.startScan(this)
-            } else {
+            if (!allGranted) {
                 Toast.makeText(
                     this,
                     "일부 권한이 거부되었습니다. BLE 기능이 제한될 수 있습니다.",

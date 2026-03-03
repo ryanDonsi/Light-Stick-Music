@@ -11,6 +11,7 @@ import com.lightstick.device.ConnectionState
 import com.lightstick.music.core.ble.ControlMode
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.constants.PrefsKeys
+import com.lightstick.music.core.constants.EffectKeys
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.core.state.MusicPlaybackState
 import com.lightstick.music.core.util.toComposeColor
@@ -27,6 +28,7 @@ import com.lightstick.music.domain.usecase.device.GetBondedDevicesUseCase
 import com.lightstick.music.domain.usecase.device.StartScanUseCase
 import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.ObserveDeviceStatesUseCase
+//import com.lightstick.music.domain.usecase.device.GetConnectedDevicesUseCase
 import com.lightstick.types.Color as LightStickColor
 import com.lightstick.types.Colors
 import kotlinx.coroutines.Job
@@ -37,6 +39,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import androidx.core.content.edit
 
 class EffectViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -58,6 +61,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     private val getBondedDevicesUseCase     = GetBondedDevicesUseCase()
     private val startScanUseCase            = StartScanUseCase()
     private val connectDeviceUseCase        = ConnectDeviceUseCase()
+//    private val getConnectedDevicesUseCase  = GetConnectedDevicesUseCase()
 
     // ═══════════════════════════════════════════════════════════
     // Control Mode
@@ -123,8 +127,8 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    private val _playingEffect = MutableStateFlow<UiEffectType?>(null)
-    val playingEffect: StateFlow<UiEffectType?> = _playingEffect.asStateFlow()
+//    private val _playingEffect = MutableStateFlow<UiEffectType?>(null)
+//    val playingEffect: StateFlow<UiEffectType?> = _playingEffect.asStateFlow()
 
     private val _customEffects = MutableStateFlow<List<UiEffectType.Custom>>(emptyList())
     val customEffects: StateFlow<List<UiEffectType.Custom>> = _customEffects.asStateFlow()
@@ -220,8 +224,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * 기기 연결 이벤트를 관찰합니다.
-     * 연결(Connected) 전환만 처리합니다.
-     * 해제(null) 처리는 [observeDeviceDisconnect] 에서 담당합니다.
      */
 //    private fun observeDeviceConnection() {
 //        viewModelScope.launch {
@@ -290,7 +292,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                     _selectedEffectListNumber.value = null
                     _selectedEffect.value           = null
                     _isPlaying.value                = false
-                    _playingEffect.value            = null
+//                    _playingEffect.value            = null
                 }
             }
         }
@@ -309,8 +311,9 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         scanJob?.cancel()
         scanJob = viewModelScope.launch {
             try {
+                // ✅ 1순위: ViewModel 상태 확인
                 if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
-                    Log.d(TAG, "Already connected")
+                    Log.d(TAG, "Already connected (state)")
                     return@launch
                 }
 
@@ -399,7 +402,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                     ).onSuccess { job ->
                         effectListJob?.cancel()
                         effectListJob        = job
-                        _playingEffect.value = effectType
+//                        _playingEffect.value = effectType
                         _isPlaying.value     = true
                     }.onFailure { error ->
                         _errorMessage.value = "EffectList 재생 실패: ${error.message}"
@@ -412,7 +415,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
                     effectType = effectType,
                     settings   = settings
                 ).onSuccess {
-                    _playingEffect.value            = effectType
+//                    _playingEffect.value            = effectType
                     _isPlaying.value                = true
                     _selectedEffectListNumber.value = null
                 }.onFailure { error ->
@@ -429,7 +432,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
             stopEffectUseCase(context = context, effectListJob = effectListJob)
                 .onSuccess {
                     effectListJob                   = null
-                    _playingEffect.value            = null
+//                    _playingEffect.value            = null
                     _isPlaying.value                = false
                     _selectedEffectListNumber.value = null
                 }
@@ -455,7 +458,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
             effectListJob                   = null
             _selectedEffectListNumber.value = null
             _isPlaying.value                = false
-            _playingEffect.value            = null
+//            _playingEffect.value            = null
         }
         selectEffect(effect)
         playEffect(context, effect)
@@ -494,26 +497,19 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun saveEffectSettings(effectType: UiEffectType, settings: EffectSettings) {
-        val key = getEffectKey(effectType)
+        val key = EffectKeys.of(effectType)
         effectSettingsMapInternal[key] = settings
         saveSettings(key, settings)
         _effectSettingsMap.value = effectSettingsMapInternal.toMap()
     }
 
     fun getEffectSettings(effectType: UiEffectType): EffectSettings {
-        val key = getEffectKey(effectType)
+        val key = EffectKeys.of(effectType)
         return effectSettingsMapInternal[key] ?: EffectSettings.defaultFor(effectType)
     }
 
-    fun getEffectKey(effectType: UiEffectType): String = when (effectType) {
-        is UiEffectType.On         -> "on"
-        is UiEffectType.Off        -> "off"
-        is UiEffectType.Strobe     -> "strobe"
-        is UiEffectType.Blink      -> "blink"
-        is UiEffectType.Breath     -> "breath"
-        is UiEffectType.EffectList -> "effect_list_${effectType.number}"
-        is UiEffectType.Custom     -> "custom_${effectType.id}"
-    }
+    fun getEffectKey(effectType: UiEffectType): String =
+        EffectKeys.of(effectType)
 
     // ═══════════════════════════════════════════════════════════
     // EffectList 선택
@@ -535,7 +531,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
             _isPlaying.value && _selectedEffectListNumber.value == null) {
             viewModelScope.launch { stopEffectUseCase(context = context, effectListJob = null) }
             _isPlaying.value      = false
-            _playingEffect.value  = null
+//            _playingEffect.value  = null
             _selectedEffect.value = null
         }
         val effect = UiEffectType.EffectList(effectNumber)
@@ -566,7 +562,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
             _toastMessage.value = "커스텀 이펙트는 최대 ${AppConstants.MAX_CUSTOM_EFFECTS}개까지 추가 가능합니다"
             return
         }
-        _customEffects.value = _customEffects.value + UiEffectType.Custom(
+        _customEffects.value += UiEffectType.Custom(
             id = UUID.randomUUID().toString(), baseType = baseType, name = name
         )
         saveCustomEffects()
@@ -581,7 +577,7 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
 
     fun deleteCustomEffect(effect: UiEffectType.Custom) {
         _customEffects.value = _customEffects.value.filter { it.id != effect.id }
-        effectSettingsMapInternal.remove(getEffectKey(effect))
+        effectSettingsMapInternal.remove(EffectKeys.of(effect))
         _effectSettingsMap.value = effectSettingsMapInternal.toMap()
         saveCustomEffects()
     }
@@ -607,11 +603,17 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
             val arr = JSONArray()
             _customEffects.value.forEach { c ->
                 arr.put(JSONObject().apply {
-                    put("id", c.id); put("baseType", c.baseType.name); put("name", c.name)
+                    put("id", c.id)
+                    put("baseType", c.baseType.name)
+                    put("name", c.name)
                 })
             }
-            prefs.edit().putString(PrefsKeys.KEY_CUSTOM_EFFECTS, arr.toString()).apply()
-        } catch (e: Exception) { Log.e(TAG, "saveCustomEffects: ${e.message}") }
+            prefs.edit {
+                putString(PrefsKeys.KEY_CUSTOM_EFFECTS, arr.toString())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "saveCustomEffects: ${e.message}")
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -679,7 +681,9 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun saveSettings(key: String, settings: EffectSettings) {
-        prefs.edit().putString(key, settings.toJson()).apply()
+        prefs.edit {
+            putString(key, settings.toJson())
+        }
     }
 
     private fun colorToRgb(color: LightStickColor): Int =
@@ -748,37 +752,35 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
     // ═══════════════════════════════════════════════════════════
     // UiEffectType
     // ═══════════════════════════════════════════════════════════
+    sealed class UiEffectType(val displayName: String) {
 
-    sealed class UiEffectType(val displayName: String, val description: String) {
-        data object On     : UiEffectType("ON",     "LED를 선택한 색상으로 켭니다")
-        data object Off    : UiEffectType("OFF",    "LED를 끕니다")
-        data object Strobe : UiEffectType("STROBE", "플래시 터지는 효과")
-        data object Blink  : UiEffectType("BLINK",  "깜빡이는 효과")
-        data object Breath : UiEffectType("BREATH", "숨쉬듯 밝아졌다 어두워지는 효과")
+        data object On     : UiEffectType("ON")
+        data object Off    : UiEffectType("OFF")
+        data object Strobe : UiEffectType("STROBE")
+        data object Blink  : UiEffectType("BLINK")
+        data object Breath : UiEffectType("BREATH")
 
-        data class EffectList(val number: Int, val subName: String = "") :
-            UiEffectType(
-                "EFFECT LIST $number${if (subName.isNotEmpty()) " ($subName)" else ""}",
-                "내장 이펙트 리스트 재생"
-            )
+        data class EffectList(
+            val number: Int,
+            val subName: String = ""
+        ) : UiEffectType(
+            "EFFECT LIST $number${if (subName.isNotEmpty()) " ($subName)" else ""}"
+        )
 
-        data class Custom(val id: String, val baseType: BaseEffectType, val name: String) :
-            UiEffectType(name, getDescriptionForBase(baseType))
+        data class Custom(
+            val id: String,
+            val baseType: BaseEffectType,
+            val name: String
+        ) : UiEffectType(name)
 
         enum class BaseEffectType(val displayName: String) {
-            ON("ON"), OFF("OFF"), STROBE("STROBE"), BLINK("BLINK"), BREATH("BREATH")
+            ON("ON"),
+            OFF("OFF"),
+            STROBE("STROBE"),
+            BLINK("BLINK"),
+            BREATH("BREATH")
         }
 
         fun isConfigurable(): Boolean = this !is EffectList
-
-        companion object {
-            private fun getDescriptionForBase(b: BaseEffectType) = when (b) {
-                BaseEffectType.ON     -> "커스텀 ON 효과"
-                BaseEffectType.OFF    -> "커스텀 OFF 효과"
-                BaseEffectType.STROBE -> "커스텀 STROBE 효과"
-                BaseEffectType.BLINK  -> "커스텀 BLINK 효과"
-                BaseEffectType.BREATH -> "커스텀 BREATH 효과"
-            }
-        }
     }
 }

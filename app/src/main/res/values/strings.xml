@@ -1,3 +1,25 @@
 <resources>
+    <!-- App: Application Name -->
     <string name="app_name">GLOWSYNC</string>
+
+    <!-- Effect: Names -->
+    <string name="effect_name_on">ON</string>
+    <string name="effect_name_off">OFF</string>
+    <string name="effect_name_strobe">STROBE</string>
+    <string name="effect_name_blink">BLINK</string>
+    <string name="effect_name_breath">BREATH</string>
+    <string name="effect_name_effect_list">EFFECT LIST</string>
+    <string name="effect_name_custom">CUSTOM</string>
+
+    <!-- Effect: Toast -->
+    <string name="effect_toast_blocked_during_music_auto">음악 자동 재생 중에는 Effect를 선택할 수 없습니다</string>
+    <string name="effect_toast_effectlist_stop">리스트 반복 재생을 중지합니다</string>
+    <string name="effect_toast_effectlist_repeat">저장된 리스트를 반복 재생합니다</string>
+    <string name="effect_toast_custom_effect_max">커스텀 이펙트는 최대 %1$d개까지 추가 가능합니다</string>
+
+    <!-- Effect: Errors -->
+    <string name="effect_error_bluetooth_permission_required">Bluetooth 권한이 필요합니다</string>
+    <string name="effect_error_connect_failed">연결 실패: %1$s</string>
+    <string name="effect_error_effectlist_play_failed">EffectList 재생 실패: %1$s</string>
+    <string name="effect_error_effect_send_failed">Effect 전송 실패: %1$s</string>
 </resources>
