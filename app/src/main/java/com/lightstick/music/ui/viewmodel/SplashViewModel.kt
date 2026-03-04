@@ -4,16 +4,17 @@ import android.app.Application
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.provider.MediaStore
-import com.lightstick.music.core.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lightstick.music.core.constants.PrefsKeys
-import com.lightstick.music.domain.music.MusicEffectManager
+import com.lightstick.music.core.util.Log
+import com.lightstick.music.data.local.storage.EffectPathPreferences
 import com.lightstick.music.data.model.InitializationResult
 import com.lightstick.music.data.model.InitializationState
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.data.model.SplashState
-import com.lightstick.music.data.local.storage.EffectPathPreferences
+import com.lightstick.music.domain.music.MusicEffectManager
+import com.lightstick.music.domain.usecase.music.PrecomputeAutoTimelinesUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,7 +85,6 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
                 _splashState.value = SplashState.Initializing(InitializationState.ConfiguringEffectsDirectory)
 
                 val configured = EffectPathPreferences.autoConfigureEffectsDirectory(context)
-
                 if (!configured) {
                     Log.w("InitVM", "⚠️ Auto-configuration failed, but continuing...")
                 }
@@ -94,6 +94,34 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
 
                 // 4단계: 매칭
                 val matchedList = matchEffects(musicList)
+
+                // ✅ 5단계: 자동 타임라인 생성(없는 곡만) — UI Progress 표시가 되도록 IO/MAIN 분리
+                val precomputeUseCase = PrecomputeAutoTimelinesUseCase()
+                val musicFiles = matchedList.map { File(it.filePath) }
+                val total = musicFiles.size
+
+                // ✅ 시작 상태는 MAIN에서 세팅
+                withContext(Dispatchers.Main.immediate) {
+                    val st = InitializationState.PrecomputingTimelines(0, total)
+                    _state.value = st
+                    _splashState.value = SplashState.Initializing(st)
+                }
+
+                // ✅ 무거운 작업은 IO에서 수행 (디코딩/분석이 MAIN을 막으면 ProgressBar가 멈춤)
+                withContext(Dispatchers.IO) {
+                    precomputeUseCase(
+                        context = context,
+                        musicFiles = musicFiles,
+                        onProgress = { processed, total2 ->
+                            // ✅ 진행률 갱신은 MAIN에서
+                            viewModelScope.launch(Dispatchers.Main.immediate) {
+                                val st = InitializationState.PrecomputingTimelines(processed, total2)
+                                _state.value = st
+                                _splashState.value = SplashState.Initializing(st)
+                            }
+                        }
+                    )
+                }
 
                 val duration = System.currentTimeMillis() - startTime
 
@@ -170,11 +198,7 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
                 val path = cursor.getString(dataCol)
                 val metaTitle = cursor.getString(titleCol)
                 val fileName = cursor.getString(nameCol) ?: "Unknown"
-                val title = if (!metaTitle.isNullOrBlank()) {
-                    metaTitle
-                } else {
-                    fileName.substringBeforeLast(".")
-                }
+                val title = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
                 val artist = cursor.getString(artistCol) ?: "Unknown"
 
                 // 진행 상황 업데이트
@@ -198,8 +222,7 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
                     }
 
                     // Duration 추출
-                    val durationStr =
-                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                     duration = durationStr?.toLongOrNull() ?: 0L
 
                 } catch (e: Exception) {

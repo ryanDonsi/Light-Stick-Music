@@ -152,6 +152,15 @@ private fun InitializationScreen(
                     )
                 }
 
+                is InitializationState.PrecomputingTimelines -> {
+                    ProgressSection(
+                        title = "자동 타임라인 생성 중...",
+                        current = initState.processed,
+                        total = initState.total
+                    )
+                }
+
+
                 is InitializationState.Completed -> {
                     TextSection(title = "초기화 완료")
                 }

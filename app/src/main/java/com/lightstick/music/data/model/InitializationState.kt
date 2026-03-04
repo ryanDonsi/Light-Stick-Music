@@ -17,6 +17,8 @@ sealed class InitializationState {
 
     data class MatchingEffects(val matched: Int, val total: Int) : InitializationState()
 
+    data class PrecomputingTimelines(val processed: Int, val total: Int) : InitializationState()
+
     data class Completed(
         val musicCount: Int,
         val effectCount: Int,
