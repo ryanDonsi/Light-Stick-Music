@@ -8,50 +8,57 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.Colors
 import com.lightstick.types.LSEffectPayload
+import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import kotlin.random.Random
-import kotlin.math.roundToInt
 
 /**
- * AutoTimelineGeneratorBeat_v5 (BLINK-ONLY, SINGLE PAYLOAD)
+ * AutoTimelineGeneratorBeat_v6
  *
- * ✅ 목표(사용자 스펙):
- * - Bass(저역)에서 beat(피크)만 추출
- * - BLINK는 "1개의 payload"로만 생성
- * - period로 박자(beat interval)를 맞춤
+ * 목표:
+ * - beat(박자)가 반드시 필요
+ * - peak-picking이 실패(beatTimes=0)해도, 오디오 기반(=novelty)으로 tempo+phase를 추정해
+ *   grid beat를 생성해서 항상 beatTimes를 만들어낸다.
  *
- * ✅ 펌웨어 스펙:
- * - BLINK period tick: 1 = 10ms
- * - BLINK 연출: FG = period/2, BG = period/2
- *   => FG가 다시 나오는 간격 = period * 10ms
- *
- * ✅ 결론:
- * - 추정한 1박(beat interval ms)에 맞춰 periodTicks를 계산:
- *   periodTicks = round(beatIntervalMs / 10)
- * - 타임라인에는 (t=0) BLINK 프레임 1개만 넣는다.
- *
- * ⚠️ 참고:
- * - 기존 v5 문서의 "색 5초 유지"는 beat마다 BLINK를 다시 보내는 방식에서만 의미가 있었음.
- *   "payload 1개" 요구사항을 지키려면 색은 고정(초기 1회)이어야 한다.
+ * BG는 항상 BLACK (가독성/박자 대비 목적)
  */
-class AutoTimelineGeneratorBeat_v5 {
+class AutoTimelineGeneratorBeat_v6 {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
         private const val HOP_MS = 50L
+        private const val COLOR_HOLD_MS = 5_000L
         private const val MIN_BEAT_GAP_MS = 200L
 
-        /** BLINK period tick = 10ms (firmware spec) */
-        private const val BLINK_TICK_MS = 100L
+        /** tick: 1 = 10ms */
+        private const val EFFECT_TICK_MS = 10L
+
+        /** FG:BG = 3:7 */
+        private const val FG_UNITS = 3
+        private const val BG_UNITS = 7
+        private const val TOTAL_UNITS = FG_UNITS + BG_UNITS // 10
+
+        /** ON transit */
+        private const val ON_TRANSIT = 3
 
         private const val NOVELTY_THRESHOLD_PERCENTILE = 0.80f
         private const val BASS_LPF_ALPHA = 0.04
 
-        /** beats가 부족할 때 사용하는 기본값(대략 120 BPM) => 500ms */
+        /** beat interval 기본값(대략 120bpm) */
         private const val DEFAULT_BEAT_INTERVAL_MS = 500L
+
+        /**
+         * tempo 탐색 범위 (beatMs)
+         * - 필요하면 좁혀도 됨 (예: 300~650ms)
+         */
+        private const val MIN_BEAT_MS = 250L   // bpm 240
+        private const val MAX_BEAT_MS = 750L   // bpm 80
     }
+
+    enum class FgMode { ON_PULSE, BLINK, STROBE, BREATH }
 
     data class ThemePalette(
         val black: LSColor,
@@ -68,53 +75,271 @@ class AutoTimelineGeneratorBeat_v5 {
         val bg: LSColor
     )
 
-    fun generate(musicPath: String, musicId: Int, paletteSize: Int = 4): List<Pair<Long, ByteArray>> {
+    fun generate(
+        musicPath: String,
+        musicId: Int,
+        paletteSize: Int = 4
+    ): List<Pair<Long, ByteArray>> {
         val palette = buildPalette(musicId, paletteSize.coerceIn(3, 5))
 
         // 1) Bass envelope 추출
         val bassEnv = decodeBassEnvelope(musicPath, hopMs = HOP_MS.toInt())
         if (bassEnv.isEmpty()) {
             Log.w(TAG, "Bass envelope empty -> fallback")
-            return fallbackSingleBlink(musicId, palette)
+            return fallback(musicId, palette)
         }
 
         val durationMs = bassEnv.size.toLong() * HOP_MS
 
-        // 2) novelty + peak picking -> beat 후보 타임스탬프 얻기 (BPM/interval 추정용)
+        // ✅ (요청) 로그 1: 입력 요약
+        Log.d(TAG, "bassEnv=${bassEnv.size} durationMs=$durationMs hopMs=$HOP_MS")
+
+        // 2) novelty + beat 후보(peak picking)
         val novelty = computeNovelty(bassEnv)
-        val beatTimes = pickBeatsFromNovelty(novelty, hopMs = HOP_MS, durationMs = durationMs)
+        var beatTimes = pickBeatsFromNovelty(novelty, hopMs = HOP_MS, durationMs = durationMs)
 
-        // 3) beat interval 추정 -> BLINK periodTicks 계산
-        val beatIntervalMs = estimateBeatIntervalMs(beatTimes)
-        val periodTicks = computeBlinkPeriodTicksFromBeatInterval(beatIntervalMs)
-
-        // 4) ✅ BLINK payload 1개만 생성 (t=0)
-        val hold = colorsForHold(musicId, palette, tMs = 0L)
-
-        val payloadBytes = LSEffectPayload.Effects.blink(
-            period = periodTicks,
-            color = hold.fg,
-            backgroundColor = hold.bg
-        ).toByteArray()
-
+        // ✅ (요청) 로그 2: peak picking 결과
         Log.d(
             TAG,
-            "paletteSize=$paletteSize beats=${beatTimes.size} " +
-                    "beatIntervalMs=$beatIntervalMs periodTicks=$periodTicks durationMs=$durationMs"
+            "beats(peak)=${beatTimes.size} first=${beatTimes.firstOrNull()} last=${beatTimes.lastOrNull()}"
         )
 
-        return listOf(0L to payloadBytes)
+        /**
+         * 3) beatTimes가 0이면:
+         *    - novelty 기반 autocorrelation으로 tempo(beatMs) 추정
+         *    - phase offset을 grid score로 맞춘 뒤
+         *    - grid beatTimes 생성 (오디오 기반이므로 '진짜 beat'를 강제)
+         */
+        if (beatTimes.isEmpty()) {
+            val beatMs = estimateBeatMsByAutocorr(
+                novelty = novelty,
+                hopMs = HOP_MS,
+                minBeatMs = MIN_BEAT_MS,
+                maxBeatMs = MAX_BEAT_MS
+            )
+
+            val offsetMs = estimatePhaseOffsetMs(
+                novelty = novelty,
+                hopMs = HOP_MS,
+                beatMs = beatMs
+            )
+
+            beatTimes = buildGridBeats(
+                durationMs = durationMs,
+                beatMs = beatMs,
+                offsetMs = offsetMs
+            )
+
+            Log.w(
+                TAG,
+                "peak beats=0 -> autocorr beatMs=$beatMs offsetMs=$offsetMs gridBeats=${beatTimes.size}"
+            )
+        }
+
+        // 4) beatInterval을 v6 리듬 분할(3/7)로 변환
+        val beatIntervalMs = normalizeBeatInterval(estimateBeatIntervalMs(beatTimes))
+        val unitMs = (beatIntervalMs / TOTAL_UNITS.toLong()).coerceAtLeast(1L)
+        val fgMs = unitMs * FG_UNITS
+
+        val frames = ArrayList<Pair<Long, ByteArray>>(max(1, beatTimes.size) * 2)
+
+        for (t in beatTimes) {
+            val hold = colorsForHold(musicId, palette, t) // BG=BLACK 고정
+            val fgMode = fgModeForHold(musicId, t)
+
+            val fgPayload = buildFgPayload(
+                mode = fgMode,
+                fg = hold.fg,
+                bgAlwaysBlack = Colors.BLACK,
+                unitMs = unitMs,
+                fgMs = fgMs
+            )
+
+            val bgPayload = LSEffectPayload.Effects.on(
+                color = Colors.BLACK,
+                transit = ON_TRANSIT
+            ).toByteArray()
+
+            frames.add(t to fgPayload)
+            frames.add((t + fgMs) to bgPayload)
+        }
+
+        // ✅ (요청) 로그 3: 최종 프레임 수
+        Log.d(
+            TAG,
+            "frames(final)=${frames.size} beats=${beatTimes.size} beatIntervalMs=$beatIntervalMs unitMs=$unitMs fgMs=$fgMs"
+        )
+
+        return frames.sortedBy { it.first }
     }
 
     // ─────────────────────────────────────────────
-    // Beat interval 추정
+    // ✅ beat 강제(tempo/phase) 로직
     // ─────────────────────────────────────────────
 
     /**
-     * beatTimes로부터 1박 간격(ms)을 추정한다.
-     * - outlier를 줄이기 위해 diff들의 median을 사용
-     * - beats가 부족하면 DEFAULT_BEAT_INTERVAL_MS 사용
+     * Autocorrelation으로 beatMs(템포)를 추정한다.
+     * novelty 기반이라, peak가 부족해도 주기를 잡는 데 강함.
+     *
+     * hopMs=50ms 이므로 lag는 (minBeatMs/hopMs)~(maxBeatMs/hopMs) 범위 index로 탐색.
      */
+    private fun estimateBeatMsByAutocorr(
+        novelty: FloatArray,
+        hopMs: Long,
+        minBeatMs: Long,
+        maxBeatMs: Long
+    ): Long {
+        val minLag = max(1, (minBeatMs / hopMs).toInt())
+        val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt().coerceAtMost(novelty.size - 1))
+
+        var bestLag = (DEFAULT_BEAT_INTERVAL_MS / hopMs).toInt().coerceIn(minLag, maxLag)
+        var bestScore = Double.NEGATIVE_INFINITY
+
+        // 간단한 autocorr: sum(n[i] * n[i-lag])
+        // (정규화까지 하면 더 좋지만, 여기선 선택용으로 충분)
+        for (lag in minLag..maxLag) {
+            var s = 0.0
+            var i = lag
+            while (i < novelty.size) {
+                s += (novelty[i] * novelty[i - lag]).toDouble()
+                i++
+            }
+            if (s > bestScore) {
+                bestScore = s
+                bestLag = lag
+            }
+        }
+
+        val beatMs = bestLag.toLong() * hopMs
+        return beatMs.coerceIn(minBeatMs, maxBeatMs)
+    }
+
+    /**
+     * Phase(시작 offset)를 추정한다.
+     * offset 후보(0..beatMs) 중 novelty가 가장 많이 쌓이는 offset을 선택.
+     */
+    private fun estimatePhaseOffsetMs(
+        novelty: FloatArray,
+        hopMs: Long,
+        beatMs: Long
+    ): Long {
+        val lag = max(1, (beatMs / hopMs).toInt())
+        if (lag <= 1) return 0L
+
+        var bestOffsetIdx = 0
+        var bestScore = Double.NEGATIVE_INFINITY
+
+        // offsetIndex를 0..lag-1 범위에서 탐색
+        for (offsetIdx in 0 until lag) {
+            var s = 0.0
+            var i = offsetIdx
+            while (i < novelty.size) {
+                s += novelty[i].toDouble()
+                i += lag
+            }
+            if (s > bestScore) {
+                bestScore = s
+                bestOffsetIdx = offsetIdx
+            }
+        }
+
+        return bestOffsetIdx.toLong() * hopMs
+    }
+
+    /**
+     * beatMs 간격의 grid beats 생성.
+     * offsetMs부터 시작해서 durationMs까지 beat 찍음.
+     */
+    private fun buildGridBeats(durationMs: Long, beatMs: Long, offsetMs: Long): LongArray {
+        val b = beatMs.coerceAtLeast(MIN_BEAT_GAP_MS)
+        val start = offsetMs.coerceIn(0L, b - 1)
+        val list = ArrayList<Long>()
+        var t = start
+        while (t <= durationMs) {
+            list.add(t)
+            t += b
+        }
+        return list.toLongArray()
+    }
+
+    // ─────────────────────────────────────────────
+    // FG/BG 조합
+    // ─────────────────────────────────────────────
+
+    private fun buildFgPayload(
+        mode: FgMode,
+        fg: LSColor,
+        bgAlwaysBlack: LSColor,
+        unitMs: Long,
+        fgMs: Long
+    ): ByteArray {
+        fun msToTicks(ms: Long): Int =
+            (ms.toDouble() / EFFECT_TICK_MS.toDouble()).roundToInt().coerceAtLeast(1)
+
+        return when (mode) {
+            FgMode.ON_PULSE -> {
+                LSEffectPayload.Effects.on(
+                    color = fg,
+                    transit = ON_TRANSIT
+                ).toByteArray()
+            }
+
+            FgMode.BLINK -> {
+                LSEffectPayload.Effects.blink(
+                    period = msToTicks(unitMs),
+                    color = fg,
+                    backgroundColor = bgAlwaysBlack
+                ).toByteArray()
+            }
+
+            FgMode.STROBE -> {
+                LSEffectPayload.Effects.strobe(
+                    period = msToTicks(unitMs),
+                    color = fg,
+                    backgroundColor = bgAlwaysBlack
+                ).toByteArray()
+            }
+
+            FgMode.BREATH -> {
+                LSEffectPayload.Effects.breath(
+                    period = msToTicks(fgMs),
+                    color = fg,
+                    backgroundColor = bgAlwaysBlack
+                ).toByteArray()
+            }
+        }
+    }
+
+    private fun fgModeForHold(musicId: Int, tMs: Long): FgMode {
+        val segment = (tMs / COLOR_HOLD_MS).toInt()
+        val rnd = Random(musicId * 31_415 + segment * 271)
+        val x = rnd.nextInt(100)
+        return when {
+            x < 30 -> FgMode.ON_PULSE
+            x < 55 -> FgMode.BLINK
+            x < 80 -> FgMode.STROBE
+            else -> FgMode.BREATH
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // Color: BG는 항상 BLACK
+    // ─────────────────────────────────────────────
+
+    private fun colorsForHold(musicId: Int, p: ThemePalette, tMs: Long): HoldColors {
+        val segment = (tMs / COLOR_HOLD_MS).toInt()
+        val rnd = Random(musicId * 1_000_003 + segment * 97)
+
+        val fgChoices = listOf(p.c1, p.c2, p.c3, p.white)
+        val fg = fgChoices[rnd.nextInt(fgChoices.size)]
+
+        return HoldColors(fg = fg, bg = Colors.BLACK)
+    }
+
+    // ─────────────────────────────────────────────
+    // Beat interval 추정/보정 (기존 유지)
+    // ─────────────────────────────────────────────
+
     private fun estimateBeatIntervalMs(beatTimes: LongArray): Long {
         if (beatTimes.size < 2) return DEFAULT_BEAT_INTERVAL_MS
 
@@ -130,47 +355,18 @@ class AutoTimelineGeneratorBeat_v5 {
 
         diffs.sort()
         val mid = diffs.size / 2
-        return if (diffs.size % 2 == 1) {
-            diffs[mid]
-        } else {
-            ((diffs[mid - 1] + diffs[mid]) / 2L)
-        }
+        return if (diffs.size % 2 == 1) diffs[mid] else ((diffs[mid - 1] + diffs[mid]) / 2L)
     }
 
-    /**
-     * 펌웨어 tick=10ms, FG/BG = period/2.
-     * "쿵(FG)"이 1박마다 나오게 하려면:
-     *   periodTicks * 10ms = beatIntervalMs
-     */
-    private fun computeBlinkPeriodTicksFromBeatInterval(beatIntervalMs: Long): Int {
-        val ticks = (beatIntervalMs.toDouble() / BLINK_TICK_MS.toDouble()).roundToInt()
-        return ticks.coerceAtLeast(1)
+    private fun normalizeBeatInterval(intervalMs: Long): Long {
+        var x = intervalMs.coerceAtLeast(MIN_BEAT_GAP_MS)
+        while (x > MAX_BEAT_MS && x / 2 >= MIN_BEAT_GAP_MS) x /= 2
+        while (x < MIN_BEAT_MS && x * 2 <= MAX_BEAT_MS) x *= 2
+        return x.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
     }
 
     // ─────────────────────────────────────────────
-    // Color (기존 팔레트 생성/결정적 랜덤 유지)
-    // ─────────────────────────────────────────────
-
-    private fun colorsForHold(musicId: Int, p: ThemePalette, tMs: Long): HoldColors {
-        // v5는 payload 1개이므로 사실상 tMs=0만 의미 있음
-        val segment = 0 // (tMs / COLOR_HOLD_MS) 같은 개념은 v5에선 사용하지 않음
-        val rnd = Random(musicId * 1_000_003 + segment * 97)
-
-        // FG: 팔레트 3색(c1,c2,c3) + WHITE
-        val fgChoices = listOf(p.c1, p.c2, p.c3, p.white)
-
-        // BG: 팔레트 1색 + BLACK
-        val bgTheme = p.c4 ?: p.c3
-        val bgChoices = listOf(bgTheme, p.black)
-
-        val fg = fgChoices[rnd.nextInt(fgChoices.size)]
-        val bg = bgChoices[rnd.nextInt(bgChoices.size)]
-
-        return HoldColors(fg = fg, bg = bg)
-    }
-
-    // ─────────────────────────────────────────────
-    // Beat 추출: novelty(상승분) + peak picking
+    // Beat 추출: novelty + peak picking (기존 유지)
     // ─────────────────────────────────────────────
 
     private fun computeNovelty(env: FloatArray): FloatArray {
@@ -214,7 +410,7 @@ class AutoTimelineGeneratorBeat_v5 {
     }
 
     // ─────────────────────────────────────────────
-    // Bass envelope: PCM -> 1pole LPF -> hop energy
+    // Bass envelope: PCM -> 1pole LPF -> hop energy (기존 유지)
     // ─────────────────────────────────────────────
 
     private fun decodeBassEnvelope(path: String, hopMs: Int): FloatArray {
@@ -295,7 +491,8 @@ class AutoTimelineGeneratorBeat_v5 {
                         // PCM 16bit LE
                         var i = 0
                         while (i + 1 < bytes.size) {
-                            val sample = ((bytes[i + 1].toInt() shl 8) or (bytes[i].toInt() and 0xFF)).toShort()
+                            val sample =
+                                ((bytes[i + 1].toInt() shl 8) or (bytes[i].toInt() and 0xFF)).toShort()
                             val x = sample / 32768.0
 
                             lp += alpha * (x - lp)
@@ -395,7 +592,7 @@ class AutoTimelineGeneratorBeat_v5 {
     private fun hsvToRgb(h: Float, s: Float, v: Float): LSColor {
         val hh = wrap360(h)
         val c = v * s
-        val x = c * (1 - kotlin.math.abs((hh / 60f) % 2 - 1))
+        val x = c * (1 - abs((hh / 60f) % 2 - 1))
         val m = v - c
 
         val (r1, g1, b1) = when {
@@ -413,18 +610,21 @@ class AutoTimelineGeneratorBeat_v5 {
         return LSColor(r, g, b)
     }
 
-    // ─────────────────────────────────────────────
-    // Fallback: BLINK 1개만
-    // ─────────────────────────────────────────────
+    private fun fallback(musicId: Int, palette: ThemePalette, durationMs: Long = 60_000L): List<Pair<Long, ByteArray>> {
+        val beatIntervalMs = DEFAULT_BEAT_INTERVAL_MS
+        val unitMs = (beatIntervalMs / TOTAL_UNITS.toLong()).coerceAtLeast(1L)
+        val fgMs = unitMs * FG_UNITS
 
-    private fun fallbackSingleBlink(musicId: Int, palette: ThemePalette): List<Pair<Long, ByteArray>> {
-        val hold = colorsForHold(musicId, palette, 0L)
-        val periodTicks = computeBlinkPeriodTicksFromBeatInterval(DEFAULT_BEAT_INTERVAL_MS)
-        val payload = LSEffectPayload.Effects.blink(
-            period = periodTicks,
-            color = hold.fg,
-            backgroundColor = hold.bg
-        ).toByteArray()
-        return listOf(0L to payload)
+        val frames = ArrayList<Pair<Long, ByteArray>>()
+        var t = 0L
+        while (t < durationMs) {
+            val hold = colorsForHold(musicId, palette, t)
+            val fg = LSEffectPayload.Effects.on(hold.fg, transit = ON_TRANSIT).toByteArray()
+            val bg = LSEffectPayload.Effects.on(Colors.BLACK, transit = ON_TRANSIT).toByteArray()
+            frames.add(t to fg)
+            frames.add((t + fgMs) to bg)
+            t += beatIntervalMs
+        }
+        return frames
     }
 }

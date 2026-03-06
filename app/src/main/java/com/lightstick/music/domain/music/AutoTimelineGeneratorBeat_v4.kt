@@ -3,6 +3,7 @@ package com.lightstick.music.domain.music
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.Colors
@@ -22,7 +23,7 @@ import kotlin.math.sqrt
 class AutoTimelineGeneratorBeat_v4 {
 
     companion object {
-        private const val TAG = "AutoTLBeat_v4"
+        private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
         private const val BPM_MIN = 85
         private const val BPM_MAX = 175

@@ -2,6 +2,7 @@ package com.lightstick.music.domain.usecase.music
 
 import android.content.Context
 import com.lightstick.efx.MusicId
+import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
@@ -10,6 +11,8 @@ import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v2
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v3
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v4
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v5
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v6
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v7
 import kotlinx.coroutines.yield
 import java.io.File
 
@@ -24,7 +27,7 @@ import java.io.File
 class PrecomputeAutoTimelinesUseCase {
 
     companion object {
-        private const val TAG = "PrecomputeAutoTL"
+        private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
         /**
          * ✅ 테스트 시: true면 해당 버전(vX) 파일을 전부 삭제 후 재생성
@@ -67,6 +70,8 @@ class PrecomputeAutoTimelinesUseCase {
         val genV3 = AutoTimelineGeneratorBeat_v3()
         val genV4 = AutoTimelineGeneratorBeat_v4()
         val genV5 = AutoTimelineGeneratorBeat_v5()
+        val genV6 = AutoTimelineGeneratorBeat_v6()
+        val genV7 = AutoTimelineGeneratorBeat_v7()
 
         val total = musicFiles.size
         var processed = 0
@@ -101,7 +106,17 @@ class PrecomputeAutoTimelinesUseCase {
                     3 -> genV3.generate(file.absolutePath, musicId, paletteSize = paletteSize)
                     4 -> genV4.generate(file.absolutePath, musicId, paletteSize = paletteSize)
                     5 -> genV5.generate(file.absolutePath, musicId, paletteSize = paletteSize)
+                    6 -> genV6.generate(file.absolutePath, musicId, paletteSize = paletteSize)
+                    7 -> genV7.generate(file.absolutePath, musicId, paletteSize = paletteSize)
                     else -> throw IllegalArgumentException("Unsupported version: $version")
+                }
+
+                // 핵심: beat 추출 실패면 저장하지 않음
+                if (frames.isEmpty()) {
+                    failed++
+                    Log.w(TAG, "⚠️ empty frames -> skip save file=${file.name} musicId=$musicId")
+                    if (idx % YIELD_EVERY_N == 0) yield()
+                    continue
                 }
 
                 storage.save(context, musicId, frames)

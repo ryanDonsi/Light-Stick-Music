@@ -180,6 +180,7 @@ object AppConstants {
         const val MUSIC_EFFECT_MANAGER  = "MusicEffectMgr"
         /** FftAudioProcessor.kt */
         const val FFT_PROCESSOR         = "FftProcessor"
+        const val AUTO_TIMELINE         = "AutoTimeline"
 
         // ── Data / Storage ────────────────────────────────────
         /** EffectPathPreferences.kt */
@@ -273,6 +274,7 @@ object AppConstants {
         Feature.EFFECT_ENGINE,
         Feature.MUSIC_EFFECT_MANAGER,
         Feature.FFT_PROCESSOR,
+        Feature.AUTO_TIMELINE,
 
         // ── Data / Storage ────────────────────────────────────
         Feature.STORAGE_EFFECT_PATH,
