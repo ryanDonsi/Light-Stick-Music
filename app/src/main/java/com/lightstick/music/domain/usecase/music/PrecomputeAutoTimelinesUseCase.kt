@@ -13,6 +13,7 @@ import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v4
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v5
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v6
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v7
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v8
 import kotlinx.coroutines.yield
 import java.io.File
 
@@ -69,9 +70,10 @@ class PrecomputeAutoTimelinesUseCase {
         val genV2 = AutoTimelineGeneratorBeat_v2()
         val genV3 = AutoTimelineGeneratorBeat_v3()
         val genV4 = AutoTimelineGeneratorBeat_v4()
-        val genV5 = AutoTimelineGeneratorBeat_v5()
-        val genV6 = AutoTimelineGeneratorBeat_v6()
-        val genV7 = AutoTimelineGeneratorBeat_v7()
+        val genV5 = AutoTimelineGeneratorBeat_v5()      // 전체 곡의 beat를 추정하여 BLINK 단일 연출
+        val genV6 = AutoTimelineGeneratorBeat_v6()      // 전체 곡의 beat를 추정하여 Effect 순환(ON_PULSE, BLINK, STROBE, BREATH 랜덤 채택)
+        val genV7 = AutoTimelineGeneratorBeat_v7()      // 변화점 기반 구간을 촘촘하게 나누어 beat분석 후 ON_PULSE 비트 연출, 코러스(BLINK/STROBE), 브릿지(Random Delay Breath) 별도 연출
+        val genV8 = AutoTimelineGeneratorBeat_v8()      //
 
         val total = musicFiles.size
         var processed = 0
@@ -108,6 +110,7 @@ class PrecomputeAutoTimelinesUseCase {
                     5 -> genV5.generate(file.absolutePath, musicId, paletteSize = paletteSize)
                     6 -> genV6.generate(file.absolutePath, musicId, paletteSize = paletteSize)
                     7 -> genV7.generate(file.absolutePath, musicId, paletteSize = paletteSize)
+                    8 -> genV8.generate(file.absolutePath, musicId, paletteSize = paletteSize)
                     else -> throw IllegalArgumentException("Unsupported version: $version")
                 }
 
