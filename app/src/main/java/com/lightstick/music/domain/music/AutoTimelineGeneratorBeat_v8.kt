@@ -6,7 +6,6 @@ import android.media.MediaFormat
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
-import com.lightstick.types.Colors
 import com.lightstick.types.LSEffectPayload
 import kotlin.math.abs
 import kotlin.math.max
@@ -29,8 +28,6 @@ class AutoTimelineGeneratorBeat_v8 {
         private const val COLOR_HOLD_MS = 2_000L
 
         private const val INTRO_PRESTART_TRANSIT_MS = 1_000L
-        private const val SHORT_BRIDGE_MS = 3_000L
-
         private const val MIN_SECTION_MS = 1_000L
         private const val SECTION_MERGE_GAP_MS = 600L
     }
@@ -44,6 +41,7 @@ class AutoTimelineGeneratorBeat_v8 {
         BLINK,
         STROBE,
         BREATH,
+        ON_TRANSIT_ROTATE,
         OFF_TRANSIT
     }
 
@@ -62,13 +60,13 @@ class AutoTimelineGeneratorBeat_v8 {
     }
 
     data class Palette(
-        val c1: LSColor,
-        val c2: LSColor,
-        val c3: LSColor,
-        val c4: LSColor,
-        val c5: LSColor,
-        val white: LSColor,
         val black: LSColor,
+        val white: LSColor,
+        val verseFg: List<LSColor>,
+        val chorusFg: List<LSColor>,
+        val chorusBg: List<LSColor>,
+        val bridgeRotate: List<LSColor>,
+        val bridgeBreathFg: List<LSColor>,
         val size: Int
     )
 
@@ -138,6 +136,12 @@ class AutoTimelineGeneratorBeat_v8 {
             return emptyList()
         }
 
+        Log.d(
+            TAG,
+            "beat detect OK source=FULL totalBeats=${beatTimes.size} " +
+                    "beatMs=${detect.beatMs} first=${beatTimes.firstOrNull()} last=${beatTimes.lastOrNull()}"
+        )
+
         val beatMs = detect.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
 
         val firstMusicMs = detectFirstMusicStartMs(
@@ -155,33 +159,40 @@ class AutoTimelineGeneratorBeat_v8 {
 
         Log.d(
             TAG,
-            "intro tuning firstMusicMs=$firstMusicMs introEndMs=$introEndMs forceTransitFromZero=$forceTransitFromZero durationMs=$durationMs"
+            "intro tuning firstMusicMs=$firstMusicMs introEndMs=$introEndMs " +
+                    "forceTransitFromZero=$forceTransitFromZero durationMs=$durationMs"
         )
 
         val sections = buildSections(
-            beatTimes = beatTimes,
             beatMs = beatMs,
             fullEnv = fullEnv.take(envSize),
             firstMusicMs = firstMusicMs,
-            introEndMs = introEndMs,
-            durationMs = durationMs,
-            forceTransitFromZero = forceTransitFromZero
+            durationMs = durationMs
         )
 
         sections.forEachIndexed { idx, s ->
             Log.d(
                 TAG,
                 "section beat idx=$idx ${s.startMs}~${s.endMs} " +
-                        "type=${s.type} beats=${s.beats} beatMs=${s.beatMs} source=${s.source} engine=${s.engine} change=${s.change}"
+                        "type=${s.type} beats=${s.beats} beatMs=${s.beatMs} " +
+                        "source=${s.source} engine=${s.engine} change=${s.change}"
             )
         }
+
+        val climaxMoments = detectClimaxPeakMoments(
+            fullEnv = fullEnv.take(envSize),
+            durationMs = durationMs,
+            beatMs = beatMs
+        )
+        Log.d(TAG, "climax moments=${climaxMoments.joinToString()}")
 
         val frames = buildFramesFromSections(
             musicId = musicId,
             palette = palette,
             sections = sections,
             beatTimes = beatTimes,
-            durationMs = durationMs
+            durationMs = durationMs,
+            climaxMoments = climaxMoments
         )
 
         Log.d(TAG, "v8 frames(final)=${frames.size}")
@@ -189,37 +200,26 @@ class AutoTimelineGeneratorBeat_v8 {
     }
 
     private fun buildSections(
-        beatTimes: List<Long>,
         beatMs: Long,
         fullEnv: List<Float>,
         firstMusicMs: Long,
-        introEndMs: Long,
-        durationMs: Long,
-        forceTransitFromZero: Boolean
+        durationMs: Long
     ): List<Section> {
         val raw = ArrayList<Section>()
 
-        if (!forceTransitFromZero && introEndMs > 0L) {
-            raw += Section(
-                startMs = 0L,
-                endMs = introEndMs,
-                type = SectionType.INTRO,
-                engine = FgEngine.BLINK,
-                beatMs = beatMs,
-                beats = estimateBeatCount(0L, introEndMs, beatMs),
-                source = "intro-protected",
-                change = ChangeLevel.STRONG
-            )
-        }
-
         if (firstMusicMs > 0L) {
+            val introStartMs = when {
+                firstMusicMs <= INTRO_PRESTART_TRANSIT_MS -> 0L
+                else -> firstMusicMs - INTRO_PRESTART_TRANSIT_MS
+            }
+
             raw += Section(
-                startMs = if (forceTransitFromZero) 0L else introEndMs,
+                startMs = introStartMs,
                 endMs = firstMusicMs,
                 type = SectionType.INTRO,
-                engine = FgEngine.ON_PULSE,
+                engine = FgEngine.ON_TRANSIT_ROTATE,
                 beatMs = beatMs,
-                beats = estimateBeatCount(if (forceTransitFromZero) 0L else introEndMs, firstMusicMs, beatMs),
+                beats = estimateBeatCount(introStartMs, firstMusicMs, beatMs),
                 source = "intro-prestart-transit",
                 change = ChangeLevel.STRONG
             )
@@ -231,7 +231,7 @@ class AutoTimelineGeneratorBeat_v8 {
         }
 
         val winMs = (beatMs * 4L).coerceAtLeast(2_000L)
-        val windows = ArrayList<Triple<Long, Long, Float>>() // start, end, score
+        val windows = ArrayList<Triple<Long, Long, Float>>()
 
         var t = contentStartMs
         while (t < durationMs) {
@@ -339,37 +339,42 @@ class AutoTimelineGeneratorBeat_v8 {
         type: SectionType,
         beatMs: Long
     ): Section {
-        val duration = endMs - startMs
+        val beats = estimateBeatCount(startMs, endMs, beatMs)
 
-        val engine = when (type) {
+        val normalizedType = when {
+            type == SectionType.BRIDGE && beats < 6 -> SectionType.VERSE
+            else -> type
+        }
+
+        val engine = when (normalizedType) {
             SectionType.VERSE -> FgEngine.ON_PULSE
-            SectionType.CHORUS -> FgEngine.BLINK
-            SectionType.BRIDGE -> if (duration < SHORT_BRIDGE_MS) FgEngine.ON_PULSE else FgEngine.BREATH
-            SectionType.INTRO -> FgEngine.BLINK
+            SectionType.CHORUS -> FgEngine.ON_PULSE
+            SectionType.BRIDGE -> if (beats < 20) FgEngine.ON_TRANSIT_ROTATE else FgEngine.BREATH
+            SectionType.INTRO -> FgEngine.ON_TRANSIT_ROTATE
             SectionType.END -> FgEngine.OFF_TRANSIT
         }
 
-        val source = when (type) {
-            SectionType.VERSE -> "sparse-global-blink"
-            SectionType.CHORUS -> "sparse-global-blink"
-            SectionType.BRIDGE -> if (duration < SHORT_BRIDGE_MS) "short-bridge-transit" else "sparse-global-breath"
-            SectionType.INTRO -> "intro-protected"
+        val source = when (normalizedType) {
+            SectionType.VERSE -> "verse-on-pulse-black-bg"
+            SectionType.CHORUS -> "chorus-on-pulse-color-bg"
+            SectionType.BRIDGE -> if (beats < 20) "bridge-on-transit-rotate-x4" else "bridge-breath-black-bg"
+            SectionType.INTRO -> "intro-prestart-transit"
             SectionType.END -> "end-protected"
         }
 
         val change = when {
-            duration < SHORT_BRIDGE_MS && type == SectionType.BRIDGE -> ChangeLevel.STRONG
-            duration < (beatMs * 4L) -> ChangeLevel.MEDIUM
+            normalizedType == SectionType.BRIDGE && beats < 20 -> ChangeLevel.STRONG
+            beats < 8 -> ChangeLevel.MEDIUM
             else -> ChangeLevel.STRONG
         }
 
         return Section(
             startMs = startMs,
             endMs = endMs,
-            type = type,
+            type = normalizedType,
             engine = engine,
             beatMs = beatMs,
-            beats = estimateBeatCount(startMs, endMs, beatMs),
+            beats = beats,
             source = source,
             change = change
         )
@@ -377,12 +382,27 @@ class AutoTimelineGeneratorBeat_v8 {
 
     private fun adjustBridges(sections: List<Section>): List<Section> {
         return sections.map { s ->
-            if (s.type == SectionType.BRIDGE && (s.endMs - s.startMs) < SHORT_BRIDGE_MS) {
-                s.copy(
-                    engine = FgEngine.ON_PULSE,
-                    source = "short-bridge-transit",
-                    change = ChangeLevel.STRONG
-                )
+            if (s.type == SectionType.BRIDGE) {
+                if (s.beats < 6) {
+                    s.copy(
+                        type = SectionType.VERSE,
+                        engine = FgEngine.ON_PULSE,
+                        source = "verse-on-pulse-black-bg",
+                        change = ChangeLevel.MEDIUM
+                    )
+                } else if (s.beats < 20) {
+                    s.copy(
+                        engine = FgEngine.ON_TRANSIT_ROTATE,
+                        source = "bridge-on-transit-rotate-x4",
+                        change = ChangeLevel.STRONG
+                    )
+                } else {
+                    s.copy(
+                        engine = FgEngine.BREATH,
+                        source = "bridge-breath-black-bg",
+                        change = ChangeLevel.STRONG
+                    )
+                }
             } else {
                 s
             }
@@ -415,9 +435,11 @@ class AutoTimelineGeneratorBeat_v8 {
     }
 
     private fun classifyType(score: Float, lowTh: Float, highTh: Float): SectionType {
+        val bridgeTh = lowTh * 0.85f
+
         return when {
             score >= highTh -> SectionType.CHORUS
-            score <= lowTh -> SectionType.BRIDGE
+            score <= bridgeTh -> SectionType.BRIDGE
             else -> SectionType.VERSE
         }
     }
@@ -446,61 +468,399 @@ class AutoTimelineGeneratorBeat_v8 {
         return (mean * 0.65f + activity * 0.20f + maxV * 0.15f).coerceIn(0f, 1f)
     }
 
+    private fun detectClimaxPeakMoments(
+        fullEnv: List<Float>,
+        durationMs: Long,
+        beatMs: Long
+    ): List<Long> {
+        if (fullEnv.size < 8) return emptyList()
+
+        data class PeakCandidate(
+            val tMs: Long,
+            val score: Float
+        )
+
+        val scoreArray = FloatArray(fullEnv.size) { 0f }
+        for (i in 2 until fullEnv.size - 2) {
+            val energy = fullEnv[i]
+            val rise = max(0f, fullEnv[i] - fullEnv[i - 1])
+            val localAvg = (
+                    fullEnv[i - 2] +
+                            fullEnv[i - 1] +
+                            fullEnv[i + 1] +
+                            fullEnv[i + 2]
+                    ) / 4f
+            val contrast = max(0f, energy - localAvg)
+            scoreArray[i] = energy * 0.50f + rise * 0.30f + contrast * 0.20f
+        }
+
+        val scoreList = scoreArray.toList().filter { it > 0f }
+        if (scoreList.isEmpty()) return emptyList()
+
+        val candidates = ArrayList<PeakCandidate>()
+        for (i in 2 until scoreArray.size - 2) {
+            val score = scoreArray[i]
+            if (score <= 0f) continue
+
+            val isLocalPeak =
+                score >= scoreArray[i - 1] &&
+                        score >= scoreArray[i - 2] &&
+                        score >= scoreArray[i + 1] &&
+                        score >= scoreArray[i + 2]
+
+            if (isLocalPeak) {
+                candidates += PeakCandidate(
+                    tMs = i.toLong() * HOP_MS,
+                    score = score
+                )
+            }
+        }
+
+        if (candidates.isEmpty()) return emptyList()
+
+        val sortedScores = scoreList.sorted()
+        val mean = scoreList.average().toFloat()
+        val p90 = sortedScores[(sortedScores.lastIndex * 0.90f).toInt().coerceIn(0, sortedScores.lastIndex)]
+        val variance = scoreList.fold(0f) { acc, v -> acc + (v - mean) * (v - mean) } / scoreList.size.toFloat()
+        val std = sqrt(variance)
+
+        val strongCandidates = candidates
+            .filter {
+                it.score >= p90 * 1.18f &&
+                        it.score >= mean + std * 1.30f
+            }
+            .sortedByDescending { it.score }
+
+        if (strongCandidates.isEmpty()) return emptyList()
+
+        val minGapMs = max(800L, beatMs * 4L)
+        val selected = ArrayList<PeakCandidate>()
+
+        for (c in strongCandidates) {
+            val tooClose = selected.any { abs(it.tMs - c.tMs) < minGapMs }
+            if (!tooClose) {
+                selected += c
+            }
+            if (selected.size >= 3) break
+        }
+
+        return selected
+            .sortedBy { it.tMs }
+            .map { it.tMs.coerceIn(0L, durationMs) }
+    }
+
+    private fun buildSectionBeatGrid(
+        section: Section,
+        actualBeats: List<Long>
+    ): List<Long> {
+        if (section.endMs <= section.startMs || section.beatMs <= 0L) {
+            return emptyList()
+        }
+
+        val out = ArrayList<Long>()
+        var t = section.startMs
+
+        while (t < section.endMs) {
+            out += t
+            t += section.beatMs
+        }
+
+        return out
+    }
+
     private fun buildFramesFromSections(
         musicId: Int,
         palette: Palette,
         sections: List<Section>,
         beatTimes: List<Long>,
-        durationMs: Long
+        durationMs: Long,
+        climaxMoments: List<Long>
     ): List<Pair<Long, ByteArray>> {
-        val frames = ArrayList<Pair<Long, ByteArray>>(beatTimes.size * 2 + sections.size + 4)
+        val frameMap = LinkedHashMap<Long, ByteArray>(beatTimes.size * 4 + sections.size + 8)
+
+        fun putFrame(
+            t: Long,
+            payload: ByteArray,
+            section: Section,
+            frameType: String,
+            engine: FgEngine,
+            fg: LSColor? = null,
+            bg: LSColor? = null,
+            transit: Int? = null,
+            period: Int? = null,
+            randomDelay: Int? = null,
+            note: String? = null
+        ) {
+            if (t < 0L) return
+
+            if (frameMap.containsKey(t)) {
+                Log.w(
+                    TAG,
+                    "timeline overwrite t=${t}ms type=$frameType " +
+                            "section=${section.type} engine=$engine source=${section.source}"
+                )
+            }
+
+            frameMap[t] = payload
+
+            logTimelineFrame(
+                t = t,
+                section = section,
+                frameType = frameType,
+                engine = engine,
+                fg = fg,
+                bg = bg,
+                transit = transit,
+                period = period,
+                randomDelay = randomDelay,
+                note = note
+            )
+        }
 
         for ((index, section) in sections.withIndex()) {
-            val sectionBeats = beatTimes.filter { it >= section.startMs && it < section.endMs }
+            val actualSectionBeats = beatTimes.filter { it >= section.startMs && it < section.endMs }
+            val effectiveSectionBeats = buildSectionBeatGrid(section, actualSectionBeats)
+
+            Log.d(
+                TAG,
+                "section timeline idx=$index " +
+                        "type=${section.type} range=${section.startMs}~${section.endMs} " +
+                        "section.beats=${section.beats} actualSectionBeats=${actualSectionBeats.size} " +
+                        "gridSectionBeats=${effectiveSectionBeats.size} " +
+                        "engine=${section.engine} source=${section.source}"
+            )
 
             if (section.engine == FgEngine.OFF_TRANSIT) {
-                frames += section.startMs to buildOffPayload()
+                putFrame(
+                    t = section.startMs,
+                    payload = buildOffPayload(),
+                    section = section,
+                    frameType = "SECTION_OFF",
+                    engine = FgEngine.OFF_TRANSIT,
+                    transit = ON_TRANSIT
+                )
                 continue
             }
 
-            if (sectionBeats.isEmpty()) {
-                val fg = pickFgColor(palette, musicId, index, section.startMs)
-                val bg = pickBgColor(palette, musicId, index, section.startMs)
-                frames += section.startMs to buildPayload(section.engine, fg, bg, section.beatMs)
+            if (section.engine == FgEngine.BREATH) {
+                val (fg, bg) = colorsForSectionBeat(
+                    palette = palette,
+                    musicId = musicId,
+                    sectionIndex = index,
+                    sectionType = section.type,
+                    tMs = section.startMs
+                )
+
+                putFrame(
+                    t = section.startMs,
+                    payload = buildPayload(section.engine, fg, bg, section.beatMs),
+                    section = section,
+                    frameType = "SECTION_START",
+                    engine = FgEngine.BREATH,
+                    fg = fg,
+                    bg = bg,
+                    period = msToBreathPeriod(section.beatMs),
+                    randomDelay = 5
+                )
                 continue
             }
 
-            for ((beatIndex, t) in sectionBeats.withIndex()) {
-                val fg = pickFgColor(palette, musicId, index, t)
-                val bg = pickBgColor(palette, musicId, index, t)
-                frames += t to buildPayload(section.engine, fg, bg, section.beatMs)
+            if (effectiveSectionBeats.isEmpty()) {
+                val (fg, bg) = colorsForSectionBeat(
+                    palette = palette,
+                    musicId = musicId,
+                    sectionIndex = index,
+                    sectionType = section.type,
+                    tMs = section.startMs
+                )
 
-                if (section.engine == FgEngine.ON_PULSE) {
-                    val offT = min(section.endMs, t + (section.beatMs * 3L / 10L))
-                    if (offT > t) {
-                        frames += offT to LSEffectPayload.Effects.on(
-                            color = bg,
+                putFrame(
+                    t = section.startMs,
+                    payload = buildPayload(section.engine, fg, bg, section.beatMs),
+                    section = section,
+                    frameType = "SECTION_START",
+                    engine = section.engine,
+                    fg = fg,
+                    bg = bg,
+                    transit = if (
+                        section.engine == FgEngine.ON_PULSE ||
+                        section.engine == FgEngine.ON_TRANSIT_ROTATE
+                    ) ON_TRANSIT else null,
+                    period = when (section.engine) {
+                        FgEngine.BLINK -> msToBlinkPeriod(section.beatMs)
+                        FgEngine.STROBE -> msToStrobePeriod(section.beatMs)
+                        FgEngine.BREATH -> msToBreathPeriod(section.beatMs)
+                        else -> null
+                    },
+                    note = "no-effective-beats"
+                )
+                continue
+            }
+
+            for ((beatIndex, t) in effectiveSectionBeats.withIndex()) {
+                val (fg, bg) = colorsForSectionBeat(
+                    palette = palette,
+                    musicId = musicId,
+                    sectionIndex = index,
+                    sectionType = section.type,
+                    tMs = t
+                )
+
+                if (beatIndex == 0 &&
+                    section.type == SectionType.INTRO &&
+                    section.source == "intro-prestart-transit"
+                ) {
+                    putFrame(
+                        t = section.startMs,
+                        payload = LSEffectPayload.Effects.on(
+                            color = fg,
                             transit = ON_TRANSIT
-                        ).toByteArray()
+                        ).toByteArray(),
+                        section = section,
+                        frameType = "INTRO_PRESTART",
+                        engine = FgEngine.ON_TRANSIT_ROTATE,
+                        fg = fg,
+                        transit = ON_TRANSIT,
+                        note = if (actualSectionBeats.isEmpty()) "grid-intro" else "actual-intro"
+                    )
+                }
+
+                val isClimaxBeat = climaxMoments.any { peakMs ->
+                    val climaxStart = peakMs
+                    val climaxEnd = peakMs + section.beatMs * 2L
+                    t in climaxStart until climaxEnd
+                }
+
+                if (isClimaxBeat) {
+                    putFrame(
+                        t = t,
+                        payload = LSEffectPayload.Effects.strobe(
+                            period = 2,
+                            color = palette.white,
+                            backgroundColor = palette.black
+                        ).toByteArray(),
+                        section = section,
+                        frameType = "CLIMAX_STROBE",
+                        engine = FgEngine.STROBE,
+                        fg = palette.white,
+                        bg = palette.black,
+                        period = 2,
+                        note = "climax-2beats beatIndex=$beatIndex"
+                    )
+                    continue
+                }
+
+                if (section.type == SectionType.BRIDGE && section.beats < 20) {
+                    val step = max(1L, section.beatMs / 4L)
+                    val rotateColors = rotateBridgeColors(
+                        palette = palette,
+                        musicId = musicId,
+                        sectionIndex = index,
+                        tMs = t,
+                        count = 4
+                    )
+
+                    for (sub in 0 until 4) {
+                        val subT = t + step * sub
+                        if (subT >= section.endMs) break
+
+                        val subFg = rotateColors[sub]
+
+                        putFrame(
+                            t = subT,
+                            payload = LSEffectPayload.Effects.on(
+                                color = subFg,
+                                transit = ON_TRANSIT
+                            ).toByteArray(),
+                            section = section,
+                            frameType = "BRIDGE_ROTATE",
+                            engine = FgEngine.ON_TRANSIT_ROTATE,
+                            fg = subFg,
+                            transit = ON_TRANSIT,
+                            note = buildString {
+                                append("beatIndex=$beatIndex sub=$sub")
+                                append(if (actualSectionBeats.isEmpty()) " grid-beat" else " actual-beat")
+                            }
+                        )
+                    }
+                } else {
+                    putFrame(
+                        t = t,
+                        payload = buildPayload(section.engine, fg, bg, section.beatMs),
+                        section = section,
+                        frameType = "BEAT_FG",
+                        engine = section.engine,
+                        fg = fg,
+                        bg = bg,
+                        transit = if (
+                            section.engine == FgEngine.ON_PULSE ||
+                            section.engine == FgEngine.ON_TRANSIT_ROTATE
+                        ) ON_TRANSIT else null,
+                        period = when (section.engine) {
+                            FgEngine.BLINK -> msToBlinkPeriod(section.beatMs)
+                            FgEngine.STROBE -> msToStrobePeriod(section.beatMs)
+                            FgEngine.BREATH -> msToBreathPeriod(section.beatMs)
+                            else -> null
+                        },
+                        randomDelay = if (section.engine == FgEngine.BREATH) 5 else null,
+                        note = buildString {
+                            append("beatIndex=$beatIndex")
+                            append(if (actualSectionBeats.isEmpty()) " grid-beat" else " actual-beat")
+                        }
+                    )
+
+                    if (section.engine == FgEngine.ON_PULSE) {
+                        val offT = min(section.endMs, t + (section.beatMs * 3L / 10L))
+                        if (offT > t) {
+                            putFrame(
+                                t = offT,
+                                payload = LSEffectPayload.Effects.on(
+                                    color = bg,
+                                    transit = ON_TRANSIT
+                                ).toByteArray(),
+                                section = section,
+                                frameType = "BEAT_BG",
+                                engine = FgEngine.ON_PULSE,
+                                fg = bg,
+                                transit = ON_TRANSIT,
+                                note = buildString {
+                                    append("restore beatIndex=$beatIndex")
+                                    append(if (actualSectionBeats.isEmpty()) " grid-beat" else " actual-beat")
+                                }
+                            )
+                        }
                     }
                 }
-
-                if (beatIndex == 0 && section.type == SectionType.INTRO && section.source == "intro-prestart-transit") {
-                    frames += section.startMs to LSEffectPayload.Effects.on(
-                        color = fg,
-                        transit = ON_TRANSIT
-                    ).toByteArray()
-                }
             }
         }
 
-        if (frames.none { it.first >= durationMs }) {
-            frames += durationMs to buildOffPayload()
+        if (frameMap.keys.none { it >= durationMs }) {
+            val endSection = Section(
+                startMs = durationMs,
+                endMs = durationMs,
+                type = SectionType.END,
+                engine = FgEngine.OFF_TRANSIT,
+                beatMs = 0L,
+                beats = 0,
+                source = "final-off",
+                change = ChangeLevel.STRONG
+            )
+
+            putFrame(
+                t = durationMs,
+                payload = buildOffPayload(),
+                section = endSection,
+                frameType = "FINAL_OFF",
+                engine = FgEngine.OFF_TRANSIT,
+                transit = ON_TRANSIT
+            )
         }
 
-        return frames
-            .distinctBy { it.first to it.second.contentHashCode() }
-            .sortedBy { it.first }
+        Log.d(TAG, "timeline final uniqueFrames=${frameMap.size}")
+
+        return frameMap.entries
+            .sortedBy { it.key }
+            .map { it.key to it.value }
     }
 
     private fun buildPayload(
@@ -519,7 +879,7 @@ class AutoTimelineGeneratorBeat_v8 {
 
             FgEngine.BLINK -> {
                 LSEffectPayload.Effects.blink(
-                    period = max(1, beatMs.toInt()),
+                    period = msToBlinkPeriod(beatMs),
                     color = fg,
                     backgroundColor = bg
                 ).toByteArray()
@@ -527,7 +887,7 @@ class AutoTimelineGeneratorBeat_v8 {
 
             FgEngine.STROBE -> {
                 LSEffectPayload.Effects.strobe(
-                    period = max(1, (beatMs / 2L).toInt()),
+                    period = msToStrobePeriod(beatMs),
                     color = fg,
                     backgroundColor = bg
                 ).toByteArray()
@@ -535,9 +895,17 @@ class AutoTimelineGeneratorBeat_v8 {
 
             FgEngine.BREATH -> {
                 LSEffectPayload.Effects.breath(
-                    period = max(1, beatMs.toInt()),
+                    period = msToBreathPeriod(beatMs),
                     color = fg,
-                    backgroundColor = bg
+                    backgroundColor = bg,
+                    randomDelay = 5
+                ).toByteArray()
+            }
+
+            FgEngine.ON_TRANSIT_ROTATE -> {
+                LSEffectPayload.Effects.on(
+                    color = fg,
+                    transit = ON_TRANSIT
                 ).toByteArray()
             }
 
@@ -546,42 +914,192 @@ class AutoTimelineGeneratorBeat_v8 {
     }
 
     private fun buildOffPayload(): ByteArray {
-        return LSEffectPayload.Effects.on(
-            color = Colors.BLACK,
+        return LSEffectPayload.Effects.off(
             transit = ON_TRANSIT
         ).toByteArray()
     }
 
-    private fun pickBgColor(
-        palette: Palette,
-        musicId: Int,
-        sectionIndex: Int,
-        tMs: Long
-    ): LSColor {
-        val seg = (tMs / COLOR_HOLD_MS).toInt()
-        val rnd = Random(musicId * 1_000_003 + sectionIndex * 271 + seg * 97)
-
-        val list = when {
-            palette.size >= 4 -> listOf(palette.black, palette.c4)
-            else -> listOf(palette.black)
-        }
-        return list[rnd.nextInt(list.size)]
+    private fun msToBlinkPeriod(beatMs: Long): Int {
+        return (beatMs / 10L).toInt().coerceIn(1, 255)
     }
 
-    private fun pickFgColor(
+    private fun msToStrobePeriod(beatMs: Long): Int {
+        return (beatMs / 10L).toInt().coerceIn(1, 255)
+    }
+
+    private fun msToBreathPeriod(beatMs: Long): Int {
+        return (beatMs / 20L).toInt().coerceIn(1, 255)
+    }
+
+    private fun colorsEqual(a: LSColor, b: LSColor): Boolean {
+        return a.r == b.r && a.g == b.g && a.b == b.b
+    }
+
+    private fun wrap360(h: Float): Float {
+        return ((h % 360f) + 360f) % 360f
+    }
+
+    private fun buildPalette(seed: Int, paletteSize: Int): Palette {
+        val baseHue = ((seed * 53) % 360).toFloat()
+
+        val c1 = hsvToColor(baseHue, 0.85f, 0.95f)
+        val c2 = hsvToColor(wrap360(baseHue + 18f), 0.60f, 1.00f)
+        val c3 = hsvToColor(wrap360(baseHue - 18f), 0.85f, 0.80f)
+        val c4 = hsvToColor(wrap360(baseHue + 30f), 0.75f, 0.90f)
+        val c5 = hsvToColor(wrap360(baseHue - 30f), 0.70f, 0.90f)
+
+        val verseFg = listOf(c1, c2, c3, LSColor(255, 255, 255))
+        val chorusFg = listOf(c1, c2, LSColor(255, 255, 255))
+        val chorusBg = if (paletteSize >= 5) listOf(c4, c5) else listOf(c4)
+        val bridgeRotate = if (paletteSize >= 5) listOf(c1, c2, c4, c5) else listOf(c1, c2, c3, c4)
+        val bridgeBreathFg = listOf(c2, c3, LSColor(255, 255, 255))
+
+        return Palette(
+            black = LSColor(0, 0, 0),
+            white = LSColor(255, 255, 255),
+            verseFg = verseFg,
+            chorusFg = chorusFg,
+            chorusBg = chorusBg,
+            bridgeRotate = bridgeRotate,
+            bridgeBreathFg = bridgeBreathFg,
+            size = paletteSize
+        )
+    }
+
+    private fun pickFromList(
+        items: List<LSColor>,
+        musicId: Int,
+        sectionIndex: Int,
+        tMs: Long,
+        salt: Int = 0
+    ): LSColor {
+        val seg = (tMs / COLOR_HOLD_MS).toInt()
+        val rnd = Random(musicId * 1_000_003 + sectionIndex * 271 + seg * 97 + salt * 31)
+        return items[rnd.nextInt(items.size)]
+    }
+
+    private fun colorsForSectionBeat(
         palette: Palette,
         musicId: Int,
         sectionIndex: Int,
+        sectionType: SectionType,
         tMs: Long
-    ): LSColor {
-        val seg = (tMs / COLOR_HOLD_MS).toInt()
-        val rnd = Random(musicId * 31_415 + sectionIndex * 911 + seg * 13)
+    ): Pair<LSColor, LSColor> {
+        return when (sectionType) {
+            SectionType.VERSE -> {
+                val bg = palette.black
+                val fg = pickFromList(
+                    items = palette.verseFg.filterNot { colorsEqual(it, bg) },
+                    musicId = musicId,
+                    sectionIndex = sectionIndex,
+                    tMs = tMs,
+                    salt = 1
+                )
+                fg to bg
+            }
 
-        val list = when {
-            palette.size >= 5 -> listOf(palette.c1, palette.c2, palette.c3, palette.c5, palette.white)
-            else -> listOf(palette.c1, palette.c2, palette.c3, palette.white)
+            SectionType.CHORUS -> {
+                val bg = pickFromList(
+                    items = palette.chorusBg,
+                    musicId = musicId,
+                    sectionIndex = sectionIndex,
+                    tMs = tMs,
+                    salt = 2
+                )
+                val fgCandidates = palette.chorusFg.filterNot { colorsEqual(it, bg) }
+                val fg = pickFromList(
+                    items = if (fgCandidates.isNotEmpty()) fgCandidates else palette.chorusFg,
+                    musicId = musicId,
+                    sectionIndex = sectionIndex,
+                    tMs = tMs,
+                    salt = 3
+                )
+                fg to bg
+            }
+
+            SectionType.BRIDGE -> {
+                val bg = palette.black
+                val fg = pickFromList(
+                    items = palette.bridgeBreathFg.filterNot { colorsEqual(it, bg) },
+                    musicId = musicId,
+                    sectionIndex = sectionIndex,
+                    tMs = tMs,
+                    salt = 4
+                )
+                fg to bg
+            }
+
+            SectionType.INTRO -> {
+                val bg = palette.black
+                val fg = pickFromList(
+                    items = palette.verseFg.filterNot { colorsEqual(it, bg) },
+                    musicId = musicId,
+                    sectionIndex = sectionIndex,
+                    tMs = tMs,
+                    salt = 5
+                )
+                fg to bg
+            }
+
+            SectionType.END -> palette.black to palette.black
         }
-        return list[rnd.nextInt(list.size)]
+    }
+
+    private fun safeIndex(x: Int, size: Int): Int {
+        if (size <= 0) return 0
+        return ((x % size) + size) % size
+    }
+
+    private fun rotateBridgeColors(
+        palette: Palette,
+        musicId: Int,
+        sectionIndex: Int,
+        tMs: Long,
+        count: Int = 4
+    ): List<LSColor> {
+        val base = palette.bridgeRotate.filterNot { colorsEqual(it, palette.black) }
+        if (base.isEmpty()) return List(count) { palette.white }
+
+        val seg = (tMs / COLOR_HOLD_MS).toInt()
+        val start = safeIndex((musicId * 37) + (sectionIndex * 11) + seg, base.size)
+
+        val out = ArrayList<LSColor>(count)
+        for (i in 0 until count) {
+            out += base[safeIndex(start + i, base.size)]
+        }
+        return out
+    }
+
+    private fun colorToString(c: LSColor): String {
+        return "(${c.r},${c.g},${c.b})"
+    }
+
+    private fun logTimelineFrame(
+        t: Long,
+        section: Section,
+        frameType: String,
+        engine: FgEngine,
+        fg: LSColor? = null,
+        bg: LSColor? = null,
+        transit: Int? = null,
+        period: Int? = null,
+        randomDelay: Int? = null,
+        note: String? = null
+    ) {
+        val extra = buildString {
+            fg?.let { append(" fg=${colorToString(it)}") }
+            bg?.let { append(" bg=${colorToString(it)}") }
+            transit?.let { append(" transit=$it") }
+            period?.let { append(" period=$it") }
+            randomDelay?.let { append(" randomDelay=$it") }
+            note?.let { append(" note=$it") }
+        }
+
+        Log.d(
+            TAG,
+            "timeline add t=${t}ms type=$frameType " +
+                    "section=${section.type} engine=$engine source=${section.source} beats=${section.beats}$extra"
+        )
     }
 
     private fun estimateBeatCount(startMs: Long, endMs: Long, beatMs: Long): Int {
@@ -643,27 +1161,6 @@ class AutoTimelineGeneratorBeat_v8 {
         val sorted = values.sorted()
         val idx = (sorted.lastIndex * p).toInt().coerceIn(0, sorted.lastIndex)
         return sorted[idx]
-    }
-
-    private fun buildPalette(seed: Int, paletteSize: Int): Palette {
-        val rnd = Random(seed)
-
-        val c1 = hsvToColor(rnd.nextFloat() * 360f, 0.85f, 1.0f)
-        val c2 = hsvToColor(rnd.nextFloat() * 360f, 0.85f, 1.0f)
-        val c3 = hsvToColor(rnd.nextFloat() * 360f, 0.85f, 1.0f)
-        val c4 = hsvToColor(rnd.nextFloat() * 360f, 0.75f, 0.95f)
-        val c5 = hsvToColor(rnd.nextFloat() * 360f, 0.75f, 0.95f)
-
-        return Palette(
-            c1 = c1,
-            c2 = c2,
-            c3 = c3,
-            c4 = c4,
-            c5 = c5,
-            white = LSColor(255, 255, 255),
-            black = LSColor(0, 0, 0),
-            size = paletteSize
-        )
     }
 
     private fun hsvToColor(h: Float, s: Float, v: Float): LSColor {
@@ -797,9 +1294,7 @@ class AutoTimelineGeneratorBeat_v8 {
                         }
                     }
 
-                    outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                        Unit
-                    }
+                    outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
                 }
             }
 
