@@ -195,12 +195,13 @@ object BeatDetectorV8 {
                     // 비트가 더 많고, 점수가 현재 best의 70% 이상이면 더 밀도 높은 소스를 우선 채택
                     // 이유: acPeak/snapRatio 기반 score만으로 선택하면 비트가 적은 소스가
                     //       autocorrelation이 강해서 선택되는 문제 발생 (900ms/26비트 사례)
+                    val bestNonNull = best  // null 체크 이후 smart cast 보장용
                     val isBetter = when {
-                        best == null -> true
-                        trial.beatTimesMs.size > best!!.beatTimesMs.size &&
-                                trial.score >= best!!.score * 0.70f -> true
-                        trial.beatTimesMs.size == best!!.beatTimesMs.size &&
-                                trial.score > best!!.score -> true
+                        bestNonNull == null -> true
+                        trial.beatTimesMs.size > bestNonNull.beatTimesMs.size &&
+                                trial.score >= bestNonNull.score * 0.70f -> true
+                        trial.beatTimesMs.size == bestNonNull.beatTimesMs.size &&
+                                trial.score > bestNonNull.score -> true
                         else -> false
                     }
                     if (isBetter) {
@@ -296,8 +297,8 @@ object BeatDetectorV8 {
     // =========================================================================
 
     private fun detectSingleSource(
-        segmentIndex: Int,
-        segmentStartMs: Long,
+        @Suppress("UNUSED_PARAMETER") segmentIndex: Int,
+        @Suppress("UNUSED_PARAMETER") segmentStartMs: Long,
         source: BeatSource,
         env: List<Float>,
         params: Params
@@ -355,21 +356,26 @@ object BeatDetectorV8 {
             if (fallbackBeatMs != null) {
                 // fallback beatMs로 재시도
                 val snappedFb = snapPeaksToGrid(rawPeaks, onset, fallbackBeatMs, params.hopMs, params.snapToleranceMs)
-                val chained = buildBeatChain(snappedFb, onset, fallbackBeatMs, params.hopMs, params.chainToleranceMs)
-                if (chained.size >= 2) {  // fallback: minChainCount=2로 완화
-                    val snapRatioFb = chained.size.toFloat() / rawPeaks.size.toFloat()
+                val chainedFb = keepConsistentChain(
+                    snappedFrames = snappedFb,
+                    expectedBeatMs = fallbackBeatMs,
+                    hopMs = params.hopMs,
+                    toleranceMs = params.chainToleranceMs
+                )
+                if (chainedFb.size >= 2) {  // fallback: minChainCount=2로 완화
+                    val snapRatioFb = chainedFb.size.toFloat() / rawPeaks.size.toFloat()
                     val segDur = env.size.toLong() * params.hopMs
                     val expectedFb = max(1, (segDur / fallbackBeatMs).toInt())
-                    val densityFb = min(1f, chained.size.toFloat() / expectedFb.toFloat())
+                    val densityFb = min(1f, chainedFb.size.toFloat() / expectedFb.toFloat())
                     val scoreFb = (densityFb * 0.35f + snapRatioFb * 0.30f + 0.10f).coerceIn(0f, 1f)
-                    Log.d(TAG, "onset fallback: beatMs=$fallbackBeatMs beats=${chained.size} score=${fmt(scoreFb)}")
+                    Log.d(TAG, "onset fallback: beatMs=$fallbackBeatMs beats=${chainedFb.size} score=${fmt(scoreFb)}")
                     return TrialResult(
                         source = source,
-                        beatTimesMs = chained.map { it.toLong() * params.hopMs },
+                        beatTimesMs = chainedFb.map { frame -> frame.toLong() * params.hopMs },
                         beatMs = fallbackBeatMs,
                         score = scoreFb,
                         rawPeakCount = rawPeaks.size,
-                        snappedCount = chained.size,
+                        snappedCount = chainedFb.size,
                         onsetMean = mean,
                         onsetStd = std,
                         onsetMax = onsetMax,
@@ -459,7 +465,7 @@ object BeatDetectorV8 {
         // [수정] densityScore: 고정값(8) 기준 → 세그먼트 길이 기반 기대 비트 수 대비 실제 비율
         // 기존: min(1f, beats.size / 8f) → 22비트와 2비트를 분별하지 못함
         // 수정: 실제 감지 비트 / (세그먼트 지속시간 / beatMs) 로 상대 비율 계산
-        val segDurationMs = env.size.toLong() * params.hopMs
+        // segDurationMs는 위에서 이미 선언됨 (effectiveMinChain 계산에 사용)
         val expectedBeatsInSeg = max(1, (segDurationMs / beatMs).toInt())
         val densityScore = min(1f, finalBeatsMs.size.toFloat() / expectedBeatsInSeg.toFloat())
 
@@ -559,7 +565,7 @@ object BeatDetectorV8 {
         if (onset.size <= maxLag + 2) return null
 
         // ① 전체 탐색 구간의 correlation 배열을 먼저 구한다
-        val corrArray = FloatArray(maxLag + 1) { 0f }
+        val corrArray = FloatArray(maxLag + 1)  // 0f로 자동 초기화
 
         var bestLag = -1
         var bestValue = 0f
@@ -590,9 +596,8 @@ object BeatDetectorV8 {
         if (bestLag <= 0) return null
         if (bestValue < 0.015f) return null     // 완화: 0.02→0.015 (낮은 에너지 곡 대응)
 
-        val confidence =
-            if (bestValue <= 0f) 0f
-            else (bestValue - secondValue).coerceAtLeast(0f) + bestValue
+        // bestValue < 0.015f 체크 이후이므로 항상 양수. 직접 계산
+        val confidence = (bestValue - secondValue).coerceAtLeast(0f) + bestValue
         if (confidence < 0.012f) return null    // 완화: 0.025→0.012 (잔잔한 곡/짧은 세그먼트)
 
         // ② harmonic folding: bestLag/2 검사 (빠른 곡 — 2배 편향 교정)
@@ -966,5 +971,5 @@ object BeatDetectorV8 {
 
     private fun maxOfList(v: List<Float>): Float = v.maxOrNull() ?: 0f
 
-    private fun fmt(v: Float): String = String.format("%.3f", v)
+    private fun fmt(v: Float): String = String.format(java.util.Locale.US, "%.3f", v)
 }
