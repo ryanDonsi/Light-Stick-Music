@@ -112,10 +112,9 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
                     precomputeUseCase(
                         context = context,
                         musicFiles = musicFiles,
-                        onProgress = { processed, total2 ->
-                            // ✅ 진행률 갱신은 MAIN에서
+                        onProgress = { processed, total2, fileName ->
                             viewModelScope.launch(Dispatchers.Main.immediate) {
-                                val st = InitializationState.PrecomputingTimelines(processed, total2)
+                                val st = InitializationState.PrecomputingTimelines(processed, total2, fileName)
                                 _state.value = st
                                 _splashState.value = SplashState.Initializing(st)
                             }

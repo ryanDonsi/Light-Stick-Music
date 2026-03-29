@@ -17,7 +17,15 @@ sealed class InitializationState {
 
     data class MatchingEffects(val matched: Int, val total: Int) : InitializationState()
 
-    data class PrecomputingTimelines(val processed: Int, val total: Int) : InitializationState()
+    /**
+     * [수정] currentFileName: 현재 생성 중인 파일명 추가
+     * - Splash UI에서 "[파일명] 이펙트 생성 중..." 애니메이션 표시에 사용
+     */
+    data class PrecomputingTimelines(
+        val processed: Int,
+        val total: Int,
+        val currentFileName: String = ""
+    ) : InitializationState()
 
     data class Completed(
         val musicCount: Int,

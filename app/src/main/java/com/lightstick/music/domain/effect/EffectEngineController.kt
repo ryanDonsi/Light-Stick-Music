@@ -195,7 +195,14 @@ object EffectEngineController {
             lastRecordedEffectIndex = -1
 
             // precomputed는 EfxEntry 캐시가 없으니 비워둠(타임라인 모니터 기록은 EFX에서만)
-            cachedTimeline = emptyList()
+            cachedTimeline = frames.mapNotNull { (timestampMs, bytes) ->
+                try {
+                    EfxEntry(timestampMs, LSEffectPayload.fromByteArray(bytes))
+                } catch (e: Exception) {
+                    Log.w(TAG, "Frame parse failed at ${timestampMs}ms: ${e.message}")
+                    null
+                }
+            }.sortedBy { it.timestampMs }
 
             Log.d(TAG, "✅ Precomputed timeline loaded: ${frames.size}")
         } catch (e: Exception) {
