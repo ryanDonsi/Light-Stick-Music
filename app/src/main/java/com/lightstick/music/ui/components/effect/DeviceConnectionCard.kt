@@ -104,7 +104,6 @@ fun TimelineEffectBadge(
  * Device Connection Card
  *
  * [추가] latestTransmission 이 TIMELINE_EFFECT 일 때 Connected 상태 statusText 옆에
- *        TimelineEffectBadge 표시 — 레이아웃/크기/색상 등 기존 UI 변경 없음
  */
 @Composable
 fun DeviceConnectionCard(
@@ -159,7 +158,7 @@ fun DeviceConnectionCard(
                 cornerRadius    = animatedCornerRadius,
                 isScrolled      = isScrolled,
                 backgroundColor = cardBackgroundColor,
-                lightstickColor = Color.White.copy(alpha = 0.1f),
+                lightstickColor = MaterialTheme.customColors.disable,
                 statusText      = "연결된 기기 없음",
                 statusTextColor = MaterialTheme.customColors.surfaceVariant,
                 effectColorData = null,
@@ -176,7 +175,7 @@ fun DeviceConnectionCard(
                 cornerRadius               = animatedCornerRadius,
                 isScrolled                 = isScrolled,
                 backgroundColor            = cardBackgroundColor,
-                lightstickColor            = Color.White.copy(alpha = 0.1f),
+                lightstickColor            = MaterialTheme.customColors.disable,
                 statusText                 = "연결된 기기 없음",
                 statusTextColor            = MaterialTheme.customColors.surfaceVariant,
                 descriptionText            = "등록된 기기 확인 중",
@@ -195,7 +194,7 @@ fun DeviceConnectionCard(
                 cornerRadius           = animatedCornerRadius,
                 isScrolled             = isScrolled,
                 backgroundColor        = cardBackgroundColor,
-                lightstickColor        = Color.White.copy(alpha = 0.1f),
+                lightstickColor        = MaterialTheme.customColors.disable,
                 statusText             = "연결된 기기 없음",
                 statusTextColor        = MaterialTheme.customColors.surfaceVariant,
                 descriptionText        = "연결 가능한 기기가 없습니다",
@@ -213,7 +212,7 @@ fun DeviceConnectionCard(
                 effectSize             = animatedEffectSize,
                 cornerRadius           = animatedCornerRadius,
                 isScrolled             = isScrolled,
-                lightstickColor        = Color.White.copy(alpha = 0.1f),
+                lightstickColor        = MaterialTheme.customColors.disable,
                 statusText             = "연결된 기기 없음",
                 statusTextColor        = MaterialTheme.customColors.surfaceVariant,
                 descriptionText        = "연결 가능한 기기가 없습니다",
@@ -239,16 +238,8 @@ fun DeviceConnectionCard(
                 descriptionText       = connectionState.device.name ?: "UNKNOWN",
                 descriptionTextColor  = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
                 effectColorData       = effectColorData,
-                // [추가] TIMELINE_EFFECT 수신 시 effectColorData.iconColor(애니메이션 색상) 기반 뱃지
-                statusBadge = if (latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT) {
-                    {
-                        TimelineEffectBadge(
-                            effectType = latestTransmission.effectType,
-                            fgColor    = effectColorData?.iconColor ?: Color.White
-                        )
-                    }
-                } else null
-            )
+
+                )
         }
     }
 }
@@ -282,9 +273,8 @@ private fun ConnectionStateLayout(
     effectColorData: EffectColorData?,
     buttonText: String? = null,
     onButtonClick: (() -> Unit)? = null,
-    // [추가] statusText 옆 뱃지 — effectColorData 기반 애니메이션 색상을 람다 안에서 직접 참조
-    statusBadge: @Composable (() -> Unit)? = null
-) {
+
+    ) {
     val description: @Composable (() -> Unit)? =
         if (descriptionText != null && descriptionTextColor != null) {
             @Composable {
@@ -337,7 +327,8 @@ private fun ConnectionStateLayout(
                     size = effectSize,
                     color = lightstickColor,
                     brush = effectColorData?.iconBrush,
-                    isAnimating = isLightStickAnimating
+                    isAnimating = isLightStickAnimating,
+                    isDisabled = effectColorData == null
                 )
             }
 
@@ -351,8 +342,7 @@ private fun ConnectionStateLayout(
                         style = MaterialTheme.typography.titleSmall,
                         color = statusTextColor
                     )
-                    // [추가] 타임라인 뱃지
-                    statusBadge?.invoke()
+
                 }
                 description?.invoke()
             }
@@ -378,7 +368,8 @@ private fun ConnectionStateLayout(
                     size = effectSize,
                     color = lightstickColor,
                     brush = effectColorData?.iconBrush,
-                    isAnimating = isLightStickAnimating
+                    isAnimating = isLightStickAnimating,
+                    isDisabled = effectColorData == null
                 )
             }
 
@@ -391,8 +382,6 @@ private fun ConnectionStateLayout(
                     style = MaterialTheme.typography.titleLarge,
                     color = statusTextColor
                 )
-                // [추가] 타임라인 뱃지
-                statusBadge?.invoke()
             }
 
             description?.invoke()
@@ -760,7 +749,8 @@ private fun LightStickIcon(
     size: Dp,
     color: Color,
     brush: Brush?,
-    isAnimating: Boolean = false
+    isAnimating: Boolean = false,
+    isDisabled: Boolean = false
 ) {
     val glowAlpha by if (isAnimating) {
         rememberInfiniteTransition(label = "ledGlow").animateFloat(
@@ -774,6 +764,9 @@ private fun LightStickIcon(
     } else {
         remember { mutableFloatStateOf(0.5f) }
     }
+
+    // isDisabled: 아이콘 전체를 회색 dim으로 표현
+    val resolvedColor = if (isDisabled) color.copy(alpha = 0.35f) else color
 
     Canvas(modifier = Modifier.size(size)) {
         val w  = this.size.width
@@ -816,26 +809,38 @@ private fun LightStickIcon(
         } else {
             // 발광 베이스 채우기 — alpha 항상 1.0f (Black 포함 모든 색상 완전 불투명)
             // color.copy(alpha<1) 사용 시 배경색이 비쳐 보이므로 강제 불투명 처리
-            drawCircle(color = color.copy(alpha = 1f), radius = ledOuterR, center = ct)
+            drawCircle(color = resolvedColor.copy(alpha = 1f), radius = ledOuterR, center = ct)
             // 메탈판 마스크
             drawCircle(color = maskColor, radius = ledInnerR, center = ct)
         }
 
-        // ── 3. 메탈 원판 — [수정3] 단순화 (실버 원 + 하이라이트만)
-        drawCircle(color = Color(0xFFB0B0B0), radius = metalR, center = ct)
-        // 중앙 하이라이트 (입체감)
+        // ── 3. 메탈 원판
+        // isDisabled: 어두운 회색, 활성: 실버
+        // resolvedColor.alpha 가 0.35f(dim)로 낮아진 경우 메탈도 함께 어둡게 표현
+        val metalBaseColor = if (isDisabled)
+            Color(0xFF505050)                    // Disable — 어두운 회색
+        else
+            Color(0xFFB0B0B0)                    // 활성 — 실버
+
+        drawCircle(color = metalBaseColor, radius = metalR, center = ct)
+
+        // 하이라이트 — 발광부와 통일감 있게 약하게만 (alpha 0.20f)
+        // Disable 시 하이라이트 제거로 완전 flat 표현
+        if (!isDisabled) {
+            drawCircle(
+                brush  = Brush.radialGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.20f), Color.Transparent),
+                    center = Offset(cx - metalR * 0.20f, cy - metalR * 0.25f),
+                    radius = metalR * 0.70f
+                ),
+                radius = metalR,
+                center = ct
+            )
+        }
+
+        // 테두리 (메탈판 경계 구분) — Disable 시 더 어둡게
         drawCircle(
-            brush  = Brush.radialGradient(
-                colors = listOf(Color.White.copy(alpha = 0.60f), Color.Transparent),
-                center = Offset(cx - metalR * 0.20f, cy - metalR * 0.25f),
-                radius = metalR * 0.70f
-            ),
-            radius = metalR,
-            center = ct
-        )
-        // 테두리 (메탈판 경계 구분)
-        drawCircle(
-            color  = Color.Black.copy(alpha = 0.15f),
+            color  = Color.Black.copy(alpha = if (isDisabled) 0.30f else 0.15f),
             radius = metalR,
             center = ct,
             style  = Stroke(width = w * 0.008f)

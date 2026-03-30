@@ -19,6 +19,8 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.local.preferences.AutoModePreferences
 import com.lightstick.music.data.local.storage.EffectPathPreferences
 import com.lightstick.music.data.model.MusicItem
+import com.lightstick.music.domain.ble.BleTransmissionEvent
+import com.lightstick.music.domain.ble.BleTransmissionMonitor
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
@@ -54,19 +56,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAutoModeEnabled = MutableStateFlow(true)
     val isAutoModeEnabled: StateFlow<Boolean> = _isAutoModeEnabled.asStateFlow()
 
-    // ✅ FFT → LED 전송 (AUTO 모드 + 권한 + "타임라인 비활성"일 때만)
     val audioProcessor = FftAudioProcessor { band ->
         val canSendFft =
             _isAutoModeEnabled.value &&
                     PermissionManager.hasBluetoothConnectPermission(context) &&
                     !EffectEngineController.isTimelineActive()
-
         if (canSendFft) {
-            try {
-                processFFTUseCase(context, band)
-            } catch (e: Exception) {
-                Log.e(TAG, "FFT effect send failed: ${e.message}")
-            }
+            try { processFFTUseCase(context, band) }
+            catch (e: Exception) { Log.e(TAG, "FFT effect send failed: ${e.message}") }
         }
     }
 
@@ -87,6 +84,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _duration = MutableStateFlow(0)
     val duration: StateFlow<Int> = _duration.asStateFlow()
 
+    // [추가] BleTransmissionMonitor.latestTransmission 직접 노출
+    // MusicControlScreen / MusicListScreen 에서 TimelineEffectBadge 표시에 사용
+    val latestTransmission: StateFlow<BleTransmissionEvent?> =
+        BleTransmissionMonitor.latestTransmission
+
     init {
         initializeEffects()
         EffectEngineController.reset()
@@ -98,7 +100,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 playing && autoMode
             }.collect {
                 MusicPlaybackState.update(
-                    isPlaying = _isPlaying.value,
+                    isPlaying  = _isPlaying.value,
                     isAutoMode = _isAutoModeEnabled.value
                 )
             }
@@ -169,7 +171,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     val path      = cursor.getString(dataCol)
                     val metaTitle = cursor.getString(titleCol)
                     val fileName  = cursor.getString(nameCol)
-                    val title     = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
+                    val title     = if (!metaTitle.isNullOrBlank()) metaTitle
+                    else fileName.substringBeforeLast(".")
                     val artist    = cursor.getString(artistCol) ?: "Unknown"
 
                     val musicFile = File(path)
@@ -190,7 +193,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             file.writeBytes(bytes)
                             file.absolutePath
                         }
-                        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        val durationStr = retriever.extractMetadata(
+                            MediaMetadataRetriever.METADATA_KEY_DURATION
+                        )
                         duration = durationStr?.toLongOrNull() ?: 0L
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to extract metadata: ${e.message}")
@@ -212,7 +217,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             _musicList.value = musicItems
-            Log.d(TAG, "Loaded ${musicItems.size} music files, ${musicItems.count { it.hasEffect }} with effects")
+            Log.d(TAG, "Loaded ${musicItems.size} music files, " +
+                    "${musicItems.count { it.hasEffect }} with effects")
         }
     }
 
@@ -238,15 +244,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             EffectEngineController.reset()
 
             if (MusicEffectManager.hasEffectFor(musicFile)) {
-                // ✅ EFX 우선
                 loadMusicTimelineUseCase(context, musicFile)
                 Log.d(TAG, "EFX 재생")
             } else {
-                // ✅ 자동 타임라인: 선택한 버전만 로드
                 val musicId = com.lightstick.efx.MusicId.fromFile(musicFile)
-                val ver = AutoTimelineConfig.VERSION
+                val ver     = AutoTimelineConfig.VERSION
                 val storage = AutoTimelineStorage(version = ver)
-                val frames = storage.load(context, musicId)
+                val frames  = storage.load(context, musicId)
 
                 Log.d(TAG, "AutoTimeline load v=$ver musicId=$musicId frames=${frames?.size ?: 0}")
 
@@ -298,8 +302,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleAutoMode(): Boolean {
-        val ctx  = getApplication<Application>()
+        val ctx      = getApplication<Application>()
         val newState = AutoModePreferences.toggleAutoMode(ctx)
+
         _isAutoModeEnabled.value = newState
 
         if (!newState) {
@@ -315,9 +320,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     loadMusicTimelineUseCase(context, musicFile)
                 } else {
                     val musicId = com.lightstick.efx.MusicId.fromFile(musicFile)
-                    val ver = AutoTimelineConfig.VERSION
+                    val ver     = AutoTimelineConfig.VERSION
                     val storage = AutoTimelineStorage(version = ver)
-                    val frames = storage.load(context, musicId)
+                    val frames  = storage.load(context, musicId)
                     if (!frames.isNullOrEmpty()) {
                         EffectEngineController.loadTimelineFromFrames(context, frames)
                     }
@@ -350,11 +355,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _currentPosition.value = position.toInt()
 
         if (_isAutoModeEnabled.value) {
-            try {
-                handleSeekUseCase(context, position)
-            } catch (e: Exception) {
-                Log.e(TAG, "handleSeek() failed: ${e.message}")
-            }
+            try { handleSeekUseCase(context, position) }
+            catch (e: Exception) { Log.e(TAG, "handleSeek() failed: ${e.message}") }
         }
 
         updateNotificationProgress()
@@ -370,9 +372,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 _duration.value        = duration
 
                 if (player.isPlaying && _isAutoModeEnabled.value) {
-                    try {
-                        updatePlaybackPositionUseCase(context, current.toLong())
-                    } catch (e: Exception) {
+                    try { updatePlaybackPositionUseCase(context, current.toLong()) }
+                    catch (e: Exception) {
                         Log.e(TAG, "updatePlaybackPosition() failed: ${e.message}")
                     }
                 }

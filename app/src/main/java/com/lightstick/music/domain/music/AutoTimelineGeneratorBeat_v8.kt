@@ -156,10 +156,10 @@ class AutoTimelineGeneratorBeat_v8 {
                 minPeakDistanceMs = 140L,
                 onsetSmoothWindow = 3,
                 segmentMs = 20_000L,
-                peakThresholdK = 0.22f,         //0.55f,
-                minPeakAbs = 0.04f,             //0.08f,
-                snapToleranceMs = 150L,         //100L,
-                chainToleranceMs = 170L,        //120L,
+                peakThresholdK = 0.55f,         //0.22f,
+                minPeakAbs = 0.08f,             //0.04f,
+                snapToleranceMs = 100L,         //150L,
+                chainToleranceMs = 120L,        //170L,
                 minChainCount = 3
             )
         )

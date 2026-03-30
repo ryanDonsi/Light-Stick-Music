@@ -23,6 +23,9 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
 
 /**
  * 🎵 Music List Screen (글라스모피즘)
+ *
+ * [수정] latestTransmission collectAsState 추가 → MusicListItemCard 에 전달
+ *        → 재생 중인 아이템의 EFX 뱃지 옆 TimelineEffectBadge 표시
  */
 @UnstableApi
 @Composable
@@ -30,81 +33,77 @@ fun MusicListScreen(
     viewModel: MusicViewModel,
     onNavigateBack: () -> Unit
 ) {
-    val musicList by viewModel.musicList.collectAsState()
-    val nowPlaying by viewModel.nowPlaying.collectAsState()
+    val musicList         by viewModel.musicList.collectAsState()
+    val nowPlaying        by viewModel.nowPlaying.collectAsState()
     val isAutoModeEnabled by viewModel.isAutoModeEnabled.collectAsState()
-    
+    // [추가] TimelineEffectBadge 표시용
+    val latestTransmission by viewModel.latestTransmission.collectAsState()
+
     val toastState = rememberToastState()
 
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .windowInsetsPadding(WindowInsets.navigationBars)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.navigationBars)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+
             TopBarWithBack(
-                title = "Music List",
+                title      = "Music List",
                 onBackClick = onNavigateBack,
                 actionText = "AUTO",
                 onActionClick = {
                     val newState = viewModel.toggleAutoMode()
-                    val message = if (newState) {
-                        "자동 연출 기능을 실행합니다."
-                    } else {
-                        "자동 연출 기능을 중지합니다."
-                    }
+                    val message  = if (newState) "자동 연출 기능을 실행합니다."
+                    else          "자동 연출 기능을 중지합니다."
                     toastState.show(message)
                 },
                 actionTextColor = if (isAutoModeEnabled) Secondary else Color.Gray
             )
-            
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                // 배경 이미지
                 Image(
-                    painter = painterResource(id = R.drawable.background),
+                    painter            = painterResource(id = R.drawable.background),
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alignment = Alignment.TopCenter
+                    modifier           = Modifier.fillMaxSize(),
+                    contentScale       = ContentScale.Crop,
+                    alignment          = Alignment.TopCenter
                 )
 
-                // 콘텐츠
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp, vertical = 24.dp),
-                    verticalArrangement = Arrangement.Top  // ✅ 상단 정렬
+                    verticalArrangement = Arrangement.Top
                 ) {
-
-
-                    // 음악 리스트
                     if (musicList.isEmpty()) {
-                        // 빈 리스트 표시
                         Box(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier         = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "음악 파일이 없습니다",
+                                text  = "음악 파일이 없습니다",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.surfaceVariant
                             )
                         }
                     } else {
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier            = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(musicList) { item ->
+                                val isPlaying = nowPlaying?.filePath == item.filePath
                                 MusicListItemCard(
-                                    musicItem = item,
-                                    isPlaying = nowPlaying?.filePath == item.filePath,
-                                    onClick = { viewModel.playMusic(item) }
+                                    musicItem          = item,
+                                    isPlaying          = isPlaying,
+                                    onClick            = { viewModel.playMusic(item) },
+                                    // [추가] 재생 중인 아이템에만 전달 (다른 아이템은 null)
+                                    latestTransmission = if (isPlaying) latestTransmission else null
                                 )
                             }
                         }
@@ -112,12 +111,12 @@ fun MusicListScreen(
                 }
             }
         }
-        
+
         CustomToast(
-            message = toastState.message,
+            message   = toastState.message,
             isVisible = toastState.isVisible,
             onDismiss = { toastState.dismiss() },
-            modifier = Modifier.align(Alignment.BottomCenter)
+            modifier  = Modifier.align(Alignment.BottomCenter)
         )
     }
 }

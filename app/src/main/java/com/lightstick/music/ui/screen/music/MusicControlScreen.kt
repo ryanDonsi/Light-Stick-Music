@@ -31,6 +31,8 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
 
 /**
  * 🎵 Music Control Screen (글라스모피즘)
+ *
+ * [수정] latestTransmission collectAsState 추가 → MusicPlayerCard 에 전달
  */
 @UnstableApi
 @Composable
@@ -39,11 +41,13 @@ fun MusicControlScreen(
     onNavigateToMusicList: () -> Unit,
     onRequestEffectsDirectory: () -> Unit
 ) {
-    val nowPlaying by viewModel.nowPlaying.collectAsState()
-    val isPlaying by viewModel.isPlaying.collectAsState()
-    val currentPosition by viewModel.currentPosition.collectAsState()
-    val duration by viewModel.duration.collectAsState()
+    val nowPlaying        by viewModel.nowPlaying.collectAsState()
+    val isPlaying         by viewModel.isPlaying.collectAsState()
+    val currentPosition   by viewModel.currentPosition.collectAsState()
+    val duration          by viewModel.duration.collectAsState()
     val isAutoModeEnabled by viewModel.isAutoModeEnabled.collectAsState()
+    // [추가] TimelineEffectBadge 표시용
+    val latestTransmission by viewModel.latestTransmission.collectAsState()
 
     val isEffectsConfigured = EffectPathPreferences.isDirectoryConfigured(LocalContext.current)
     val effectCount = MusicEffectManager.getLoadedEffectCount()
@@ -52,16 +56,15 @@ fun MusicControlScreen(
     val toastState = rememberToastState()
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+
             // ✅ Top Bar (배경색만, 이미지 없음)
             TopBarCentered(
-                title = "Music Control",
+                title      = "Music Control",
                 actionText = "AUTO",
                 onActionClick = {
                     val newState = viewModel.toggleAutoMode()
-                    val message = if (newState) {
+                    val message  = if (newState) {
                         "자동 연출 기능을 실행합니다."
                     } else {
                         "자동 연출 기능을 중지합니다."
@@ -79,13 +82,12 @@ fun MusicControlScreen(
             ) {
                 // 배경 이미지
                 Image(
-                    painter = painterResource(id = R.drawable.background),
+                    painter            = painterResource(id = R.drawable.background),
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alignment = Alignment.TopCenter
+                    modifier           = Modifier.fillMaxSize(),
+                    contentScale       = ContentScale.Crop,
+                    alignment          = Alignment.TopCenter
                 )
-
 
                 // 콘텐츠
                 Column(
@@ -98,68 +100,65 @@ fun MusicControlScreen(
                     when {
                         !isEffectsConfigured -> {
                             EffectsWarningBanner(
-                                message = "Effects 폴더 미설정",
-                                description = "EFX 파일을 읽으려면 폴더를 선택해주세요",
-                                buttonText = "설정",
+                                message       = "Effects 폴더 미설정",
+                                description   = "EFX 파일을 읽으려면 폴더를 선택해주세요",
+                                buttonText    = "설정",
                                 onButtonClick = onRequestEffectsDirectory
                             )
                         }
                         effectCount == 0 -> {
                             EffectsWarningBanner(
-                                message = "EFX 파일 없음",
-                                description = "선택한 폴더에 EFX 파일이 없습니다",
-                                buttonText = "다시 선택",
+                                message       = "EFX 파일 없음",
+                                description   = "선택한 폴더에 EFX 파일이 없습니다",
+                                buttonText    = "다시 선택",
                                 onButtonClick = onRequestEffectsDirectory,
-                                isError = false
+                                isError       = false
                             )
                         }
                     }
 
                     // ✅ 중앙 앨범아트 영역 (전체 공간 사용)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                    ) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
                         MusicPlayerCard(
-                            musicItem = nowPlaying,  // nullable 전달
-                            isPlaying = isPlaying,
-                            currentPosition = currentPosition.toLong(),
-                            duration = duration.toLong(),
-                            onPrevClick = { viewModel.playPrevious() },
+                            musicItem        = nowPlaying,
+                            isPlaying        = isPlaying,
+                            currentPosition  = currentPosition.toLong(),
+                            duration         = duration.toLong(),
+                            onPrevClick      = { viewModel.playPrevious() },
                             onPlayPauseClick = { viewModel.togglePlayPause() },
-                            onNextClick = { viewModel.playNext() },
-                            onSeekTo = { position -> viewModel.seekTo(position) },
-                            modifier = Modifier.fillMaxWidth()  // ✅ 전체 공간 채우기
+                            onNextClick      = { viewModel.playNext() },
+                            onSeekTo         = { position -> viewModel.seekTo(position) },
+                            modifier         = Modifier.fillMaxWidth(),  // ✅ 전체 공간 채우기
+                            latestTransmission = latestTransmission       // [추가]
                         )
                     }
 
-                    // ✅ MUSIC LIST 버튼
+                    // ✅ MUSIC LIST 버튼 (원본 그대로)
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth(),
+                        modifier              = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
                         TextButton(
-                            onClick = onNavigateToMusicList,
+                            onClick        = onNavigateToMusicList,
                             contentPadding = PaddingValues(
-                                start = 0.dp,
-                                top = 8.dp,
-                                end = 0.dp,
+                                start  = 0.dp,
+                                top    = 8.dp,
+                                end    = 0.dp,
                                 bottom = 8.dp
                             )
                         ) {
                             Text(
-                                text = "MUSIC LIST",
-                                style = MaterialTheme.typography.labelLarge,
+                                text       = "MUSIC LIST",
+                                style      = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color      = Color.White
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Icon(
-                                imageVector = Icons.Filled.ChevronRight,
+                                imageVector        = Icons.Filled.ChevronRight,
                                 contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
+                                tint               = Color.White,
+                                modifier           = Modifier.size(28.dp)
                             )
                         }
                     }
@@ -169,16 +168,16 @@ fun MusicControlScreen(
 
         // ✅ CustomToast
         CustomToast(
-            message = toastState.message,
+            message   = toastState.message,
             isVisible = toastState.isVisible,
             onDismiss = { toastState.dismiss() },
-            modifier = Modifier.align(Alignment.BottomCenter)
+            modifier  = Modifier.align(Alignment.BottomCenter)
         )
     }
 }
 
 /**
- * Effects 경고 배너
+ * Effects 경고 배너 (원본 그대로)
  */
 @Composable
 private fun EffectsWarningBanner(
@@ -194,35 +193,29 @@ private fun EffectsWarningBanner(
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(
-                if (isError) {
-                    Color(0x40CF6679)
-                } else {
-                    Color(0x40FFB74D)
-                }
+                if (isError) Color(0x40CF6679) else Color(0x40FFB74D)
             )
             .padding(16.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = Icons.Default.Info,
+                imageVector        = Icons.Default.Info,
                 contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
+                tint               = Color.White,
+                modifier           = Modifier.size(24.dp)
             )
 
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = message,
-                    style = MaterialTheme.typography.titleSmall,
+                    text       = message,
+                    style      = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color      = Color.White
                 )
                 Text(
-                    text = description,
+                    text  = description,
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.8f)
                 )
@@ -232,9 +225,9 @@ private fun EffectsWarningBanner(
 
             FilledTonalButton(
                 onClick = onButtonClick,
-                colors = ButtonDefaults.filledTonalButtonColors(
+                colors  = ButtonDefaults.filledTonalButtonColors(
                     containerColor = if (isError) Color(0xFFCF6679) else Secondary,
-                    contentColor = Color.White
+                    contentColor   = Color.White
                 )
             ) {
                 Text(buttonText, fontWeight = FontWeight.Bold)

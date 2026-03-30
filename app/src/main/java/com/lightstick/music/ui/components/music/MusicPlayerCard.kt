@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -26,22 +27,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.lightstick.music.R
-import com.lightstick.music.data.model.MusicItem
-import com.lightstick.music.ui.theme.customTextStyles
-import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.core.util.TimeFormatter
+import com.lightstick.music.data.model.MusicItem
+import com.lightstick.music.domain.ble.BleTransmissionEvent
+import com.lightstick.music.domain.ble.TransmissionSource
+import com.lightstick.music.ui.theme.customColors
+import com.lightstick.music.ui.theme.customTextStyles
 
 /**
  * 🎵 Music Player Card (글라스모피즘 + Figma 디자인)
  *
  * ✅ 수정 사항: **색상만 theme로 교체, UI는 그대로 유지**
- * - Color.White.copy(alpha = 0.05f) → customColors.onSurface.copy(alpha = 0.05f)
- * - Color.White.copy(alpha = 0.16f) → customColors.onSurface.copy(alpha = 0.16f)
- * - Color.Black.copy(alpha = 0.20f) → customColors.shadowCard
- * - Color(0xFF9CA3AF) → customColors.textTertiary
- * - Color(0xFF9D79BC), Color(0xFF8A40C4) → customColors.gradientStart, gradientEnd
- * - Color(0xFF424242) → customColors.outline
- * - Color(0xFF8E8E93) → customColors.surfaceVariant
+ *
+ * [추가] latestTransmission 파라미터
+ *   → TIMELINE_EFFECT 수신 시 앨범 이미지 우측 하단에 오버레이 뱃지 표시
+ *      (LightStick 색상 원형 + 이펙트명)
  */
 @Composable
 fun MusicPlayerCard(
@@ -53,7 +53,8 @@ fun MusicPlayerCard(
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
     onSeekTo: (Long) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    latestTransmission: BleTransmissionEvent? = null
 ) {
     if (musicItem == null) {
         EmptyMusicCard(modifier = modifier)
@@ -71,101 +72,107 @@ fun MusicPlayerCard(
     }
 
     Column(
-        modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top
+        modifier              = modifier.fillMaxWidth(),
+        horizontalAlignment   = Alignment.CenterHorizontally,
+        verticalArrangement   = Arrangement.Top
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .shadow(
-                    elevation = 20.dp,
-                    shape = RoundedCornerShape(20.dp),
-                    // ✅ 색상 교체: Color.Black.copy(alpha = 0.20f) → customColors.shadowCard
+                    elevation    = 20.dp,
+                    shape        = RoundedCornerShape(20.dp),
                     ambientColor = MaterialTheme.customColors.shadowCard,
-                    spotColor = MaterialTheme.customColors.shadowCard
+                    spotColor    = MaterialTheme.customColors.shadowCard
                 )
                 .clip(RoundedCornerShape(20.dp))
-                // ✅ 색상 교체: Color.White.copy(alpha = 0.05f) → customColors.onSurface.copy(alpha = 0.05f)
                 .background(MaterialTheme.customColors.onSurface.copy(alpha = 0.05f))
                 .border(
                     width = 1.dp,
-                    // ✅ 색상 교체: Color.White.copy(alpha = 0.16f) → customColors.onSurface.copy(alpha = 0.16f)
                     color = MaterialTheme.customColors.onSurface.copy(alpha = 0.16f),
                     shape = RoundedCornerShape(20.dp)
                 )
                 .padding(horizontal = 32.dp, vertical = 32.dp)
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier            = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 앨범 아트
+                // ── 앨범 아트 + 이펙트 뱃지 오버레이 ──────────────────────
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(1f)
                         .heightIn(max = 280.dp)
                         .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.background),
-                    contentAlignment = Alignment.Center
+                        .background(MaterialTheme.colorScheme.background)
                 ) {
+                    // 앨범 아트
                     if (imageBitmap != null) {
                         Image(
-                            bitmap = imageBitmap,
+                            bitmap             = imageBitmap,
                             contentDescription = "Album Art",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
+                            contentScale       = ContentScale.Crop,
+                            modifier           = Modifier
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(20.dp))
                         )
                     } else {
                         Icon(
-                            painter = painterResource(id = R.drawable.ic_music_note),
+                            painter            = painterResource(id = R.drawable.ic_music_note),
                             contentDescription = "Default Music Icon",
-                            modifier = Modifier
+                            modifier           = Modifier
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(20.dp)),
-                            // ✅ 색상 교체: Color(0xFF8E8E93) → customColors.surfaceVariant
                             tint = MaterialTheme.customColors.surfaceVariant
+                        )
+                    }
+
+                    // [추가] 이펙트 뱃지 — TIMELINE_EFFECT 수신 시 우측 하단 오버레이
+                    val isTimeline = latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT
+                    if (isTimeline && latestTransmission != null) {
+                        EffectOverlayBadge(
+                            transmission = latestTransmission,
+                            modifier     = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp)
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 곡 제목 + EFX 뱃지
+                // 곡 제목 + EFX 뱃지 (원본 그대로)
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier              = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment     = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = musicItem.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        text      = musicItem.title,
+                        style     = MaterialTheme.typography.titleLarge,
+                        color     = MaterialTheme.colorScheme.onSurface,
+                        maxLines  = 1,
+                        overflow  = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier  = Modifier.weight(1f, fill = false)
                     )
 
                     if (musicItem.hasEffect) {
                         Spacer(modifier = Modifier.width(8.dp))
-
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.secondary,
+                            shape    = RoundedCornerShape(4.dp),
+                            color    = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier
                                 .height(18.dp)
                                 .widthIn(min = 40.dp)
                         ) {
                             Box(
-                                modifier = Modifier,
+                                modifier         = Modifier,
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "EFX",
+                                    text  = "EFX",
                                     style = MaterialTheme.customTextStyles.badgeMedium,
                                     color = MaterialTheme.colorScheme.surface
                                 )
@@ -178,31 +185,28 @@ fun MusicPlayerCard(
 
                 // 아티스트명
                 Text(
-                    text = musicItem.artist,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    text      = musicItem.artist,
+                    style     = MaterialTheme.typography.bodyLarge,
+                    color     = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines  = 1,
+                    overflow  = TextOverflow.Ellipsis
                 )
 
                 // 시간 표시
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier              = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment     = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (hasMusic) TimeFormatter.formatTime(currentPosition) else "0:00",
+                        text  = if (hasMusic) TimeFormatter.formatTime(currentPosition) else "0:00",
                         style = MaterialTheme.customTextStyles.badgeMedium,
-                        // ✅ 색상 교체: Color(0xFF9CA3AF) → customColors.textTertiary
                         color = MaterialTheme.customColors.textTertiary
                     )
-
                     Text(
-                        text = if (hasMusic) TimeFormatter.formatTime(duration) else "0:00",
+                        text  = if (hasMusic) TimeFormatter.formatTime(duration) else "0:00",
                         style = MaterialTheme.customTextStyles.badgeMedium,
-                        // ✅ 색상 교체: Color(0xFF9CA3AF) → customColors.textTertiary
                         color = MaterialTheme.customColors.textTertiary
                     )
                 }
@@ -210,14 +214,12 @@ fun MusicPlayerCard(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // 진행바
-                val progress = if (duration > 0) {
+                val progress = if (duration > 0)
                     (currentPosition / duration.toFloat()).coerceIn(0f, 1f)
-                } else {
-                    0f
-                }
+                else 0f
 
                 Box(
-                    modifier = Modifier
+                    modifier         = Modifier
                         .fillMaxWidth()
                         .height(16.dp),
                     contentAlignment = Alignment.Center
@@ -235,17 +237,13 @@ fun MusicPlayerCard(
                                 }
                             }
                     ) {
-                        // 배경
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(4.dp)
                                 .clip(RoundedCornerShape(9999.dp))
-                                // ✅ 색상 교체: Color(0xFF424242) → customColors.outline
                                 .background(MaterialTheme.customColors.outline)
                         )
-
-                        // 진행 (그라데이션)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(progress)
@@ -254,7 +252,6 @@ fun MusicPlayerCard(
                                 .background(
                                     brush = Brush.horizontalGradient(
                                         colors = listOf(
-                                            // ✅ 색상 교체: Color(0xFF9D79BC), Color(0xFF8A40C4) → customColors.gradientStart, gradientEnd
                                             MaterialTheme.customColors.gradientStart,
                                             MaterialTheme.customColors.gradientEnd
                                         )
@@ -272,39 +269,33 @@ fun MusicPlayerCard(
                         .height(64.dp)
                         .wrapContentWidth(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment     = Alignment.CenterVertically
                 ) {
                     PressableIconButton(
-                        onClick = onPrevClick,
-                        enabled = hasMusic,
-                        normalIcon = R.drawable.ic_player_back_n,
-                        pressedIcon = R.drawable.ic_player_back_p,
+                        onClick            = onPrevClick,
+                        enabled            = hasMusic,
+                        normalIcon         = R.drawable.ic_player_back_n,
+                        pressedIcon        = R.drawable.ic_player_back_p,
                         contentDescription = "Previous",
-                        size = 48.dp
+                        size               = 48.dp
                     )
-
                     PressableIconButton(
-                        onClick = onPlayPauseClick,
-                        enabled = hasMusic,
-                        normalIcon = if (isPlaying)
-                            R.drawable.ic_player_pause_n
-                        else
-                            R.drawable.ic_player_play_n,
-                        pressedIcon = if (isPlaying)
-                            R.drawable.ic_player_pause_p
-                        else
-                            R.drawable.ic_player_play_p,
+                        onClick            = onPlayPauseClick,
+                        enabled            = hasMusic,
+                        normalIcon         = if (isPlaying) R.drawable.ic_player_pause_n
+                        else R.drawable.ic_player_play_n,
+                        pressedIcon        = if (isPlaying) R.drawable.ic_player_pause_p
+                        else R.drawable.ic_player_play_p,
                         contentDescription = if (isPlaying) "Pause" else "Play",
-                        size = 64.dp
+                        size               = 64.dp
                     )
-
                     PressableIconButton(
-                        onClick = onNextClick,
-                        enabled = hasMusic,
-                        normalIcon = R.drawable.ic_player_forward_n,
-                        pressedIcon = R.drawable.ic_player_forward_p,
+                        onClick            = onNextClick,
+                        enabled            = hasMusic,
+                        normalIcon         = R.drawable.ic_player_forward_n,
+                        pressedIcon        = R.drawable.ic_player_forward_p,
                         contentDescription = "Next",
-                        size = 48.dp
+                        size               = 48.dp
                     )
                 }
             }
@@ -312,10 +303,14 @@ fun MusicPlayerCard(
     }
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// EmptyMusicCard / PressableIconButton (원본 그대로)
+// ──────────────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun EmptyMusicCard(modifier: Modifier = Modifier) {
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier            = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
     ) {
@@ -324,27 +319,24 @@ private fun EmptyMusicCard(modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .shadow(
-                    elevation = 20.dp,
-                    shape = RoundedCornerShape(20.dp),
-                    // ✅ 색상 교체: Color.Black.copy(alpha = 0.20f) → customColors.shadowCard
+                    elevation    = 20.dp,
+                    shape        = RoundedCornerShape(20.dp),
                     ambientColor = MaterialTheme.customColors.shadowCard,
-                    spotColor = MaterialTheme.customColors.shadowCard
+                    spotColor    = MaterialTheme.customColors.shadowCard
                 )
                 .clip(RoundedCornerShape(20.dp))
-                // ✅ 색상 교체: Color.White.copy(alpha = 0.05f) → customColors.onSurface.copy(alpha = 0.05f)
                 .background(MaterialTheme.customColors.onSurface.copy(alpha = 0.05f))
                 .border(
                     width = 1.dp,
-                    // ✅ 색상 교체: Color.White.copy(alpha = 0.16f) → customColors.onSurface.copy(alpha = 0.16f)
                     color = MaterialTheme.customColors.onSurface.copy(alpha = 0.16f),
                     shape = RoundedCornerShape(20.dp)
                 ),
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "재생중인 음악이 없습니다",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                text      = "재생중인 음악이 없습니다",
+                style     = MaterialTheme.typography.bodyLarge,
+                color     = MaterialTheme.colorScheme.surfaceVariant,
                 textAlign = TextAlign.Center
             )
         }
@@ -369,19 +361,19 @@ private fun PressableIconButton(
             .size(size)
             .clip(RoundedCornerShape(999.dp))
             .clickable(
-                enabled = enabled,
+                enabled           = enabled,
                 interactionSource = interactionSource,
-                indication = null
+                indication        = null
             ) { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Image(
-            painter = painterResource(
+            painter            = painterResource(
                 id = if (isPressed && enabled) pressedIcon else normalIcon
             ),
             contentDescription = contentDescription,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Fit
+            modifier           = Modifier.fillMaxSize(),
+            contentScale       = ContentScale.Fit
         )
     }
 }

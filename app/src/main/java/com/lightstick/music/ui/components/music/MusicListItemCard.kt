@@ -9,44 +9,45 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.lightstick.music.data.model.MusicItem
-import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.core.util.TimeFormatter
+import com.lightstick.music.data.model.MusicItem
+import com.lightstick.music.domain.ble.BleTransmissionEvent
+import com.lightstick.music.domain.ble.TransmissionSource
+import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
 
 /**
  * Music List 아이템 카드 (글라스모피즘)
  *
  * ✅ 수정 사항: **색상만 theme로 교체, UI는 그대로 유지**
- * - Color.White → MaterialTheme.customColors.onSurface
- * - Color.White.copy(alpha = 0.05f) → customColors.onSurface.copy(alpha = 0.05f)
- * - Color.White.copy(alpha = 0.6f) → customColors.textTertiary
+ *
+ * [추가] latestTransmission 파라미터
+ *   → TIMELINE_EFFECT 수신 시 앨범 이미지 우측 하단에 오버레이 뱃지 표시
+ *      (LightStick 색상 원형만)
  */
 @Composable
 fun MusicListItemCard(
     musicItem: MusicItem,
     isPlaying: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    latestTransmission: BleTransmissionEvent? = null
 ) {
     val imageBitmap = musicItem.albumArtPath?.let { path ->
-        try {
-            BitmapFactory.decodeFile(path)?.asImageBitmap()
-        } catch (e: Exception) {
-            null
-        }
+        try { BitmapFactory.decodeFile(path)?.asImageBitmap() }
+        catch (e: Exception) { null }
     }
 
     Box(
@@ -54,7 +55,6 @@ fun MusicListItemCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(
-                // ✅ 색상만 교체: Color.White.copy(alpha = 0.05f) → customColors.onSurface.copy(alpha = 0.05f)
                 color = if (isPlaying)
                     MaterialTheme.customColors.primary.copy(alpha = 0.22f)
                 else
@@ -75,9 +75,10 @@ fun MusicListItemCard(
             .padding(12.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxSize(),
+            modifier          = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // ── 앨범아트 + 이펙트 뱃지 오버레이 ──────────────────────────
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -86,16 +87,15 @@ fun MusicListItemCard(
             ) {
                 if (imageBitmap != null) {
                     Image(
-                        bitmap = imageBitmap,
+                        bitmap             = imageBitmap,
                         contentDescription = "앨범아트",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
+                        contentScale       = ContentScale.Crop,
+                        modifier           = Modifier.fillMaxSize()
                     )
                 } else {
                     Icon(
-                        imageVector = Icons.Default.MusicNote,
+                        imageVector        = Icons.Default.MusicNote,
                         contentDescription = null,
-                        // ✅ 색상만 교체: Color.White → customColors.onSurface
                         tint = if (isPlaying)
                             MaterialTheme.customColors.onSurface
                         else
@@ -103,42 +103,50 @@ fun MusicListItemCard(
                         modifier = Modifier.size(24.dp)
                     )
                 }
+
+                // [추가] 이펙트 뱃지 — TIMELINE_EFFECT 수신 시 우측 하단 오버레이 (원형만)
+                val isTimeline = latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT
+                if (isTimeline && latestTransmission != null) {
+                    EffectOverlayBadge(
+                        transmission   = latestTransmission,
+                        modifier       = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(2.dp),
+                        maxLabelLength = 2
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment     = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // ✅ UI 유지: fontSize = 15.sp, fontWeight = SemiBold
-                    // ✅ 색상만 교체: Color.White → customColors.onSurface
                     Text(
-                        text = musicItem.title,
+                        text       = musicItem.title,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.customColors.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        fontSize   = 15.sp,
+                        color      = MaterialTheme.customColors.onSurface,
+                        maxLines   = 1,
+                        overflow   = TextOverflow.Ellipsis
                     )
-                    // ✅ EFX 배지 추가!
+                    // EFX 배지 (원본 그대로)
                     if (musicItem.hasEffect) {
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.secondary,
+                            shape    = RoundedCornerShape(4.dp),
+                            color    = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier
                                 .height(16.dp)
                                 .widthIn(min = 32.dp)
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(horizontal = 4.dp)
+                                modifier         = Modifier.padding(horizontal = 4.dp)
                             ) {
                                 Text(
-                                    text = "EFX",
+                                    text  = "EFX",
                                     style = MaterialTheme.customTextStyles.badgeSmall,
                                     color = MaterialTheme.colorScheme.onSecondary
                                 )
@@ -149,13 +157,11 @@ fun MusicListItemCard(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // ✅ UI 유지: fontSize = 13.sp
-                // ✅ 색상만 교체: Color.White.copy(alpha = 0.7f) → customColors.onSurface.copy(alpha = 0.7f)
                 Text(
-                    text = musicItem.artist,
-                    style = MaterialTheme.typography.bodyMedium,
+                    text     = musicItem.artist,
+                    style    = MaterialTheme.typography.bodyMedium,
                     fontSize = 13.sp,
-                    color = MaterialTheme.customColors.onSurface.copy(alpha = 0.7f),
+                    color    = MaterialTheme.customColors.onSurface.copy(alpha = 0.7f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -164,34 +170,23 @@ fun MusicListItemCard(
             Spacer(modifier = Modifier.width(16.dp))
 
             Row(
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment     = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End
             ) {
                 if (isPlaying) {
-                    // ✅ UI 유지: fontSize = 12.sp
-                    // ✅ 색상만 교체: Color.White.copy(alpha = 0.6f) → customColors.textTertiary
                     Text(
-                        text = "Playing",
-                        style = MaterialTheme.typography.bodySmall,
+                        text     = "Playing",
+                        style    = MaterialTheme.typography.bodySmall,
                         fontSize = 12.sp,
-                        color = MaterialTheme.customColors.textTertiary
+                        color    = MaterialTheme.customColors.textTertiary
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
                 } else {
-                    // ✅ UI 유지: fontSize = 12.sp
-                    // ✅ 색상만 교체: Color.White.copy(alpha = 0.6f) → customColors.textTertiary
                     Text(
                         text = TimeFormatter.formatTime(musicItem.duration),
                         style = MaterialTheme.typography.bodySmall,
                         fontSize = 12.sp,
                         color = MaterialTheme.customColors.textTertiary
-                    )
-
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Playing",
-                        // ✅ 색상만 교체: Color.White.copy(alpha = 0.6f) → customColors.textTertiary
-                        tint = MaterialTheme.customColors.textTertiary,
-                        modifier = Modifier.size(14.dp)
                     )
                 }
             }
