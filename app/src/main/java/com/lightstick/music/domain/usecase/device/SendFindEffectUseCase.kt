@@ -6,6 +6,7 @@ import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.types.Colors
 import com.lightstick.types.LSEffectPayload
 import kotlinx.coroutines.delay
+import javax.inject.Inject
 
 /**
  * FIND Effect 전송 UseCase
@@ -18,7 +19,7 @@ import kotlinx.coroutines.delay
  * 사용:
  * - DeviceViewModel.sendFindEffect()
  */
-class SendFindEffectUseCase {
+class SendFindEffectUseCase @Inject constructor() {
 
     /**
      * FIND Effect 전송

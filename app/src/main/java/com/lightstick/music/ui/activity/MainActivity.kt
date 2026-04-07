@@ -35,6 +35,7 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
 import com.lightstick.music.core.permission.PermissionManager
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavType
+import dagger.hilt.android.AndroidEntryPoint
 import androidx.navigation.navArgument
 import com.lightstick.music.ui.screen.music.MusicControlScreen
 import com.lightstick.music.ui.screen.music.MusicListScreen
@@ -48,6 +49,7 @@ import com.lightstick.music.ui.components.device.OtaUpdateConfirmDialog
 import com.lightstick.music.ui.components.device.ReconnectConfirmDialog
 import com.lightstick.music.ui.screen.device.DeviceDetailScreen
 
+@AndroidEntryPoint
 @UnstableApi
 class MainActivity : ComponentActivity() {
     private val deviceViewModel: DeviceViewModel by viewModels()
@@ -83,8 +85,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        deviceViewModel.initializeWithContext(applicationContext)
 
         // ✅ 권한 상태 로깅
         PermissionManager.logPermissionStatus(this, "MainActivity")

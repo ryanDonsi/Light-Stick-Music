@@ -2,6 +2,7 @@ package com.lightstick.music.domain.usecase.device
 
 import com.lightstick.LSBluetooth
 import com.lightstick.device.DeviceInfo
+import javax.inject.Inject
 
 /**
  * 캐시된 디바이스 정보 조회 UseCase
@@ -13,7 +14,7 @@ import com.lightstick.device.DeviceInfo
  * 사용처:
  * - DeviceViewModel: onDeviceConnectedFromSdk()
  */
-class GetCachedDeviceInfoUseCase {
+class GetCachedDeviceInfoUseCase @Inject constructor() {
 
     /**
      * 캐시된 디바이스 정보 조회

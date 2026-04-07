@@ -19,11 +19,13 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.media3.common.util.UnstableApi
 import com.lightstick.music.core.permission.PermissionManager
+import dagger.hilt.android.AndroidEntryPoint
 import com.lightstick.music.data.model.SplashState
 import com.lightstick.music.ui.screen.splash.SplashScreen
 import com.lightstick.music.ui.theme.LightStickMusicTheme
 import com.lightstick.music.ui.viewmodel.SplashViewModel
 
+@AndroidEntryPoint
 @UnstableApi
 class SplashActivity : ComponentActivity() {
 

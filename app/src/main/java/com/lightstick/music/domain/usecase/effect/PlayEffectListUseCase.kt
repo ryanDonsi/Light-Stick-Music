@@ -16,6 +16,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 /**
  * EffectList 재생 UseCase
@@ -29,7 +30,7 @@ import kotlinx.coroutines.launch
  * 사용:
  * - EffectViewModel.playEffect() (EffectList 타입)
  */
-class PlayEffectListUseCase {
+class PlayEffectListUseCase @Inject constructor() {
 
     companion object {
         private const val TAG = AppConstants.Feature.UC_PLAY_EFFECT_LIST

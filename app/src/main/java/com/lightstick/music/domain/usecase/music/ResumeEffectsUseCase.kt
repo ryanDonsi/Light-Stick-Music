@@ -2,6 +2,7 @@ package com.lightstick.music.domain.usecase.music
 
 import android.content.Context
 import com.lightstick.music.domain.effect.EffectEngineController
+import javax.inject.Inject
 
 /**
  * 이펙트 재개 UseCase
@@ -13,7 +14,7 @@ import com.lightstick.music.domain.effect.EffectEngineController
  * 사용:
  * - MusicViewModel.resume()
  */
-class ResumeEffectsUseCase {
+class ResumeEffectsUseCase @Inject constructor() {
 
     /**
      * 이펙트 재개

@@ -184,17 +184,17 @@ object EffectEngineController {
     // Timeline
     // ─────────────────────────────────────────────
 
-    /** ✅ 자동 타임라인(frames) 로드 */
+    /** 자동 타임라인(frames) 로드 — 연결된 모든 기기에 전송 */
     fun loadTimelineFromFrames(context: Context, frames: List<Pair<Long, ByteArray>>) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
-        val device = resolveTarget(context) ?: return
+        val devices = resolveAllDevices(context)
+        if (devices.isEmpty()) { Log.w(TAG, "No connected devices for timeline"); return }
 
         try {
-            device.loadTimeline(frames)
+            devices.forEach { it.loadTimeline(frames) }
             isTimelineLoaded = true
             lastRecordedEffectIndex = -1
 
-            // precomputed는 EfxEntry 캐시가 없으니 비워둠(타임라인 모니터 기록은 EFX에서만)
             cachedTimeline = frames.mapNotNull { (timestampMs, bytes) ->
                 try {
                     EfxEntry(timestampMs, LSEffectPayload.fromByteArray(bytes))
@@ -204,17 +204,18 @@ object EffectEngineController {
                 }
             }.sortedBy { it.timestampMs }
 
-            Log.d(TAG, "✅ Precomputed timeline loaded: ${frames.size}")
+            Log.d(TAG, "✅ Precomputed timeline loaded to ${devices.size} device(s): ${frames.size} frames")
         } catch (e: Exception) {
             isTimelineLoaded = false
             Log.e(TAG, "Precomputed timeline load failed: ${e.message}")
         }
     }
 
-    /** ✅ EFX 기반 타임라인 로드 */
+    /** EFX 기반 타임라인 로드 — 연결된 모든 기기에 전송 */
     fun loadEffectsFor(context: Context, musicFile: File) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
-        val device = resolveTarget(context) ?: return
+        val devices = resolveAllDevices(context)
+        if (devices.isEmpty()) { Log.w(TAG, "No connected devices for EFX timeline"); return }
 
         try {
             val loadedEffects = MusicEffectManager.loadEffects(musicFile)
@@ -228,10 +229,10 @@ object EffectEngineController {
             lastRecordedEffectIndex = -1
 
             val frames = loadedEffects.map { entry -> entry.timestampMs to entry.payload.toByteArray() }
-            device.loadTimeline(frames)
+            devices.forEach { it.loadTimeline(frames) }
 
             isTimelineLoaded = true
-            Log.d(TAG, "✅ Timeline loaded: ${frames.size} effects")
+            Log.d(TAG, "✅ EFX timeline loaded to ${devices.size} device(s): ${frames.size} effects")
         } catch (e: Exception) {
             isTimelineLoaded = false
             Log.e(TAG, "Timeline load failed: ${e.message}")
@@ -240,11 +241,13 @@ object EffectEngineController {
 
     fun updatePlaybackPosition(context: Context, currentPositionMs: Long) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
-        val device = resolveTarget(context) ?: return
+        val devices = resolveAllDevices(context)
+        if (devices.isEmpty()) return
 
         try {
-            device.updatePlaybackPosition(currentPositionMs)
-            recordCurrentTimelineEffect(device.mac, currentPositionMs)
+            devices.forEach { it.updatePlaybackPosition(currentPositionMs) }
+            // 첫 번째 기기 기준으로 UI 모니터 기록
+            recordCurrentTimelineEffect(devices.first().mac, currentPositionMs)
         } catch (e: Exception) {
             Log.e(TAG, "Update playback failed: ${e.message}")
         }
@@ -252,12 +255,13 @@ object EffectEngineController {
 
     fun handleSeek(context: Context, newPositionMs: Long) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
-        val device = resolveTarget(context) ?: return
+        val devices = resolveAllDevices(context)
+        if (devices.isEmpty()) return
 
         try {
             lastRecordedEffectIndex = -1
-            device.updatePlaybackPosition(newPositionMs)
-            Log.d(TAG, "✅ Seek handled: ${newPositionMs}ms")
+            devices.forEach { it.updatePlaybackPosition(newPositionMs) }
+            Log.d(TAG, "✅ Seek handled on ${devices.size} device(s): ${newPositionMs}ms")
         } catch (e: Exception) {
             Log.e(TAG, "Seek failed: ${e.message}")
         }
@@ -265,31 +269,26 @@ object EffectEngineController {
 
     fun pauseEffects(context: Context) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
-        val device = resolveTarget(context) ?: return
-        try {
-            device.pauseEffects()
-            Log.d(TAG, "⏸ Timeline paused")
-        } catch (e: Exception) {
-            Log.e(TAG, "Pause failed: ${e.message}")
+        resolveAllDevices(context).forEach {
+            try { it.pauseEffects() } catch (e: Exception) { Log.e(TAG, "Pause failed ${it.mac}: ${e.message}") }
         }
+        Log.d(TAG, "⏸ Timeline paused")
     }
 
     fun resumeEffects(context: Context) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
-        val device = resolveTarget(context) ?: return
-        try {
-            device.resumeEffects()
-            Log.d(TAG, "▶️ Timeline resumed")
-        } catch (e: Exception) {
-            Log.e(TAG, "Resume failed: ${e.message}")
+        resolveAllDevices(context).forEach {
+            try { it.resumeEffects() } catch (e: Exception) { Log.e(TAG, "Resume failed ${it.mac}: ${e.message}") }
         }
+        Log.d(TAG, "▶️ Timeline resumed")
     }
 
     fun reset() {
         isTimelineLoaded = false
         cachedTimeline = emptyList()
         lastRecordedEffectIndex = -1
-        targetDevice?.stopTimeline()
+        try { LSBluetooth.connectedDevices().forEach { it.stopTimeline() } } catch (_: Exception) {}
+        targetDevice = null
         Log.d(TAG, "♻️ Controller reset")
     }
 
@@ -311,6 +310,17 @@ object EffectEngineController {
     // ─────────────────────────────────────────────
     // Target
     // ─────────────────────────────────────────────
+
+    /** 타임라인/재생 제어 대상: 연결된 모든 기기 반환 */
+    private fun resolveAllDevices(context: Context): List<Device> {
+        if (!PermissionManager.hasBluetoothConnectPermission(context)) return emptyList()
+        return try {
+            LSBluetooth.connectedDevices()
+        } catch (t: Throwable) {
+            Log.e(TAG, "resolveAllDevices() failed: ${t.message}")
+            emptyList()
+        }
+    }
 
     fun setTargetAddress(address: String?) {
         targetAddress = address

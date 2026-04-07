@@ -13,6 +13,7 @@ import com.lightstick.types.Colors
 import com.lightstick.types.EffectType
 import com.lightstick.types.LSEffectPayload
 import kotlinx.coroutines.delay
+import javax.inject.Inject
 
 /**
  * Connection Effect 재생 UseCase
@@ -26,7 +27,7 @@ import kotlinx.coroutines.delay
  * - EffectViewModel (디바이스 연결 시)
  */
 @SuppressLint("MissingPermission")
-class SendConnectionEffectUseCase {
+class SendConnectionEffectUseCase @Inject constructor() {
 
     private val TAG = AppConstants.Feature.UC_CONNECTION_EFFECT
 

@@ -2,6 +2,7 @@ package com.lightstick.music.domain.usecase.music
 
 import android.content.Context
 import com.lightstick.music.domain.effect.EffectEngineController
+import javax.inject.Inject
 
 /**
  * 재생 위치 업데이트 UseCase
@@ -13,7 +14,7 @@ import com.lightstick.music.domain.effect.EffectEngineController
  * 사용:
  * - MusicViewModel.updatePosition()
  */
-class UpdatePlaybackPositionUseCase {
+class UpdatePlaybackPositionUseCase @Inject constructor() {
 
     /**
      * 재생 위치 업데이트

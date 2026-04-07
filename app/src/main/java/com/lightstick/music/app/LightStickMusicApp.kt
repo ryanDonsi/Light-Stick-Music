@@ -6,11 +6,13 @@ import com.lightstick.LSBluetooth
 import com.lightstick.config.DeviceFilter
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.data.local.preferences.DevicePreferences
+import dagger.hilt.android.HiltAndroidApp
 
 /**
  * Application 클래스
  * 앱 시작 시 SDK 및 SharedPreferences 초기화, permission권한이 필요한 초기화는 SplashActivity에서 수행
  */
+@HiltAndroidApp
 class LightStickMusicApp : Application() {
 
     companion object {

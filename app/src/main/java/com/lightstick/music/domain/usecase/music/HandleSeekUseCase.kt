@@ -2,6 +2,7 @@ package com.lightstick.music.domain.usecase.music
 
 import android.content.Context
 import com.lightstick.music.domain.effect.EffectEngineController
+import javax.inject.Inject
 
 /**
  * Seek 처리 UseCase
@@ -13,7 +14,7 @@ import com.lightstick.music.domain.effect.EffectEngineController
  * 사용:
  * - MusicViewModel.handleSeek()
  */
-class HandleSeekUseCase {
+class HandleSeekUseCase @Inject constructor() {
 
     /**
      * Seek 처리

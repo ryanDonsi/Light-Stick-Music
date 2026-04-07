@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 object BleTransmissionCoordinator {
 
     private const val TAG = AppConstants.Feature.BLE_COORDINATOR
+    private const val MAX_HISTORY_SIZE = 100
 
     // ═══════════════════════════════════════════════════════════
     // State
@@ -133,6 +134,7 @@ object BleTransmissionCoordinator {
                 val newState = ControllerState(source, priority, mode, metadata = metadata)
                 _currentController.value = newState
                 controllerHistory.add(newState)
+                if (controllerHistory.size > MAX_HISTORY_SIZE) controllerHistory.removeAt(0)
                 notifyControlChange(newState)
                 true
             }
@@ -143,6 +145,7 @@ object BleTransmissionCoordinator {
                 val newState = ControllerState(source, priority, mode, metadata = metadata)
                 _currentController.value = newState
                 controllerHistory.add(newState)
+                if (controllerHistory.size > MAX_HISTORY_SIZE) controllerHistory.removeAt(0)
                 notifyControlChange(newState)
                 true
             }

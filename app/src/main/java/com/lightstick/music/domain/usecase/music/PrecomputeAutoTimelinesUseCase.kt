@@ -16,6 +16,7 @@ import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v7
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v8
 import kotlinx.coroutines.yield
 import java.io.File
+import javax.inject.Inject
 
 /**
  * 초기화 시 자동 타임라인 생성 UseCase
@@ -28,7 +29,7 @@ import java.io.File
  * [수정] onProgress 파라미터에 currentFileName 추가
  * - Splash UI에서 현재 처리 중인 파일명을 실시간 표시
  */
-class PrecomputeAutoTimelinesUseCase {
+class PrecomputeAutoTimelinesUseCase @Inject constructor() {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
@@ -69,14 +70,18 @@ class PrecomputeAutoTimelinesUseCase {
             }
         }
 
-        val genV1 = AutoTimelineGeneratorBeat_v1()
-        val genV2 = AutoTimelineGeneratorBeat_v2()
-        val genV3 = AutoTimelineGeneratorBeat_v3()
-        val genV4 = AutoTimelineGeneratorBeat_v4()
-        val genV5 = AutoTimelineGeneratorBeat_v5()
-        val genV6 = AutoTimelineGeneratorBeat_v6()
-        val genV7 = AutoTimelineGeneratorBeat_v7()
-        val genV8 = AutoTimelineGeneratorBeat_v8()
+        // 현재 설정 버전에 해당하는 제너레이터만 생성
+        val generator = when (version) {
+            1 -> AutoTimelineGeneratorBeat_v1()
+            2 -> AutoTimelineGeneratorBeat_v2()
+            3 -> AutoTimelineGeneratorBeat_v3()
+            4 -> AutoTimelineGeneratorBeat_v4()
+            5 -> AutoTimelineGeneratorBeat_v5()
+            6 -> AutoTimelineGeneratorBeat_v6()
+            7 -> AutoTimelineGeneratorBeat_v7()
+            8 -> AutoTimelineGeneratorBeat_v8()
+            else -> throw IllegalArgumentException("Unsupported version: $version")
+        }
 
         val total = musicFiles.size
         var processed = 0
@@ -88,7 +93,6 @@ class PrecomputeAutoTimelinesUseCase {
 
         for ((idx, file) in musicFiles.withIndex()) {
             processed++
-            // [수정] 파일명(확장자 제외) 함께 전달
             onProgress(processed, total, file.nameWithoutExtension)
 
             val musicId = runCatching { MusicId.fromFile(file) }.getOrNull()
@@ -105,17 +109,7 @@ class PrecomputeAutoTimelinesUseCase {
             }
 
             try {
-                val frames = when (version) {
-                    1 -> genV1.generate(file.absolutePath, musicId, paletteSize = paletteSize)
-                    2 -> genV2.generate(file.absolutePath, musicId, paletteSize = paletteSize)
-                    3 -> genV3.generate(file.absolutePath, musicId, paletteSize = paletteSize)
-                    4 -> genV4.generate(file.absolutePath, musicId, paletteSize = paletteSize)
-                    5 -> genV5.generate(file.absolutePath, musicId, paletteSize = paletteSize)
-                    6 -> genV6.generate(file.absolutePath, musicId, paletteSize = paletteSize)
-                    7 -> genV7.generate(file.absolutePath, musicId, paletteSize = paletteSize)
-                    8 -> genV8.generate(file.absolutePath, musicId, paletteSize = paletteSize)
-                    else -> throw IllegalArgumentException("Unsupported version: $version")
-                }
+                val frames = generator.generate(file.absolutePath, musicId, paletteSize = paletteSize)
 
                 if (frames.isEmpty()) {
                     failed++

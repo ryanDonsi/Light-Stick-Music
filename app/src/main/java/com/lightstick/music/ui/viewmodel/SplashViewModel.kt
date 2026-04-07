@@ -15,6 +15,8 @@ import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.data.model.SplashState
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.domain.usecase.music.PrecomputeAutoTimelinesUseCase
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,7 +26,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-class SplashViewModel(application: Application) : AndroidViewModel(application) {
+@HiltViewModel
+class SplashViewModel @Inject constructor(
+    application: Application,
+    private val precomputeAutoTimelinesUseCase: PrecomputeAutoTimelinesUseCase
+) : AndroidViewModel(application) {
 
     private val context = application.applicationContext
 
@@ -96,7 +102,6 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
                 val matchedList = matchEffects(musicList)
 
                 // ✅ 5단계: 자동 타임라인 생성(없는 곡만) — UI Progress 표시가 되도록 IO/MAIN 분리
-                val precomputeUseCase = PrecomputeAutoTimelinesUseCase()
                 val musicFiles = matchedList.map { File(it.filePath) }
                 val total = musicFiles.size
 
@@ -109,7 +114,7 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
 
                 // ✅ 무거운 작업은 IO에서 수행 (디코딩/분석이 MAIN을 막으면 ProgressBar가 멈춤)
                 withContext(Dispatchers.IO) {
-                    precomputeUseCase(
+                    precomputeAutoTimelinesUseCase(
                         context = context,
                         musicFiles = musicFiles,
                         onProgress = { processed, total2, fileName ->

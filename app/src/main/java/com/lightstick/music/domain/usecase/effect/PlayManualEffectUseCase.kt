@@ -6,6 +6,7 @@ import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.ui.viewmodel.EffectViewModel
 import com.lightstick.types.LSEffectPayload
+import javax.inject.Inject
 
 /**
  * Manual Effect 재생 UseCase
@@ -18,7 +19,7 @@ import com.lightstick.types.LSEffectPayload
  * 사용:
  * - EffectViewModel.playEffect()
  */
-class PlayManualEffectUseCase {
+class PlayManualEffectUseCase @Inject constructor() {
 
     /**
      * Manual Effect 재생
