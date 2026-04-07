@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import com.lightstick.device.Device
 import com.lightstick.music.core.permission.PermissionManager
+import javax.inject.Inject
 
 /**
  * 디바이스 연결 해제 UseCase
@@ -15,7 +16,7 @@ import com.lightstick.music.core.permission.PermissionManager
  * 사용처:
  * - DeviceViewModel: disconnect()
  */
-class DisconnectDeviceUseCase {
+class DisconnectDeviceUseCase @Inject constructor() {
 
     /**
      * 디바이스 연결 해제

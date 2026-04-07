@@ -3,6 +3,7 @@ package com.lightstick.music.domain.usecase.device
 import android.content.Context
 import com.lightstick.LSBluetooth
 import com.lightstick.music.core.permission.PermissionManager
+import javax.inject.Inject
 
 /**
  * BLE 스캔 중지 UseCase
@@ -14,7 +15,7 @@ import com.lightstick.music.core.permission.PermissionManager
  * 사용처:
  * - DeviceViewModel: stopScan()
  */
-class StopScanUseCase {
+class StopScanUseCase @Inject constructor() {
 
     /**
      * BLE 스캔 중지

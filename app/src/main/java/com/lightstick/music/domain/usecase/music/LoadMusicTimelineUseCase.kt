@@ -3,6 +3,7 @@ package com.lightstick.music.domain.usecase.music
 import android.content.Context
 import com.lightstick.music.domain.effect.EffectEngineController
 import java.io.File
+import javax.inject.Inject
 
 /**
  * 음악 타임라인 로드 UseCase
@@ -14,7 +15,7 @@ import java.io.File
  * 사용:
  * - MusicViewModel.loadMusicFile()
  */
-class LoadMusicTimelineUseCase {
+class LoadMusicTimelineUseCase @Inject constructor() {
 
     /**
      * 음악 타임라인 로드

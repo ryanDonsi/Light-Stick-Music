@@ -2,6 +2,7 @@ package com.lightstick.music.domain.usecase.music
 
 import android.content.Context
 import com.lightstick.music.domain.effect.EffectEngineController
+import javax.inject.Inject
 
 /**
  * 이펙트 일시정지 UseCase
@@ -13,7 +14,7 @@ import com.lightstick.music.domain.effect.EffectEngineController
  * 사용:
  * - MusicViewModel.pause()
  */
-class PauseEffectsUseCase {
+class PauseEffectsUseCase @Inject constructor() {
 
     /**
      * 이펙트 일시정지

@@ -6,6 +6,7 @@ import com.lightstick.device.Device
 import com.lightstick.device.DeviceInfo
 import com.lightstick.music.core.permission.PermissionManager
 import kotlinx.coroutines.CompletableDeferred
+import javax.inject.Inject
 
 /**
  * 디바이스 연결 UseCase
@@ -19,7 +20,7 @@ import kotlinx.coroutines.CompletableDeferred
  * - DeviceViewModel: connect()
  * - EffectViewModel: startAutoScan()
  */
-class ConnectDeviceUseCase {
+class ConnectDeviceUseCase @Inject constructor() {
 
     /**
      * 디바이스 연결

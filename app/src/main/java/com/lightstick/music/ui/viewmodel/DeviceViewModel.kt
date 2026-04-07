@@ -7,6 +7,9 @@ import com.lightstick.music.core.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lightstick.music.core.constants.AppConstants
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.data.local.preferences.DevicePreferences
@@ -30,24 +33,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class DeviceViewModel : ViewModel() {
+@HiltViewModel
+class DeviceViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val sendFindEffectUseCase:       SendFindEffectUseCase,
+    private val connectDeviceUseCase:        ConnectDeviceUseCase,
+    private val disconnectDeviceUseCase:     DisconnectDeviceUseCase,
+    private val registerEventRulesUseCase:   RegisterEventRulesUseCase,
+    private val sendConnectionEffectUseCase: SendConnectionEffectUseCase,
+    private val getCachedDeviceInfoUseCase:  GetCachedDeviceInfoUseCase,
+    private val startScanUseCase:            StartScanUseCase,
+    private val stopScanUseCase:             StopScanUseCase
+) : ViewModel() {
 
     companion object {
         private const val TAG = AppConstants.Feature.VM_DEVICE
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // UseCase 인스턴스
-    // ═══════════════════════════════════════════════════════════
-
-    private val sendFindEffectUseCase       = SendFindEffectUseCase()
-    private val connectDeviceUseCase        = ConnectDeviceUseCase()
-    private val disconnectDeviceUseCase     = DisconnectDeviceUseCase()
-    private val registerEventRulesUseCase   = RegisterEventRulesUseCase()
-    private val sendConnectionEffectUseCase = SendConnectionEffectUseCase()
-    private val getCachedDeviceInfoUseCase  = GetCachedDeviceInfoUseCase()
-    private val startScanUseCase            = StartScanUseCase()
-    private val stopScanUseCase             = StopScanUseCase()
 
     // ═══════════════════════════════════════════════════════════
     // State Flows
@@ -85,24 +86,13 @@ class DeviceViewModel : ViewModel() {
     /** 배터리 모니터링 Job (MAC → Job) */
     private val batteryMonitoringJobs = mutableMapOf<String, Job>()
 
-    private var appContext: Context? = null
-
     // ═══════════════════════════════════════════════════════════
     // Initialization
     // ═══════════════════════════════════════════════════════════
 
-    fun initializeWithContext(context: Context) {
-        if (appContext != null) {
-            Log.d(TAG, "⏭️ Already initialized, skipping")
-            return
-        }
-
+    init {
         Log.d(TAG, "🚀 Initializing DeviceViewModel...")
-        appContext = context.applicationContext
-
-        DevicePreferences.initialize(context.applicationContext)
-        PermissionManager.logPermissionStatus(appContext!!, TAG)
-
+        PermissionManager.logPermissionStatus(context, TAG)
         Log.d(TAG, "📡 Starting to observe device state events...")
         observeDeviceStateEvents()
     }
@@ -281,11 +271,10 @@ class DeviceViewModel : ViewModel() {
      * 해결: stop 처리 후 startScan() 재사용
      * → startScan() 내부 finally에서 _isScanning 생명주기 전담
      */
-    fun refreshScan(context: Context) {
+    fun refreshScan(@Suppress("UNUSED_PARAMETER") externalContext: Context) {
         if (!PermissionManager.hasBluetoothScanPermission(context)) {
             Log.w(TAG, "BLUETOOTH_SCAN permission not granted"); return
         }
-        val ctx = appContext ?: return
 
         viewModelScope.launch {
             try {
@@ -297,7 +286,7 @@ class DeviceViewModel : ViewModel() {
                 }
 
                 // 2. BLE 하드웨어 스캔 중지
-                stopScanUseCase(ctx)
+                stopScanUseCase(context)
                 _isScanning.value = false
                 Log.d(TAG, "✅ Previous scan stopped")
 
@@ -320,10 +309,8 @@ class DeviceViewModel : ViewModel() {
         scanJob?.cancel()
         scanJob = null
 
-        val ctx = appContext ?: run { _isScanning.value = false; return }
-
         viewModelScope.launch {
-            stopScanUseCase(ctx)
+            stopScanUseCase(context)
                 .onSuccess { Log.d(TAG, "✅ Scan stopped") }
                 .onFailure { Log.e(TAG, "❌ Error stopping scan: ${it.message}") }
             _isScanning.value = false
@@ -406,8 +393,7 @@ class DeviceViewModel : ViewModel() {
     // ═══════════════════════════════════════════════════════════
 
     fun sendFindEffect(device: Device) {
-        val ctx = appContext
-        if (ctx == null || !PermissionManager.hasBluetoothConnectPermission(ctx)) {
+        if (!PermissionManager.hasBluetoothConnectPermission(context)) {
             Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음"); return
         }
 
@@ -416,7 +402,7 @@ class DeviceViewModel : ViewModel() {
                 if (_connectionStates.value[device.mac] != true) {
                     Log.w(TAG, "⚠️ Device not connected: ${device.mac}"); return@launch
                 }
-                sendFindEffectUseCase(context = ctx, deviceMac = device.mac)
+                sendFindEffectUseCase(context = context, deviceMac = device.mac)
                     .onSuccess { Log.d(TAG, "✅ FIND effect sent: ${device.mac}") }
                     .onFailure { error -> Log.e(TAG, "❌ FIND effect failed: ${error.message}") }
             } catch (e: Exception) {
@@ -472,8 +458,7 @@ class DeviceViewModel : ViewModel() {
     // ═══════════════════════════════════════════════════════════
 
     private fun registerDeviceEventRules(device: Device) {
-        val ctx = appContext ?: return
-        registerEventRulesUseCase(ctx, device).onFailure { error ->
+        registerEventRulesUseCase(context, device).onFailure { error ->
             Log.e(TAG, "❌ Failed to register event rules for ${device.mac}: ${error.message}")
         }
     }
@@ -685,11 +670,10 @@ class DeviceViewModel : ViewModel() {
         batteryMonitoringJobs.values.forEach { it.cancel() }
         batteryMonitoringJobs.clear()
 
-        val ctx = appContext
-        if (ctx != null && PermissionManager.hasBluetoothConnectPermission(ctx)) {
+        if (PermissionManager.hasBluetoothConnectPermission(context)) {
             connectedDevices.values.forEach { device ->
                 try {
-                    disconnectDeviceUseCase(ctx, device)
+                    disconnectDeviceUseCase(context, device)
                     Log.d(TAG, "   Disconnected: ${device.mac}")
                 } catch (e: Exception) {
                     Log.e(TAG, "   Error disconnecting ${device.mac}: ${e.message}")

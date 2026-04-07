@@ -31,6 +31,8 @@ import com.lightstick.music.domain.usecase.music.HandleSeekUseCase
 import com.lightstick.music.domain.usecase.music.LoadMusicTimelineUseCase
 import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
 import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,19 +43,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
+@HiltViewModel
 @UnstableApi
-class MusicViewModel(application: Application) : AndroidViewModel(application) {
+class MusicViewModel @Inject constructor(
+    application: Application,
+    private val loadMusicTimelineUseCase:      LoadMusicTimelineUseCase,
+    private val updatePlaybackPositionUseCase: UpdatePlaybackPositionUseCase,
+    private val handleSeekUseCase:             HandleSeekUseCase,
+    private val processFFTUseCase:             ProcessFFTUseCase
+) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = AppConstants.Feature.VM_MUSIC
     }
 
     private val context = application.applicationContext
-
-    private val loadMusicTimelineUseCase      = LoadMusicTimelineUseCase()
-    private val updatePlaybackPositionUseCase = UpdatePlaybackPositionUseCase()
-    private val handleSeekUseCase             = HandleSeekUseCase()
-    private val processFFTUseCase             = ProcessFFTUseCase()
 
     private val _isAutoModeEnabled = MutableStateFlow(true)
     val isAutoModeEnabled: StateFlow<Boolean> = _isAutoModeEnabled.asStateFlow()

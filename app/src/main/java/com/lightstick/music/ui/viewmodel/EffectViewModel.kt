@@ -28,7 +28,8 @@ import com.lightstick.music.domain.usecase.device.GetBondedDevicesUseCase
 import com.lightstick.music.domain.usecase.device.StartScanUseCase
 import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.ObserveDeviceStatesUseCase
-//import com.lightstick.music.domain.usecase.device.GetConnectedDevicesUseCase
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import com.lightstick.types.Color as LightStickColor
 import com.lightstick.types.Colors
 import kotlinx.coroutines.Job
@@ -41,7 +42,17 @@ import org.json.JSONObject
 import java.util.UUID
 import androidx.core.content.edit
 
-class EffectViewModel(application: Application) : AndroidViewModel(application) {
+@HiltViewModel
+class EffectViewModel @Inject constructor(
+    application: Application,
+    private val playManualEffectUseCase:     PlayManualEffectUseCase,
+    private val playEffectListUseCase:       PlayEffectListUseCase,
+    private val stopEffectUseCase:           StopEffectUseCase,
+    private val sendConnectionEffectUseCase: SendConnectionEffectUseCase,
+    private val getBondedDevicesUseCase:     GetBondedDevicesUseCase,
+    private val startScanUseCase:            StartScanUseCase,
+    private val connectDeviceUseCase:        ConnectDeviceUseCase
+) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = AppConstants.Feature.VM_EFFECT
@@ -49,19 +60,6 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
 
     private val prefs: SharedPreferences =
         application.getSharedPreferences(PrefsKeys.PREFS_EFFECT_SETTINGS, Context.MODE_PRIVATE)
-
-    // ═══════════════════════════════════════════════════════════
-    // UseCase 인스턴스
-    // ═══════════════════════════════════════════════════════════
-
-    private val playManualEffectUseCase     = PlayManualEffectUseCase()
-    private val playEffectListUseCase       = PlayEffectListUseCase()
-    private val stopEffectUseCase           = StopEffectUseCase()
-    private val sendConnectionEffectUseCase = SendConnectionEffectUseCase()
-    private val getBondedDevicesUseCase     = GetBondedDevicesUseCase()
-    private val startScanUseCase            = StartScanUseCase()
-    private val connectDeviceUseCase        = ConnectDeviceUseCase()
-//    private val getConnectedDevicesUseCase  = GetConnectedDevicesUseCase()
 
     // ═══════════════════════════════════════════════════════════
     // Control Mode
@@ -311,9 +309,20 @@ class EffectViewModel(application: Application) : AndroidViewModel(application) 
         scanJob?.cancel()
         scanJob = viewModelScope.launch {
             try {
-                // ✅ 1순위: ViewModel 상태 확인
+                // 1순위: ViewModel 상태 확인
                 if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
                     Log.d(TAG, "Already connected (state)")
+                    return@launch
+                }
+
+                // 2순위: SDK 레벨에서 이미 연결된 기기 확인 (DeviceViewModel이 먼저 연결했을 수 있음)
+                val sdkConnected = try {
+                    com.lightstick.LSBluetooth.connectedDevices()
+                } catch (e: Exception) { emptyList() }
+                if (sdkConnected.isNotEmpty()) {
+                    val device = sdkConnected.first()
+                    _deviceConnectionState.value = DeviceConnectionState.Connected(device)
+                    Log.d(TAG, "Already connected via SDK: ${device.mac}")
                     return@launch
                 }
 

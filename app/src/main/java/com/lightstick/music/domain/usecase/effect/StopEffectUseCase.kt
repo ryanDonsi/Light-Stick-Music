@@ -5,6 +5,7 @@ import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.types.LSEffectPayload
 import kotlinx.coroutines.Job
+import javax.inject.Inject
 
 /**
  * Effect 중지 UseCase
@@ -17,7 +18,7 @@ import kotlinx.coroutines.Job
  * 사용:
  * - EffectViewModel.stopEffect()
  */
-class StopEffectUseCase {
+class StopEffectUseCase @Inject constructor() {
 
     /**
      * Effect 중지

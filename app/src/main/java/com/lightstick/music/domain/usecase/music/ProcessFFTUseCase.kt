@@ -3,6 +3,7 @@ package com.lightstick.music.domain.usecase.music
 import android.content.Context
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.data.model.FrequencyBand
+import javax.inject.Inject
 
 /**
  * FFT 데이터 처리 UseCase
@@ -14,7 +15,7 @@ import com.lightstick.music.data.model.FrequencyBand
  * 사용:
  * - MusicViewModel.processFFT()
  */
-class ProcessFFTUseCase {
+class ProcessFFTUseCase @Inject constructor() {
 
     /**
      * FFT 데이터 처리

@@ -7,6 +7,7 @@ import com.lightstick.device.Device
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.permission.PermissionManager
 import kotlinx.coroutines.delay
+import javax.inject.Inject
 
 /**
  * BLE 스캔 시작 UseCase
@@ -25,7 +26,7 @@ import kotlinx.coroutines.delay
  * - onFound 콜백 파라미터 추가
  *   → 발견 즉시 ViewModel에서 _devices 실시간 업데이트 가능
  */
-class StartScanUseCase {
+class StartScanUseCase @Inject constructor() {
 
     companion object {
         private const val TAG = AppConstants.Feature.UC_START_SCAN

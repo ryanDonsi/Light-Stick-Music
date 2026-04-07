@@ -4,6 +4,7 @@ import android.content.Context
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
 import com.lightstick.music.core.permission.PermissionManager
+import javax.inject.Inject
 
 /**
  * 페어링된 디바이스 조회 UseCase
@@ -17,7 +18,7 @@ import com.lightstick.music.core.permission.PermissionManager
  * - DeviceViewModel: syncConnectedDevices()
  * - EffectViewModel: startAutoScan()
  */
-class GetBondedDevicesUseCase {
+class GetBondedDevicesUseCase @Inject constructor() {
 
     /**
      * 페어링된 디바이스 목록 조회

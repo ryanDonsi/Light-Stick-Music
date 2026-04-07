@@ -15,6 +15,7 @@ import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.types.Colors
 import com.lightstick.types.LSEffectPayload
+import javax.inject.Inject
 
 /**
  * 디바이스 이벤트 규칙 등록 UseCase
@@ -30,7 +31,7 @@ import com.lightstick.types.LSEffectPayload
  * - DeviceViewModel.toggleCallEvent() 후 재등록
  * - DeviceViewModel.toggleSmsEvent() 후 재등록
  */
-class RegisterEventRulesUseCase {
+class RegisterEventRulesUseCase @Inject constructor() {
 
     private val TAG = AppConstants.Feature.UC_REGIST_EVENTRULES
 
