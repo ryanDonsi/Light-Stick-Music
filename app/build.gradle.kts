@@ -6,8 +6,8 @@ plugins {
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlinx.serialization)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.ksp)
     id("kotlin-parcelize")
-    kotlin("kapt")
 }
 
 android {
@@ -38,10 +38,6 @@ android {
     buildFeatures {
         compose = true
         viewBinding = true
-    }
-
-    kapt {
-        correctErrorTypes = true
     }
 
     composeOptions {
@@ -120,7 +116,7 @@ dependencies {
 
     // Hilt
     implementation(libs.hilt.android)
-    kapt(libs.hilt.compiler)
+    ksp(libs.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
 
     // Exo Player
@@ -134,7 +130,7 @@ dependencies {
 
     // Glide
     implementation(libs.glide)
-    kapt(libs.glide.compiler)
+    ksp(libs.glide.compiler)
 
     // Blur (Glide Transformation)
     implementation(libs.glide.transformations)
