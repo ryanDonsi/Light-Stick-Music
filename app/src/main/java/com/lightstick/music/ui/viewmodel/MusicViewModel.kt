@@ -31,12 +31,14 @@ import com.lightstick.music.domain.usecase.music.HandleSeekUseCase
 import com.lightstick.music.domain.usecase.music.LoadMusicTimelineUseCase
 import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
 import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @UnstableApi
@@ -149,71 +151,74 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadMusic() {
         viewModelScope.launch {
-            val resolver   = context.contentResolver
-            val uri        = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-            val projection = arrayOf(
-                MediaStore.Audio.Media.TITLE,
-                MediaStore.Audio.Media.DISPLAY_NAME,
-                MediaStore.Audio.Media.ARTIST,
-                MediaStore.Audio.Media.DATA
-            )
-            val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-            val sort      = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
+            val musicItems = withContext(Dispatchers.IO) {
+                val resolver   = context.contentResolver
+                val uri        = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                val projection = arrayOf(
+                    MediaStore.Audio.Media.TITLE,
+                    MediaStore.Audio.Media.DISPLAY_NAME,
+                    MediaStore.Audio.Media.ARTIST,
+                    MediaStore.Audio.Media.DATA
+                )
+                val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+                val sort      = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
-            val musicItems = mutableListOf<MusicItem>()
-            resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
-                val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
-                val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                val items = mutableListOf<MusicItem>()
+                resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
+                    val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                    val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                    val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                    val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
 
-                while (cursor.moveToNext()) {
-                    val path      = cursor.getString(dataCol)
-                    val metaTitle = cursor.getString(titleCol)
-                    val fileName  = cursor.getString(nameCol)
-                    val title     = if (!metaTitle.isNullOrBlank()) metaTitle
-                    else fileName.substringBeforeLast(".")
-                    val artist    = cursor.getString(artistCol) ?: "Unknown"
+                    while (cursor.moveToNext()) {
+                        val path      = cursor.getString(dataCol)
+                        val metaTitle = cursor.getString(titleCol)
+                        val fileName  = cursor.getString(nameCol)
+                        val title     = if (!metaTitle.isNullOrBlank()) metaTitle
+                        else fileName.substringBeforeLast(".")
+                        val artist    = cursor.getString(artistCol) ?: "Unknown"
 
-                    val musicFile = File(path)
-                    val hasEffect = try {
-                        MusicEffectManager.hasEffectFor(musicFile)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to check effect: ${e.message}")
-                        false
-                    }
-
-                    val retriever = MediaMetadataRetriever()
-                    var art: String? = null
-                    var duration: Long = 0L
-                    try {
-                        retriever.setDataSource(path)
-                        art = retriever.embeddedPicture?.let { bytes ->
-                            val file = File(context.cacheDir, "${title.hashCode()}.jpg")
-                            file.writeBytes(bytes)
-                            file.absolutePath
+                        val musicFile = File(path)
+                        val hasEffect = try {
+                            MusicEffectManager.hasEffectFor(musicFile)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to check effect: ${e.message}")
+                            false
                         }
-                        val durationStr = retriever.extractMetadata(
-                            MediaMetadataRetriever.METADATA_KEY_DURATION
-                        )
-                        duration = durationStr?.toLongOrNull() ?: 0L
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to extract metadata: ${e.message}")
-                    } finally {
-                        retriever.release()
-                    }
 
-                    musicItems.add(
-                        MusicItem(
-                            title        = title,
-                            artist       = artist,
-                            filePath     = path,
-                            albumArtPath = art,
-                            hasEffect    = hasEffect,
-                            duration     = duration
+                        val retriever = MediaMetadataRetriever()
+                        var art: String? = null
+                        var duration: Long = 0L
+                        try {
+                            retriever.setDataSource(path)
+                            art = retriever.embeddedPicture?.let { bytes ->
+                                val file = File(context.cacheDir, "${title.hashCode()}.jpg")
+                                file.writeBytes(bytes)
+                                file.absolutePath
+                            }
+                            val durationStr = retriever.extractMetadata(
+                                MediaMetadataRetriever.METADATA_KEY_DURATION
+                            )
+                            duration = durationStr?.toLongOrNull() ?: 0L
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to extract metadata: ${e.message}")
+                        } finally {
+                            retriever.release()
+                        }
+
+                        items.add(
+                            MusicItem(
+                                title        = title,
+                                artist       = artist,
+                                filePath     = path,
+                                albumArtPath = art,
+                                hasEffect    = hasEffect,
+                                duration     = duration
+                            )
                         )
-                    )
+                    }
                 }
+                items
             }
 
             _musicList.value = musicItems
