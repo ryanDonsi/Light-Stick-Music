@@ -8,6 +8,7 @@ import com.lightstick.efx.EfxEntry
 import com.lightstick.efx.MusicId
 import com.lightstick.music.data.local.storage.EffectPathPreferences
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * ✅ SAF 지원 추가
@@ -18,8 +19,8 @@ object MusicEffectManager {
 
     private val TAG = "MusicEffectManager"
 
-    // musicId -> EFX 파일 매핑
-    private val effectFileMap = mutableMapOf<Int, File>()
+    // musicId -> EFX 파일 매핑 (ConcurrentHashMap: 멀티스레드 안전)
+    private val effectFileMap = ConcurrentHashMap<Int, File>()
 
     /**
      * ✅ SAF 기반 초기화 (권장)
