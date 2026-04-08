@@ -19,7 +19,7 @@ import kotlin.math.sqrt
  * - CLIMAX downbeat STROBE 확정 + 로그(클라이맥스/스토브 카운트)
  * - intro는 조건부 BREATH(무조건 breath 아님)
  */
-class AutoTimelineGeneratorBeat_v3 {
+class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
@@ -55,7 +55,7 @@ class AutoTimelineGeneratorBeat_v3 {
         val beatTimesMs: LongArray
     )
 
-    fun generate(musicPath: String, musicId: Int, paletteSize: Int = 4): List<Pair<Long, ByteArray>> {
+    override fun generate(musicPath: String, musicId: Int, paletteSize: Int): List<Pair<Long, ByteArray>> {
         val env = decodeEnvelope(musicPath, windowMs = 50)
         if (env.rms.isEmpty()) return fallback(musicId)
 

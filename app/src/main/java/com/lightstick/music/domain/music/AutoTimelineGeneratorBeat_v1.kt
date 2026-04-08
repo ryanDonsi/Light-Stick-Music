@@ -20,7 +20,7 @@ import kotlin.math.sqrt
  * - Downbeat(4박 단위 시작)에는 STROBE를 "확정"으로 넣어 리듬감/가시성 보장
  * - 나머지는 BLINK를 subBeat마다 출력 (색은 팔레트 내에서만 교대)
  */
-class AutoTimelineGeneratorBeat_v1 {
+class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
@@ -56,7 +56,7 @@ class AutoTimelineGeneratorBeat_v1 {
         val beatTimesMs: LongArray
     )
 
-    fun generate(musicPath: String, musicId: Int, paletteSize: Int = 4): List<Pair<Long, ByteArray>> {
+    override fun generate(musicPath: String, musicId: Int, paletteSize: Int): List<Pair<Long, ByteArray>> {
         // 1) envelope 추출 (리듬용)
         val env = decodeEnvelope(musicPath, windowMs = 50)
         if (env.rms.isEmpty()) return fallback(musicId)

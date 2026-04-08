@@ -2,6 +2,7 @@
 # Gradle 플러그인
 agp = "8.13.1"                           # Android Gradle Plugin (최신 안정 버전)
 kotlin = "2.0.20"                        # Kotlin 버전 수정 (Kotlin 2.0.x로 변경)
+ksp = "2.0.20-1.0.25"                   # KSP (Kotlin Symbol Processing) — Kotlin 2.0.20 호환
 kotlinxSerialization = "1.7.20"          # JSON (Kotlin 2.0.x와 호환되는 버전으로 수정)
 kotlinxSerializationJson = "1.7.2"          # JSON (Kotlin 2.0.x와 호환되는 버전으로 수정)
 
@@ -28,18 +29,18 @@ navigationCompose = "2.8.9"
 androidx-media = "1.6.0"
 vectordrawable = "1.1.0"
 
+# JTransForm
 # coil
 coil = "2.5.0"
 
-# JTransForm
 jtransforms = "3.1"
 
 # TarsosDSP
 tarsosdsp = "2.5"
 
 #Hilt
-hilt = "2.48"
-hilt_compose = "1.1.0"
+hilt = "2.52"
+hilt_compose = "1.2.0"
 
 # Media3
 media3 = "1.6.1"
@@ -142,3 +143,4 @@ jetbrainsKotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "k
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlinx-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

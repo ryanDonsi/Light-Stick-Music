@@ -24,7 +24,7 @@ import kotlin.random.Random
  *
  * BG는 항상 BLACK (가독성/박자 대비 목적)
  */
-class AutoTimelineGeneratorBeat_v6 {
+class AutoTimelineGeneratorBeat_v6 : AutoTimelineGenerator {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
@@ -75,10 +75,10 @@ class AutoTimelineGeneratorBeat_v6 {
         val bg: LSColor
     )
 
-    fun generate(
+    override fun generate(
         musicPath: String,
         musicId: Int,
-        paletteSize: Int = 4
+        paletteSize: Int
     ): List<Pair<Long, ByteArray>> {
         val palette = buildPalette(musicId, paletteSize.coerceIn(3, 5))
 

@@ -14,7 +14,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import kotlin.random.Random
 
-class AutoTimelineGeneratorBeat_v7 {
+class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
@@ -130,10 +130,10 @@ class AutoTimelineGeneratorBeat_v7 {
         val sectionType: SectionType? = null
     )
 
-    fun generate(
+    override fun generate(
         musicPath: String,
         musicId: Int,
-        paletteSize: Int = 4
+        paletteSize: Int
     ): List<Pair<Long, ByteArray>> {
         Log.d(TAG, "v8 generate() start file=$musicPath musicId=$musicId paletteSize=$paletteSize")
 

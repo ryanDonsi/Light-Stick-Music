@@ -16,7 +16,7 @@ import kotlin.math.sqrt
  * v2: Beat Grid 기반(기본 8분) + CLIMAX 구간 downbeat STROBE 확정 + 나머지 BLINK 중심
  * - 비교용: "BLINK가 많고 리듬이 명확한" 버전
  */
-class AutoTimelineGeneratorBeat_v2 {
+class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
@@ -52,7 +52,7 @@ class AutoTimelineGeneratorBeat_v2 {
         val beatTimesMs: LongArray
     )
 
-    fun generate(musicPath: String, musicId: Int, paletteSize: Int = 4): List<Pair<Long, ByteArray>> {
+    override fun generate(musicPath: String, musicId: Int, paletteSize: Int): List<Pair<Long, ByteArray>> {
         val env = decodeEnvelope(musicPath, windowMs = 50)
         if (env.rms.isEmpty()) return fallback(musicId)
 
