@@ -7,6 +7,7 @@ import android.widget.Toast
 import android.annotation.SuppressLint
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.OptIn
@@ -351,6 +352,13 @@ fun AppNavigation(
                 return@composable
             }
 
+            // ✅ OTA 파일 선택 런처 — 사용자가 .bin 파일 선택 시 DeviceViewModel.startOta() 호출
+            val otaFilePicker = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri ->
+                uri?.let { deviceViewModel.startOta(context, device, it) }
+            }
+
             // ✅ 다이얼로그 상태
             var showDisconnectDialog by remember { mutableStateOf(false) }
             var showDeviceInfoDialog by remember { mutableStateOf(false) }
@@ -445,8 +453,7 @@ fun AppNavigation(
                     onDismiss = { showOtaUpdateDialog = false },
                     onConfirm = {
                         showOtaUpdateDialog = false
-                        // TODO: OTA 파일 선택 기능 구현 필요
-                        Toast.makeText(context, "OTA 업데이트 시작", Toast.LENGTH_SHORT).show()
+                        otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
                     }
                 )
             }

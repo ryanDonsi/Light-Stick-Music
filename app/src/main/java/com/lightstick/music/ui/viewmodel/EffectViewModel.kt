@@ -35,14 +35,35 @@ import com.lightstick.types.Color as LightStickColor
 import com.lightstick.types.Colors
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
 import java.util.UUID
 import androidx.core.content.edit
+
+// ── JSON 직렬화 공유 설정 (kotlinx.serialization)
+private val json = Json { ignoreUnknownKeys = true }
+
+@Serializable
+private data class EffectSettingsDto(
+    val colorR: Int = 255, val colorG: Int = 255, val colorB: Int = 255,
+    val bgColorR: Int = 0, val bgColorG: Int = 0, val bgColorB: Int = 0,
+    val period: Int = 10, val transit: Int = 0,
+    val randomColor: Boolean = false, val randomDelay: Int = 0,
+    val broadcasting: Boolean = true
+)
+
+@Serializable
+private data class CustomEffectDto(
+    val id: String,
+    val baseType: String,
+    val name: String
+)
 
 @HiltViewModel
 class EffectViewModel @Inject constructor(
@@ -127,9 +148,6 @@ class EffectViewModel @Inject constructor(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-//    private val _playingEffect = MutableStateFlow<UiEffectType?>(null)
-//    val playingEffect: StateFlow<UiEffectType?> = _playingEffect.asStateFlow()
-
     private val _customEffects = MutableStateFlow<List<UiEffectType.Custom>>(emptyList())
     val customEffects: StateFlow<List<UiEffectType.Custom>> = _customEffects.asStateFlow()
 
@@ -162,14 +180,6 @@ class EffectViewModel @Inject constructor(
     // ═══════════════════════════════════════════════════════════
     // Init
     // ═══════════════════════════════════════════════════════════
-
-//    init {
-//        loadCustomEffects()
-//        loadAllSettings()
-//        observeDeviceConnection()
-//        observeDeviceDisconnect()
-//        observeMusicPlaybackState()
-//    }
 
     init {
         loadCustomEffects()
@@ -219,63 +229,6 @@ class EffectViewModel @Inject constructor(
     }
 
     // ═══════════════════════════════════════════════════════════
-    // Device Connection Observer  (연결 감지)
-    // ═══════════════════════════════════════════════════════════
-
-    /**
-     * 기기 연결 이벤트를 관찰합니다.
-     */
-//    private fun observeDeviceConnection() {
-//        viewModelScope.launch {
-//            ObserveDeviceStatesUseCase
-//                .observeFirstConnectedDevice(preferLsDevice = false)
-//                .collect { connectedDevice ->
-//                    if (connectedDevice != null) {
-//                        val current = _deviceConnectionState.value
-//                        val alreadyConnected =
-//                            current is DeviceConnectionState.Connected &&
-//                                    current.device.mac == connectedDevice.mac
-//                        if (!alreadyConnected) {
-//                            _deviceConnectionState.value =
-//                                DeviceConnectionState.Connected(connectedDevice)
-//                            Log.d(TAG, "Device state → Connected: ${connectedDevice.mac}")
-//                        }
-//                    }
-//                    // null 처리는 observeDeviceDisconnect 에서 reason 로그와 함께 처리
-//                }
-//        }
-//    }
-
-    // ═══════════════════════════════════════════════════════════
-    // Device Disconnect Observer  (해제 감지)
-    // ═══════════════════════════════════════════════════════════
-
-    /**
-     * 기기 연결 해제 이벤트를 관찰합니다.
-     *
-     * Connected → Disconnected 전환 시 호출됩니다.
-     * reason은 로그로만 출력하고 상태는 [DeviceConnectionState.Disconnected]로 전환합니다.
-     */
-//    private fun observeDeviceDisconnect() {
-//        viewModelScope.launch {
-//            ObserveDeviceStatesUseCase.observeDisconnectEvents()
-//                .collect { event ->
-//                    // reason 로그 출력
-//                    Log.d(TAG, "Disconnect detected: mac=${event.mac} reason=${event.reason}")
-//
-//                    // Connected 상태일 때만 처리 (중복 이벤트 방지)
-//                    if (_deviceConnectionState.value !is DeviceConnectionState.Connected) {
-//                        Log.d(TAG, "Disconnect ignored: current state is not Connected")
-//                        return@collect
-//                    }
-//
-//                    _deviceConnectionState.value = DeviceConnectionState.Disconnected
-//                    Log.d(TAG, "Device state → Disconnected")
-//                }
-//        }
-//    }
-
-    // ═══════════════════════════════════════════════════════════
     // 음악 재생 상태 관찰 → Effect 잠금 처리
     // ═══════════════════════════════════════════════════════════
 
@@ -292,7 +245,6 @@ class EffectViewModel @Inject constructor(
                     _selectedEffectListNumber.value = null
                     _selectedEffect.value           = null
                     _isPlaying.value                = false
-//                    _playingEffect.value            = null
                 }
             }
         }
@@ -439,7 +391,6 @@ class EffectViewModel @Inject constructor(
                     ).onSuccess { job ->
                         effectListJob?.cancel()
                         effectListJob        = job
-//                        _playingEffect.value = effectType
                         _isPlaying.value     = true
                     }.onFailure { error ->
                         _errorMessage.value = "EffectList 재생 실패: ${error.message}"
@@ -452,7 +403,6 @@ class EffectViewModel @Inject constructor(
                     effectType = effectType,
                     settings   = settings
                 ).onSuccess {
-//                    _playingEffect.value            = effectType
                     _isPlaying.value                = true
                     _selectedEffectListNumber.value = null
                 }.onFailure { error ->
@@ -469,7 +419,6 @@ class EffectViewModel @Inject constructor(
             stopEffectUseCase(context = context, effectListJob = effectListJob)
                 .onSuccess {
                     effectListJob                   = null
-//                    _playingEffect.value            = null
                     _isPlaying.value                = false
                     _selectedEffectListNumber.value = null
                 }
@@ -495,7 +444,6 @@ class EffectViewModel @Inject constructor(
             effectListJob                   = null
             _selectedEffectListNumber.value = null
             _isPlaying.value                = false
-//            _playingEffect.value            = null
         }
         selectEffect(effect)
         playEffect(context, effect)
@@ -568,7 +516,6 @@ class EffectViewModel @Inject constructor(
             _isPlaying.value && _selectedEffectListNumber.value == null) {
             viewModelScope.launch { stopEffectUseCase(context = context, effectListJob = null) }
             _isPlaying.value      = false
-//            _playingEffect.value  = null
             _selectedEffect.value = null
         }
         val effect = UiEffectType.EffectList(effectNumber)
@@ -620,34 +567,24 @@ class EffectViewModel @Inject constructor(
     }
 
     private fun loadCustomEffects() {
-        val json = prefs.getString(PrefsKeys.KEY_CUSTOM_EFFECTS, null) ?: return
+        val jsonStr = prefs.getString(PrefsKeys.KEY_CUSTOM_EFFECTS, null) ?: return
         try {
-            val arr = JSONArray(json)
-            _customEffects.value = (0 until arr.length()).map { i ->
-                arr.getJSONObject(i).let { obj ->
-                    UiEffectType.Custom(
-                        id       = obj.getString("id"),
-                        baseType = UiEffectType.BaseEffectType.valueOf(obj.getString("baseType")),
-                        name     = obj.getString("name")
-                    )
-                }
+            _customEffects.value = json.decodeFromString<List<CustomEffectDto>>(jsonStr).map { dto ->
+                UiEffectType.Custom(
+                    id       = dto.id,
+                    baseType = UiEffectType.BaseEffectType.valueOf(dto.baseType),
+                    name     = dto.name
+                )
             }
         } catch (e: Exception) { Log.e(TAG, "loadCustomEffects: ${e.message}") }
     }
 
     private fun saveCustomEffects() {
         try {
-            val arr = JSONArray()
-            _customEffects.value.forEach { c ->
-                arr.put(JSONObject().apply {
-                    put("id", c.id)
-                    put("baseType", c.baseType.name)
-                    put("name", c.name)
-                })
+            val list = _customEffects.value.map { c ->
+                CustomEffectDto(id = c.id, baseType = c.baseType.name, name = c.name)
             }
-            prefs.edit {
-                putString(PrefsKeys.KEY_CUSTOM_EFFECTS, arr.toString())
-            }
+            prefs.edit { putString(PrefsKeys.KEY_CUSTOM_EFFECTS, json.encodeToString(list)) }
         } catch (e: Exception) {
             Log.e(TAG, "saveCustomEffects: ${e.message}")
         }
@@ -751,15 +688,15 @@ class EffectViewModel @Inject constructor(
         val randomDelay:     Int             = 0,
         val broadcasting:    Boolean         = true
     ) {
-        fun toJson(): String = JSONObject().apply {
-            put("colorR",      color.r);   put("colorG",   color.g);   put("colorB",   color.b)
-            put("bgColorR",    backgroundColor.r)
-            put("bgColorG",    backgroundColor.g)
-            put("bgColorB",    backgroundColor.b)
-            put("period",      period);    put("transit",  transit)
-            put("randomColor", randomColor); put("randomDelay", randomDelay)
-            put("broadcasting", broadcasting)
-        }.toString()
+        fun toJson(): String = json.encodeToString(
+            EffectSettingsDto(
+                colorR = color.r,             colorG = color.g,             colorB = color.b,
+                bgColorR = backgroundColor.r, bgColorG = backgroundColor.g, bgColorB = backgroundColor.b,
+                period = period,              transit = transit,
+                randomColor = randomColor,    randomDelay = randomDelay,
+                broadcasting = broadcasting
+            )
+        )
 
         companion object {
             fun defaultFor(effectType: UiEffectType): EffectSettings = when (effectType) {
@@ -772,15 +709,14 @@ class EffectViewModel @Inject constructor(
                 is UiEffectType.Custom     -> EffectSettings(period = 30, transit = 0)
             }
 
-            fun fromJson(json: String): EffectSettings {
-                val o = JSONObject(json)
+            fun fromJson(jsonStr: String): EffectSettings {
+                val dto = json.decodeFromString<EffectSettingsDto>(jsonStr)
                 return EffectSettings(
-                    color           = LightStickColor(o.optInt("colorR",255), o.optInt("colorG",255), o.optInt("colorB",255)),
-                    backgroundColor = LightStickColor(o.optInt("bgColorR",0), o.optInt("bgColorG",0), o.optInt("bgColorB",0)),
-                    period          = o.optInt("period",10),   transit  = o.optInt("transit",0),
-                    randomColor     = o.optBoolean("randomColor",false),
-                    randomDelay     = o.optInt("randomDelay",0),
-                    broadcasting    = o.optBoolean("broadcasting",true)
+                    color           = LightStickColor(dto.colorR, dto.colorG, dto.colorB),
+                    backgroundColor = LightStickColor(dto.bgColorR, dto.bgColorG, dto.bgColorB),
+                    period          = dto.period,       transit      = dto.transit,
+                    randomColor     = dto.randomColor,  randomDelay  = dto.randomDelay,
+                    broadcasting    = dto.broadcasting
                 )
             }
         }
