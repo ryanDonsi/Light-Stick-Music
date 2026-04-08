@@ -1,5 +1,6 @@
 package com.lightstick.music.ui.viewmodel
 
+import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
@@ -317,9 +318,10 @@ class EffectViewModel @Inject constructor(
                 }
 
                 // 2순위: SDK 레벨에서 이미 연결된 기기 확인 (DeviceViewModel이 먼저 연결했을 수 있음)
+                @SuppressLint("MissingPermission")
                 val sdkConnected = try {
                     com.lightstick.LSBluetooth.connectedDevices()
-                } catch (e: Exception) { emptyList() }
+                } catch (_: Exception) { emptyList() }
                 if (sdkConnected.isNotEmpty()) {
                     val device = sdkConnected.first()
                     _deviceConnectionState.value = DeviceConnectionState.Connected(device)
