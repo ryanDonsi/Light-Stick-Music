@@ -1,6 +1,6 @@
 [versions]
 # Gradle 플러그인
-agp = "8.13.1"                           # Android Gradle Plugin (최신 안정 버전)
+agp = "8.13.1"                            # Android Gradle Plugin — Hilt 2.51.1 + KSP 2.0.20 호환
 kotlin = "2.0.20"                        # Kotlin 버전 수정 (Kotlin 2.0.x로 변경)
 ksp = "2.0.20-1.0.25"                   # KSP (Kotlin Symbol Processing) — Kotlin 2.0.20 호환
 kotlinxSerialization = "1.7.20"          # JSON (Kotlin 2.0.x와 호환되는 버전으로 수정)
@@ -29,17 +29,17 @@ navigationCompose = "2.8.9"
 androidx-media = "1.6.0"
 vectordrawable = "1.1.0"
 
-# JTransForm
 # coil
 coil = "2.5.0"
 
+# JTransForm
 jtransforms = "3.1"
 
 # TarsosDSP
 tarsosdsp = "2.5"
 
 #Hilt
-hilt = "2.52"
+hilt = "2.51.1"
 hilt_compose = "1.2.0"
 
 # Media3
