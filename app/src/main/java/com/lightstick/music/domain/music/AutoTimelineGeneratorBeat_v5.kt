@@ -35,7 +35,7 @@ import kotlin.math.roundToInt
  * - 기존 v5 문서의 "색 5초 유지"는 beat마다 BLINK를 다시 보내는 방식에서만 의미가 있었음.
  *   "payload 1개" 요구사항을 지키려면 색은 고정(초기 1회)이어야 한다.
  */
-class AutoTimelineGeneratorBeat_v5 {
+class AutoTimelineGeneratorBeat_v5 : AutoTimelineGenerator {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
@@ -68,7 +68,7 @@ class AutoTimelineGeneratorBeat_v5 {
         val bg: LSColor
     )
 
-    fun generate(musicPath: String, musicId: Int, paletteSize: Int = 4): List<Pair<Long, ByteArray>> {
+    override fun generate(musicPath: String, musicId: Int, paletteSize: Int): List<Pair<Long, ByteArray>> {
         val palette = buildPalette(musicId, paletteSize.coerceIn(3, 5))
 
         // 1) Bass envelope 추출

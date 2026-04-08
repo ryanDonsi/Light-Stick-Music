@@ -20,7 +20,7 @@ import kotlin.math.sqrt
  * - 이펙트가 골고루 섞이게(BREATH / ON / BLINK / STROBE / OFF)
  * - 리듬감 유지: event는 beat/subBeat/grid에만 정렬(quantize)
  */
-class AutoTimelineGeneratorBeat_v4 {
+class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
@@ -67,7 +67,7 @@ class AutoTimelineGeneratorBeat_v4 {
     // 패턴 엔진용 “슬롯 타입”
     enum class SlotType { BEAT, HALF, QUARTER1, QUARTER3 }
 
-    fun generate(musicPath: String, musicId: Int, paletteSize: Int = 4): List<Pair<Long, ByteArray>> {
+    override fun generate(musicPath: String, musicId: Int, paletteSize: Int): List<Pair<Long, ByteArray>> {
         val env = decodeEnvelope(musicPath, windowMs = 50)
         if (env.rms.isEmpty()) return fallback(musicId)
 

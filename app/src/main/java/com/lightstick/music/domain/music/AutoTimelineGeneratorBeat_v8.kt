@@ -31,7 +31,7 @@ import kotlin.random.Random
  * - MediaCodec 1회, 인라인 IIR 필터, 누산 변수 RMS
  * - 예상 처리 시간: ~50초 → ~20초 (약 60% 절감)
  */
-class AutoTimelineGeneratorBeat_v8 {
+class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
@@ -119,10 +119,10 @@ class AutoTimelineGeneratorBeat_v8 {
     // Public entry point
     // =========================================================================
 
-    fun generate(
+    override fun generate(
         musicPath: String,
         musicId: Int,
-        @Suppress("UNUSED_PARAMETER") paletteSize: Int = 4
+        paletteSize: Int
     ): List<Pair<Long, ByteArray>> {
         Log.d(TAG, "v8 generate() start file=$musicPath musicId=$musicId paletteSize=$paletteSize")
 
