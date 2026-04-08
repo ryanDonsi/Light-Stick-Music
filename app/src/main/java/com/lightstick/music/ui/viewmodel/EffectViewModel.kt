@@ -33,6 +33,7 @@ import javax.inject.Inject
 import com.lightstick.types.Color as LightStickColor
 import com.lightstick.types.Colors
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -356,25 +357,50 @@ class EffectViewModel @Inject constructor(
                     return@launch
                 }
 
-                connectDeviceUseCase(
+                // 연결 성공 시 공통 처리 (1차·2차 재시도 공유)
+                val onConnectedCallback: () -> Unit = {
+                    _deviceConnectionState.value = DeviceConnectionState.Connected(bestDevice)
+                    Log.d(TAG, "Auto connected: ${bestDevice.mac}")
+                    viewModelScope.launch {
+                        sendConnectionEffectUseCase(context, bestDevice)
+                            .onFailure { Log.e(TAG, "Connection animation failed: ${it.message}") }
+                    }
+                }
+
+                // 1차 연결 시도 — onFailed 콜백에서 상태 변경하지 않음 (재시도 후 판단)
+                var connectResult = connectDeviceUseCase(
                     context     = context,
                     device      = bestDevice,
-                    onConnected = {
+                    onConnected = onConnectedCallback
+                )
+
+                // Android BLE GATT 첫 연결 실패는 매우 흔한 현상 (GATT 캐시 미정리).
+                // ScanFailed 노출 없이 500ms 대기 후 자동 재시도.
+                if (connectResult.isFailure) {
+                    Log.w(TAG, "1차 연결 실패, 500ms 후 재시도: ${connectResult.exceptionOrNull()?.message}")
+                    delay(500L)
+
+                    // SDK가 500ms 사이에 자체 연결했을 수 있으므로 재확인
+                    val sdkRecheck = try {
+                        com.lightstick.LSBluetooth.connectedDevices()
+                    } catch (e: Exception) { emptyList() }
+                    if (sdkRecheck.any { it.mac == bestDevice.mac }) {
                         _deviceConnectionState.value = DeviceConnectionState.Connected(bestDevice)
-                        Log.d(TAG, "Auto connected: ${bestDevice.mac}")
-                        viewModelScope.launch {
-                            sendConnectionEffectUseCase(context, bestDevice)
-                                .onFailure { Log.e(TAG, "Connection animation failed: ${it.message}") }
-                        }
-                    },
-                    onFailed = { error ->
-                        _deviceConnectionState.value = DeviceConnectionState.ScanFailed
-                        _errorMessage.value = "연결 실패: ${error.message}"
-                        Log.e(TAG, "Connection failed: ${error.message}")
+                        Log.d(TAG, "SDK 자체 연결 감지: ${bestDevice.mac}")
+                        return@launch
                     }
-                ).onFailure { error ->
+
+                    // 2차 연결 시도
+                    connectResult = connectDeviceUseCase(
+                        context     = context,
+                        device      = bestDevice,
+                        onConnected = onConnectedCallback
+                    )
+                }
+
+                if (connectResult.isFailure) {
                     _deviceConnectionState.value = DeviceConnectionState.ScanFailed
-                    Log.e(TAG, "Connect error: ${error.message}")
+                    Log.e(TAG, "연결 최종 실패 (2회 시도): ${connectResult.exceptionOrNull()?.message}")
                 }
 
             } catch (e: Exception) {
