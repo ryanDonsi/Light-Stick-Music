@@ -89,6 +89,11 @@ class MainActivity : ComponentActivity() {
         // ✅ 권한 상태 로깅
         PermissionManager.logPermissionStatus(this, "MainActivity")
 
+        // DeviceViewModel을 onCreate() 시점에 미리 생성하여 LSBluetooth SDK 이벤트
+        // 옵저버를 앱 시작 직후 등록합니다. 이렇게 하면 Android BLE GATT 캐시가
+        // Effect Control 진입 전에 warm 상태가 되어 첫 연결 성공률이 높아집니다.
+        deviceViewModel
+
         // MainActivity.kt의 onCreate 함수 내 Scaffold 부분 수정
 
         setContent {

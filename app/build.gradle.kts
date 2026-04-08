@@ -40,6 +40,10 @@ android {
         viewBinding = true
     }
 
+    composeOptions {
+        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17 // Java 17로 업그레이드 (Kotlin 2.0.0+ 호환)
         targetCompatibility = JavaVersion.VERSION_17
