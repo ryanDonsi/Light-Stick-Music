@@ -329,6 +329,8 @@ object EffectEngineController {
 
     fun getTargetAddress(): String? = targetAddress
 
+    fun getTimelineEffectCount(): Int = cachedTimeline?.size ?: 0
+
     private fun resolveTarget(context: Context): Device? {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return null
 
