@@ -33,6 +33,7 @@ import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.viewmodel.EffectViewModel
 import com.lightstick.types.EffectType
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * BLACK 색상 체크 (RGB가 모두 0.1 미만)
@@ -977,12 +978,16 @@ private fun animatePeriodicEffect(
 ): EffectColorData {
     val resolvedFg = if (randomColor) rememberRandomHueColor() else fgColor
     val resolvedBg = bgColor
-    val duration = (period * 103).coerceAtLeast(103)
+
+    // 실제 디바이스와 UI 싱크 보정값
+    val uiPeriodScale = 103.7f
+    val duration = (period * uiPeriodScale).roundToInt().coerceAtLeast(104)
 
     LaunchedEffect(effectName, fgColor, bgColor, period, randomColor, fgThreshold) {
         android.util.Log.d(
             "${effectName}_ANIM",
-            "START period=$period duration=$duration fg=$fgColor bg=$bgColor randomColor=$randomColor fgThreshold=$fgThreshold"
+            "START period=$period duration=$duration uiPeriodScale=$uiPeriodScale " +
+                    "fg=$fgColor bg=$bgColor randomColor=$randomColor fgThreshold=$fgThreshold"
         )
     }
 
@@ -1002,7 +1007,8 @@ private fun animatePeriodicEffect(
     LaunchedEffect((progress * 10).toInt()) {
         android.util.Log.d(
             "${effectName}_ANIM",
-            "SAMPLE progress=$progress period=$period iconColor=$iconColor fg=$resolvedFg bg=$resolvedBg"
+            "SAMPLE progress=$progress period=$period duration=$duration " +
+                    "iconColor=$iconColor fg=$resolvedFg bg=$resolvedBg"
         )
     }
 
@@ -1043,12 +1049,16 @@ private fun animateBreathEffect(
     val resolvedFg = if (randomColor) rememberRandomHueColor(alpha = 1f) else fgColor
     val resolvedBg = bgColor
 
+    // animationKey가 바뀌면 새 Breath 시작으로 간주
     val isFirstCycle = remember(animationKey) { mutableStateOf(true) }
+
+    val uiPeriodScale = 104.5f
+    val duration = (period * uiPeriodScale).roundToInt().coerceAtLeast(105)
 
     LaunchedEffect(animationKey) {
         android.util.Log.d(
             "BREATH_ANIM",
-            "START key=$animationKey period=$period duration=${period * 100} " +
+            "START key=$animationKey period=$period duration=$duration uiPeriodScale=$uiPeriodScale " +
                     "fromColor=$fixedStartColor fgColor=$resolvedFg bgColor=$resolvedBg randomColor=$randomColor"
         )
     }
@@ -1058,7 +1068,7 @@ private fun animateBreathEffect(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween((period * 103).coerceAtLeast(103), easing = LinearEasing),
+            animation = tween(duration, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "breathProgress_$animationKey"
@@ -1067,11 +1077,12 @@ private fun animateBreathEffect(
     LaunchedEffect(animationKey, (progress * 10).toInt()) {
         android.util.Log.d(
             "BREATH_ANIM",
-            "SAMPLE key=$animationKey progress=$progress period=$period " +
+            "SAMPLE key=$animationKey progress=$progress period=$period duration=$duration " +
                     "fromColor=$fixedStartColor fgColor=$resolvedFg bgColor=$resolvedBg firstCycle=${isFirstCycle.value}"
         )
     }
 
+    // 한 사이클 끝나면 이후부터는 일반 반복
     LaunchedEffect(progress) {
         if (progress >= 0.99f && isFirstCycle.value) {
             isFirstCycle.value = false
@@ -1079,27 +1090,43 @@ private fun animateBreathEffect(
         }
     }
 
-    val iconColor: Color = when {
-        // 첫 사이클 transition 구간: 현재 색 -> fg
-        isFirstCycle.value && progress < 0.25f -> {
-            val p = progress / 0.25f
-            hsvLerp(fixedStartColor, resolvedFg, p)
+    val iconColor: Color = if (isFirstCycle.value) {
+        // 첫 시작:
+        // 현재색 -> FG transit -> FG -> BG transit -> BG
+        when {
+            progress < 0.35f -> {
+                val p = progress / 0.35f
+                hsvLerp(fixedStartColor, resolvedFg, p)
+            }
+            progress < 0.55f -> {
+                resolvedFg
+            }
+            progress < 0.85f -> {
+                val p = (progress - 0.55f) / 0.30f
+                hsvLerp(resolvedFg, resolvedBg, p)
+            }
+            else -> {
+                resolvedBg
+            }
         }
-
-        // 첫/이후 공통 fg 유지
-        progress < 0.50f -> {
-            resolvedFg
-        }
-
-        // fg -> bg
-        progress < 0.75f -> {
-            val p = (progress - 0.5f) / 0.25f
-            hsvLerp(resolvedFg, resolvedBg, p)
-        }
-
-        // bg 유지
-        else -> {
-            resolvedBg
+    } else {
+        // 반복:
+        // BG -> FG transit -> FG -> BG transit -> BG
+        when {
+            progress < 0.25f -> {
+                val p = progress / 0.25f
+                hsvLerp(resolvedBg, resolvedFg, p)
+            }
+            progress < 0.50f -> {
+                resolvedFg
+            }
+            progress < 0.75f -> {
+                val p = (progress - 0.50f) / 0.25f
+                hsvLerp(resolvedFg, resolvedBg, p)
+            }
+            else -> {
+                resolvedBg
+            }
         }
     }
 
