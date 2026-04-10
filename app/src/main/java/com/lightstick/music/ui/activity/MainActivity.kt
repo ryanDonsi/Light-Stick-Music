@@ -1,10 +1,8 @@
 package com.lightstick.music.ui.activity
 
 import android.Manifest
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.OpenableColumns
 import android.widget.Toast
 import android.annotation.SuppressLint
 import androidx.activity.ComponentActivity
@@ -354,16 +352,11 @@ fun AppNavigation(
                 return@composable
             }
 
-            // OTA: 파일 선택 후 확인 다이얼로그 표시
-            var pendingOtaUri by remember { mutableStateOf<Uri?>(null) }
-
+            // [테스트용] 로컬 파일 선택으로 OTA 진행 — 최종 구현 시 서버 URI 다운로드로 대체 예정
             val otaFilePicker = rememberLauncherForActivityResult(
                 ActivityResultContracts.OpenDocument()
             ) { uri ->
-                if (uri != null) {
-                    pendingOtaUri = uri
-                    showOtaUpdateDialog = true  // 파일 선택 완료 후 확인 다이얼로그 표시
-                }
+                uri?.let { deviceViewModel.startOta(context, device, it) }
             }
 
             // ✅ 다이얼로그 상태
@@ -411,8 +404,7 @@ fun AppNavigation(
                     showFindDialog = true
                 },
                 onOtaUpdateClick = {
-                    // 먼저 파일 선택 → 선택 완료 후 확인 다이얼로그 표시
-                    otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
+                    showOtaUpdateDialog = true
                 }
             )
 
@@ -453,31 +445,20 @@ fun AppNavigation(
                 )
             }
 
-            // OTA 업데이트 확인 다이얼로그 — 파일 선택 완료 후 표시
-            if (showOtaUpdateDialog && pendingOtaUri != null) {
-                val otaFileName = getFileNameFromUri(context, pendingOtaUri!!)
+            // OTA 업데이트 확인 다이얼로그
+            // TODO: 최종 구현 — 서버에서 최신 버전 조회 후 newversion 표시, 확인 시 서버 URI로 다운로드 후 startOta() 호출
+            if (showOtaUpdateDialog) {
                 OtaUpdateConfirmDialog(
                     deviceName = device.name ?: "Unknown Device",
-                    fileName   = otaFileName,
-                    onDismiss  = {
-                        showOtaUpdateDialog = false
-                        pendingOtaUri = null
-                    },
+                    newversion = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
+                    onDismiss  = { showOtaUpdateDialog = false },
                     onConfirm  = {
                         showOtaUpdateDialog = false
-                        deviceViewModel.startOta(context, device, pendingOtaUri!!)
-                        pendingOtaUri = null
+                        // [테스트용] 로컬 파일 선택으로 대체 — 최종 구현 시 서버 다운로드로 변경
+                        otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
                     }
                 )
             }
         }
     }
-}
-
-/** URI에서 파일 표시 이름 추출 */
-private fun getFileNameFromUri(context: android.content.Context, uri: Uri): String {
-    return context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-        if (nameIndex >= 0 && cursor.moveToFirst()) cursor.getString(nameIndex) else null
-    } ?: uri.lastPathSegment ?: "Unknown"
 }
