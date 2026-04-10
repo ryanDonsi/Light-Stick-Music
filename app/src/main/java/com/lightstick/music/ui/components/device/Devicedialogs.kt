@@ -220,20 +220,18 @@ fun OtaVersionInfoDialog(
 /**
  * 6-2. OTA 업데이트 확인 다이얼로그
  *
- * Figma: "기기의 이름(버전)은 업데이트를 진행하시겠습니까?"
- * - subtitle만, content 없음
- * - 2버튼: "취소" / "확인"
+ * 파일 선택 후 표시 — 선택된 파일명과 함께 업데이트 진행 여부 확인
  */
 @Composable
 fun OtaUpdateConfirmDialog(
     deviceName: String,
-    newversion: String,
+    fileName: String,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
     BaseDialog(
         title = null,
-        subtitle = "$deviceName 를\n새로운 버전($newversion)으로 업데이트를\n진행하시겠습니까?",
+        subtitle = "$deviceName 를\n$fileName 파일로\n업데이트를 진행하시겠습니까?",
         onDismiss = onDismiss,
         onConfirm = onConfirm,
         confirmText = "확인",
