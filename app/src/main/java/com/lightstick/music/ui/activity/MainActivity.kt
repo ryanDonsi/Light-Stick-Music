@@ -47,6 +47,7 @@ import com.lightstick.music.ui.components.device.DeviceInfoDialog
 import com.lightstick.music.ui.components.device.DisconnectConfirmDialog
 import com.lightstick.music.ui.components.device.FindEffectConfirmDialog
 import com.lightstick.music.ui.components.device.OtaUpdateConfirmDialog
+import com.lightstick.music.ui.components.device.OtaVersionInfoDialog
 import com.lightstick.music.ui.components.device.ReconnectConfirmDialog
 import com.lightstick.music.ui.screen.device.DeviceDetailScreen
 
@@ -352,18 +353,41 @@ fun AppNavigation(
                 return@composable
             }
 
-            // [테스트용] 로컬 파일 선택으로 OTA 진행 — 최종 구현 시 서버 URI 다운로드로 대체 예정
+            // OTA 버전 체크 결과 관찰 — 파일 선택 후 버전 비교 완료 시 다이얼로그 결정
+            val otaVersionCheck by deviceViewModel.otaVersionCheck.collectAsState()
+
+            // [테스트용] 파일 선택 → 버전 비교 → 결과에 따라 다이얼로그 표시
+            // TODO: 최종 구현 시 서버 API로 최신 버전 조회 + 다운로드 URL 수신으로 대체
             val otaFilePicker = rememberLauncherForActivityResult(
                 ActivityResultContracts.OpenDocument()
             ) { uri ->
-                uri?.let { deviceViewModel.startOta(context, device, it) }
+                uri?.let { deviceViewModel.checkFirmwareVersion(context, device, it) }
             }
 
             // ✅ 다이얼로그 상태
             var showDisconnectDialog by remember { mutableStateOf(false) }
             var showDeviceInfoDialog by remember { mutableStateOf(false) }
             var showOtaUpdateDialog by remember { mutableStateOf(false) }
+            var showOtaLatestDialog by remember { mutableStateOf(false) }
             var showFindDialog by remember { mutableStateOf(false) }
+
+            // OTA 버전 비교 결과 — 다이얼로그 표시용 임시 보관
+            var otaDialogCurrentVersion by remember { mutableStateOf("") }
+            var otaDialogNewVersion by remember { mutableStateOf("") }
+
+            // OTA 버전 체크 완료 → 버전 정보 캡처 후 다이얼로그 상태 전환
+            LaunchedEffect(otaVersionCheck) {
+                otaVersionCheck?.let { check ->
+                    otaDialogCurrentVersion = check.deviceVersion
+                    otaDialogNewVersion     = check.fileVersion
+                    if (check.isUpdateAvailable) {
+                        showOtaUpdateDialog = true
+                    } else {
+                        showOtaLatestDialog = true
+                    }
+                    deviceViewModel.clearOtaVersionCheck()
+                }
+            }
 
             // ✅ 수정: deviceDetail이 null이면 Preferences에서 로드
             val callEventEnabled = deviceDetail?.callEventEnabled
@@ -404,7 +428,8 @@ fun AppNavigation(
                     showFindDialog = true
                 },
                 onOtaUpdateClick = {
-                    showOtaUpdateDialog = true
+                    // 파일 먼저 선택 → 버전 비교 → 다이얼로그 표시
+                    otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
                 }
             )
 
@@ -445,18 +470,30 @@ fun AppNavigation(
                 )
             }
 
-            // OTA 업데이트 확인 다이얼로그
-            // TODO: 최종 구현 — 서버에서 최신 버전 조회 후 newversion 표시, 확인 시 서버 URI로 다운로드 후 startOta() 호출
+            // OTA 업데이트 가능 → 현재/새 버전 표시 후 진행 확인
+            // TODO: 최종 구현 — 서버 API에서 버전 + 다운로드 URL 조회, 확인 시 파일 다운로드 후 startPendingOta()
             if (showOtaUpdateDialog) {
                 OtaUpdateConfirmDialog(
-                    deviceName = device.name ?: "Unknown Device",
-                    newversion = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
-                    onDismiss  = { showOtaUpdateDialog = false },
-                    onConfirm  = {
+                    deviceName     = device.name ?: "Unknown Device",
+                    currentVersion = otaDialogCurrentVersion,
+                    newVersion     = otaDialogNewVersion,
+                    onDismiss = {
                         showOtaUpdateDialog = false
-                        // [테스트용] 로컬 파일 선택으로 대체 — 최종 구현 시 서버 다운로드로 변경
-                        otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
+                        deviceViewModel.clearOtaVersionCheck()
+                    },
+                    onConfirm = {
+                        showOtaUpdateDialog = false
+                        deviceViewModel.startPendingOta(device)
                     }
+                )
+            }
+
+            // OTA 최신 버전 → 이미 최신 버전임 안내
+            if (showOtaLatestDialog) {
+                OtaVersionInfoDialog(
+                    deviceName = device.name ?: "Unknown Device",
+                    version    = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
+                    onDismiss  = { showOtaLatestDialog = false }
                 )
             }
         }

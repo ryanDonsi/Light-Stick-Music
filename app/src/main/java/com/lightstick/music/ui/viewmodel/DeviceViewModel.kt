@@ -3,9 +3,12 @@ package com.lightstick.music.ui.viewmodel
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
+import com.lightstick.music.core.util.FirmwareVersionParser
 import com.lightstick.music.core.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.lightstick.music.core.constants.AppConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -76,6 +79,23 @@ class DeviceViewModel @Inject constructor(
 
     private val _otaInProgress = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val otaInProgress: StateFlow<Map<String, Boolean>> = _otaInProgress.asStateFlow()
+
+    /**
+     * 파일 선택 후 버전 비교 결과
+     * - null: 체크 결과 없음
+     * - 비어있지 않으면 UI에서 다이얼로그 표시 후 [clearOtaVersionCheck] 호출
+     */
+    data class OtaVersionCheck(
+        val fileVersion: String,
+        val deviceVersion: String,
+        val isUpdateAvailable: Boolean
+    )
+
+    private val _otaVersionCheck = MutableStateFlow<OtaVersionCheck?>(null)
+    val otaVersionCheck: StateFlow<OtaVersionCheck?> = _otaVersionCheck.asStateFlow()
+
+    /** 버전 확인 후 사용자 승인 시 전달할 펌웨어 바이트 임시 보관 */
+    private var pendingOtaFirmware: ByteArray? = null
 
     private val _eventStates = MutableStateFlow<Map<String, Map<EventType, Boolean>>>(emptyMap())
     val eventStates: StateFlow<Map<String, Map<EventType, Boolean>>> = _eventStates.asStateFlow()
@@ -427,16 +447,75 @@ class DeviceViewModel @Inject constructor(
     // OTA
     // ═══════════════════════════════════════════════════════════
 
+    /**
+     * [테스트용] 파일 선택 → 버전 비교 → [otaVersionCheck] StateFlow 업데이트
+     *
+     * 흐름:
+     *  1. URI에서 파일 바이트 읽기 (IO 스레드)
+     *  2. 바이너리에서 버전 파싱 — 실패 시 현재 디바이스 버전의 minor +1 시뮬레이션
+     *  3. 디바이스 현재 버전과 비교
+     *  4. [otaVersionCheck] 에 결과 저장 → UI에서 다이얼로그 결정
+     *
+     * [TODO] 최종 구현 시 서버 API에서 버전 + 다운로드 URL 조회로 대체
+     */
     @SuppressLint("MissingPermission")
-    fun startOta(context: Context, device: Device, firmwareUri: Uri) {
+    fun checkFirmwareVersion(context: Context, device: Device, firmwareUri: Uri) {
         viewModelScope.launch {
             try {
-                val inputStream = context.contentResolver.openInputStream(firmwareUri)
-                    ?: run { Log.e(TAG, "❌ OTA: Cannot open firmware file"); return@launch }
+                val firmware = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(firmwareUri)?.use { it.readBytes() }
+                } ?: run {
+                    Log.e(TAG, "❌ OTA: Cannot open firmware file")
+                    return@launch
+                }
 
-                val firmware = inputStream.use { it.readBytes() }
                 Log.d(TAG, "📦 OTA firmware size: ${firmware.size} bytes")
 
+                val deviceVersion = _deviceDetails.value[device.mac]
+                    ?.deviceInfo?.firmwareRevision.orEmpty()
+
+                // 파일에서 버전 파싱, 실패 시 테스트용 시뮬레이션 버전 사용
+                val fileVersion = FirmwareVersionParser.parseFromBytes(firmware)
+                    ?: FirmwareVersionParser.simulateTestVersion(deviceVersion).also {
+                        Log.d(TAG, "⚠️ OTA: 파일에서 버전 파싱 불가 → 테스트 버전 사용: $it")
+                    }
+
+                val isUpdateAvailable = FirmwareVersionParser.isNewerVersion(fileVersion, deviceVersion)
+                Log.d(TAG, "OTA 버전 비교: 파일=$fileVersion / 디바이스=$deviceVersion / 업데이트=${isUpdateAvailable}")
+
+                pendingOtaFirmware = firmware
+                _otaVersionCheck.value = OtaVersionCheck(fileVersion, deviceVersion, isUpdateAvailable)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ OTA version check error: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * 사용자가 업데이트 확인 → [pendingOtaFirmware] 로 OTA 시작
+     */
+    @SuppressLint("MissingPermission")
+    fun startPendingOta(device: Device) {
+        val firmware = pendingOtaFirmware ?: run {
+            Log.e(TAG, "❌ OTA: 대기 중인 펌웨어 없음")
+            return
+        }
+        pendingOtaFirmware = null
+        startOtaFromBytes(device, firmware)
+    }
+
+    /** 버전 체크 결과 및 대기 펌웨어 초기화 */
+    fun clearOtaVersionCheck() {
+        _otaVersionCheck.value = null
+        pendingOtaFirmware = null
+    }
+
+    /** 펌웨어 ByteArray로 OTA 진행 */
+    @SuppressLint("MissingPermission")
+    private fun startOtaFromBytes(device: Device, firmware: ByteArray) {
+        viewModelScope.launch {
+            try {
                 _otaInProgress.value += (device.mac to true)
                 _otaProgress.value   += (device.mac to 0)
 
@@ -460,6 +539,24 @@ class DeviceViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 _otaInProgress.value += (device.mac to false)
+                Log.e(TAG, "❌ OTA error: ${e.message}", e)
+            }
+        }
+    }
+
+    // [테스트용] URI 직접 전달 방식 — checkFirmwareVersion() 으로 대체됨, 하위 호환용으로 유지
+    @SuppressLint("MissingPermission")
+    fun startOta(context: Context, device: Device, firmwareUri: Uri) {
+        viewModelScope.launch {
+            try {
+                val firmware = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(firmwareUri)?.use { it.readBytes() }
+                } ?: run { Log.e(TAG, "❌ OTA: Cannot open firmware file"); return@launch }
+
+                Log.d(TAG, "📦 OTA firmware size: ${firmware.size} bytes")
+                startOtaFromBytes(device, firmware)
+
+            } catch (e: Exception) {
                 Log.e(TAG, "❌ OTA error: ${e.message}", e)
             }
         }
