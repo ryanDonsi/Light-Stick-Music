@@ -1,5 +1,6 @@
 package com.lightstick.music.ui.screen.music
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,6 +41,8 @@ fun MusicListScreen(
     val latestTransmission by viewModel.latestTransmission.collectAsState()
 
     val toastState = rememberToastState()
+
+    BackHandler { onNavigateBack() }
 
     Box(
         modifier = Modifier
@@ -96,7 +99,7 @@ fun MusicListScreen(
                             modifier            = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(musicList) { item ->
+                            items(musicList, key = { it.filePath }) { item ->
                                 val isPlaying = nowPlaying?.filePath == item.filePath
                                 MusicListItemCard(
                                     musicItem          = item,

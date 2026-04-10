@@ -1,5 +1,6 @@
 package com.lightstick.music.ui.screen.effect
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -85,6 +86,25 @@ fun EffectScreen(
     var pendingCustomEffect  by remember { mutableStateOf<Pair<String, EffectViewModel.UiEffectType.BaseEffectType>?>(null) }
     var showRenameDialogFor  by remember { mutableStateOf<EffectViewModel.UiEffectType.Custom?>(null) }
     var showDeleteDialogFor  by remember { mutableStateOf<EffectViewModel.UiEffectType.Custom?>(null) }
+
+    // ── BackHandler: 다이얼로그/시트 열려있을 때 뒤로가기로 닫기 ──────
+    BackHandler(
+        enabled = showEffectListSheet || settingsDialogEffect != null ||
+                  colorPickerState != null || showPresetEdit != null ||
+                  showAddEffectDialog || pendingCustomEffect != null ||
+                  showRenameDialogFor != null || showDeleteDialogFor != null
+    ) {
+        when {
+            showEffectListSheet    -> showEffectListSheet = false
+            colorPickerState != null -> colorPickerState = null
+            showPresetEdit != null -> showPresetEdit = null
+            settingsDialogEffect != null -> settingsDialogEffect = null
+            pendingCustomEffect != null -> pendingCustomEffect = null
+            showRenameDialogFor != null -> showRenameDialogFor = null
+            showDeleteDialogFor != null -> showDeleteDialogFor = null
+            showAddEffectDialog    -> showAddEffectDialog = false
+        }
+    }
 
     // ── Toast ─────────────────────────────────────────────────
     val toastMessage by viewModel.toastMessage.collectAsState()
@@ -297,7 +317,7 @@ fun EffectScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // ── Basic Effects ─────────────────────────────────
-                        items(basicEffects) { effect ->
+                        items(basicEffects, key = { EffectKeys.of(it) }) { effect ->
                             val effectSettings = effectSettingsMap[EffectKeys.of(effect)]
                                 ?: EffectViewModel.EffectSettings.defaultFor(effect)
                             EffectTypeCard(
@@ -319,7 +339,7 @@ fun EffectScreen(
                         }
 
                         // ── Custom Effects ────────────────────────────────
-                        items(customEffects) { effect ->
+                        items(customEffects, key = { it.id }) { effect ->
                             val effectSettings = effectSettingsMap[EffectKeys.of(effect)]
                                 ?: EffectViewModel.EffectSettings.defaultFor(effect)
                             EffectTypeCard(

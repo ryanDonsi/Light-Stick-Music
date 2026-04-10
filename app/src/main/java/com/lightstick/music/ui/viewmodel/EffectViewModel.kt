@@ -700,8 +700,8 @@ class EffectViewModel @Inject constructor(
 
         companion object {
             fun defaultFor(effectType: UiEffectType): EffectSettings = when (effectType) {
-                is UiEffectType.On         -> EffectSettings(period = 0,  transit = 50)
-                is UiEffectType.Off        -> EffectSettings(period = 0,  transit = 100)
+                is UiEffectType.On         -> EffectSettings(period = 0,  transit = 50)   // 50 * 100ms = 5s
+                is UiEffectType.Off        -> EffectSettings(period = 0,  transit = 100)  // 100 * 100ms = 10s
                 is UiEffectType.Strobe     -> EffectSettings(period = 10, transit = 0)
                 is UiEffectType.Blink      -> EffectSettings(period = 30, transit = 0)
                 is UiEffectType.Breath     -> EffectSettings(period = 30, transit = 0)

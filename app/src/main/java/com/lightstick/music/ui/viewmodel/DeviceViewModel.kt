@@ -179,9 +179,21 @@ class DeviceViewModel @Inject constructor(
         updateConnectionState(mac, false)
         stopBatteryMonitoring(mac)
 
+        // 연결 해제 시 디바이스 상세 상태 초기화
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
             if (existing != null) this[mac] = existing.copy(isConnected = false)
+        }
+
+        // OTA 진행 상태 정리
+        if (_otaInProgress.value.containsKey(mac)) {
+            _otaInProgress.value = _otaInProgress.value - mac
+            _otaProgress.value   = _otaProgress.value - mac
+        }
+
+        // 이벤트 규칙 상태 정리
+        if (_eventStates.value.containsKey(mac)) {
+            _eventStates.value = _eventStates.value - mac
         }
 
         Log.d(TAG, "✅ 연결 해제 처리 완료: $mac")

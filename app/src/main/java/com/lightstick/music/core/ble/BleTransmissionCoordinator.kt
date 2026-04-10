@@ -3,6 +3,7 @@ package com.lightstick.music.core.ble
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.domain.ble.BleTransmissionEvent
+import java.util.concurrent.CopyOnWriteArrayList
 import com.lightstick.music.domain.ble.BleTransmissionMonitor
 import com.lightstick.music.domain.ble.TransmissionSource
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,7 +47,8 @@ object BleTransmissionCoordinator {
     private var activeSession: TransmissionSource? = null
     private var sessionStartTime: Long = 0
     private val controllerHistory = mutableListOf<ControllerState>()
-    private val controlChangeListeners = mutableListOf<(ControllerState?) -> Unit>()
+    // CopyOnWriteArrayList: 리스너 호출 중 추가/삭제 시 ConcurrentModificationException 방지
+    private val controlChangeListeners = CopyOnWriteArrayList<(ControllerState?) -> Unit>()
 
     // ═══════════════════════════════════════════════════════════
     // Public API - Control Management

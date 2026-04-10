@@ -185,6 +185,7 @@ object EffectEngineController {
     // ─────────────────────────────────────────────
 
     /** 자동 타임라인(frames) 로드 — 연결된 모든 기기에 전송 */
+    @Synchronized
     fun loadTimelineFromFrames(context: Context, frames: List<Pair<Long, ByteArray>>) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
         val devices = resolveAllDevices(context)
@@ -212,6 +213,7 @@ object EffectEngineController {
     }
 
     /** EFX 기반 타임라인 로드 — 연결된 모든 기기에 전송 */
+    @Synchronized
     fun loadEffectsFor(context: Context, musicFile: File) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
         val devices = resolveAllDevices(context)
@@ -283,6 +285,7 @@ object EffectEngineController {
         Log.d(TAG, "▶️ Timeline resumed")
     }
 
+    @Synchronized
     fun reset() {
         isTimelineLoaded = false
         cachedTimeline = emptyList()
@@ -359,6 +362,7 @@ object EffectEngineController {
         }
     }
 
+    @Synchronized
     private fun recordCurrentTimelineEffect(deviceMac: String, currentPositionMs: Long) {
         if (cachedTimeline.isEmpty()) return
 
