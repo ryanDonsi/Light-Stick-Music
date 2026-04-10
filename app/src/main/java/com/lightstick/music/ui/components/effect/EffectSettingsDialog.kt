@@ -85,8 +85,6 @@ private fun OnEffectSettingsContent(
             label = "TRANSIT",
             value = settings.transit,
             onValueChange = { onSettingsChange(settings.copy(transit = it)) },
-            valueRange = 0..1000,
-            steps = 999,
             labels = listOf("0s", "5s", "10s")
         )
         EffectSliderItem(
@@ -95,8 +93,6 @@ private fun OnEffectSettingsContent(
             label = "RANDOM DELAY",
             value = settings.randomDelay,
             onValueChange = { onSettingsChange(settings.copy(randomDelay = it)) },
-            valueRange = 0..1000,
-            steps = 999,
             labels = listOf("0s", "5s", "10s")
         )
         EffectToggleItem(
@@ -123,8 +119,6 @@ private fun OffEffectSettingsContent(
         label = "TRANSIT",
         value = settings.transit,
         onValueChange = { onSettingsChange(settings.copy(transit = it)) },
-        valueRange = 0..1000,
-        steps = 999,
         labels = listOf("0s", "5s", "10s")
     )
 }
