@@ -1,7 +1,5 @@
 package com.lightstick.music.ui.components.music
 
-import android.graphics.BitmapFactory
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,8 +13,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,11 +43,6 @@ fun MusicListItemCard(
     modifier: Modifier = Modifier,
     latestTransmission: BleTransmissionEvent? = null
 ) {
-    val imageBitmap = musicItem.albumArtPath?.let { path ->
-        try { BitmapFactory.decodeFile(path)?.asImageBitmap() }
-        catch (e: Exception) { null }
-    }
-
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -85,24 +78,19 @@ fun MusicListItemCard(
                     .clip(RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                if (imageBitmap != null) {
-                    Image(
-                        bitmap             = imageBitmap,
-                        contentDescription = "앨범아트",
-                        contentScale       = ContentScale.Crop,
-                        modifier           = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Icon(
-                        imageVector        = Icons.Default.MusicNote,
-                        contentDescription = null,
-                        tint = if (isPlaying)
-                            MaterialTheme.customColors.onSurface
-                        else
-                            MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+                // 앨범아트 (Coil 비동기 로딩 — 메인 스레드 블로킹 없음)
+                AsyncImage(
+                    model              = musicItem.albumArtPath,
+                    contentDescription = "앨범아트",
+                    contentScale       = ContentScale.Crop,
+                    error              = { Icon(Icons.Default.MusicNote, null, Modifier.size(24.dp),
+                                              tint = MaterialTheme.customColors.onSurface.copy(
+                                                  alpha = if (isPlaying) 1f else 0.6f)) },
+                    fallback           = { Icon(Icons.Default.MusicNote, null, Modifier.size(24.dp),
+                                              tint = MaterialTheme.customColors.onSurface.copy(
+                                                  alpha = if (isPlaying) 1f else 0.6f)) },
+                    modifier           = Modifier.fillMaxSize()
+                )
 
                 // [추가] 이펙트 뱃지 — TIMELINE_EFFECT 수신 시 우측 하단 오버레이 (원형만)
                 val isTimeline = latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT

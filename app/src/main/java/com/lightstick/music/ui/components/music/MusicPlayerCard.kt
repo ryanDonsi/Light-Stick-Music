@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.lightstick.music.R
 import com.lightstick.music.core.util.TimeFormatter
 import com.lightstick.music.data.model.MusicItem
@@ -63,14 +64,6 @@ fun MusicPlayerCard(
 
     val hasMusic = musicItem.filePath.isNotEmpty()
 
-    val imageBitmap = musicItem.albumArtPath?.let { path ->
-        try {
-            BitmapFactory.decodeFile(path)?.asImageBitmap()
-        } catch (e: Exception) {
-            null
-        }
-    }
-
     Column(
         modifier              = modifier.fillMaxWidth(),
         horizontalAlignment   = Alignment.CenterHorizontally,
@@ -107,26 +100,17 @@ fun MusicPlayerCard(
                         .clip(RoundedCornerShape(20.dp))
                         .background(MaterialTheme.colorScheme.background)
                 ) {
-                    // 앨범 아트
-                    if (imageBitmap != null) {
-                        Image(
-                            bitmap             = imageBitmap,
-                            contentDescription = "Album Art",
-                            contentScale       = ContentScale.Crop,
-                            modifier           = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(20.dp))
-                        )
-                    } else {
-                        Icon(
-                            painter            = painterResource(id = R.drawable.ic_music_note),
-                            contentDescription = "Default Music Icon",
-                            modifier           = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(20.dp)),
-                            tint = MaterialTheme.customColors.surfaceVariant
-                        )
-                    }
+                    // 앨범 아트 (Coil 비동기 로딩 — 메인 스레드 블로킹 없음)
+                    AsyncImage(
+                        model              = musicItem.albumArtPath,
+                        contentDescription = "Album Art",
+                        contentScale       = ContentScale.Crop,
+                        error              = painterResource(id = R.drawable.ic_music_note),
+                        fallback           = painterResource(id = R.drawable.ic_music_note),
+                        modifier           = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(20.dp))
+                    )
 
                     // [추가] 이펙트 뱃지 — TIMELINE_EFFECT 수신 시 우측 하단 오버레이
                     val isTimeline = latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT

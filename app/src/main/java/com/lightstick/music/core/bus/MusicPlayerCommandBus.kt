@@ -11,7 +11,7 @@ object MusicPlayerCommandBus {
         data class SeekTo(val position: Long) : Command()
     }
 
-    private val _commands = MutableSharedFlow<Command>(extraBufferCapacity = 1)
+    private val _commands = MutableSharedFlow<Command>(extraBufferCapacity = 10)
     val commands = _commands.asSharedFlow()
 
     fun trySend(command: Command) {
