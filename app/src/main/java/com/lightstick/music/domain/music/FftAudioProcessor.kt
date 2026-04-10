@@ -54,6 +54,7 @@ class FftAudioProcessor(
 
         // 캐시된 FFT 인스턴스 재사용 (사이즈 변경 시에만 재생성)
         if (n != cachedFftSize) {
+            cachedFft = null // 이전 인스턴스 GC 허용 후 새 인스턴스 생성
             cachedFft = FloatFFT_1D(n.toLong())
             cachedFftSize = n
         }

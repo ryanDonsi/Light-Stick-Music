@@ -32,8 +32,7 @@ class LoadMusicTimelineUseCase @Inject constructor() {
             // ✅ EffectEngineController 호출
             EffectEngineController.loadEffectsFor(context, musicFile)
 
-            // TODO: 개수 반환 (현재는 0 반환, 필요시 EffectEngineController에서 개수 반환하도록 수정)
-            Result.success(0)
+            Result.success(EffectEngineController.getTimelineEffectCount())
 
         } catch (e: Exception) {
             Result.failure(e)

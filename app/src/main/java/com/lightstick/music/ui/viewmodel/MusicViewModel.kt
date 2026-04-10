@@ -95,6 +95,12 @@ class MusicViewModel @Inject constructor(
     val latestTransmission: StateFlow<BleTransmissionEvent?> =
         BleTransmissionMonitor.latestTransmission
 
+    private val playerListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(state: Int) {
+            if (state == Player.STATE_ENDED) playNext()
+        }
+    }
+
     init {
         initializeEffects()
         EffectEngineController.reset()
@@ -127,11 +133,7 @@ class MusicViewModel @Inject constructor(
 
         loadCachedMusicOrScan()
 
-        player.addListener(object : Player.Listener {
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED) playNext()
-            }
-        })
+        player.addListener(playerListener)
     }
 
     private fun initializeEffects() {
@@ -393,6 +395,7 @@ class MusicViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        player.removeListener(playerListener)
         MusicPlaybackState.reset()
         player.release()
         super.onCleared()

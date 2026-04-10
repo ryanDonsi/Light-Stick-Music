@@ -198,58 +198,60 @@ class SplashViewModel @Inject constructor(
             val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
 
             var index = 0
-            while (cursor.moveToNext()) {
-                val path = cursor.getString(dataCol)
-                val metaTitle = cursor.getString(titleCol)
-                val fileName = cursor.getString(nameCol) ?: "Unknown"
-                val title = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
-                val artist = cursor.getString(artistCol) ?: "Unknown"
+            val retriever = MediaMetadataRetriever()
+            try {
+                while (cursor.moveToNext()) {
+                    val path = cursor.getString(dataCol)
+                    val metaTitle = cursor.getString(titleCol)
+                    val fileName = cursor.getString(nameCol) ?: "Unknown"
+                    val title = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
+                    val artist = cursor.getString(artistCol) ?: "Unknown"
 
-                // 진행 상황 업데이트
-                index++
-                val calcState = InitializationState.CalculatingMusicIds(index, totalFiles.size)
-                _state.value = calcState
-                _splashState.value = SplashState.Initializing(calcState)
+                    // 진행 상황 업데이트
+                    index++
+                    val calcState = InitializationState.CalculatingMusicIds(index, totalFiles.size)
+                    _state.value = calcState
+                    _splashState.value = SplashState.Initializing(calcState)
 
-                val retriever = MediaMetadataRetriever()
-                var art: String? = null
-                var duration: Long = 0L
+                    var art: String? = null
+                    var duration: Long = 0L
 
-                try {
-                    retriever.setDataSource(path)
+                    try {
+                        retriever.setDataSource(path)
 
-                    // 앨범아트 추출
-                    art = retriever.embeddedPicture?.let {
-                        val file = File(context.cacheDir, "${title.hashCode()}.jpg")
-                        file.writeBytes(it)
-                        file.absolutePath
+                        // 앨범아트 추출
+                        art = retriever.embeddedPicture?.let {
+                            val file = File(context.cacheDir, "${title.hashCode()}.jpg")
+                            file.writeBytes(it)
+                            file.absolutePath
+                        }
+
+                        // Duration 추출
+                        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        duration = durationStr?.toLongOrNull() ?: 0L
+
+                    } catch (e: Exception) {
+                        Log.e("InitVM", "Failed to extract metadata: ${e.message}")
                     }
 
-                    // Duration 추출
-                    val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                    duration = durationStr?.toLongOrNull() ?: 0L
-
-                } catch (e: Exception) {
-                    Log.e("InitVM", "Failed to extract metadata: ${e.message}")
-                } finally {
-                    retriever.release()
-                }
-
-                musicItems.add(
-                    MusicItem(
-                        title = title,
-                        artist = artist,
-                        filePath = path,
-                        albumArtPath = art,
-                        hasEffect = false,
-                        duration = duration
+                    musicItems.add(
+                        MusicItem(
+                            title = title,
+                            artist = artist,
+                            filePath = path,
+                            albumArtPath = art,
+                            hasEffect = false,
+                            duration = duration
+                        )
                     )
-                )
 
-                // UI 업데이트를 위한 짧은 지연
-                if (index % 10 == 0) {
-                    delay(10)
+                    // UI 업데이트를 위한 짧은 지연
+                    if (index % 10 == 0) {
+                        delay(10)
+                    }
                 }
+            } finally {
+                retriever.release()
             }
         }
 

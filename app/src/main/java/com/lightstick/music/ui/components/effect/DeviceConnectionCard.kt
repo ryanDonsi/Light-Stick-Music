@@ -117,25 +117,33 @@ fun DeviceConnectionCard(
     latestTransmission: BleTransmissionEvent? = null
 ) {
     val lastColorRef = remember { mutableStateOf(Color.White) }
+    val currentDisplayedColorRef = remember { mutableStateOf(Color.White) }
 
-    // 원본 spring 애니메이션 유지
     val animatedBoxSize by animateDpAsState(
         targetValue = if (isScrolled) 124.dp else 180.dp,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
         label = "boxSize"
     )
     val animatedEffectSize by animateDpAsState(
         targetValue = if (isScrolled) 70.dp else 98.dp,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
         label = "effectSize"
     )
     val animatedCornerRadius by animateDpAsState(
         targetValue = if (isScrolled) 20.dp else 32.dp,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
         label = "cornerRadius"
     )
 
-    // 원본 배경색 유지
     val cardBackgroundColor = if (connectionState is EffectViewModel.DeviceConnectionState.Connected) {
         Color(0xFFA774FF).copy(alpha = 0.22f)
     } else {
@@ -143,103 +151,115 @@ fun DeviceConnectionCard(
     }
 
     val effectColorData = if (latestTransmission != null) {
-        calculateEffectColorFromTransmission(latestTransmission, cardBackgroundColor, lastColorRef)
+        calculateEffectColorFromTransmission(
+            transmission = latestTransmission,
+            backgroundColor = cardBackgroundColor,
+            lastColorRef = lastColorRef,
+            currentDisplayedColorRef = currentDisplayedColorRef
+        )
     } else {
-        calculateEffectColor(isPlaying, selectedEffect, effectSettings, cardBackgroundColor, lastColorRef)
+        calculateEffectColor(
+            isPlaying = isPlaying,
+            selectedEffect = selectedEffect,
+            effectSettings = effectSettings,
+            backgroundColor = cardBackgroundColor,
+            lastColorRef = lastColorRef,
+            currentDisplayedColorRef = currentDisplayedColorRef
+        )
+    }
+
+    // 현재 화면에 실제 표시되는 색을 항상 유지
+    SideEffect {
+        effectColorData?.iconColor?.let { iconColor ->
+            currentDisplayedColorRef.value = iconColor
+        }
     }
 
     when (connectionState) {
-
-        // ── NoBondedDevice ────────────────────────────────────
         is EffectViewModel.DeviceConnectionState.NoBondedDevice -> {
             ConnectionStateLayout(
-                boxSize         = animatedBoxSize,
-                effectSize      = animatedEffectSize,
-                cornerRadius    = animatedCornerRadius,
-                isScrolled      = isScrolled,
+                boxSize = animatedBoxSize,
+                effectSize = animatedEffectSize,
+                cornerRadius = animatedCornerRadius,
+                isScrolled = isScrolled,
                 backgroundColor = cardBackgroundColor,
                 lightstickColor = MaterialTheme.customColors.disable,
-                statusText      = "연결된 기기 없음",
+                statusText = "연결된 기기 없음",
                 statusTextColor = MaterialTheme.customColors.surfaceVariant,
                 effectColorData = null,
-                buttonText      = "기기 연결하기",
-                onButtonClick   = onConnectClick
+                buttonText = "기기 연결하기",
+                onButtonClick = onConnectClick
             )
         }
 
-        // ── Scanning ──────────────────────────────────────────
         is EffectViewModel.DeviceConnectionState.Scanning -> {
             ConnectionStateLayout(
-                boxSize                    = animatedBoxSize,
-                effectSize                 = animatedEffectSize,
-                cornerRadius               = animatedCornerRadius,
-                isScrolled                 = isScrolled,
-                backgroundColor            = cardBackgroundColor,
-                lightstickColor            = MaterialTheme.customColors.disable,
-                statusText                 = "연결된 기기 없음",
-                statusTextColor            = MaterialTheme.customColors.surfaceVariant,
-                descriptionText            = "등록된 기기 확인 중",
-                descriptionTextColor       = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
-                descriptionIcon            = Icons.Default.Refresh,
+                boxSize = animatedBoxSize,
+                effectSize = animatedEffectSize,
+                cornerRadius = animatedCornerRadius,
+                isScrolled = isScrolled,
+                backgroundColor = cardBackgroundColor,
+                lightstickColor = MaterialTheme.customColors.disable,
+                statusText = "연결된 기기 없음",
+                statusTextColor = MaterialTheme.customColors.surfaceVariant,
+                descriptionText = "등록된 기기 확인 중",
+                descriptionTextColor = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
+                descriptionIcon = Icons.Default.Refresh,
                 isDescriptionIconAnimating = true,
-                effectColorData            = null
+                effectColorData = null
             )
         }
 
-        // ── ScanFailed ────────────────────────────────────────
         is EffectViewModel.DeviceConnectionState.ScanFailed -> {
             ConnectionStateLayout(
-                boxSize                = animatedBoxSize,
-                effectSize             = animatedEffectSize,
-                cornerRadius           = animatedCornerRadius,
-                isScrolled             = isScrolled,
-                backgroundColor        = cardBackgroundColor,
-                lightstickColor        = MaterialTheme.customColors.disable,
-                statusText             = "연결된 기기 없음",
-                statusTextColor        = MaterialTheme.customColors.surfaceVariant,
-                descriptionText        = "연결 가능한 기기가 없습니다",
-                descriptionTextColor   = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
-                descriptionIcon        = Icons.Default.Refresh,
+                boxSize = animatedBoxSize,
+                effectSize = animatedEffectSize,
+                cornerRadius = animatedCornerRadius,
+                isScrolled = isScrolled,
+                backgroundColor = cardBackgroundColor,
+                lightstickColor = MaterialTheme.customColors.disable,
+                statusText = "연결된 기기 없음",
+                statusTextColor = MaterialTheme.customColors.surfaceVariant,
+                descriptionText = "연결 가능한 기기가 없습니다",
+                descriptionTextColor = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
+                descriptionIcon = Icons.Default.Refresh,
                 onDescriptionIconClick = onRetryClick,
-                effectColorData        = null
+                effectColorData = null
             )
         }
 
-        // ── Disconnected ──────────────────────────────────────
         is EffectViewModel.DeviceConnectionState.Disconnected -> {
             ConnectionStateLayout(
-                boxSize                = animatedBoxSize,
-                effectSize             = animatedEffectSize,
-                cornerRadius           = animatedCornerRadius,
-                isScrolled             = isScrolled,
-                lightstickColor        = MaterialTheme.customColors.disable,
-                statusText             = "연결된 기기 없음",
-                statusTextColor        = MaterialTheme.customColors.surfaceVariant,
-                descriptionText        = "연결 가능한 기기가 없습니다",
-                descriptionTextColor   = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
-                descriptionIcon        = Icons.Default.Refresh,
+                boxSize = animatedBoxSize,
+                effectSize = animatedEffectSize,
+                cornerRadius = animatedCornerRadius,
+                isScrolled = isScrolled,
+                lightstickColor = MaterialTheme.customColors.disable,
+                statusText = "연결된 기기 없음",
+                statusTextColor = MaterialTheme.customColors.surfaceVariant,
+                descriptionText = "연결 가능한 기기가 없습니다",
+                descriptionTextColor = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
+                descriptionIcon = Icons.Default.Refresh,
                 onDescriptionIconClick = onRetryClick,
-                effectColorData        = null
+                effectColorData = null
             )
         }
 
-        // ── Connected ─────────────────────────────────────────
         is EffectViewModel.DeviceConnectionState.Connected -> {
             ConnectionStateLayout(
-                boxSize               = animatedBoxSize,
-                effectSize            = animatedEffectSize,
-                cornerRadius          = animatedCornerRadius,
-                isScrolled            = isScrolled,
-                backgroundColor       = cardBackgroundColor,
-                lightstickColor       = effectColorData?.iconColor ?: Color.White,
+                boxSize = animatedBoxSize,
+                effectSize = animatedEffectSize,
+                cornerRadius = animatedCornerRadius,
+                isScrolled = isScrolled,
+                backgroundColor = cardBackgroundColor,
+                lightstickColor = effectColorData?.iconColor ?: Color.White,
                 isLightStickAnimating = isPlaying,
-                statusText            = "연결 됨",
-                statusTextColor       = MaterialTheme.customColors.secondary,
-                descriptionText       = connectionState.device.name ?: "UNKNOWN",
-                descriptionTextColor  = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
-                effectColorData       = effectColorData,
-
-                )
+                statusText = "연결 됨",
+                statusTextColor = MaterialTheme.customColors.secondary,
+                descriptionText = connectionState.device.name ?: "UNKNOWN",
+                descriptionTextColor = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
+                effectColorData = effectColorData
+            )
         }
     }
 }
@@ -436,74 +456,202 @@ private fun DescriptionIcon(
 // ──────────────────────────────────────────────────────────────────────────────
 // 색상 계산 함수들 (원본 그대로)
 // ──────────────────────────────────────────────────────────────────────────────
-
-
 @Composable
 private fun calculateEffectColorFromTransmission(
     transmission: BleTransmissionEvent,
     backgroundColor: Color,
-    lastColorRef: MutableState<Color>
+    lastColorRef: MutableState<Color>,
+    currentDisplayedColorRef: MutableState<Color>
 ): EffectColorData? {
+    val lastAnimationKeyRef = remember { mutableStateOf<String?>(null) }
+
+    android.util.Log.d(
+        "EFFECT_TRACE",
+        "CALL transmission " +
+                "source=${transmission.source} " +
+                "effect=${transmission.effectType} " +
+                "transit=${transmission.transit} " +
+                "period=${transmission.period} " +
+                "color=${transmission.color} " +
+                "bg=${transmission.backgroundColor} " +
+                "lastColor=${lastColorRef.value} " +
+                "displayedColor=${currentDisplayedColorRef.value} " +
+                "lastAnimationKey=${lastAnimationKeyRef.value}"
+    )
+
+    fun staticColorData(color: Color): EffectColorData {
+        val gradientColor =
+            if (color.isBlack()) null else lerp(color, backgroundColor, 0.2f)
+        return EffectColorData(
+            iconColor = color,
+            iconBrush = null,
+            gradientColor = gradientColor
+        )
+    }
+
     return when (transmission.source) {
         TransmissionSource.PAYLOAD_EFFECT, TransmissionSource.TIMELINE_EFFECT -> {
             when (transmission.effectType) {
                 EffectType.ON -> {
                     val transit = transmission.transit ?: 10
-                    animateOnEffect(
-                        fromColor = lastColorRef.value,
-                        targetColor = transmission.color?.toComposeColor() ?: Color.White,
-                        transit = transit, randomColor = false,
-                        onColorUpdate = { lastColorRef.value = it },
-                        backgroundColor = backgroundColor
+                    val targetColor = transmission.color?.toComposeColor() ?: Color.White
+                    val animKey = "TX_ON_${transit}_${targetColor.toArgb()}"
+
+                    android.util.Log.d(
+                        "ON_ANIM",
+                        "CALL transmission ON transit=$transit " +
+                                "displayedColor=${currentDisplayedColorRef.value} " +
+                                "lastColor=${lastColorRef.value} " +
+                                "target=$targetColor animKey=$animKey"
                     )
+
+                    if (lastAnimationKeyRef.value == animKey &&
+                        currentDisplayedColorRef.value == targetColor
+                    ) {
+                        android.util.Log.d(
+                            "ON_ANIM",
+                            "SKIP animation reuse static targetColor=$targetColor animKey=$animKey"
+                        )
+                        staticColorData(targetColor)
+                    } else {
+                        lastAnimationKeyRef.value = animKey
+                        animateOnEffect(
+                            animationKey = animKey,
+                            fromColor = currentDisplayedColorRef.value,
+                            targetColor = targetColor,
+                            transit = transit,
+                            randomColor = false,
+                            onColorUpdate = { lastColorRef.value = it },
+                            backgroundColor = backgroundColor
+                        )
+                    }
                 }
+
                 EffectType.OFF -> {
                     val transit = transmission.transit ?: 10
-                    animateOffEffect(
-                        fromColor = lastColorRef.value, transit = transit,
-                        onColorUpdate = { lastColorRef.value = it },
+                    val animKey = "TX_OFF_$transit"
+
+                    android.util.Log.d(
+                        "OFF_ANIM",
+                        "CALL transmission OFF transit=$transit " +
+                                "displayedColor=${currentDisplayedColorRef.value} " +
+                                "lastColor=${lastColorRef.value} animKey=$animKey"
+                    )
+
+                    if (lastAnimationKeyRef.value == animKey &&
+                        currentDisplayedColorRef.value.isBlack()
+                    ) {
+                        android.util.Log.d(
+                            "OFF_ANIM",
+                            "SKIP animation reuse static black animKey=$animKey"
+                        )
+                        staticColorData(Color.Black)
+                    } else {
+                        lastAnimationKeyRef.value = animKey
+                        animateOffEffect(
+                            animationKey = animKey,
+                            fromColor = currentDisplayedColorRef.value,
+                            transit = transit,
+                            onColorUpdate = { lastColorRef.value = it },
+                            backgroundColor = backgroundColor
+                        )
+                    }
+                }
+
+                EffectType.STROBE -> {
+                    val period = transmission.period ?: 5
+                    val fgThreshold =
+                        if (period <= 10) 0.1f
+                        else 1f / period.coerceAtLeast(1).toFloat()
+
+                    lastAnimationKeyRef.value = "TX_STROBE_$period"
+
+                    android.util.Log.d(
+                        "STROBE_ANIM",
+                        "CALL transmission STROBE period=$period fgThreshold=$fgThreshold"
+                    )
+
+                    animatePeriodicEffect(
+                        effectName = "STROBE",
+                        fgColor = transmission.color?.toComposeColor() ?: Color.White,
+                        bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black,
+                        period = period,
+                        randomColor = false,
+                        fgThreshold = fgThreshold,
                         backgroundColor = backgroundColor
                     )
                 }
-                EffectType.STROBE -> {
-                    val period = transmission.period ?: 5
-                    animatePeriodicEffect(
-                        fgColor = transmission.color?.toComposeColor() ?: Color.White,
-                        bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black,
-                        period = period, randomColor = false,
-                        fgThreshold = 0.1f, backgroundColor = backgroundColor
-                    )
-                }
+
                 EffectType.BLINK -> {
                     val period = transmission.period ?: 20
+
+                    lastAnimationKeyRef.value = "TX_BLINK_$period"
+
+                    android.util.Log.d(
+                        "BLINK_ANIM",
+                        "CALL transmission BLINK period=$period fgThreshold=0.5"
+                    )
+
                     animatePeriodicEffect(
+                        effectName = "BLINK",
                         fgColor = transmission.color?.toComposeColor() ?: Color.White,
                         bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black,
-                        period = period, randomColor = false,
-                        fgThreshold = 0.5f, backgroundColor = backgroundColor
+                        period = period,
+                        randomColor = false,
+                        fgThreshold = 0.5f,
+                        backgroundColor = backgroundColor
                     )
                 }
+
                 EffectType.BREATH -> {
                     val period = transmission.period ?: 40
+                    val fgColor = transmission.color?.toComposeColor() ?: Color.White
+                    val bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black
+                    val animKey = "TX_BREATH_${period}_${fgColor.toArgb()}_${bgColor.toArgb()}"
+
+                    android.util.Log.d(
+                        "BREATH_ANIM",
+                        "CALL transmission BREATH period=$period " +
+                                "displayedColor=${currentDisplayedColorRef.value} " +
+                                "lastColor=${lastColorRef.value} fg=$fgColor bg=$bgColor animKey=$animKey"
+                    )
+
+                    lastAnimationKeyRef.value = animKey
+
                     animateBreathEffect(
-                        fromColor = lastColorRef.value,
-                        fgColor = transmission.color?.toComposeColor() ?: Color.White,
-                        bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black,
-                        period = period, randomColor = false,
+                        animationKey = animKey,
+                        fromColor = currentDisplayedColorRef.value,
+                        fgColor = fgColor,
+                        bgColor = bgColor,
+                        period = period,
+                        randomColor = false,
                         backgroundColor = backgroundColor,
                         onColorUpdate = { lastColorRef.value = it }
                     )
                 }
-                else -> EffectColorData(iconColor = Color.White, iconBrush = null, gradientColor = null)
+
+                else -> {
+                    EffectColorData(
+                        iconColor = Color.White,
+                        iconBrush = null,
+                        gradientColor = null
+                    )
+                }
             }
         }
+
         TransmissionSource.FFT_EFFECT -> {
+            lastAnimationKeyRef.value = "TX_FFT"
             val fftColor = transmission.color?.toComposeColor() ?: Color.White
             EffectColorData(
                 iconColor = fftColor,
-                iconBrush = Brush.linearGradient(listOf(
-                    fftColor, fftColor.copy(alpha = 0.7f), fftColor.copy(alpha = 0.4f)
-                )),
+                iconBrush = Brush.linearGradient(
+                    listOf(
+                        fftColor,
+                        fftColor.copy(alpha = 0.7f),
+                        fftColor.copy(alpha = 0.4f)
+                    )
+                ),
                 gradientColor = null
             )
         }
@@ -516,69 +664,168 @@ private fun calculateEffectColor(
     selectedEffect: EffectViewModel.UiEffectType?,
     effectSettings: EffectViewModel.EffectSettings?,
     backgroundColor: Color,
-    lastColorRef: MutableState<Color>
+    lastColorRef: MutableState<Color>,
+    currentDisplayedColorRef: MutableState<Color>
 ): EffectColorData? {
+    android.util.Log.d(
+        "EFFECT_TRACE",
+        "CALL selected " +
+                "isPlaying=$isPlaying " +
+                "selectedEffect=$selectedEffect " +
+                "settings=$effectSettings " +
+                "lastColor=${lastColorRef.value} " +
+                "displayedColor=${currentDisplayedColorRef.value}"
+    )
+
     if (!isPlaying || selectedEffect == null || effectSettings == null) {
         lastColorRef.value = Color.White
         return EffectColorData(iconColor = Color.White, iconBrush = null, gradientColor = null)
     }
 
-    return key(selectedEffect) {
+    return key(selectedEffect, effectSettings) {
         when (selectedEffect) {
-            is EffectViewModel.UiEffectType.On -> animateOnEffect(
-                lastColorRef.value, effectSettings.color.toComposeColor(),
-                effectSettings.transit, effectSettings.randomColor,
-                { lastColorRef.value = it }, backgroundColor
-            )
-            is EffectViewModel.UiEffectType.Off -> animateOffEffect(
-                lastColorRef.value, effectSettings.transit,
-                { lastColorRef.value = it }, backgroundColor
-            )
-            is EffectViewModel.UiEffectType.Strobe -> animatePeriodicEffect(
-                effectSettings.color.toComposeColor(),
-                effectSettings.backgroundColor.toComposeColor(),
-                effectSettings.period, effectSettings.randomColor, 0.1f, backgroundColor
-            )
-            is EffectViewModel.UiEffectType.Blink -> animatePeriodicEffect(
-                effectSettings.color.toComposeColor(),
-                effectSettings.backgroundColor.toComposeColor(),
-                effectSettings.period, effectSettings.randomColor, 0.5f, backgroundColor
-            )
-            is EffectViewModel.UiEffectType.Breath -> animateBreathEffect(
-                lastColorRef.value,
-                effectSettings.color.toComposeColor(),
-                effectSettings.backgroundColor.toComposeColor(),
-                effectSettings.period, effectSettings.randomColor, backgroundColor,
-                { lastColorRef.value = it }
-            )
-            is EffectViewModel.UiEffectType.Custom -> when (selectedEffect.baseType) {
-                EffectViewModel.UiEffectType.BaseEffectType.ON -> animateOnEffect(
-                    lastColorRef.value, effectSettings.color.toComposeColor(),
-                    effectSettings.transit, effectSettings.randomColor,
-                    { lastColorRef.value = it }, backgroundColor
-                )
-                EffectViewModel.UiEffectType.BaseEffectType.OFF -> animateOffEffect(
-                    lastColorRef.value, effectSettings.transit,
-                    { lastColorRef.value = it }, backgroundColor
-                )
-                EffectViewModel.UiEffectType.BaseEffectType.STROBE -> animatePeriodicEffect(
-                    effectSettings.color.toComposeColor(),
-                    effectSettings.backgroundColor.toComposeColor(),
-                    effectSettings.period, effectSettings.randomColor, 0.1f, backgroundColor
-                )
-                EffectViewModel.UiEffectType.BaseEffectType.BLINK -> animatePeriodicEffect(
-                    effectSettings.color.toComposeColor(),
-                    effectSettings.backgroundColor.toComposeColor(),
-                    effectSettings.period, effectSettings.randomColor, 0.5f, backgroundColor
-                )
-                EffectViewModel.UiEffectType.BaseEffectType.BREATH -> animateBreathEffect(
-                    lastColorRef.value,
-                    effectSettings.color.toComposeColor(),
-                    effectSettings.backgroundColor.toComposeColor(),
-                    effectSettings.period, effectSettings.randomColor, backgroundColor,
-                    { lastColorRef.value = it }
+            is EffectViewModel.UiEffectType.On -> {
+                val targetColor = effectSettings.color.toComposeColor()
+                val animKey = "SEL_ON_${effectSettings.transit}_${targetColor.toArgb()}_${effectSettings.randomColor}"
+                animateOnEffect(
+                    animationKey = animKey,
+                    fromColor = currentDisplayedColorRef.value,
+                    targetColor = targetColor,
+                    transit = effectSettings.transit,
+                    randomColor = effectSettings.randomColor,
+                    onColorUpdate = { lastColorRef.value = it },
+                    backgroundColor = backgroundColor
                 )
             }
+
+            is EffectViewModel.UiEffectType.Off -> {
+                val animKey = "SEL_OFF_${effectSettings.transit}"
+                animateOffEffect(
+                    animationKey = animKey,
+                    fromColor = currentDisplayedColorRef.value,
+                    transit = effectSettings.transit,
+                    onColorUpdate = { lastColorRef.value = it },
+                    backgroundColor = backgroundColor
+                )
+            }
+
+            is EffectViewModel.UiEffectType.Strobe -> {
+                val period = effectSettings.period
+                val fgThreshold =
+                    if (period <= 10) 0.1f
+                    else 1f / period.coerceAtLeast(1).toFloat()
+
+                animatePeriodicEffect(
+                    effectName = "STROBE",
+                    fgColor = effectSettings.color.toComposeColor(),
+                    bgColor = effectSettings.backgroundColor.toComposeColor(),
+                    period = period,
+                    randomColor = effectSettings.randomColor,
+                    fgThreshold = fgThreshold,
+                    backgroundColor = backgroundColor
+                )
+            }
+
+            is EffectViewModel.UiEffectType.Blink -> {
+                animatePeriodicEffect(
+                    effectName = "BLINK",
+                    fgColor = effectSettings.color.toComposeColor(),
+                    bgColor = effectSettings.backgroundColor.toComposeColor(),
+                    period = effectSettings.period,
+                    randomColor = effectSettings.randomColor,
+                    fgThreshold = 0.5f,
+                    backgroundColor = backgroundColor
+                )
+            }
+
+            is EffectViewModel.UiEffectType.Breath -> {
+                val fgColor = effectSettings.color.toComposeColor()
+                val bgColor = effectSettings.backgroundColor.toComposeColor()
+                val animKey = "SEL_BREATH_${effectSettings.period}_${fgColor.toArgb()}_${bgColor.toArgb()}_${effectSettings.randomColor}"
+                animateBreathEffect(
+                    animationKey = animKey,
+                    fromColor = currentDisplayedColorRef.value,
+                    fgColor = fgColor,
+                    bgColor = bgColor,
+                    period = effectSettings.period,
+                    randomColor = effectSettings.randomColor,
+                    backgroundColor = backgroundColor,
+                    onColorUpdate = { lastColorRef.value = it }
+                )
+            }
+
+            is EffectViewModel.UiEffectType.Custom -> when (selectedEffect.baseType) {
+                EffectViewModel.UiEffectType.BaseEffectType.ON -> {
+                    val targetColor = effectSettings.color.toComposeColor()
+                    val animKey = "CUS_ON_${effectSettings.transit}_${targetColor.toArgb()}_${effectSettings.randomColor}"
+                    animateOnEffect(
+                        animationKey = animKey,
+                        fromColor = currentDisplayedColorRef.value,
+                        targetColor = targetColor,
+                        transit = effectSettings.transit,
+                        randomColor = effectSettings.randomColor,
+                        onColorUpdate = { lastColorRef.value = it },
+                        backgroundColor = backgroundColor
+                    )
+                }
+
+                EffectViewModel.UiEffectType.BaseEffectType.OFF -> {
+                    val animKey = "CUS_OFF_${effectSettings.transit}"
+                    animateOffEffect(
+                        animationKey = animKey,
+                        fromColor = currentDisplayedColorRef.value,
+                        transit = effectSettings.transit,
+                        onColorUpdate = { lastColorRef.value = it },
+                        backgroundColor = backgroundColor
+                    )
+                }
+
+                EffectViewModel.UiEffectType.BaseEffectType.STROBE -> {
+                    val period = effectSettings.period
+                    val fgThreshold =
+                        if (period <= 10) 0.1f
+                        else 1f / period.coerceAtLeast(1).toFloat()
+
+                    animatePeriodicEffect(
+                        effectName = "STROBE",
+                        fgColor = effectSettings.color.toComposeColor(),
+                        bgColor = effectSettings.backgroundColor.toComposeColor(),
+                        period = period,
+                        randomColor = effectSettings.randomColor,
+                        fgThreshold = fgThreshold,
+                        backgroundColor = backgroundColor
+                    )
+                }
+
+                EffectViewModel.UiEffectType.BaseEffectType.BLINK -> {
+                    animatePeriodicEffect(
+                        effectName = "BLINK",
+                        fgColor = effectSettings.color.toComposeColor(),
+                        bgColor = effectSettings.backgroundColor.toComposeColor(),
+                        period = effectSettings.period,
+                        randomColor = effectSettings.randomColor,
+                        fgThreshold = 0.5f,
+                        backgroundColor = backgroundColor
+                    )
+                }
+
+                EffectViewModel.UiEffectType.BaseEffectType.BREATH -> {
+                    val fgColor = effectSettings.color.toComposeColor()
+                    val bgColor = effectSettings.backgroundColor.toComposeColor()
+                    val animKey = "CUS_BREATH_${effectSettings.period}_${fgColor.toArgb()}_${bgColor.toArgb()}_${effectSettings.randomColor}"
+                    animateBreathEffect(
+                        animationKey = animKey,
+                        fromColor = currentDisplayedColorRef.value,
+                        fgColor = fgColor,
+                        bgColor = bgColor,
+                        period = effectSettings.period,
+                        randomColor = effectSettings.randomColor,
+                        backgroundColor = backgroundColor,
+                        onColorUpdate = { lastColorRef.value = it }
+                    )
+                }
+            }
+
             else -> null
         }
     }
@@ -601,109 +848,269 @@ private fun rememberRandomHueColor(alpha: Float = 1f): Color {
 
 @Composable
 private fun animateOnEffect(
-    fromColor: Color, targetColor: Color, transit: Int, randomColor: Boolean,
-    onColorUpdate: (Color) -> Unit, backgroundColor: Color
+    animationKey: String,
+    fromColor: Color,
+    targetColor: Color,
+    transit: Int,
+    randomColor: Boolean,
+    onColorUpdate: (Color) -> Unit,
+    backgroundColor: Color
 ): EffectColorData {
-    return key(targetColor) {
-        val startColor = fromColor
-        val animatable = remember { Animatable(0f) }
-        LaunchedEffect(Unit) {
-            animatable.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = transit * 100, easing = LinearEasing)
+    val fixedStartColor = remember(animationKey) { fromColor }
+    val animatable = remember(animationKey) { Animatable(0f) }
+
+    LaunchedEffect(animationKey) {
+        android.util.Log.d(
+            "ON_ANIM",
+            "START key=$animationKey transit=$transit duration=${transit * 100} " +
+                    "startColor=$fixedStartColor targetColor=$targetColor randomColor=$randomColor"
+        )
+
+        animatable.snapTo(0f)
+        animatable.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = transit.coerceAtLeast(0) * 100,
+                easing = LinearEasing
             )
-        }
-        val progress = animatable.value
-        val iconColor = if (randomColor) rememberRandomHueColor(alpha = progress)
-        else hsvLerp(startColor, targetColor, progress)
-        onColorUpdate(iconColor)
-        val gradientColor = if (iconColor.isBlack()) null else lerp(iconColor, backgroundColor, 0.2f)
-        EffectColorData(iconColor = iconColor, iconBrush = null, gradientColor = gradientColor)
+        )
+
+        onColorUpdate(targetColor)
+
+        android.util.Log.d(
+            "ON_ANIM",
+            "END key=$animationKey transit=$transit finalProgress=${animatable.value} finalColor=$targetColor"
+        )
     }
+
+    val progress = animatable.value
+    val iconColor =
+        if (randomColor) rememberRandomHueColor(alpha = progress)
+        else hsvLerp(fixedStartColor, targetColor, progress)
+
+    LaunchedEffect(animationKey, (progress * 10).toInt()) {
+        android.util.Log.d(
+            "ON_ANIM",
+            "SAMPLE key=$animationKey progress=$progress transit=$transit " +
+                    "startColor=$fixedStartColor targetColor=$targetColor iconColor=$iconColor"
+        )
+    }
+
+    val gradientColor =
+        if (iconColor.isBlack()) null else lerp(iconColor, backgroundColor, 0.2f)
+
+    return EffectColorData(
+        iconColor = iconColor,
+        iconBrush = null,
+        gradientColor = gradientColor
+    )
 }
 
 @Composable
 private fun animateOffEffect(
-    fromColor: Color, transit: Int,
-    onColorUpdate: (Color) -> Unit, backgroundColor: Color
+    animationKey: String,
+    fromColor: Color,
+    transit: Int,
+    onColorUpdate: (Color) -> Unit,
+    backgroundColor: Color
 ): EffectColorData {
-    val startColor = fromColor.copy(alpha = 1f)
-    val animatable = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
+    val fixedStartColor = remember(animationKey) {
+        fromColor.copy(alpha = 1f)
+    }
+
+    val animatable = remember(animationKey) {
+        Animatable(0f)
+    }
+
+    LaunchedEffect(animationKey) {
+        android.util.Log.d(
+            "OFF_ANIM",
+            "START key=$animationKey transit=$transit duration=${transit * 110} fixedStartColor=$fixedStartColor"
+        )
+
+        animatable.snapTo(0f)
         animatable.animateTo(
             targetValue = 1f,
-            animationSpec = tween(durationMillis = transit * 100, easing = LinearEasing)
+            animationSpec = tween(
+                durationMillis = transit.coerceAtLeast(0) * 100,
+                easing = LinearEasing
+            )
+        )
+
+        onColorUpdate(Color.Black)
+
+        android.util.Log.d(
+            "OFF_ANIM",
+            "END key=$animationKey transit=$transit finalProgress=${animatable.value}"
         )
     }
+
     val progress = animatable.value
-    val iconColor = hsvLerp(startColor, Color.Black, progress)
-    onColorUpdate(iconColor)
-    val gradientColor = if (iconColor.isBlack()) null else lerp(iconColor, backgroundColor, 0.2f)
-    return EffectColorData(iconColor = iconColor, iconBrush = null, gradientColor = gradientColor)
+    val iconColor = hsvLerp(fixedStartColor, Color.Black, progress)
+
+    LaunchedEffect(animationKey, (progress * 10).toInt()) {
+        android.util.Log.d(
+            "OFF_ANIM",
+            "SAMPLE key=$animationKey progress=$progress transit=$transit fixedStartColor=$fixedStartColor iconColor=$iconColor"
+        )
+    }
+
+    val gradientColor =
+        if (iconColor.isBlack()) null else lerp(iconColor, backgroundColor, 0.2f)
+
+    return EffectColorData(
+        iconColor = iconColor,
+        iconBrush = null,
+        gradientColor = gradientColor
+    )
 }
 
 @Composable
 private fun animatePeriodicEffect(
-    fgColor: Color, bgColor: Color, period: Int, randomColor: Boolean,
-    fgThreshold: Float, backgroundColor: Color
+    effectName: String,
+    fgColor: Color,
+    bgColor: Color,
+    period: Int,
+    randomColor: Boolean,
+    fgThreshold: Float,
+    backgroundColor: Color
 ): EffectColorData {
     val resolvedFg = if (randomColor) rememberRandomHueColor() else fgColor
-    // bgColor가 Black이면 그대로 사용 (카드 배경색으로 대체하지 않음)
     val resolvedBg = bgColor
-    val progress by rememberInfiniteTransition(label = "periodic").animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween((period * 100).coerceAtLeast(100), easing = LinearEasing)),
-        label = "periodicProgress"
-    )
+    val duration = (period * 103).coerceAtLeast(103)
+
+    LaunchedEffect(effectName, fgColor, bgColor, period, randomColor, fgThreshold) {
+        android.util.Log.d(
+            "${effectName}_ANIM",
+            "START period=$period duration=$duration fg=$fgColor bg=$bgColor randomColor=$randomColor fgThreshold=$fgThreshold"
+        )
+    }
+
+    val progress by rememberInfiniteTransition(label = "${effectName}_periodic")
+        .animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(duration, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "${effectName}_periodicProgress"
+        )
+
     val iconColor = if (progress < fgThreshold) resolvedFg else resolvedBg
-    val gradientColor = if (iconColor.isBlack()) null else lerp(iconColor, backgroundColor, 0.2f)
-    return EffectColorData(iconColor = iconColor, iconBrush = null, gradientColor = gradientColor)
+
+    LaunchedEffect((progress * 10).toInt()) {
+        android.util.Log.d(
+            "${effectName}_ANIM",
+            "SAMPLE progress=$progress period=$period iconColor=$iconColor fg=$resolvedFg bg=$resolvedBg"
+        )
+    }
+
+    val gradientColor =
+        if (iconColor.isBlack()) null else lerp(iconColor, backgroundColor, 0.2f)
+
+    return EffectColorData(
+        iconColor = iconColor,
+        iconBrush = null,
+        gradientColor = gradientColor
+    )
 }
 
 @Composable
 private fun animateBreathEffect(
-    fromColor: Color, fgColor: Color, bgColor: Color, period: Int, randomColor: Boolean,
-    backgroundColor: Color, onColorUpdate: (Color) -> Unit
+    animationKey: String,
+    fromColor: Color,
+    fgColor: Color,
+    bgColor: Color,
+    period: Int,
+    randomColor: Boolean,
+    backgroundColor: Color,
+    onColorUpdate: (Color) -> Unit
 ): EffectColorData {
     if (period <= 0) {
-        onColorUpdate(fgColor)
-        val gradientColor = if (fgColor.isBlack()) null else lerp(fgColor, backgroundColor, 0.5f)
-        return EffectColorData(iconColor = fgColor, iconBrush = null, gradientColor = gradientColor)
-    }
-    return key(fgColor, bgColor) {
-        val startColor = fromColor
-        val isFirstCycle = remember { mutableStateOf(true) }
-        val breathProgress by rememberInfiniteTransition(label = "breathEffect").animateFloat(
-            initialValue = 0f, targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(period * 100, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "breathProgress"
+        android.util.Log.d(
+            "BREATH_ANIM",
+            "BYPASS key=$animationKey period=$period fgColor=$fgColor bgColor=$bgColor"
         )
-        LaunchedEffect(breathProgress) {
-            if (breathProgress >= 0.99f && isFirstCycle.value) isFirstCycle.value = false
-        }
-        val resolvedFg = if (randomColor) rememberRandomHueColor(alpha = 1f) else fgColor
-        // bgColor가 Black이면 그대로 사용 (카드 배경색으로 대체하지 않음)
-        val resolvedBg = bgColor
-        // 4단계: 0-25% 상승 / 25-50% FG 유지 / 50-75% 하강 / 75-100% BG 유지
-        val iconColor: Color = when {
-            breathProgress < 0.25f -> {
-                val p = breathProgress / 0.25f
-                hsvLerp(if (isFirstCycle.value) startColor else resolvedBg, resolvedFg, p)
-            }
-            breathProgress < 0.50f -> resolvedFg
-            breathProgress < 0.75f -> {
-                val p = (breathProgress - 0.5f) / 0.25f
-                hsvLerp(resolvedFg, resolvedBg, p)
-            }
-            else -> resolvedBg
-        }
-        onColorUpdate(iconColor)
-        val gradientColor = if (iconColor.isBlack()) null else lerp(iconColor, backgroundColor, 0.2f)
-        EffectColorData(iconColor = iconColor, iconBrush = null, gradientColor = gradientColor)
+        return EffectColorData(
+            iconColor = fgColor,
+            iconBrush = null,
+            gradientColor = if (fgColor.isBlack()) null else lerp(fgColor, backgroundColor, 0.2f)
+        )
     }
+
+    val fixedStartColor = remember(animationKey) { fromColor }
+    val resolvedFg = if (randomColor) rememberRandomHueColor(alpha = 1f) else fgColor
+    val resolvedBg = bgColor
+
+    val isFirstCycle = remember(animationKey) { mutableStateOf(true) }
+
+    LaunchedEffect(animationKey) {
+        android.util.Log.d(
+            "BREATH_ANIM",
+            "START key=$animationKey period=$period duration=${period * 100} " +
+                    "fromColor=$fixedStartColor fgColor=$resolvedFg bgColor=$resolvedBg randomColor=$randomColor"
+        )
+    }
+
+    val transition = rememberInfiniteTransition(label = "breathEffect_$animationKey")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween((period * 103).coerceAtLeast(103), easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "breathProgress_$animationKey"
+    )
+
+    LaunchedEffect(animationKey, (progress * 10).toInt()) {
+        android.util.Log.d(
+            "BREATH_ANIM",
+            "SAMPLE key=$animationKey progress=$progress period=$period " +
+                    "fromColor=$fixedStartColor fgColor=$resolvedFg bgColor=$resolvedBg firstCycle=${isFirstCycle.value}"
+        )
+    }
+
+    LaunchedEffect(progress) {
+        if (progress >= 0.99f && isFirstCycle.value) {
+            isFirstCycle.value = false
+            android.util.Log.d("BREATH_ANIM", "FIRST_CYCLE_END key=$animationKey")
+        }
+    }
+
+    val iconColor: Color = when {
+        // 첫 사이클 transition 구간: 현재 색 -> fg
+        isFirstCycle.value && progress < 0.25f -> {
+            val p = progress / 0.25f
+            hsvLerp(fixedStartColor, resolvedFg, p)
+        }
+
+        // 첫/이후 공통 fg 유지
+        progress < 0.50f -> {
+            resolvedFg
+        }
+
+        // fg -> bg
+        progress < 0.75f -> {
+            val p = (progress - 0.5f) / 0.25f
+            hsvLerp(resolvedFg, resolvedBg, p)
+        }
+
+        // bg 유지
+        else -> {
+            resolvedBg
+        }
+    }
+
+    val gradientColor =
+        if (iconColor.isBlack()) null else lerp(iconColor, backgroundColor, 0.2f)
+
+    return EffectColorData(
+        iconColor = iconColor,
+        iconBrush = null,
+        gradientColor = gradientColor
+    )
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

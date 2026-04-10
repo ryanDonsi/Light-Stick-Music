@@ -322,39 +322,39 @@ class EffectViewModel @Inject constructor(
                 }
 
                 // 1차 연결 시도 — onFailed 콜백에서 상태 변경하지 않음 (재시도 후 판단)
-                var connectResult = connectDeviceUseCase(
+                val connectResult = connectDeviceUseCase(
                     context     = context,
                     device      = bestDevice,
                     onConnected = onConnectedCallback
                 )
 
-                // Android BLE GATT 첫 연결 실패는 매우 흔한 현상 (GATT 캐시 미정리).
-                // ScanFailed 노출 없이 500ms 대기 후 자동 재시도.
-                if (connectResult.isFailure) {
-                    Log.w(TAG, "1차 연결 실패, 500ms 후 재시도: ${connectResult.exceptionOrNull()?.message}")
-                    delay(500L)
-
-                    // SDK가 500ms 사이에 자체 연결했을 수 있으므로 재확인
-                    val sdkRecheck = try {
-                        com.lightstick.LSBluetooth.connectedDevices()
-                    } catch (e: Exception) { emptyList() }
-                    if (sdkRecheck.any { it.mac == bestDevice.mac }) {
-                        _deviceConnectionState.value = DeviceConnectionState.Connected(bestDevice)
-                        Log.d(TAG, "SDK 자체 연결 감지: ${bestDevice.mac}")
-                        return@launch
-                    }
-
-                    // 2차 연결 시도
-                    connectResult = connectDeviceUseCase(
-                        context     = context,
-                        device      = bestDevice,
-                        onConnected = onConnectedCallback
-                    )
-                }
+//                // Android BLE GATT 첫 연결 실패는 매우 흔한 현상 (GATT 캐시 미정리).
+//                // ScanFailed 노출 없이 500ms 대기 후 자동 재시도.
+//                if (connectResult.isFailure) {
+//                    Log.w(TAG, "1차 연결 실패, 500ms 후 재시도: ${connectResult.exceptionOrNull()?.message}")
+//                    delay(500L)
+//
+//                    // SDK가 500ms 사이에 자체 연결했을 수 있으므로 재확인
+//                    val sdkRecheck = try {
+//                        com.lightstick.LSBluetooth.connectedDevices()
+//                    } catch (e: Exception) { emptyList() }
+//                    if (sdkRecheck.any { it.mac == bestDevice.mac }) {
+//                        _deviceConnectionState.value = DeviceConnectionState.Connected(bestDevice)
+//                        Log.d(TAG, "SDK 자체 연결 감지: ${bestDevice.mac}")
+//                        return@launch
+//                    }
+//
+//                    // 2차 연결 시도
+//                    val connectResult = connectDeviceUseCase(
+//                        context     = context,
+//                        device      = bestDevice,
+//                        onConnected = onConnectedCallback
+//                    )
+//                }
 
                 if (connectResult.isFailure) {
                     _deviceConnectionState.value = DeviceConnectionState.ScanFailed
-                    Log.e(TAG, "연결 최종 실패 (2회 시도): ${connectResult.exceptionOrNull()?.message}")
+                    Log.e(TAG, "연결 최종 실패 : ${connectResult.exceptionOrNull()?.message}")
                 }
 
             } catch (e: Exception) {
