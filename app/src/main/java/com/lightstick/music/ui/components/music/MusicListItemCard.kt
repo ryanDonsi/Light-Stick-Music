@@ -14,7 +14,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -79,18 +81,25 @@ fun MusicListItemCard(
                 contentAlignment = Alignment.Center
             ) {
                 // 앨범아트 (Coil 비동기 로딩 — 메인 스레드 블로킹 없음)
-                AsyncImage(
+                // SubcomposeAsyncImage: error/fallback에 Composable 슬롯 지원
+                SubcomposeAsyncImage(
                     model              = musicItem.albumArtPath,
                     contentDescription = "앨범아트",
-                    contentScale       = ContentScale.Crop,
-                    error              = { Icon(Icons.Default.MusicNote, null, Modifier.size(24.dp),
-                                              tint = MaterialTheme.customColors.onSurface.copy(
-                                                  alpha = if (isPlaying) 1f else 0.6f)) },
-                    fallback           = { Icon(Icons.Default.MusicNote, null, Modifier.size(24.dp),
-                                              tint = MaterialTheme.customColors.onSurface.copy(
-                                                  alpha = if (isPlaying) 1f else 0.6f)) },
                     modifier           = Modifier.fillMaxSize()
-                )
+                ) {
+                    if (painter.state is AsyncImagePainter.State.Success) {
+                        SubcomposeAsyncImageContent(contentScale = ContentScale.Crop)
+                    } else {
+                        Icon(
+                            imageVector        = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = MaterialTheme.customColors.onSurface.copy(
+                                alpha = if (isPlaying) 1f else 0.6f
+                            ),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
 
                 // [추가] 이펙트 뱃지 — TIMELINE_EFFECT 수신 시 우측 하단 오버레이 (원형만)
                 val isTimeline = latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT
