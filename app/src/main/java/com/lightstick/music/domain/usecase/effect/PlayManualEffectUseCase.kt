@@ -74,7 +74,7 @@ class PlayManualEffectUseCase @Inject constructor() {
             is EffectViewModel.UiEffectType.On -> {
                 LSEffectPayload.Effects.on(
                     color = settings.color,
-                    transit = settings.transit,
+                    transit = settings.transit * 10, // slider 0..100 (0.1s/unit) → centiseconds
                     randomColor = randomColorValue,
                     randomDelay = randomDelayValue,
                     broadcasting = broadcastingValue
@@ -82,7 +82,7 @@ class PlayManualEffectUseCase @Inject constructor() {
             }
             is EffectViewModel.UiEffectType.Off -> {
                 LSEffectPayload.Effects.off(
-                    transit = settings.transit,
+                    transit = settings.transit * 10, // slider 0..100 (0.1s/unit) → centiseconds
                     randomDelay = randomDelayValue,
                     broadcasting = broadcastingValue
                 )
@@ -123,7 +123,7 @@ class PlayManualEffectUseCase @Inject constructor() {
                     EffectViewModel.UiEffectType.BaseEffectType.ON -> {
                         LSEffectPayload.Effects.on(
                             color = settings.color,
-                            transit = settings.transit,
+                            transit = settings.transit * 10, // slider 0..100 (0.1s/unit) → centiseconds
                             randomColor = randomColorValue,
                             randomDelay = randomDelayValue,
                             broadcasting = broadcastingValue
@@ -131,7 +131,7 @@ class PlayManualEffectUseCase @Inject constructor() {
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.OFF -> {
                         LSEffectPayload.Effects.off(
-                            transit = settings.transit,
+                            transit = settings.transit * 10, // slider 0..100 (0.1s/unit) → centiseconds
                             randomDelay = randomDelayValue,
                             broadcasting = broadcastingValue
                         )
