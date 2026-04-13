@@ -1,6 +1,8 @@
 package com.lightstick.music.ui.screen.music
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Arrangement
@@ -92,9 +94,10 @@ fun MusicControlScreen(
                 // 콘텐츠
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp, vertical = 24.dp),
-                    verticalArrangement = Arrangement.Top  // ✅ 상단 정렬
+                    verticalArrangement = Arrangement.Top
                 ) {
                     // ✅ Effects 배너
                     when {
