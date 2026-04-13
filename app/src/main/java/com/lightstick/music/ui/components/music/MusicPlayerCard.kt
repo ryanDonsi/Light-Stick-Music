@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.lightstick.music.R
-import com.lightstick.music.core.util.TimeFormatter
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.TransmissionSource
@@ -60,7 +59,6 @@ fun MusicPlayerCard(
     }
 
     val hasMusic = musicItem.filePath.isNotEmpty()
-    var seekPreviewPosition by remember { mutableStateOf<Long?>(null) }
 
     Column(
         modifier              = modifier.fillMaxWidth(),
@@ -175,32 +173,11 @@ fun MusicPlayerCard(
                     overflow  = TextOverflow.Ellipsis
                 )
 
-                // 시간 표시
-                Row(
-                    modifier              = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment     = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text  = if (hasMusic) TimeFormatter.formatTime(seekPreviewPosition ?: currentPosition) else "0:00",
-                        style = MaterialTheme.customTextStyles.badgeMedium,
-                        color = MaterialTheme.customColors.textTertiary
-                    )
-                    Text(
-                        text  = if (hasMusic) TimeFormatter.formatTime(duration) else "0:00",
-                        style = MaterialTheme.customTextStyles.badgeMedium,
-                        color = MaterialTheme.customColors.textTertiary
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // 진행바
+                // 시간 표시 + 진행바
                 MusicSeekBar(
                     currentPosition = currentPosition,
                     duration        = duration,
-                    onSeekTo        = onSeekTo,
-                    onDragPreview   = { seekPreviewPosition = it }
+                    onSeekTo        = onSeekTo
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
