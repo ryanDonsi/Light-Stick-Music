@@ -60,6 +60,7 @@ fun MusicPlayerCard(
     }
 
     val hasMusic = musicItem.filePath.isNotEmpty()
+    var seekPreviewPosition by remember { mutableStateOf<Long?>(null) }
 
     Column(
         modifier              = modifier.fillMaxWidth(),
@@ -181,7 +182,7 @@ fun MusicPlayerCard(
                     verticalAlignment     = Alignment.CenterVertically
                 ) {
                     Text(
-                        text  = if (hasMusic) TimeFormatter.formatTime(currentPosition) else "0:00",
+                        text  = if (hasMusic) TimeFormatter.formatTime(seekPreviewPosition ?: currentPosition) else "0:00",
                         style = MaterialTheme.customTextStyles.badgeMedium,
                         color = MaterialTheme.customColors.textTertiary
                     )
@@ -198,7 +199,8 @@ fun MusicPlayerCard(
                 MusicSeekBar(
                     currentPosition = currentPosition,
                     duration        = duration,
-                    onSeekTo        = onSeekTo
+                    onSeekTo        = onSeekTo,
+                    onDragPreview   = { seekPreviewPosition = it }
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
