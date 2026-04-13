@@ -76,42 +76,10 @@ fun DeviceDetailSection(
 
         // OTA Section
         if (deviceDetail.isOtaInProgress && deviceDetail.otaProgress != null) {
-            Spacer(modifier = Modifier.height(4.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "OTA 진행 중",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
+            OtaProgressSection(
+                progress = deviceDetail.otaProgress,
+                onAbort  = onAbortOta
             )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LinearProgressIndicator(
-                progress = { deviceDetail.otaProgress / 100f },  // ✅ 람다로 수정
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "${deviceDetail.otaProgress}%",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Button(
-                onClick = onAbortOta,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFE53935)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("OTA 중단")
-            }
         } else {
             // OTA 시작 버튼
             Spacer(modifier = Modifier.height(4.dp))

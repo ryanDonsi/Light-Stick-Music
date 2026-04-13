@@ -1,16 +1,23 @@
 package com.lightstick.music.ui.components.splash
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.lightstick.music.ui.components.common.CommonProgressBar
 
 /**
- * 진행률 섹션 컴포넌트
+ * 스플래시 초기화 진행 섹션
+ *
+ * [CommonProgressBar]를 사용하여 초기화 단계별 진행률을 표시.
+ *
+ * @param title    단계 제목 텍스트
+ * @param current  현재 처리 수 (null 이면 미표시)
+ * @param total    전체 처리 수 (null 이면 미표시)
+ * @param progress 진행률 0f..1f — null 이면 current/total 로 계산
  */
 @Composable
 fun ProgressSection(
@@ -31,7 +38,6 @@ fun ProgressSection(
 
         if (current != null && total != null) {
             Spacer(modifier = Modifier.height(8.dp))
-
             Text(
                 text = "$current / $total",
                 style = MaterialTheme.typography.bodySmall,
@@ -49,8 +55,8 @@ fun ProgressSection(
             }
         }
 
-        LinearProgressIndicator(
-            progress = { calculatedProgress },
+        CommonProgressBar(
+            progress = calculatedProgress,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 32.dp)

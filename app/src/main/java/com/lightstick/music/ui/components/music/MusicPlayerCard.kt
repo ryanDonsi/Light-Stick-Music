@@ -5,7 +5,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -16,10 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
@@ -28,7 +25,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.lightstick.music.R
-import com.lightstick.music.core.util.TimeFormatter
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.TransmissionSource
@@ -177,73 +173,12 @@ fun MusicPlayerCard(
                     overflow  = TextOverflow.Ellipsis
                 )
 
-                // 시간 표시
-                Row(
-                    modifier              = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment     = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text  = if (hasMusic) TimeFormatter.formatTime(currentPosition) else "0:00",
-                        style = MaterialTheme.customTextStyles.badgeMedium,
-                        color = MaterialTheme.customColors.textTertiary
-                    )
-                    Text(
-                        text  = if (hasMusic) TimeFormatter.formatTime(duration) else "0:00",
-                        style = MaterialTheme.customTextStyles.badgeMedium,
-                        color = MaterialTheme.customColors.textTertiary
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // 진행바
-                val progress = if (duration > 0)
-                    (currentPosition / duration.toFloat()).coerceIn(0f, 1f)
-                else 0f
-
-                Box(
-                    modifier         = Modifier
-                        .fillMaxWidth()
-                        .height(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .pointerInput(duration) {
-                                detectTapGestures { offset ->
-                                    if (duration > 0) {
-                                        val percent = (offset.x / size.width).coerceIn(0f, 1f)
-                                        onSeekTo((duration * percent).toLong())
-                                    }
-                                }
-                            }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(9999.dp))
-                                .background(MaterialTheme.customColors.outline)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(progress)
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(9999.dp))
-                                .background(
-                                    brush = Brush.horizontalGradient(
-                                        colors = listOf(
-                                            MaterialTheme.customColors.gradientStart,
-                                            MaterialTheme.customColors.gradientEnd
-                                        )
-                                    )
-                                )
-                        )
-                    }
-                }
+                // 시간 표시 + 진행바
+                MusicSeekBar(
+                    currentPosition = currentPosition,
+                    duration        = duration,
+                    onSeekTo        = onSeekTo
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
