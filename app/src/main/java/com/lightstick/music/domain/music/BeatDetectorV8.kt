@@ -55,7 +55,10 @@ object BeatDetectorV8 {
 
     // 조용한 기타/어쿠스틱 곡 대응 — 빠른 결과 주기에서 더 보수적인 fold ratio
     // fold 결과가 이 값(ms) 미만이면 harmonic ringing 오검출 가능성이 높다고 판단
-    private const val HARMONIC_FOLD_GUARD_MS = 380L
+    // 350ms: K-팝 실제 비트 하한(≈171 BPM)에 맞게 낮춤
+    //   → 750ms→375ms fold 는 표준 비율(0.40) 적용 (기존 380 → 보수적 0.65 방지)
+    //   → 700ms→350ms 경계, 600ms→300ms 이하는 여전히 보수적 0.65 유지
+    private const val HARMONIC_FOLD_GUARD_MS = 350L
     // 빠른 결과 주기용 higher ratio (0.40 → 0.65): ringing 으로 인한 fold 억제
     private const val HARMONIC_FOLD_HALF_RATIO_FAST  = 0.65f
     private const val HARMONIC_FOLD_THIRD_RATIO_FAST = 0.55f

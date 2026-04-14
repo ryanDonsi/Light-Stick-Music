@@ -64,8 +64,11 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
 
         // 발라드/포크 감지 임계값
-        private const val BALLAD_BEAT_MS_THRESHOLD = 550L   // 느린 템포 (≈109 BPM 이하)
-        private const val BALLAD_AVG_ENERGY_MAX    = 0.45f  // 낮은 평균 에너지
+        private const val BALLAD_BEAT_MS_THRESHOLD  = 550L   // 느린 템포 (≈109 BPM 이하)
+        // 저음 비율(low/full): 볼륨 무관 지표 — 발라드는 킥/베이스가 약해 낮게 나옴
+        private const val BALLAD_LOW_FRACTION_MAX   = 0.40f
+        // 절대 에너지 보조 가드 — 볼륨이 매우 큰 곡을 추가 필터링 (임계값을 넉넉하게 설정)
+        private const val BALLAD_AVG_ENERGY_GUARD   = 0.65f
 
         // [PERF] 단일 패스 IIR 필터 계수
         private const val LOW_ALPHA     = 0.12f
@@ -222,9 +225,17 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         )
         Log.d(TAG, "climax moments=${climaxMoments.joinToString()}")
 
+        val avgLowEnergy  = lowEnv.take(envSize).average().toFloat()
         val avgFullEnergy = fullEnv.take(envSize).average().toFloat()
-        val isBalladMode  = isQuietFolkOrBallad(beatMs, avgFullEnergy, climaxMoments)
-        Log.d(TAG, "balladMode=$isBalladMode beatMs=$beatMs avgEnergy=${"%.3f".format(avgFullEnergy)} climax=${climaxMoments.size}")
+        // lowFraction = 저음 에너지 비율 — 볼륨에 무관한 상대 지표
+        // 발라드/포크: 킥드럼·베이스가 약해 낮게 나옴 / 댄스K팝: 강한 킥으로 높게 나옴
+        val lowFraction   = avgLowEnergy / avgFullEnergy.coerceAtLeast(0.001f)
+        val isBalladMode  = isQuietFolkOrBallad(beatMs, lowFraction, avgFullEnergy)
+        Log.d(TAG, "balladMode=$isBalladMode beatMs=$beatMs " +
+                "lowFraction=${"%.3f".format(lowFraction)} avgEnergy=${"%.3f".format(avgFullEnergy)} climax=${climaxMoments.size}")
+
+        // 발라드 모드: 클라이맥스 연출 완전 차단
+        val effectiveClimaxMoments = if (isBalladMode) emptyList() else climaxMoments
 
         val sections = buildSections(
             beatMs = beatMs,
@@ -234,7 +245,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             firstMusicMs = firstMusicMs,
             durationMs = durationMs,
             forceTransitFromZero = forceTransitFromZero,
-            climaxMoments = climaxMoments,
+            climaxMoments = effectiveClimaxMoments,
             isBalladMode = isBalladMode
         )
 
@@ -253,7 +264,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             sections = sections,
             beatTimes = beatTimes,
             durationMs = durationMs,
-            climaxMoments = climaxMoments,
+            climaxMoments = effectiveClimaxMoments,
             isBalladMode = isBalladMode
         )
 
@@ -1208,20 +1219,23 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
      * 오디오 특성 기반으로 조용한 발라드/포크곡 여부를 판단한다.
      *
      * 조건:
-     * - beatMs >= BALLAD_BEAT_MS_THRESHOLD : 느린 템포 (≈109 BPM 이하)
-     * - avgNormalizedEnergy < BALLAD_AVG_ENERGY_MAX : 전체 에너지가 낮음 (정규화 기준)
-     * - climaxMoments.size <= 3 : 극단적 에너지 피크가 적음 (말미 클러스터 허용)
+     * - beatMs >= BALLAD_BEAT_MS_THRESHOLD  : 느린 템포 (≈109 BPM 이하)
+     * - lowFraction < BALLAD_LOW_FRACTION_MAX : 저음(킥/베이스) 비율이 낮음
+     *   → 볼륨에 무관한 상대 지표 (low÷full). 댄스곡은 0.50+, 발라드는 0.30 전후
+     * - avgFullEnergy < BALLAD_AVG_ENERGY_GUARD : 보조 가드 — 볼륨이 매우 큰 곡 차단
+     *   (임계값을 넉넉하게 설정하여 볼륨 차이를 어느 정도 흡수)
      *
-     * 이 조건을 만족하는 곡의 ON ROTATE 연출에는 transit을 추가하여
-     * 비트마다 부드럽게 색이 전환되는 효과를 제공한다.
+     * 클라이맥스 횟수는 판정에서 제외:
+     * 발라드 모드가 확정되면 호출부에서 effectiveClimaxMoments=empty 로 치환하여
+     * 클라이맥스 연출을 완전 차단한다 (별도 조건 체크 불필요).
      */
     private fun isQuietFolkOrBallad(
         beatMs: Long,
-        avgNormalizedEnergy: Float,
-        climaxMoments: List<Long>
+        lowFraction: Float,
+        avgFullEnergy: Float
     ): Boolean = beatMs >= BALLAD_BEAT_MS_THRESHOLD &&
-            avgNormalizedEnergy < BALLAD_AVG_ENERGY_MAX &&
-            climaxMoments.size <= 3
+            lowFraction < BALLAD_LOW_FRACTION_MAX &&
+            avgFullEnergy < BALLAD_AVG_ENERGY_GUARD
 
     // =========================================================================
     // Bridge phase engine
