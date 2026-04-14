@@ -51,8 +51,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         private const val ACTUAL_BEAT_USE_RATIO = 0.45f
 
         private const val CLIMAX_WINDOW_HALF_MS = 4_000L
-        private const val CLIMAX_MIN_CV         = 0.30f
-        private const val CLIMAX_MIN_PEAK_RATIO = 1.8f
+        private const val CLIMAX_MIN_CV         = 0.35f  // 0.30 → 0.55: 조용한 발라드 오탐 방지
+        private const val CLIMAX_MIN_PEAK_RATIO = 2.0f   // 1.80 → 2.80: 진짜 클라이막스만 감지
 
         private const val SECTION_GAP_BREATH_THRESHOLD_MS = 2_000L
 
@@ -1053,6 +1053,15 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                 }
             }
 
+            // STROBE 섹션은 섹션 전체 범위 기준으로 nearClimax를 한 번만 판정
+            // → 섹션 중간에 BREATH→STROBE가 갑자기 전환되는 현상 방지
+            val sectionNearClimax: Boolean = if (section.engine == FgEngine.STROBE) {
+                climaxMoments.any { climax ->
+                    climax + CLIMAX_WINDOW_HALF_MS >= section.startMs &&
+                            climax - CLIMAX_WINDOW_HALF_MS <= section.endMs
+                }
+            } else false
+
             for ((beatIndex, t) in effectiveSectionBeats.withIndex()) {
                 if (beatIndex == 0 && section.type == SectionType.INTRO) {
                     val (introFg, _) = colorsForEngine(palette, FgEngine.BREATH, sameTypeIdx)
@@ -1061,7 +1070,9 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         period = msToBreathPeriod(section.beatMs), randomDelay = 3,
                         note = if (actualSectionBeats.isEmpty()) "grid-intro" else "actual-intro")
                 } else {
-                    val nearClimax = isNearClimax(t)
+                    // STROBE 섹션: 섹션 단위 판정 사용 / 그 외: 비트 단위 판정
+                    val nearClimax = if (section.engine == FgEngine.STROBE) sectionNearClimax
+                    else isNearClimax(t)
 
                     val beatEngine = if (section.type == SectionType.BRIDGE)
                         bridgePhaseEngine(beatIndex, effectiveSectionBeats.size, section.beatMs, section.relScore)
