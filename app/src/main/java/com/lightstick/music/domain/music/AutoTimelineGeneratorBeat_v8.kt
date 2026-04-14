@@ -65,10 +65,9 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
         // 발라드/포크 감지 임계값
         private const val BALLAD_BEAT_MS_THRESHOLD  = 550L   // 느린 템포 (≈109 BPM 이하)
-        // 저음 비율(low/full): 볼륨 무관 지표 — 발라드는 킥/베이스가 약해 낮게 나옴
-        private const val BALLAD_LOW_FRACTION_MAX   = 0.40f
-        // 절대 에너지 보조 가드 — 볼륨이 매우 큰 곡을 추가 필터링 (임계값을 넉넉하게 설정)
-        private const val BALLAD_AVG_ENERGY_GUARD   = 0.65f
+        // 평균 에너지 상한 — 발라드는 전반적으로 조용하므로 0.50f 이하
+        // (lowFraction 방식은 low/full 비율≈0.95로 모든 곡이 동일 → 무용)
+        private const val BALLAD_AVG_ENERGY_MAX     = 0.50f
 
         // [PERF] 단일 패스 IIR 필터 계수
         private const val LOW_ALPHA     = 0.12f
@@ -225,14 +224,9 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         )
         Log.d(TAG, "climax moments=${climaxMoments.joinToString()}")
 
-        val avgLowEnergy  = lowEnv.take(envSize).average().toFloat()
         val avgFullEnergy = fullEnv.take(envSize).average().toFloat()
-        // lowFraction = 저음 에너지 비율 — 볼륨에 무관한 상대 지표
-        // 발라드/포크: 킥드럼·베이스가 약해 낮게 나옴 / 댄스K팝: 강한 킥으로 높게 나옴
-        val lowFraction   = avgLowEnergy / avgFullEnergy.coerceAtLeast(0.001f)
-        val isBalladMode  = isQuietFolkOrBallad(beatMs, lowFraction, avgFullEnergy)
-        Log.d(TAG, "balladMode=$isBalladMode beatMs=$beatMs " +
-                "lowFraction=${"%.3f".format(lowFraction)} avgEnergy=${"%.3f".format(avgFullEnergy)} climax=${climaxMoments.size}")
+        val isBalladMode  = isQuietFolkOrBallad(beatMs, avgFullEnergy)
+        Log.d(TAG, "balladMode=$isBalladMode beatMs=$beatMs avgEnergy=${"%.3f".format(avgFullEnergy)} climax=${climaxMoments.size}")
 
         // 발라드 모드: 클라이맥스 연출 완전 차단
         val effectiveClimaxMoments = if (isBalladMode) emptyList() else climaxMoments
@@ -1219,11 +1213,9 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
      * 오디오 특성 기반으로 조용한 발라드/포크곡 여부를 판단한다.
      *
      * 조건:
-     * - beatMs >= BALLAD_BEAT_MS_THRESHOLD  : 느린 템포 (≈109 BPM 이하)
-     * - lowFraction < BALLAD_LOW_FRACTION_MAX : 저음(킥/베이스) 비율이 낮음
-     *   → 볼륨에 무관한 상대 지표 (low÷full). 댄스곡은 0.50+, 발라드는 0.30 전후
-     * - avgFullEnergy < BALLAD_AVG_ENERGY_GUARD : 보조 가드 — 볼륨이 매우 큰 곡 차단
-     *   (임계값을 넉넉하게 설정하여 볼륨 차이를 어느 정도 흡수)
+     * - beatMs >= BALLAD_BEAT_MS_THRESHOLD : 느린 템포 (≈109 BPM 이하)
+     * - avgFullEnergy < BALLAD_AVG_ENERGY_MAX : 평균 에너지가 낮음 (0.50f)
+     *   → lowFraction(low÷full) 방식은 모든 곡에서 ≈0.95로 수렴하여 판별 불가 → 폐기
      *
      * 클라이맥스 횟수는 판정에서 제외:
      * 발라드 모드가 확정되면 호출부에서 effectiveClimaxMoments=empty 로 치환하여
@@ -1231,11 +1223,9 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
      */
     private fun isQuietFolkOrBallad(
         beatMs: Long,
-        lowFraction: Float,
         avgFullEnergy: Float
     ): Boolean = beatMs >= BALLAD_BEAT_MS_THRESHOLD &&
-            lowFraction < BALLAD_LOW_FRACTION_MAX &&
-            avgFullEnergy < BALLAD_AVG_ENERGY_GUARD
+            avgFullEnergy < BALLAD_AVG_ENERGY_MAX
 
     // =========================================================================
     // Bridge phase engine
