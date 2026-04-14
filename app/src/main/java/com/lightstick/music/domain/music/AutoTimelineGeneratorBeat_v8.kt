@@ -161,7 +161,10 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                 minBeatMs = MIN_BEAT_MS,
                 maxBeatMs = MAX_BEAT_MS,
                 minPeakDistanceMs = 140L,
-                onsetSmoothWindow = 3,
+                // onsetSmoothWindow 3→5 (250ms MA):
+                // 기타 harmonic ringing(200~500ms 지속)을 평활화하여
+                // 비트 사이에 발생하는 harmonic onset 가성피크 억제
+                onsetSmoothWindow = 5,
                 segmentMs = 20_000L,
                 peakThresholdK = 0.55f,         //0.22f,
                 minPeakAbs = 0.08f,             //0.04f,
