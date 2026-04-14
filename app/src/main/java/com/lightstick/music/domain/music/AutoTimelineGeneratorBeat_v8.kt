@@ -65,7 +65,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
         // 발라드/포크 감지 임계값
         private const val BALLAD_BEAT_MS_THRESHOLD = 550L   // 느린 템포 (≈109 BPM 이하)
-        private const val BALLAD_AVG_ENERGY_MAX    = 0.40f  // 낮은 평균 에너지
+        private const val BALLAD_AVG_ENERGY_MAX    = 0.45f  // 낮은 평균 에너지
 
         // [PERF] 단일 패스 IIR 필터 계수
         private const val LOW_ALPHA     = 0.12f
@@ -1210,7 +1210,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
      * 조건:
      * - beatMs >= BALLAD_BEAT_MS_THRESHOLD : 느린 템포 (≈109 BPM 이하)
      * - avgNormalizedEnergy < BALLAD_AVG_ENERGY_MAX : 전체 에너지가 낮음 (정규화 기준)
-     * - climaxMoments.size <= 1 : 극단적 에너지 피크가 거의 없음
+     * - climaxMoments.size <= 3 : 극단적 에너지 피크가 적음 (말미 클러스터 허용)
      *
      * 이 조건을 만족하는 곡의 ON ROTATE 연출에는 transit을 추가하여
      * 비트마다 부드럽게 색이 전환되는 효과를 제공한다.
@@ -1221,7 +1221,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         climaxMoments: List<Long>
     ): Boolean = beatMs >= BALLAD_BEAT_MS_THRESHOLD &&
             avgNormalizedEnergy < BALLAD_AVG_ENERGY_MAX &&
-            climaxMoments.size <= 1
+            climaxMoments.size <= 3
 
     // =========================================================================
     // Bridge phase engine
