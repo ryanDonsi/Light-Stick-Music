@@ -68,6 +68,9 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         // 평균 에너지 상한 — 발라드는 전반적으로 조용하므로 0.50f 이하
         // (lowFraction 방식은 low/full 비율≈0.95로 모든 곡이 동일 → 무용)
         private const val BALLAD_AVG_ENERGY_MAX     = 0.50f
+        // 활성 프레임 하한 — 이 값 이하인 프레임은 무음/인트로로 간주, 평균에서 제외
+        // 볼륨은 정규화(÷max)로 무관하나 긴 인트로/아웃트로가 평균을 끌어내리는 현상 방지
+        private const val BALLAD_ACTIVE_ENERGY_MIN  = 0.15f
 
         // [PERF] 단일 패스 IIR 필터 계수
         private const val LOW_ALPHA     = 0.12f
@@ -224,9 +227,17 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         )
         Log.d(TAG, "climax moments=${climaxMoments.joinToString()}")
 
-        val avgFullEnergy = fullEnv.take(envSize).average().toFloat()
+        // 활성 프레임만 평균 — 긴 인트로/아웃트로 무음 구간이 평균을 끌어내리는 현상 방지
+        val allFrames    = fullEnv.take(envSize)
+        val activeFrames = allFrames.filter { it > BALLAD_ACTIVE_ENERGY_MIN }
+        val avgFullEnergy = if (activeFrames.size > 10) activeFrames.average().toFloat()
+                           else allFrames.average().toFloat()
         val isBalladMode  = isQuietFolkOrBallad(beatMs, avgFullEnergy)
-        Log.d(TAG, "balladMode=$isBalladMode beatMs=$beatMs avgEnergy=${"%.3f".format(avgFullEnergy)} climax=${climaxMoments.size}")
+        Log.d(TAG, "balladMode=$isBalladMode beatMs=$beatMs " +
+                "activeAvgEnergy=${"%.3f".format(avgFullEnergy)} " +
+                "allAvgEnergy=${"%.3f".format(allFrames.average().toFloat())} " +
+                "activeFrames=${activeFrames.size}/${allFrames.size} " +
+                "climax=${climaxMoments.size}")
 
         // 발라드 모드: 클라이맥스 연출 완전 차단
         val effectiveClimaxMoments = if (isBalladMode) emptyList() else climaxMoments
