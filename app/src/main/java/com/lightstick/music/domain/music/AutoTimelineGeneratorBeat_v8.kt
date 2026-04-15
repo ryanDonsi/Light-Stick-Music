@@ -636,12 +636,13 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                 else        -> FgEngine.ON_TRANSIT_ROTATE
             }
             SectionType.CHORUS -> when {
-                // 발라드/포크: BREATH / ON ROTATE만 사용
+                // 발라드/포크: STROBE·ON_PULSE 없이 BREATH / ON ROTATE만 사용
                 isBalladMode && (isClimaxSection || rel >= 0.65f) -> FgEngine.ON_TRANSIT_ROTATE
                 isBalladMode -> FgEngine.BREATH
-                // STROBE는 섹션 단위로 배정하지 않음 — 클라이맥스 비트에서 개별 판정으로 적용
-                rel >= 0.40f -> FgEngine.ON_TRANSIT_ROTATE
-                else         -> FgEngine.ON_PULSE
+                beatMs <= 290L  -> FgEngine.STROBE
+                isClimaxSection -> FgEngine.STROBE
+                rel >= 0.40f    -> FgEngine.ON_TRANSIT_ROTATE
+                else            -> FgEngine.ON_PULSE
             }
             SectionType.BRIDGE -> when {
                 isBalladMode -> FgEngine.BREATH  // 발라드: bridge는 항상 BREATH
@@ -1089,17 +1090,15 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         period = msToBreathPeriod(section.beatMs), randomDelay = 3,
                         note = if (actualSectionBeats.isEmpty()) "grid-intro" else "actual-intro")
                 } else {
-                    // STROBE는 섹션 엔진이 아닌 비트 단위 클라이맥스 판정으로만 적용
-                    val nearClimax = isNearClimax(t)
+                    // STROBE 섹션: 섹션 단위 판정 사용 / 그 외: 비트 단위 판정
+                    val nearClimax = if (section.engine == FgEngine.STROBE) sectionNearClimax
+                    else isNearClimax(t)
 
                     val beatEngine = if (section.type == SectionType.BRIDGE)
                         bridgePhaseEngine(beatIndex, effectiveSectionBeats.size, section.beatMs, section.relScore, isBalladMode)
                     else section.engine
 
                     val effectiveBeatEngine = when {
-                        // 클라이맥스 비트: CHORUS + 비발라드 → STROBE
-                        section.type == SectionType.CHORUS && !isBalladMode && nearClimax -> FgEngine.STROBE
-                        // (기존 호환) 섹션 엔진이 STROBE인데 클라이맥스 아닌 경우 → BREATH
                         beatEngine == FgEngine.STROBE && !nearClimax -> FgEngine.BREATH
                         else -> beatEngine
                     }
