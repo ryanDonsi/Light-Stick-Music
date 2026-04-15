@@ -1016,6 +1016,15 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             val firstBeat  = effectiveSectionBeats.first()
             val coverGapMs = firstBeat - section.startMs
 
+            // STROBE 섹션은 섹션 전체 범위 기준으로 nearClimax를 한 번만 판정
+            // → 섹션 커버 필 + 비트 루프 모두 동일 기준 적용
+            val sectionNearClimax: Boolean = if (section.engine == FgEngine.STROBE) {
+                climaxMoments.any { climax ->
+                    climax + CLIMAX_WINDOW_HALF_MS >= section.startMs &&
+                            climax - CLIMAX_WINDOW_HALF_MS <= section.endMs
+                }
+            } else false
+
             if (insertTransitionBreath) {
                 val mFg = palette.white; val mBg = palette.breathSet.bg
                 putFrame(section.startMs, buildPayload(FgEngine.BREATH, mFg, mBg, section.beatMs),
@@ -1057,7 +1066,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                                 else                       -> null
                             },
                             period = when (section.engine) {
-                                FgEngine.STROBE -> msToStrobePeriod(section.beatMs)
+                                FgEngine.STROBE -> if (sectionNearClimax) 1 else msToStrobePeriod(section.beatMs)
                                 else -> null
                             }, note = "section-cover-fill gap=${coverGapMs}ms fillIdx=$fillIdx sectionEngine=${section.engine.name}")
                         if (beatEngineForFill == FgEngine.ON_PULSE) {
@@ -1072,15 +1081,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                     Log.d(TAG, "section-cover long gap=${coverGapMs}ms filled=$fillIdx beats")
                 }
             }
-
-            // STROBE 섹션은 섹션 전체 범위 기준으로 nearClimax를 한 번만 판정
-            // → 섹션 중간에 BREATH→STROBE가 갑자기 전환되는 현상 방지
-            val sectionNearClimax: Boolean = if (section.engine == FgEngine.STROBE) {
-                climaxMoments.any { climax ->
-                    climax + CLIMAX_WINDOW_HALF_MS >= section.startMs &&
-                            climax - CLIMAX_WINDOW_HALF_MS <= section.endMs
-                }
-            } else false
 
             for ((beatIndex, t) in effectiveSectionBeats.withIndex()) {
                 if (beatIndex == 0 && section.type == SectionType.INTRO) {
@@ -1112,7 +1112,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         else            -> null
                     }
                     val beatRandomDelay = when {
-                        effectiveBeatEngine == FgEngine.STROBE && nearClimax -> 2
+                        effectiveBeatEngine == FgEngine.STROBE && nearClimax -> 1
                         effectiveBeatEngine == FgEngine.ON_TRANSIT_ROTATE    -> null
                         effectiveBeatEngine == FgEngine.ON_PULSE             -> null
                         // VERSE BREATH: randomDelay=0 / BRIDGE BREATH: randomDelay=5 (파도 효과 유지)
