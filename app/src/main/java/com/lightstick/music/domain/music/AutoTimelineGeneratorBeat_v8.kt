@@ -51,14 +51,30 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         private const val ACTUAL_BEAT_USE_RATIO = 0.45f
 
         private const val CLIMAX_WINDOW_HALF_MS = 4_000L
-        private const val CLIMAX_MIN_CV         = 0.30f
-        private const val CLIMAX_MIN_PEAK_RATIO = 1.8f
+        private const val CLIMAX_MIN_CV         = 0.35f  // 0.30 → 0.55: 조용한 발라드 오탐 방지
+        private const val CLIMAX_MIN_PEAK_RATIO = 2.0f   // 1.80 → 2.80: 진짜 클라이막스만 감지
 
         private const val SECTION_GAP_BREATH_THRESHOLD_MS = 2_000L
 
         private const val ON_PULSE_BASE_HOLD_MS   = 700L
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
         private const val ON_PULSE_BG_TRANSIT     = 5
+
+        // ON ROTATE: 발라드/조용한 포크송 전용 transit 값
+        private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
+
+        // 발라드/포크 감지 임계값
+        private const val BALLAD_BEAT_MS_THRESHOLD     = 550L   // 느린 템포 하한 (≈109 BPM)
+        private const val BALLAD_SLOW_BEAT_MS          = 800L   // 매우 느린 템포 하한 (≈75 BPM)
+        // 에너지 상한 — 2단계: 매우 느린 곡(800ms+)은 완화 적용
+        //   550ms~799ms: 0.50f — Entrance(0.513)·사랑을 했다(0.542) 등 K팝 차단
+        //   800ms+     : 0.60f — 별 보러 가자(0.572)·폴킴(0.458) 등 발라드 허용
+        // (lowFraction 방식은 low/full 비율≈0.95로 모든 곡이 동일 → 무용)
+        private const val BALLAD_AVG_ENERGY_MAX        = 0.50f
+        private const val BALLAD_AVG_ENERGY_MAX_SLOW   = 0.60f
+        // 활성 프레임 하한 — 이 값 이하인 프레임은 무음/인트로로 간주, 평균에서 제외
+        // 볼륨은 정규화(÷max)로 무관하나 긴 인트로/아웃트로가 평균을 끌어내리는 현상 방지
+        private const val BALLAD_ACTIVE_ENERGY_MIN     = 0.15f
 
         // [PERF] 단일 패스 IIR 필터 계수
         private const val LOW_ALPHA     = 0.12f
@@ -154,7 +170,10 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                 minBeatMs = MIN_BEAT_MS,
                 maxBeatMs = MAX_BEAT_MS,
                 minPeakDistanceMs = 140L,
-                onsetSmoothWindow = 3,
+                // onsetSmoothWindow 3→5 (250ms MA):
+                // 기타 harmonic ringing(200~500ms 지속)을 평활화하여
+                // 비트 사이에 발생하는 harmonic onset 가성피크 억제
+                onsetSmoothWindow = 5,
                 segmentMs = 20_000L,
                 peakThresholdK = 0.55f,         //0.22f,
                 minPeakAbs = 0.08f,             //0.04f,
@@ -179,44 +198,12 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                     "beatMs=${detect.beatMs} first=${beatTimes.firstOrNull()} last=${beatTimes.lastOrNull()}"
         )
 
+        // 1곡 전체에 단일 beatMs 적용 — 구간마다 beatMs가 달라 비트가 들죽날죽하게
+        // 느껴지는 문제 해결. detect.beatMs(전체 비트 간격 중앙값)을 기준으로 하되,
+        // 900ms 초과 시 절반으로 보정하여 느린 곡의 반속 감지 오류도 교정한다.
         val beatMs = detect.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
-
-        val BEAT_HALVE_THRESHOLD = 900L
-        val rawBeatMsMap = mutableMapOf<Long, Long>()
-        for (seg in detect.debugSegments) {
-            if (seg.reason == "ok" && seg.beatMs > 0L) {
-                var corrected = seg.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
-                if (corrected > BEAT_HALVE_THRESHOLD) {
-                    val half = corrected / 2L
-                    Log.d(TAG, "segMap halve: seg=${seg.startMs} ${corrected}ms→${half}ms")
-                    corrected = half
-                }
-                rawBeatMsMap[seg.startMs] = corrected
-            }
-        }
-        val allSegStarts = detect.debugSegments.map { it.startMs }.sorted()
-        val segmentBeatMsMap: Map<Long, Long> = buildMap {
-            putAll(rawBeatMsMap)
-            for (seg in detect.debugSegments) {
-                if (!rawBeatMsMap.containsKey(seg.startMs)) {
-                    val prev = allSegStarts.filter { it < seg.startMs }
-                        .lastOrNull { rawBeatMsMap.containsKey(it) }
-                    val next = allSegStarts.filter { it > seg.startMs }
-                        .firstOrNull { rawBeatMsMap.containsKey(it) }
-                    val interpolated = when {
-                        prev != null && next != null -> (rawBeatMsMap[prev]!! + rawBeatMsMap[next]!!) / 2L
-                        prev != null -> rawBeatMsMap[prev]!!
-                        next != null -> rawBeatMsMap[next]!!
-                        else -> null
-                    }
-                    if (interpolated != null) {
-                        Log.d(TAG, "segMap interpolate: seg=${seg.startMs} → ${interpolated}ms (prev=$prev next=$next)")
-                        put(seg.startMs, interpolated)
-                    }
-                }
-            }
-        }
-        Log.d(TAG, "segmentBeatMsMap entries=${segmentBeatMsMap.size} $segmentBeatMsMap")
+            .let { raw -> if (raw > 900L) raw / 2L else raw }
+        Log.d(TAG, "globalBeatMs=$beatMs (raw=${detect.beatMs})")
 
         val firstMusicMs = detectFirstMusicStartMs(
             energyFrames = fullEnv.take(envSize).toFloatArray(),
@@ -244,6 +231,21 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         )
         Log.d(TAG, "climax moments=${climaxMoments.joinToString()}")
 
+        // 활성 프레임만 평균 — 긴 인트로/아웃트로 무음 구간이 평균을 끌어내리는 현상 방지
+        val allFrames    = fullEnv.take(envSize)
+        val activeFrames = allFrames.filter { it > BALLAD_ACTIVE_ENERGY_MIN }
+        val avgFullEnergy = if (activeFrames.size > 10) activeFrames.average().toFloat()
+                           else allFrames.average().toFloat()
+        val isBalladMode  = isQuietFolkOrBallad(beatMs, avgFullEnergy)
+        Log.d(TAG, "balladMode=$isBalladMode beatMs=$beatMs " +
+                "activeAvgEnergy=${"%.3f".format(avgFullEnergy)} " +
+                "allAvgEnergy=${"%.3f".format(allFrames.average().toFloat())} " +
+                "activeFrames=${activeFrames.size}/${allFrames.size} " +
+                "climax=${climaxMoments.size}")
+
+        // 발라드 모드: 클라이맥스 연출 완전 차단
+        val effectiveClimaxMoments = if (isBalladMode) emptyList() else climaxMoments
+
         val sections = buildSections(
             beatMs = beatMs,
             lowEnv = lowEnv.take(envSize),
@@ -252,8 +254,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             firstMusicMs = firstMusicMs,
             durationMs = durationMs,
             forceTransitFromZero = forceTransitFromZero,
-            climaxMoments = climaxMoments,
-            segmentBeatMsMap = segmentBeatMsMap
+            climaxMoments = effectiveClimaxMoments,
+            isBalladMode = isBalladMode
         )
 
         sections.forEachIndexed { idx, s ->
@@ -271,7 +273,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             sections = sections,
             beatTimes = beatTimes,
             durationMs = durationMs,
-            climaxMoments = climaxMoments
+            climaxMoments = effectiveClimaxMoments,
+            isBalladMode = isBalladMode
         )
 
         Log.d(TAG, "v8 frames(final)=${frames.size}")
@@ -454,19 +457,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         durationMs: Long,
         @Suppress("UNUSED_PARAMETER") forceTransitFromZero: Boolean,
         climaxMoments: List<Long> = emptyList(),
-        segmentBeatMsMap: Map<Long, Long> = emptyMap()
+        isBalladMode: Boolean = false
     ): List<Section> {
-        fun localBeatMs(startMs: Long, endMs: Long): Long {
-            if (segmentBeatMsMap.isEmpty()) return beatMs
-            val matching = segmentBeatMsMap.entries
-                .filter { (segStart, _) -> segStart >= (startMs - 20_000L).coerceAtLeast(0L) && segStart < endMs }
-                .map { it.value }
-            if (matching.isEmpty()) return beatMs
-            val sorted = matching.sorted()
-            val median = sorted[sorted.size / 2]
-            return if (median > 900L) beatMs else median
-        }
-
         val raw = ArrayList<Section>()
 
         val introMinGapMs = 2_000L
@@ -540,11 +532,12 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         startMs = currentStart,
                         endMs = currentEnd,
                         type = currentType,
-                        beatMs = localBeatMs(currentStart, currentEnd),
+                        beatMs = beatMs,
                         energyScore = avgScore,
                         lowTh = lowTh,
                         highTh = highTh,
-                        climaxMoments = climaxMoments
+                        climaxMoments = climaxMoments,
+                        isBalladMode = isBalladMode
                     )
                     currentStart = w.first
                     currentEnd = w.second
@@ -558,11 +551,12 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                     startMs = currentStart,
                     endMs = currentEnd,
                     type = currentType,
-                    beatMs = localBeatMs(currentStart, currentEnd),
+                    beatMs = beatMs,
                     energyScore = avgScore,
                     lowTh = lowTh,
                     highTh = highTh,
-                    climaxMoments = climaxMoments
+                    climaxMoments = climaxMoments,
+                    isBalladMode = isBalladMode
                 )
                 currentStart = w.first
                 currentEnd = w.second
@@ -577,11 +571,12 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             startMs = currentStart,
             endMs = currentEnd,
             type = currentType,
-            beatMs = localBeatMs(currentStart, currentEnd),
+            beatMs = beatMs,
             energyScore = lastAvgScore,
             lowTh = lowTh,
             highTh = highTh,
-            climaxMoments = climaxMoments
+            climaxMoments = climaxMoments,
+            isBalladMode = isBalladMode
         )
 
         val merged = mergeSmallSections(contentSections, beatMs)
@@ -623,7 +618,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         energyScore: Float = 0f,
         lowTh: Float = 0f,
         highTh: Float = 1f,
-        climaxMoments: List<Long> = emptyList()
+        climaxMoments: List<Long> = emptyList(),
+        isBalladMode: Boolean = false
     ): Section {
         val beats = estimateBeatCount(startMs, endMs, beatMs)
         val sectionMidMs = (startMs + endMs) / 2L
@@ -639,19 +635,25 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
         val engine = when (normalizedType) {
             SectionType.VERSE -> when {
+                // 발라드/포크: BREATH 위주, 에너지가 높은 구간만 ON ROTATE
+                isBalladMode -> if (rel < 0.55f) FgEngine.BREATH else FgEngine.ON_TRANSIT_ROTATE
                 rel < 0.10f && beats < 8 -> FgEngine.BREATH
                 rel < 0.75f -> FgEngine.ON_PULSE
-                else        -> FgEngine.BLINK
+                else        -> FgEngine.ON_TRANSIT_ROTATE
             }
             SectionType.CHORUS -> when {
+                // 발라드/포크: STROBE·ON_PULSE 없이 BREATH / ON ROTATE만 사용
+                isBalladMode && (isClimaxSection || rel >= 0.65f) -> FgEngine.ON_TRANSIT_ROTATE
+                isBalladMode -> FgEngine.BREATH
                 beatMs <= 290L  -> FgEngine.STROBE
                 isClimaxSection -> FgEngine.STROBE
-                rel >= 0.40f    -> FgEngine.BLINK
+                rel >= 0.40f    -> FgEngine.ON_TRANSIT_ROTATE
                 else            -> FgEngine.ON_PULSE
             }
             SectionType.BRIDGE -> when {
-                beats < 8 -> FgEngine.BLINK
-                else      -> FgEngine.ON_PULSE
+                isBalladMode -> FgEngine.BREATH  // 발라드: bridge는 항상 BREATH
+                beats < 8   -> FgEngine.ON_TRANSIT_ROTATE
+                else        -> FgEngine.ON_PULSE
             }
             SectionType.INTRO -> FgEngine.BREATH
             SectionType.END -> FgEngine.OFF_TRANSIT
@@ -659,19 +661,20 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
         val source = when (normalizedType) {
             SectionType.VERSE -> when (engine) {
-                FgEngine.BREATH    -> "verse-breath-black-bg"
-                FgEngine.BLINK     -> "verse-blink-black-bg"
-                else               -> "verse-on-pulse-black-bg"
+                FgEngine.BREATH            -> "verse-breath-black-bg"
+                FgEngine.ON_TRANSIT_ROTATE -> "verse-rotate-black-bg"
+                else                       -> "verse-on-pulse-black-bg"
             }
             SectionType.CHORUS -> when (engine) {
-                FgEngine.STROBE  -> "chorus-strobe-color-bg"
-                FgEngine.BLINK   -> "chorus-blink-color-bg"
-                else             -> "chorus-on-pulse-color-bg"
+                FgEngine.STROBE            -> "chorus-strobe-color-bg"
+                FgEngine.ON_TRANSIT_ROTATE -> "chorus-rotate-color-bg"
+                FgEngine.BREATH            -> "chorus-breath-color-bg"
+                else                       -> "chorus-on-pulse-color-bg"
             }
             SectionType.BRIDGE -> when {
-                beats < 8  -> "bridge-blink"
-                beats < 16 -> "bridge-breath-to-blink"
-                else       -> "bridge-breath-blink"
+                beats < 8  -> "bridge-rotate"
+                beats < 16 -> "bridge-breath-to-rotate"
+                else       -> "bridge-breath-rotate"
             }
             SectionType.INTRO -> "intro-breath"
             SectionType.END -> "end-protected"
@@ -920,7 +923,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         sections: List<Section>,
         beatTimes: List<Long>,
         durationMs: Long,
-        climaxMoments: List<Long>
+        climaxMoments: List<Long>,
+        isBalladMode: Boolean = false
     ): List<Pair<Long, ByteArray>> {
         val frameMap = LinkedHashMap<Long, ByteArray>(beatTimes.size * 4 + sections.size + 8)
 
@@ -988,11 +992,17 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
             if (effectiveSectionBeats.isEmpty()) {
                 val (fg, bg) = colorsForEngine(palette, section.engine, sameTypeIdx)
-                putFrame(section.startMs, buildPayload(section.engine, fg, bg, section.beatMs),
+                val rotateTransit = if (section.engine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
+                    ON_ROTATE_BALLAD_TRANSIT else 0
+                putFrame(section.startMs, buildPayload(section.engine, fg, bg, section.beatMs,
+                    rotateTransit = rotateTransit),
                     section, "SECTION_START", section.engine, fg = fg, bg = bg,
-                    transit = if (section.engine == FgEngine.ON_PULSE) ON_TRANSIT else null,
+                    transit = when (section.engine) {
+                        FgEngine.ON_PULSE          -> ON_TRANSIT
+                        FgEngine.ON_TRANSIT_ROTATE -> rotateTransit.takeIf { it > 0 }
+                        else                       -> null
+                    },
                     period = when (section.engine) {
-                        FgEngine.BLINK  -> msToBlinkPeriod(section.beatMs)
                         FgEngine.STROBE -> msToStrobePeriod(section.beatMs)
                         else -> null
                     }, note = "no-effective-beats")
@@ -1014,7 +1024,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                 val longCoverThresholdMs = section.beatMs * 3L / 2L
                 if (coverGapMs <= longCoverThresholdMs) {
                     val coverEngine = when (section.engine) {
-                        FgEngine.BLINK, FgEngine.STROBE -> FgEngine.BREATH
+                        FgEngine.ON_TRANSIT_ROTATE, FgEngine.STROBE -> FgEngine.BREATH
                         else -> section.engine
                     }
                     val (cvFg, cvBg) = colorsForEngine(palette, coverEngine, sameTypeIdx)
@@ -1027,16 +1037,22 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                 } else {
                     var fillT = section.startMs; var fillIdx = 0
                     val beatEngineForFill = if (section.type == SectionType.BRIDGE)
-                        bridgePhaseEngine(0, section.beats, section.beatMs, section.relScore)
+                        bridgePhaseEngine(0, section.beats, section.beatMs, section.relScore, isBalladMode)
                     else section.engine
                     while (fillT < firstBeat) {
                         val (cvFg, cvBg) = colorsForEngine(palette, beatEngineForFill, sameTypeIdx, fillIdx, section.type)
-                        putFrame(fillT, buildPayload(section.engine, cvFg, cvBg, section.beatMs),
+                        val fillRotateTransit = if (section.engine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
+                            ON_ROTATE_BALLAD_TRANSIT else 0
+                        putFrame(fillT, buildPayload(section.engine, cvFg, cvBg, section.beatMs,
+                            rotateTransit = fillRotateTransit),
                             section, if (fillIdx == 0) "SECTION_COVER" else "SECTION_COVER_FILL", section.engine,
                             fg = cvFg, bg = cvBg,
-                            transit = if (section.engine == FgEngine.ON_PULSE) ON_TRANSIT else null,
+                            transit = when (section.engine) {
+                                FgEngine.ON_PULSE          -> ON_TRANSIT
+                                FgEngine.ON_TRANSIT_ROTATE -> fillRotateTransit.takeIf { it > 0 }
+                                else                       -> null
+                            },
                             period = when (section.engine) {
-                                FgEngine.BLINK  -> msToBlinkPeriod(section.beatMs)
                                 FgEngine.STROBE -> msToStrobePeriod(section.beatMs)
                                 else -> null
                             }, note = "section-cover-fill gap=${coverGapMs}ms fillIdx=$fillIdx sectionEngine=${section.engine.name}")
@@ -1053,6 +1069,15 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                 }
             }
 
+            // STROBE 섹션은 섹션 전체 범위 기준으로 nearClimax를 한 번만 판정
+            // → 섹션 중간에 BREATH→STROBE가 갑자기 전환되는 현상 방지
+            val sectionNearClimax: Boolean = if (section.engine == FgEngine.STROBE) {
+                climaxMoments.any { climax ->
+                    climax + CLIMAX_WINDOW_HALF_MS >= section.startMs &&
+                            climax - CLIMAX_WINDOW_HALF_MS <= section.endMs
+                }
+            } else false
+
             for ((beatIndex, t) in effectiveSectionBeats.withIndex()) {
                 if (beatIndex == 0 && section.type == SectionType.INTRO) {
                     val (introFg, _) = colorsForEngine(palette, FgEngine.BREATH, sameTypeIdx)
@@ -1061,10 +1086,12 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         period = msToBreathPeriod(section.beatMs), randomDelay = 3,
                         note = if (actualSectionBeats.isEmpty()) "grid-intro" else "actual-intro")
                 } else {
-                    val nearClimax = isNearClimax(t)
+                    // STROBE 섹션: 섹션 단위 판정 사용 / 그 외: 비트 단위 판정
+                    val nearClimax = if (section.engine == FgEngine.STROBE) sectionNearClimax
+                    else isNearClimax(t)
 
                     val beatEngine = if (section.type == SectionType.BRIDGE)
-                        bridgePhaseEngine(beatIndex, effectiveSectionBeats.size, section.beatMs, section.relScore)
+                        bridgePhaseEngine(beatIndex, effectiveSectionBeats.size, section.beatMs, section.relScore, isBalladMode)
                     else section.engine
 
                     val effectiveBeatEngine = when {
@@ -1076,14 +1103,13 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                     val bgNonNull: LSColor = bg ?: LSColor(0, 0, 0)
 
                     val beatPeriod = when (effectiveBeatEngine) {
-                        FgEngine.BLINK  -> msToBlinkPeriod(section.beatMs)
                         FgEngine.STROBE -> 1
                         FgEngine.BREATH -> msToBreathPeriod(section.beatMs)
                         else            -> null
                     }
                     val beatRandomDelay = when {
                         effectiveBeatEngine == FgEngine.STROBE && nearClimax -> 2
-                        effectiveBeatEngine == FgEngine.BLINK                -> null
+                        effectiveBeatEngine == FgEngine.ON_TRANSIT_ROTATE    -> null
                         effectiveBeatEngine == FgEngine.ON_PULSE             -> null
                         // VERSE BREATH: randomDelay=0 / BRIDGE BREATH: randomDelay=5 (파도 효과 유지)
                         effectiveBeatEngine == FgEngine.BREATH &&
@@ -1092,11 +1118,15 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         else                                                  -> null
                     }
 
+                    // ON ROTATE: 발라드 모드이면 transit 적용 (부드러운 색 전환)
+                    val beatRotateTransit = if (effectiveBeatEngine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
+                        ON_ROTATE_BALLAD_TRANSIT else 0
+
                     val skipOnPulseOdd = (beatEngine == FgEngine.ON_PULSE && beatIndex % 2 != 0)
 
                     val skipRepeat = if (skipOnPulseOdd) {
                         true
-                    } else if (effectiveBeatEngine == FgEngine.BLINK
+                    } else if (effectiveBeatEngine == FgEngine.ON_TRANSIT_ROTATE
                         || effectiveBeatEngine == FgEngine.STROBE
                         || effectiveBeatEngine == FgEngine.BREATH) {
                         val key = RepeatKey(effectiveBeatEngine,
@@ -1111,9 +1141,14 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         Log.d(TAG, "timeline skip-repeat t=${t}ms section=${section.type} " +
                                 "engine=${effectiveBeatEngine.name} beatIndex=$beatIndex → same fg/bg/period")
                     } else {
-                        putFrame(t, buildPayload(effectiveBeatEngine, fg, bg, section.beatMs, beatPeriod, beatRandomDelay ?: 0),
+                        putFrame(t, buildPayload(effectiveBeatEngine, fg, bg, section.beatMs, beatPeriod,
+                            beatRandomDelay ?: 0, rotateTransit = beatRotateTransit),
                             section, "BEAT_FG", effectiveBeatEngine, fg = fg, bg = bg,
-                            transit = if (effectiveBeatEngine == FgEngine.ON_PULSE) 0 else null,
+                            transit = when (effectiveBeatEngine) {
+                                FgEngine.ON_PULSE          -> 0
+                                FgEngine.ON_TRANSIT_ROTATE -> beatRotateTransit.takeIf { it > 0 }
+                                else                       -> null
+                            },
                             period = beatPeriod, randomDelay = beatRandomDelay,
                             note = buildString {
                                 append("beatIndex=$beatIndex")
@@ -1160,7 +1195,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
     private fun buildPayload(
         engine: FgEngine, fg: LSColor, bg: LSColor, beatMs: Long,
-        period: Int? = null, randomDelay: Int = 0
+        period: Int? = null, randomDelay: Int = 0, rotateTransit: Int = 0
     ): ByteArray = when (engine) {
         FgEngine.ON_PULSE -> {
             // FG transit=0: white/color 모두 즉시 켜짐 → 강한 비트 임팩트
@@ -1177,7 +1212,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                 color = fg, backgroundColor = bg,
                 randomDelay = randomDelay.takeIf { it > 0 } ?: 5).toByteArray()
         FgEngine.ON_TRANSIT_ROTATE ->
-            LSEffectPayload.Effects.on(color = fg, transit = ON_TRANSIT).toByteArray()
+            // rotateTransit=0: 즉시 색 전환 (일반곡), >0: 부드러운 페이드 전환 (발라드/포크)
+            LSEffectPayload.Effects.on(color = fg, transit = rotateTransit).toByteArray()
         FgEngine.OFF_TRANSIT -> buildOffPayload()
     }
 
@@ -1185,27 +1221,60 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         LSEffectPayload.Effects.off(transit = ON_TRANSIT).toByteArray()
 
     // =========================================================================
+    // 발라드 / 조용한 포크 감지
+    // =========================================================================
+
+    /**
+     * 오디오 특성 기반으로 조용한 발라드/포크곡 여부를 판단한다.
+     *
+     * 2단계 에너지 임계값:
+     * - beatMs >= 800ms (BALLAD_SLOW_BEAT_MS) : energyMax = 0.60f
+     *     → 별 보러 가자(0.572), 폴킴(0.458) 등 매우 느린 발라드 허용
+     * - beatMs >= 550ms (BALLAD_BEAT_MS_THRESHOLD) : energyMax = 0.50f
+     *     → Entrance(0.513)·사랑을 했다(0.542) 등 K팝 차단
+     * - beatMs <  550ms : false (K팝 속도)
+     *
+     * avgFullEnergy 는 활성 프레임(> 0.15f) 평균 + normalizeEnvelope(÷max) 적용
+     * → 볼륨·인트로 무관 지표.
+     *
+     * 발라드 모드가 확정되면 호출부에서 effectiveClimaxMoments=empty 로 치환하여
+     * 클라이맥스 연출을 완전 차단한다 (별도 조건 체크 불필요).
+     */
+    private fun isQuietFolkOrBallad(
+        beatMs: Long,
+        avgFullEnergy: Float
+    ): Boolean {
+        if (beatMs < BALLAD_BEAT_MS_THRESHOLD) return false
+        val energyMax = if (beatMs >= BALLAD_SLOW_BEAT_MS) BALLAD_AVG_ENERGY_MAX_SLOW
+                        else BALLAD_AVG_ENERGY_MAX
+        return avgFullEnergy < energyMax
+    }
+
+    // =========================================================================
     // Bridge phase engine
     // =========================================================================
 
     private fun bridgePhaseEngine(
         beatIndex: Int, totalBeats: Int,
-        @Suppress("UNUSED_PARAMETER") beatMs: Long, relScore: Float = 0.5f
+        @Suppress("UNUSED_PARAMETER") beatMs: Long, relScore: Float = 0.5f,
+        isBalladMode: Boolean = false
     ): FgEngine {
+        // 발라드 모드: bridge 전 구간 BREATH (ON ROTATE·STROBE 없음)
+        if (isBalladMode) return FgEngine.BREATH
         if (totalBeats <= 0) return FgEngine.STROBE
         val strobeEntry = (0.80f - relScore * 0.55f).coerceIn(0.20f, 0.85f)
         return when {
             totalBeats < 8  -> FgEngine.STROBE
             totalBeats < 16 -> {
                 val phase = beatIndex.toFloat() / totalBeats
-                if (phase < strobeEntry) FgEngine.BREATH else FgEngine.BLINK
+                if (phase < strobeEntry) FgEngine.BREATH else FgEngine.ON_TRANSIT_ROTATE
             }
             else -> {
                 val phase = beatIndex.toFloat() / totalBeats
-                val blinkEntry = (strobeEntry - 0.25f - relScore * 0.10f).coerceIn(0.10f, strobeEntry - 0.10f)
+                val rotateEntry = (strobeEntry - 0.25f - relScore * 0.10f).coerceIn(0.10f, strobeEntry - 0.10f)
                 when {
-                    phase < blinkEntry -> FgEngine.BREATH
-                    else               -> FgEngine.BLINK
+                    phase < rotateEntry -> FgEngine.BREATH
+                    else                -> FgEngine.ON_TRANSIT_ROTATE
                 }
             }
         }
@@ -1275,7 +1344,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             FgEngine.ON_PULSE ->
                 if (isPatternA) palette.white to palette.onPulseSets[0].bg
                 else            sectionColor  to palette.black
-            FgEngine.BLINK   -> groupColor to palette.black
+            FgEngine.BLINK, FgEngine.ON_TRANSIT_ROTATE -> groupColor to palette.black
             FgEngine.STROBE  -> palette.white to palette.black
             FgEngine.BREATH  -> palette.breathSet.fg to palette.breathSet.bg
             else ->
