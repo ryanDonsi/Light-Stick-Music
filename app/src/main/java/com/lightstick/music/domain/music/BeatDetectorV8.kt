@@ -284,7 +284,21 @@ object BeatDetectorV8 {
         }
 
         // D. 수정: estimateMedianInterval에 Params 전달
-        val finalBeatMs = estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs)
+        val rawBeatMs = estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs)
+
+        // E. 세그먼트 가중 투표로 교차 검증: 세그먼트 합의가 강하고 median과 5% 이상 차이나면 교정
+        val segVoteBeatMs = computeSegmentVoteBeatMs(segResults)
+        val finalBeatMs = if (segVoteBeatMs > 0L) {
+            val diffRatio = abs(segVoteBeatMs - rawBeatMs).toDouble() / rawBeatMs
+            if (diffRatio > 0.05) {
+                Log.d(TAG, "segVote OVERRIDE: ${segVoteBeatMs}ms (raw=${rawBeatMs}ms diff=${String.format("%.0f", diffRatio * 100)}%)")
+                segVoteBeatMs
+            } else {
+                Log.d(TAG, "segVote KEEP raw: segVote=${segVoteBeatMs}ms raw=${rawBeatMs}ms diff<5%")
+                rawBeatMs
+            }
+        } else rawBeatMs
+
         val finalSource = sourceVotes.maxByOrNull { it.value }?.key
 
         Log.d(
@@ -502,6 +516,47 @@ object BeatDetectorV8 {
             snapRatio = snapRatio,
             reason = "ok"
         )
+    }
+
+    // =========================================================================
+    // Segment vote: beatMs 교차 검증
+    // =========================================================================
+
+    /**
+     * 성공한 세그먼트들의 beatMs를 비트 수로 가중하여 투표.
+     * estimateMedianInterval 이 세그먼트 간 갭 오염으로 틀릴 때 교정.
+     *
+     * 반환값: 지배적 클러스터가 있으면 그 중심 beatMs, 없으면 0L.
+     */
+    private fun computeSegmentVoteBeatMs(segResults: List<SegmentResult>): Long {
+        val validSegs = segResults.filter { it.beatMs > 0L && it.beatTimesMs.isNotEmpty() }
+        if (validSegs.isEmpty()) return 0L
+        val totalBeats = validSegs.sumOf { it.beatTimesMs.size }
+        if (totalBeats < 5) return 0L
+
+        // ±10% 오차로 같은 클러스터에 묶음
+        data class Cluster(var centerMs: Long, var beatCount: Int)
+        val clusters = mutableListOf<Cluster>()
+        for (seg in validSegs) {
+            val bms = seg.beatMs; val bc = seg.beatTimesMs.size
+            val match = clusters.firstOrNull { c ->
+                val ratio = if (c.centerMs > bms) c.centerMs.toDouble() / bms
+                            else bms.toDouble() / c.centerMs
+                ratio <= 1.10
+            }
+            if (match != null) {
+                match.centerMs = (match.centerMs * match.beatCount + bms * bc) / (match.beatCount + bc)
+                match.beatCount += bc
+            } else {
+                clusters.add(Cluster(bms, bc))
+            }
+        }
+
+        val dominant = clusters.maxByOrNull { it.beatCount } ?: return 0L
+        val dominanceRatio = dominant.beatCount.toDouble() / totalBeats
+        Log.d(TAG, "segVote clusters=${clusters.map { "${it.centerMs}ms×${it.beatCount}" }} " +
+                "dominant=${dominant.centerMs}ms ratio=${String.format("%.2f", dominanceRatio)}")
+        return if (dominanceRatio >= 0.60) dominant.centerMs else 0L
     }
 
     // =========================================================================
