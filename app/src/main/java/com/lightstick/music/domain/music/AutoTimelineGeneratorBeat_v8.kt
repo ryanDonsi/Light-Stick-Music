@@ -64,13 +64,17 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
 
         // 발라드/포크 감지 임계값
-        private const val BALLAD_BEAT_MS_THRESHOLD  = 550L   // 느린 템포 (≈109 BPM 이하)
-        // 평균 에너지 상한 — 발라드는 전반적으로 조용하므로 0.50f 이하
+        private const val BALLAD_BEAT_MS_THRESHOLD     = 550L   // 느린 템포 하한 (≈109 BPM)
+        private const val BALLAD_SLOW_BEAT_MS          = 800L   // 매우 느린 템포 하한 (≈75 BPM)
+        // 에너지 상한 — 2단계: 매우 느린 곡(800ms+)은 완화 적용
+        //   550ms~799ms: 0.50f — Entrance(0.513)·사랑을 했다(0.542) 등 K팝 차단
+        //   800ms+     : 0.60f — 별 보러 가자(0.572)·폴킴(0.458) 등 발라드 허용
         // (lowFraction 방식은 low/full 비율≈0.95로 모든 곡이 동일 → 무용)
-        private const val BALLAD_AVG_ENERGY_MAX     = 0.50f
+        private const val BALLAD_AVG_ENERGY_MAX        = 0.50f
+        private const val BALLAD_AVG_ENERGY_MAX_SLOW   = 0.60f
         // 활성 프레임 하한 — 이 값 이하인 프레임은 무음/인트로로 간주, 평균에서 제외
         // 볼륨은 정규화(÷max)로 무관하나 긴 인트로/아웃트로가 평균을 끌어내리는 현상 방지
-        private const val BALLAD_ACTIVE_ENERGY_MIN  = 0.15f
+        private const val BALLAD_ACTIVE_ENERGY_MIN     = 0.15f
 
         // [PERF] 단일 패스 IIR 필터 계수
         private const val LOW_ALPHA     = 0.12f
@@ -1223,20 +1227,28 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
     /**
      * 오디오 특성 기반으로 조용한 발라드/포크곡 여부를 판단한다.
      *
-     * 조건:
-     * - beatMs >= BALLAD_BEAT_MS_THRESHOLD : 느린 템포 (≈109 BPM 이하)
-     * - avgFullEnergy < BALLAD_AVG_ENERGY_MAX : 평균 에너지가 낮음 (0.50f)
-     *   → lowFraction(low÷full) 방식은 모든 곡에서 ≈0.95로 수렴하여 판별 불가 → 폐기
+     * 2단계 에너지 임계값:
+     * - beatMs >= 800ms (BALLAD_SLOW_BEAT_MS) : energyMax = 0.60f
+     *     → 별 보러 가자(0.572), 폴킴(0.458) 등 매우 느린 발라드 허용
+     * - beatMs >= 550ms (BALLAD_BEAT_MS_THRESHOLD) : energyMax = 0.50f
+     *     → Entrance(0.513)·사랑을 했다(0.542) 등 K팝 차단
+     * - beatMs <  550ms : false (K팝 속도)
      *
-     * 클라이맥스 횟수는 판정에서 제외:
+     * avgFullEnergy 는 활성 프레임(> 0.15f) 평균 + normalizeEnvelope(÷max) 적용
+     * → 볼륨·인트로 무관 지표.
+     *
      * 발라드 모드가 확정되면 호출부에서 effectiveClimaxMoments=empty 로 치환하여
      * 클라이맥스 연출을 완전 차단한다 (별도 조건 체크 불필요).
      */
     private fun isQuietFolkOrBallad(
         beatMs: Long,
         avgFullEnergy: Float
-    ): Boolean = beatMs >= BALLAD_BEAT_MS_THRESHOLD &&
-            avgFullEnergy < BALLAD_AVG_ENERGY_MAX
+    ): Boolean {
+        if (beatMs < BALLAD_BEAT_MS_THRESHOLD) return false
+        val energyMax = if (beatMs >= BALLAD_SLOW_BEAT_MS) BALLAD_AVG_ENERGY_MAX_SLOW
+                        else BALLAD_AVG_ENERGY_MAX
+        return avgFullEnergy < energyMax
+    }
 
     // =========================================================================
     // Bridge phase engine
