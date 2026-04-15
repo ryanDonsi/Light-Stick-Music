@@ -1052,28 +1052,24 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                     val beatEngineForFill = if (section.type == SectionType.BRIDGE)
                         bridgePhaseEngine(0, section.beats, section.beatMs, section.relScore, isBalladMode)
                     else section.engine
-                    // STROBE 섹션 커버 필은 BREATH로 표시 (원치 않는 스트로브 방지)
-                    val coverFillEngine = if (beatEngineForFill == FgEngine.STROBE) FgEngine.BREATH else beatEngineForFill
                     while (fillT < firstBeat) {
-                        val (cvFg, cvBg) = colorsForEngine(palette, coverFillEngine, sameTypeIdx, fillIdx, section.type)
-                        val fillRotateTransit = if (coverFillEngine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
+                        val (cvFg, cvBg) = colorsForEngine(palette, beatEngineForFill, sameTypeIdx, fillIdx, section.type)
+                        val fillRotateTransit = if (section.engine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
                             ON_ROTATE_BALLAD_TRANSIT else 0
-                        putFrame(fillT, buildPayload(coverFillEngine, cvFg, cvBg, section.beatMs,
+                        putFrame(fillT, buildPayload(section.engine, cvFg, cvBg, section.beatMs,
                             rotateTransit = fillRotateTransit),
-                            section, if (fillIdx == 0) "SECTION_COVER" else "SECTION_COVER_FILL", coverFillEngine,
+                            section, if (fillIdx == 0) "SECTION_COVER" else "SECTION_COVER_FILL", section.engine,
                             fg = cvFg, bg = cvBg,
-                            transit = when (coverFillEngine) {
+                            transit = when (section.engine) {
                                 FgEngine.ON_PULSE          -> ON_TRANSIT
                                 FgEngine.ON_TRANSIT_ROTATE -> fillRotateTransit.takeIf { it > 0 }
                                 else                       -> null
                             },
-                            period = when (coverFillEngine) {
-                                FgEngine.BREATH -> msToBreathPeriod(section.beatMs)
+                            period = when (section.engine) {
+                                FgEngine.STROBE -> if (sectionNearClimax) 1 else msToStrobePeriod(section.beatMs)
                                 else -> null
-                            },
-                            randomDelay = if (coverFillEngine == FgEngine.BREATH) 5 else null,
-                            note = "section-cover-fill gap=${coverGapMs}ms fillIdx=$fillIdx sectionEngine=${section.engine.name}")
-                        if (coverFillEngine == FgEngine.ON_PULSE) {
+                            }, note = "section-cover-fill gap=${coverGapMs}ms fillIdx=$fillIdx sectionEngine=${section.engine.name}")
+                        if (beatEngineForFill == FgEngine.ON_PULSE) {
                             val offT = min(firstBeat, fillT + section.beatMs * 3L / 10L)
                             if (offT > fillT)
                                 putFrame(offT, buildPayload(FgEngine.ON_PULSE, cvBg, cvBg, section.beatMs),
