@@ -271,6 +271,70 @@ object BeatDetectorV8 {
             )
         }
 
+        // ── Pass 2: failed segment recovery with consensus beatMs ─────────────
+        // Pass 1에서 실패한 세그먼트를 consensus beatMs로 grid projection 재시도.
+        // 많은 세그먼트가 동시에 실패하는 빠른 K-pop(예: 148 BPM)에서 커버리지 확장.
+        val firstPassConsensusBeatMs = computeSegmentVoteBeatMs(segResults)
+        if (firstPassConsensusBeatMs > 0L) {
+            Log.d(TAG, "Pass2 start: consensusBeatMs=$firstPassConsensusBeatMs, scanning failed segments")
+            for (i in segResults.indices) {
+                val seg = segResults[i]
+                if (seg.beatMs > 0L) continue  // 이미 성공한 세그먼트 건너뜀
+
+                val s = seg.index * segmentFrames
+                val e = min(minSize, s + segmentFrames)
+                if (e - s < 8) continue
+
+                val lowSeg = low.subList(s, e)
+                val midSeg = mid.subList(s, e)
+                val fullSeg = full.subList(s, e)
+                val srcOrder = buildSourceOrder(lowSeg, midSeg, fullSeg)
+
+                var bestFixed: TrialResult? = null
+                for (src in srcOrder) {
+                    val combined = combineSource(src, lowSeg, midSeg, fullSeg)
+                    val trial = detectSingleSourceWithFixedBeatMs(
+                        segmentIndex = seg.index,
+                        source = src,
+                        env = combined,
+                        fixedBeatMs = firstPassConsensusBeatMs,
+                        params = params
+                    )
+                    if (trial.reason == "grid-projected-fixed") {
+                        val bn = bestFixed
+                        val isBetter = when {
+                            bn == null -> true
+                            trial.beatTimesMs.size > bn.beatTimesMs.size &&
+                                    trial.score >= bn.score * 0.70f -> true
+                            trial.beatTimesMs.size == bn.beatTimesMs.size &&
+                                    trial.score > bn.score -> true
+                            else -> false
+                        }
+                        if (isBetter) bestFixed = trial
+                    }
+                }
+
+                if (bestFixed != null) {
+                    val absoluteBeats = bestFixed.beatTimesMs.map { it + seg.startMs }
+                    mergedBeats += absoluteBeats
+                    sourceVotes[bestFixed.source] = (sourceVotes[bestFixed.source] ?: 0) + 1
+                    segResults[i] = SegmentResult(
+                        index = seg.index,
+                        startMs = seg.startMs,
+                        endMs = seg.endMs,
+                        selectedSource = bestFixed.source,
+                        beatTimesMs = absoluteBeats,
+                        beatMs = firstPassConsensusBeatMs,
+                        score = bestFixed.score,
+                        reason = "pass2",
+                        trials = seg.trials
+                    )
+                    Log.d(TAG, "SEG[${seg.index}] Pass2 recovered: src=${bestFixed.source} " +
+                            "beats=${absoluteBeats.size} beatMs=$firstPassConsensusBeatMs")
+                }
+            }
+        }
+
         val deduped = dedupeCloseBeats(mergedBeats.sorted(), params.minPeakDistanceMs)
         if (deduped.isEmpty()) {
             Log.w(TAG, "beat detect FAIL -> return empty (skip save recommended)")
@@ -470,6 +534,43 @@ object BeatDetectorV8 {
         val effectiveMinChain = if (segDurationMs < 15_000L) 2 else params.minChainCount
 
         if (finalBeatsMs.size < effectiveMinChain) {
+            // autocorr이 유효한 주기를 반환했으나 rawPeak-snap 체인이 부족한 경우:
+            // grid projection으로 onset 에너지 기반 등간격 비트 생성 시도
+            // (K-pop 고속 곡에서 fold 결과가 맞는데 rawPeak가 드물어 chain 실패하는 상황 대응)
+            val projFrames = gridProjectBeats(
+                rawPeakFrames = rawPeaks,
+                onset = onset,
+                beatMs = beatMs,
+                hopMs = params.hopMs,
+                snapToleranceMs = params.snapToleranceMs,
+                minBeats = effectiveMinChain
+            )
+            if (projFrames != null) {
+                val projBeatsMs = projFrames.map { it.toLong() * params.hopMs }
+                val tolF = max(1, (params.snapToleranceMs / params.hopMs).toInt())
+                val projSnapRatio = if (rawPeaks.isEmpty()) 0f else
+                    projFrames.count { pf -> rawPeaks.any { abs(it - pf) <= tolF } }
+                        .toFloat() / rawPeaks.size.toFloat()
+                val expBeats = max(1, (segDurationMs / beatMs).toInt())
+                val densProj = min(1f, projBeatsMs.size.toFloat() / expBeats.toFloat())
+                val scoreProj = (densProj * 0.40f + projSnapRatio * 0.30f +
+                        acPeak * 0.20f + min(1f, onsetMax) * 0.10f).coerceIn(0f, 1f)
+                Log.d(TAG, "grid-projected: beatMs=$beatMs beats=${projBeatsMs.size} score=${fmt(scoreProj)}")
+                return TrialResult(
+                    source = source,
+                    beatTimesMs = projBeatsMs,
+                    beatMs = beatMs,
+                    score = scoreProj,
+                    rawPeakCount = rawPeaks.size,
+                    snappedCount = projFrames.size,
+                    onsetMean = mean,
+                    onsetStd = std,
+                    onsetMax = onsetMax,
+                    acPeak = acPeak,
+                    snapRatio = projSnapRatio,
+                    reason = "grid-projected"
+                )
+            }
             return TrialResult(
                 source = source,
                 beatTimesMs = emptyList(),
@@ -534,7 +635,8 @@ object BeatDetectorV8 {
         val totalBeats = validSegs.sumOf { it.beatTimesMs.size }
         if (totalBeats < 5) return 0L
 
-        // ±10% 오차로 같은 클러스터에 묶음
+        // ±15% 오차로 같은 클러스터에 묶음
+        // (10% → 15%: 50ms hop 양자화에서 발생하는 350ms/400ms 같은 인접 값 통합)
         data class Cluster(var centerMs: Long, var beatCount: Int)
         val clusters = mutableListOf<Cluster>()
         for (seg in validSegs) {
@@ -542,7 +644,7 @@ object BeatDetectorV8 {
             val match = clusters.firstOrNull { c ->
                 val ratio = if (c.centerMs > bms) c.centerMs.toDouble() / bms
                             else bms.toDouble() / c.centerMs
-                ratio <= 1.10
+                ratio <= 1.15
             }
             if (match != null) {
                 match.centerMs = (match.centerMs * match.beatCount + bms * bc) / (match.beatCount + bc)
@@ -942,6 +1044,147 @@ object BeatDetectorV8 {
             }
         }
         return kept
+    }
+
+    // =========================================================================
+    // Grid projection: rawPeak 없이 onset 에너지 기반 등간격 비트 생성
+    // =========================================================================
+
+    /**
+     * 비트 주기가 알려져 있을 때 onset 에너지 창으로 그리드를 평가해 합성 비트 시퀀스를 반환.
+     *
+     * 사용 목적:
+     * - autocorrelation fold가 유효한 beatMs를 반환했으나 rawPeak가 드물어
+     *   snap→chain이 짧아지는 경우(chain too short)의 대안.
+     * - Pass 2: 전체 합의 beatMs로 실패 세그먼트를 재시도할 때.
+     *
+     * rawPeak 앵커 + frame0 + onset 최대값 위치를 모두 시도,
+     * scoreGridWithWindow(onset 에너지 창 합산)이 최고인 그리드를 반환한다.
+     *
+     * 품질 기준: per-beat 점수 ≥ max(meanOnset × 0.30, 0.008)
+     */
+    private fun gridProjectBeats(
+        rawPeakFrames: List<Int>,
+        onset: List<Float>,
+        beatMs: Long,
+        hopMs: Long,
+        snapToleranceMs: Long,
+        minBeats: Int
+    ): List<Int>? {
+        if (onset.isEmpty() || beatMs <= 0L) return null
+        val beatFrames = max(1, (beatMs / hopMs).toInt())
+        val tolFrames = max(1, (snapToleranceMs / hopMs).toInt())
+
+        // 앵커 후보: rawPeaks + frame 0 + onset 최대값 위치
+        val anchors = LinkedHashSet<Int>()
+        anchors.add(0)
+        rawPeakFrames.forEach { anchors.add(it) }
+        var maxIdx = 0
+        for (i in onset.indices) if (onset[i] > onset[maxIdx]) maxIdx = i
+        anchors.add(maxIdx)
+
+        var bestGrid: List<Int>? = null
+        var bestPerBeatScore = 0f
+
+        for (anchor in anchors) {
+            val grid = ArrayList<Int>()
+            var g = anchor
+            while (g >= 0) { grid.add(g); g -= beatFrames }
+            g = anchor + beatFrames
+            while (g < onset.size) { grid.add(g); g += beatFrames }
+            val sorted = grid.distinct().sorted()
+            if (sorted.size < minBeats) continue
+
+            val perBeatScore = scoreGridWithWindow(sorted, onset, tolFrames) / sorted.size.toFloat()
+            if (perBeatScore > bestPerBeatScore) {
+                bestPerBeatScore = perBeatScore
+                bestGrid = sorted
+            }
+        }
+
+        if (bestGrid == null || (bestGrid?.size ?: 0) < minBeats) return null
+
+        val meanOnset = meanOf(onset)
+        val qualThreshold = max(meanOnset * 0.30f, 0.008f)
+        if (bestPerBeatScore < qualThreshold) {
+            Log.d(TAG, "gridProject rejected: perBeat=${fmt(bestPerBeatScore)} < threshold=${fmt(qualThreshold)}")
+            return null
+        }
+        return bestGrid
+    }
+
+    // =========================================================================
+    // Pass 2: fixed-beatMs grid projection for failed segments
+    // =========================================================================
+
+    /**
+     * autocorr을 건너뛰고 fixedBeatMs로 grid projection만 시도.
+     * Pass 2에서 첫 번째 패스에 실패한 세그먼트를 consensus beatMs로 재시도할 때 사용.
+     */
+    private fun detectSingleSourceWithFixedBeatMs(
+        segmentIndex: Int,
+        source: BeatSource,
+        env: List<Float>,
+        fixedBeatMs: Long,
+        params: Params
+    ): TrialResult {
+        if (env.size < 8) return TrialResult(
+            source = source, beatTimesMs = emptyList(), beatMs = 0L, score = 0f,
+            rawPeakCount = 0, snappedCount = 0, onsetMean = 0f, onsetStd = 0f, onsetMax = 0f,
+            acPeak = 0f, snapRatio = 0f, reason = "env too short"
+        )
+        val smooth = movingAverage(env, params.onsetSmoothWindow)
+        val diff = positiveDiff(smooth)
+        val onset = normalize01(diff)
+
+        val mean = meanOf(onset)
+        val std = stdOf(onset, mean)
+        val onsetMax = maxOfList(onset)
+
+        val threshold = max(params.minPeakAbs, mean + std * params.peakThresholdK)
+        val minPeakFrames = max(1, (params.minPeakDistanceMs / params.hopMs).toInt())
+        val rawPeaks = findPeaks(onset, threshold, minPeakFrames)
+
+        val segDurationMs = env.size.toLong() * params.hopMs
+        val effectiveMinChain = if (segDurationMs < 15_000L) 2 else params.minChainCount
+
+        val projFrames = gridProjectBeats(
+            rawPeakFrames = rawPeaks,
+            onset = onset,
+            beatMs = fixedBeatMs,
+            hopMs = params.hopMs,
+            snapToleranceMs = params.snapToleranceMs,
+            minBeats = effectiveMinChain
+        ) ?: return TrialResult(
+            source = source, beatTimesMs = emptyList(), beatMs = fixedBeatMs, score = 0.1f,
+            rawPeakCount = rawPeaks.size, snappedCount = 0, onsetMean = mean, onsetStd = std,
+            onsetMax = onsetMax, acPeak = 0f, snapRatio = 0f, reason = "grid-project failed"
+        )
+
+        val projBeatsMs = projFrames.map { it.toLong() * params.hopMs }
+        val tolF = max(1, (params.snapToleranceMs / params.hopMs).toInt())
+        val projSnapRatio = if (rawPeaks.isEmpty()) 0f else
+            projFrames.count { pf -> rawPeaks.any { abs(it - pf) <= tolF } }
+                .toFloat() / rawPeaks.size.toFloat()
+        val expBeats = max(1, (segDurationMs / fixedBeatMs).toInt())
+        val densProj = min(1f, projBeatsMs.size.toFloat() / expBeats.toFloat())
+        val scoreProj = (densProj * 0.40f + projSnapRatio * 0.30f +
+                min(1f, onsetMax) * 0.10f).coerceIn(0f, 1f)
+        Log.d(TAG, "SEG[$segmentIndex] fixedBeat: beatMs=$fixedBeatMs beats=${projBeatsMs.size} score=${fmt(scoreProj)}")
+        return TrialResult(
+            source = source,
+            beatTimesMs = projBeatsMs,
+            beatMs = fixedBeatMs,
+            score = scoreProj,
+            rawPeakCount = rawPeaks.size,
+            snappedCount = projFrames.size,
+            onsetMean = mean,
+            onsetStd = std,
+            onsetMax = onsetMax,
+            acPeak = 0f,
+            snapRatio = projSnapRatio,
+            reason = "grid-projected-fixed"
+        )
     }
 
     // =========================================================================
