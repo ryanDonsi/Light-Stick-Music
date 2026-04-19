@@ -1056,7 +1056,12 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         val (cvFg, cvBg) = colorsForEngine(palette, beatEngineForFill, sameTypeIdx, fillIdx, section.type)
                         val fillRotateTransit = if (section.engine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
                             ON_ROTATE_BALLAD_TRANSIT else 0
+                        val fillPeriod = when (section.engine) {
+                            FgEngine.STROBE -> if (sectionNearClimax) 1 else msToStrobePeriod(section.beatMs)
+                            else -> null
+                        }
                         putFrame(fillT, buildPayload(section.engine, cvFg, cvBg, section.beatMs,
+                            period = fillPeriod,
                             rotateTransit = fillRotateTransit),
                             section, if (fillIdx == 0) "SECTION_COVER" else "SECTION_COVER_FILL", section.engine,
                             fg = cvFg, bg = cvBg,
@@ -1065,10 +1070,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                                 FgEngine.ON_TRANSIT_ROTATE -> fillRotateTransit.takeIf { it > 0 }
                                 else                       -> null
                             },
-                            period = when (section.engine) {
-                                FgEngine.STROBE -> if (sectionNearClimax) 1 else msToStrobePeriod(section.beatMs)
-                                else -> null
-                            }, note = "section-cover-fill gap=${coverGapMs}ms fillIdx=$fillIdx sectionEngine=${section.engine.name}")
+                            period = fillPeriod,
+                            note = "section-cover-fill gap=${coverGapMs}ms fillIdx=$fillIdx sectionEngine=${section.engine.name}")
                         if (beatEngineForFill == FgEngine.ON_PULSE) {
                             val offT = min(firstBeat, fillT + section.beatMs * 3L / 10L)
                             if (offT > fillT)

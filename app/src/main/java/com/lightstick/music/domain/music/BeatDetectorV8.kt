@@ -408,9 +408,7 @@ object BeatDetectorV8 {
             )
         }
 
-        val smooth = movingAverage(env, params.onsetSmoothWindow)
-        val diff = positiveDiff(smooth)
-        val onset = normalize01(diff)
+        val onset = computeODF(env, params.onsetSmoothWindow)
 
         val mean = meanOf(onset)
         val std = stdOf(onset, mean)
@@ -420,13 +418,16 @@ object BeatDetectorV8 {
         val minPeakFrames = max(1, (params.minPeakDistanceMs / params.hopMs).toInt())
         val rawPeaks = findPeaks(onset, threshold, minPeakFrames)
 
-        // B. 수정: harmonic folding이 적용된 autoCorrelateBeat 사용
-        val beatRange = autoCorrelateBeat(
-            onset = onset,
-            hopMs = params.hopMs,
-            minBeatMs = params.minBeatMs,
-            maxBeatMs = params.maxBeatMs
-        )
+        // B. autocorr + 다중 후보 경쟁: autocorr 결과를 초기 후보로 사용한 뒤
+        //    하모닉 변형 + BPM 스윕 전수검사로 경쟁시켜 최적 beatMs 선택
+        val acResult = autoCorrelateBeat(onset, params.hopMs, params.minBeatMs, params.maxBeatMs)
+        val candidates = buildTempoCandidates(acResult?.first, rawPeaks, params)
+        val competitionMs = selectBestTempoByGrid(candidates, onset, rawPeaks, params)
+        val beatRange = when {
+            competitionMs != null -> competitionMs to (acResult?.second ?: 0.5f)
+            acResult != null -> acResult
+            else -> null
+        }
 
         if (beatRange == null) {
             // C. Fallback: autocorr 실패 시 rawPeak 간격 중앙값으로 beatMs 추정
@@ -1114,6 +1115,112 @@ object BeatDetectorV8 {
     }
 
     // =========================================================================
+    // Tempo competition: 다중 후보 BPM 경쟁으로 최적 beatMs 선택
+    // =========================================================================
+
+    /**
+     * autocorr 결과 + 하모닉 변형 + rawPeak 간격 + BPM 스윕 전수검사로
+     * 평가 대상 tempo 후보 목록을 생성한다.
+     *
+     * BPM 스윕(sweepMin~maxBeatMs, hopMs 단위)은 창 겹침이 생기는 구간(beatMs ≤ 2×snapTol)을
+     * 제외하고 진행한다. 이 방식으로 autocorr 하모닉 폴딩 실패(fold ratio 부족 등)를 우회한다.
+     */
+    private fun buildTempoCandidates(
+        acBeatMs: Long?,
+        rawPeaks: List<Int>,
+        params: Params
+    ): List<Long> {
+        val candidates = LinkedHashSet<Long>()
+
+        if (acBeatMs != null && acBeatMs > 0L) {
+            candidates.add(acBeatMs)
+            for (div in 2..3) {
+                val c = acBeatMs / div
+                if (c in params.minBeatMs..params.maxBeatMs) candidates.add(c)
+            }
+            val c2 = acBeatMs * 2
+            if (c2 in params.minBeatMs..params.maxBeatMs) candidates.add(c2)
+            val c23 = acBeatMs * 2 / 3
+            if (c23 in params.minBeatMs..params.maxBeatMs) candidates.add(c23)
+        }
+
+        if (rawPeaks.size >= 3) {
+            val intervals = (1 until rawPeaks.size)
+                .map { (rawPeaks[it] - rawPeaks[it - 1]).toLong() * params.hopMs }
+                .filter { it in params.minBeatMs..params.maxBeatMs }
+            if (intervals.size >= 2) {
+                val sorted = intervals.sorted()
+                val med = sorted[sorted.size / 2]
+                candidates.add(med)
+                if (med / 2 in params.minBeatMs..params.maxBeatMs) candidates.add(med / 2)
+                if (med * 2 in params.minBeatMs..params.maxBeatMs) candidates.add(med * 2)
+            }
+        }
+
+        // BPM 스윕: 창 겹침이 없는 구간만 검사 (beatMs > 2 × snapToleranceMs)
+        val sweepMin = max(params.minBeatMs, 2L * params.snapToleranceMs + params.hopMs)
+        var sweepMs = sweepMin
+        while (sweepMs <= params.maxBeatMs) {
+            candidates.add(sweepMs)
+            sweepMs += params.hopMs
+        }
+
+        return candidates.filter { it in params.minBeatMs..params.maxBeatMs }
+    }
+
+    /**
+     * 후보 beatMs 목록 각각을 onset 에너지 그리드 정렬로 점수화해 최적 beatMs 반환.
+     *
+     * 각 후보에 대해 여러 앵커(rawPeak + frame0 + onset 최대값)에서 등간격 그리드를 생성하고,
+     * scoreGridWithWindow(beat 위치 ±tolFrames 내 최대 onset 합산)의 per-beat 평균을 비교한다.
+     * 가장 높은 per-beat 점수를 가진 후보가 실제 비트 주기일 가능성이 가장 높다.
+     */
+    private fun selectBestTempoByGrid(
+        candidates: List<Long>,
+        onset: List<Float>,
+        rawPeaks: List<Int>,
+        params: Params
+    ): Long? {
+        if (candidates.isEmpty() || onset.isEmpty()) return null
+        val tolFrames = max(1, (params.snapToleranceMs / params.hopMs).toInt())
+
+        val anchors = LinkedHashSet<Int>()
+        anchors.add(0)
+        rawPeaks.take(5).forEach { anchors.add(it) }
+        var maxIdx = 0
+        for (i in onset.indices) if (onset[i] > onset[maxIdx]) maxIdx = i
+        anchors.add(maxIdx)
+
+        var bestMs = 0L
+        var bestPerBeat = 0f
+
+        for (candMs in candidates) {
+            val beatFrames = max(1, (candMs / params.hopMs).toInt())
+            var bestAnchorPerBeat = 0f
+
+            for (anchor in anchors) {
+                val grid = ArrayList<Int>()
+                var g = anchor
+                while (g >= 0) { grid.add(g); g -= beatFrames }
+                g = anchor + beatFrames
+                while (g < onset.size) { grid.add(g); g += beatFrames }
+                val sorted = grid.distinct().sorted()
+                if (sorted.size < 2) continue
+                val perBeat = scoreGridWithWindow(sorted, onset, tolFrames) / sorted.size.toFloat()
+                if (perBeat > bestAnchorPerBeat) bestAnchorPerBeat = perBeat
+            }
+
+            if (bestAnchorPerBeat > bestPerBeat) {
+                bestPerBeat = bestAnchorPerBeat
+                bestMs = candMs
+            }
+        }
+
+        Log.d(TAG, "tempoGrid winner=${bestMs}ms perBeat=${fmt(bestPerBeat)} candidates=${candidates.size}")
+        return if (bestMs > 0L && bestPerBeat > 0f) bestMs else null
+    }
+
+    // =========================================================================
     // Pass 2: fixed-beatMs grid projection for failed segments
     // =========================================================================
 
@@ -1133,9 +1240,7 @@ object BeatDetectorV8 {
             rawPeakCount = 0, snappedCount = 0, onsetMean = 0f, onsetStd = 0f, onsetMax = 0f,
             acPeak = 0f, snapRatio = 0f, reason = "env too short"
         )
-        val smooth = movingAverage(env, params.onsetSmoothWindow)
-        val diff = positiveDiff(smooth)
-        val onset = normalize01(diff)
+        val onset = computeODF(env, params.onsetSmoothWindow)
 
         val mean = meanOf(onset)
         val std = stdOf(onset, mean)
@@ -1308,6 +1413,34 @@ object BeatDetectorV8 {
         val range = (mx - mn)
         if (range <= 1e-6f) return List(src.size) { 0f }
         return src.map { ((it - mn) / range).coerceIn(0f, 1f) }
+    }
+
+    /**
+     * 슬라이딩 윈도우 지역 정규화: 각 프레임을 주변 windowFrames 내 최대값으로 나눈다.
+     * 전역 normalize01과 달리 조용한 구간에서도 onset 피크를 살려준다.
+     * (큰 소리 하나가 전체를 0에 수렴시키는 문제 해결)
+     */
+    private fun localNormalize(src: List<Float>, windowFrames: Int = 40): List<Float> {
+        if (src.isEmpty()) return emptyList()
+        val out = ArrayList<Float>(src.size)
+        for (i in src.indices) {
+            val lo = max(0, i - windowFrames)
+            val hi = min(src.lastIndex, i + windowFrames)
+            var localMax = 0f
+            for (j in lo..hi) if (src[j] > localMax) localMax = src[j]
+            out.add(if (localMax > 1e-6f) (src[i] / localMax).coerceIn(0f, 1f) else 0f)
+        }
+        return out
+    }
+
+    /**
+     * Onset Detection Function: smooth → positive diff → local normalize.
+     * localNormalize(windowFrames=40, 50ms hop → 2초 창)로 구간별 다이나믹을 균등화한다.
+     */
+    private fun computeODF(env: List<Float>, smoothWindow: Int): List<Float> {
+        val smooth = movingAverage(env, smoothWindow)
+        val diff = positiveDiff(smooth)
+        return localNormalize(diff, windowFrames = 40)
     }
 
     private fun mix(a: List<Float>, b: List<Float>, aw: Float, bw: Float): List<Float> {
