@@ -1191,12 +1191,13 @@ object BeatDetectorV8 {
         for (i in onset.indices) if (onset[i] > onset[maxIdx]) maxIdx = i
         anchors.add(maxIdx)
 
+        val totalOnset = onset.sum().coerceAtLeast(1e-6f)
         var bestMs = 0L
-        var bestPerBeat = 0f
+        var bestCoverage = 0f
 
         for (candMs in candidates) {
             val beatFrames = max(1, (candMs / params.hopMs).toInt())
-            var bestAnchorPerBeat = 0f
+            var bestAnchorCoverage = 0f
 
             for (anchor in anchors) {
                 val grid = ArrayList<Int>()
@@ -1206,18 +1207,18 @@ object BeatDetectorV8 {
                 while (g < onset.size) { grid.add(g); g += beatFrames }
                 val sorted = grid.distinct().sorted()
                 if (sorted.size < 2) continue
-                val perBeat = scoreGridWithWindow(sorted, onset, tolFrames) / sorted.size.toFloat()
-                if (perBeat > bestAnchorPerBeat) bestAnchorPerBeat = perBeat
+                val coverage = scoreGridWithWindow(sorted, onset, tolFrames) / totalOnset
+                if (coverage > bestAnchorCoverage) bestAnchorCoverage = coverage
             }
 
-            if (bestAnchorPerBeat > bestPerBeat) {
-                bestPerBeat = bestAnchorPerBeat
+            if (bestAnchorCoverage > bestCoverage) {
+                bestCoverage = bestAnchorCoverage
                 bestMs = candMs
             }
         }
 
-        Log.d(TAG, "tempoGrid winner=${bestMs}ms perBeat=${fmt(bestPerBeat)} candidates=${candidates.size}")
-        return if (bestMs > 0L && bestPerBeat > 0f) bestMs else null
+        Log.d(TAG, "tempoGrid winner=${bestMs}ms coverage=${fmt(bestCoverage)} candidates=${candidates.size}")
+        return if (bestMs > 0L && bestCoverage > 0f) bestMs else null
     }
 
     // =========================================================================
@@ -1434,13 +1435,14 @@ object BeatDetectorV8 {
     }
 
     /**
-     * Onset Detection Function: smooth → positive diff → local normalize.
-     * localNormalize(windowFrames=40, 50ms hop → 2초 창)로 구간별 다이나믹을 균등화한다.
+     * Onset Detection Function: smooth → positive diff → normalize01.
+     * 전역 정규화를 사용해야 그리드 품질 점수에서 실제 비트 위치가 높은 값을 유지한다.
+     * (localNormalize는 모든 창을 1.0에 수렴시켜 긴 주기 그리드가 과대 점수를 받는 문제 발생)
      */
     private fun computeODF(env: List<Float>, smoothWindow: Int): List<Float> {
         val smooth = movingAverage(env, smoothWindow)
         val diff = positiveDiff(smooth)
-        return localNormalize(diff, windowFrames = 40)
+        return normalize01(diff)
     }
 
     private fun mix(a: List<Float>, b: List<Float>, aw: Float, bw: Float): List<Float> {
