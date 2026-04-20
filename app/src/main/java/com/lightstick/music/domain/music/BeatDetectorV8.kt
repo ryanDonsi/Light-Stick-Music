@@ -53,16 +53,6 @@ object BeatDetectorV8 {
     // 조건: 2/3 lag이 minBeatMs 이상이고 maxBeatMs * 0.65 이하일 때만 적용
     private const val HARMONIC_TWO_THIRDS_RATIO = 0.75f
 
-    // 조용한 기타/어쿠스틱 곡 대응 — 빠른 결과 주기에서 더 보수적인 fold ratio
-    // fold 결과가 이 값(ms) 미만이면 harmonic ringing 오검출 가능성이 높다고 판단
-    // 350ms: K-팝 실제 비트 하한(≈171 BPM)에 맞게 낮춤
-    //   → 750ms→375ms fold 는 표준 비율(0.40) 적용 (기존 380 → 보수적 0.65 방지)
-    //   → 700ms→350ms 경계, 600ms→300ms 이하는 여전히 보수적 0.65 유지
-    private const val HARMONIC_FOLD_GUARD_MS = 350L
-    // 빠른 결과 주기용 higher ratio (0.40 → 0.65): ringing 으로 인한 fold 억제
-    private const val HARMONIC_FOLD_HALF_RATIO_FAST  = 0.65f
-    private const val HARMONIC_FOLD_THIRD_RATIO_FAST = 0.55f
-
     enum class BeatSource {
         LOW,
         MID,
@@ -271,70 +261,6 @@ object BeatDetectorV8 {
             )
         }
 
-        // ── Pass 2: failed segment recovery with consensus beatMs ─────────────
-        // Pass 1에서 실패한 세그먼트를 consensus beatMs로 grid projection 재시도.
-        // 많은 세그먼트가 동시에 실패하는 빠른 K-pop(예: 148 BPM)에서 커버리지 확장.
-        val firstPassConsensusBeatMs = computeSegmentVoteBeatMs(segResults)
-        if (firstPassConsensusBeatMs > 0L) {
-            Log.d(TAG, "Pass2 start: consensusBeatMs=$firstPassConsensusBeatMs, scanning failed segments")
-            for (i in segResults.indices) {
-                val seg = segResults[i]
-                if (seg.beatMs > 0L) continue  // 이미 성공한 세그먼트 건너뜀
-
-                val s = seg.index * segmentFrames
-                val e = min(minSize, s + segmentFrames)
-                if (e - s < 8) continue
-
-                val lowSeg = low.subList(s, e)
-                val midSeg = mid.subList(s, e)
-                val fullSeg = full.subList(s, e)
-                val srcOrder = buildSourceOrder(lowSeg, midSeg, fullSeg)
-
-                var bestFixed: TrialResult? = null
-                for (src in srcOrder) {
-                    val combined = combineSource(src, lowSeg, midSeg, fullSeg)
-                    val trial = detectSingleSourceWithFixedBeatMs(
-                        segmentIndex = seg.index,
-                        source = src,
-                        env = combined,
-                        fixedBeatMs = firstPassConsensusBeatMs,
-                        params = params
-                    )
-                    if (trial.reason == "grid-projected-fixed") {
-                        val bn = bestFixed
-                        val isBetter = when {
-                            bn == null -> true
-                            trial.beatTimesMs.size > bn.beatTimesMs.size &&
-                                    trial.score >= bn.score * 0.70f -> true
-                            trial.beatTimesMs.size == bn.beatTimesMs.size &&
-                                    trial.score > bn.score -> true
-                            else -> false
-                        }
-                        if (isBetter) bestFixed = trial
-                    }
-                }
-
-                if (bestFixed != null) {
-                    val absoluteBeats = bestFixed.beatTimesMs.map { it + seg.startMs }
-                    mergedBeats += absoluteBeats
-                    sourceVotes[bestFixed.source] = (sourceVotes[bestFixed.source] ?: 0) + 1
-                    segResults[i] = SegmentResult(
-                        index = seg.index,
-                        startMs = seg.startMs,
-                        endMs = seg.endMs,
-                        selectedSource = bestFixed.source,
-                        beatTimesMs = absoluteBeats,
-                        beatMs = firstPassConsensusBeatMs,
-                        score = bestFixed.score,
-                        reason = "pass2",
-                        trials = seg.trials
-                    )
-                    Log.d(TAG, "SEG[${seg.index}] Pass2 recovered: src=${bestFixed.source} " +
-                            "beats=${absoluteBeats.size} beatMs=$firstPassConsensusBeatMs")
-                }
-            }
-        }
-
         val deduped = dedupeCloseBeats(mergedBeats.sorted(), params.minPeakDistanceMs)
         if (deduped.isEmpty()) {
             Log.w(TAG, "beat detect FAIL -> return empty (skip save recommended)")
@@ -348,21 +274,7 @@ object BeatDetectorV8 {
         }
 
         // D. 수정: estimateMedianInterval에 Params 전달
-        val rawBeatMs = estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs)
-
-        // E. 세그먼트 가중 투표로 교차 검증: 세그먼트 합의가 강하고 median과 5% 이상 차이나면 교정
-        val segVoteBeatMs = computeSegmentVoteBeatMs(segResults)
-        val finalBeatMs = if (segVoteBeatMs > 0L) {
-            val diffRatio = abs(segVoteBeatMs - rawBeatMs).toDouble() / rawBeatMs
-            if (diffRatio > 0.05) {
-                Log.d(TAG, "segVote OVERRIDE: ${segVoteBeatMs}ms (raw=${rawBeatMs}ms diff=${String.format("%.0f", diffRatio * 100)}%)")
-                segVoteBeatMs
-            } else {
-                Log.d(TAG, "segVote KEEP raw: segVote=${segVoteBeatMs}ms raw=${rawBeatMs}ms diff<5%")
-                rawBeatMs
-            }
-        } else rawBeatMs
-
+        val finalBeatMs = estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs)
         val finalSource = sourceVotes.maxByOrNull { it.value }?.key
 
         Log.d(
@@ -408,7 +320,9 @@ object BeatDetectorV8 {
             )
         }
 
-        val onset = computeODF(env, params.onsetSmoothWindow)
+        val smooth = movingAverage(env, params.onsetSmoothWindow)
+        val diff = positiveDiff(smooth)
+        val onset = normalize01(diff)
 
         val mean = meanOf(onset)
         val std = stdOf(onset, mean)
@@ -418,16 +332,13 @@ object BeatDetectorV8 {
         val minPeakFrames = max(1, (params.minPeakDistanceMs / params.hopMs).toInt())
         val rawPeaks = findPeaks(onset, threshold, minPeakFrames)
 
-        // B. autocorr + 다중 후보 경쟁: autocorr 결과를 초기 후보로 사용한 뒤
-        //    하모닉 변형 + BPM 스윕 전수검사로 경쟁시켜 최적 beatMs 선택
-        val acResult = autoCorrelateBeat(onset, params.hopMs, params.minBeatMs, params.maxBeatMs)
-        val candidates = buildTempoCandidates(acResult?.first, rawPeaks, params)
-        val competitionMs = selectBestTempoByGrid(candidates, onset, rawPeaks, params)
-        val beatRange = when {
-            competitionMs != null -> competitionMs to (acResult?.second ?: 0.5f)
-            acResult != null -> acResult
-            else -> null
-        }
+        // B. 수정: harmonic folding이 적용된 autoCorrelateBeat 사용
+        val beatRange = autoCorrelateBeat(
+            onset = onset,
+            hopMs = params.hopMs,
+            minBeatMs = params.minBeatMs,
+            maxBeatMs = params.maxBeatMs
+        )
 
         if (beatRange == null) {
             // C. Fallback: autocorr 실패 시 rawPeak 간격 중앙값으로 beatMs 추정
@@ -535,43 +446,6 @@ object BeatDetectorV8 {
         val effectiveMinChain = if (segDurationMs < 15_000L) 2 else params.minChainCount
 
         if (finalBeatsMs.size < effectiveMinChain) {
-            // autocorr이 유효한 주기를 반환했으나 rawPeak-snap 체인이 부족한 경우:
-            // grid projection으로 onset 에너지 기반 등간격 비트 생성 시도
-            // (K-pop 고속 곡에서 fold 결과가 맞는데 rawPeak가 드물어 chain 실패하는 상황 대응)
-            val projFrames = gridProjectBeats(
-                rawPeakFrames = rawPeaks,
-                onset = onset,
-                beatMs = beatMs,
-                hopMs = params.hopMs,
-                snapToleranceMs = params.snapToleranceMs,
-                minBeats = effectiveMinChain
-            )
-            if (projFrames != null) {
-                val projBeatsMs = projFrames.map { it.toLong() * params.hopMs }
-                val tolF = max(1, (params.snapToleranceMs / params.hopMs).toInt())
-                val projSnapRatio = if (rawPeaks.isEmpty()) 0f else
-                    projFrames.count { pf -> rawPeaks.any { abs(it - pf) <= tolF } }
-                        .toFloat() / rawPeaks.size.toFloat()
-                val expBeats = max(1, (segDurationMs / beatMs).toInt())
-                val densProj = min(1f, projBeatsMs.size.toFloat() / expBeats.toFloat())
-                val scoreProj = (densProj * 0.40f + projSnapRatio * 0.30f +
-                        acPeak * 0.20f + min(1f, onsetMax) * 0.10f).coerceIn(0f, 1f)
-                Log.d(TAG, "grid-projected: beatMs=$beatMs beats=${projBeatsMs.size} score=${fmt(scoreProj)}")
-                return TrialResult(
-                    source = source,
-                    beatTimesMs = projBeatsMs,
-                    beatMs = beatMs,
-                    score = scoreProj,
-                    rawPeakCount = rawPeaks.size,
-                    snappedCount = projFrames.size,
-                    onsetMean = mean,
-                    onsetStd = std,
-                    onsetMax = onsetMax,
-                    acPeak = acPeak,
-                    snapRatio = projSnapRatio,
-                    reason = "grid-projected"
-                )
-            }
             return TrialResult(
                 source = source,
                 beatTimesMs = emptyList(),
@@ -618,48 +492,6 @@ object BeatDetectorV8 {
             snapRatio = snapRatio,
             reason = "ok"
         )
-    }
-
-    // =========================================================================
-    // Segment vote: beatMs 교차 검증
-    // =========================================================================
-
-    /**
-     * 성공한 세그먼트들의 beatMs를 비트 수로 가중하여 투표.
-     * estimateMedianInterval 이 세그먼트 간 갭 오염으로 틀릴 때 교정.
-     *
-     * 반환값: 지배적 클러스터가 있으면 그 중심 beatMs, 없으면 0L.
-     */
-    private fun computeSegmentVoteBeatMs(segResults: List<SegmentResult>): Long {
-        val validSegs = segResults.filter { it.beatMs > 0L && it.beatTimesMs.isNotEmpty() }
-        if (validSegs.isEmpty()) return 0L
-        val totalBeats = validSegs.sumOf { it.beatTimesMs.size }
-        if (totalBeats < 5) return 0L
-
-        // ±15% 오차로 같은 클러스터에 묶음
-        // (10% → 15%: 50ms hop 양자화에서 발생하는 350ms/400ms 같은 인접 값 통합)
-        data class Cluster(var centerMs: Long, var beatCount: Int)
-        val clusters = mutableListOf<Cluster>()
-        for (seg in validSegs) {
-            val bms = seg.beatMs; val bc = seg.beatTimesMs.size
-            val match = clusters.firstOrNull { c ->
-                val ratio = if (c.centerMs > bms) c.centerMs.toDouble() / bms
-                            else bms.toDouble() / c.centerMs
-                ratio <= 1.15
-            }
-            if (match != null) {
-                match.centerMs = (match.centerMs * match.beatCount + bms * bc) / (match.beatCount + bc)
-                match.beatCount += bc
-            } else {
-                clusters.add(Cluster(bms, bc))
-            }
-        }
-
-        val dominant = clusters.maxByOrNull { it.beatCount } ?: return 0L
-        val dominanceRatio = dominant.beatCount.toDouble() / totalBeats
-        Log.d(TAG, "segVote clusters=${clusters.map { "${it.centerMs}ms×${it.beatCount}" }} " +
-                "dominant=${dominant.centerMs}ms ratio=${String.format("%.2f", dominanceRatio)}")
-        return if (dominanceRatio >= 0.60) dominant.centerMs else 0L
     }
 
     // =========================================================================
@@ -769,39 +601,29 @@ object BeatDetectorV8 {
         if (confidence < 0.012f) return null    // 완화: 0.025→0.012 (잔잔한 곡/짧은 세그먼트)
 
         // ② harmonic folding: bestLag/2 검사 (빠른 곡 — 2배 편향 교정)
-        // 조용한 기타/어쿠스틱 곡 대응:
-        // 기타 harmonic ringing은 실제 비트 주기의 1/2, 1/3 에서도 상관값이 발생해
-        // 정상 비트(1000ms)를 절반(500ms)이나 그 이하로 잘못 교정할 수 있음.
-        // fold 결과가 HARMONIC_FOLD_GUARD_MS(380ms) 미만이면 ringing 오검출로 간주,
-        // 더 높은 ratio를 요구해 fold를 억제한다.
         val halfLag = bestLag / 2
         if (halfLag >= minLag) {
             val halfValue = corrArray[halfLag]
-            val halfBeatMs = halfLag * hopMs
-            val effectiveHalfRatio = if (halfBeatMs < HARMONIC_FOLD_GUARD_MS)
-                HARMONIC_FOLD_HALF_RATIO_FAST else HARMONIC_FOLD_HALF_RATIO
-            if (halfValue >= bestValue * effectiveHalfRatio) {
+            if (halfValue >= bestValue * HARMONIC_FOLD_HALF_RATIO) {
+                val halfBeatMs = halfLag * hopMs
                 Log.d(
                     TAG,
                     "harmonic fold (/2): bestLag=$bestLag (${bestLag * hopMs}ms) " +
                             "→ halfLag=$halfLag (${halfBeatMs}ms) " +
                             "halfCorr=${fmt(halfValue)} bestCorr=${fmt(bestValue)} " +
-                            "ratio=${fmt(halfValue / bestValue)} threshold=${fmt(effectiveHalfRatio)}"
+                            "ratio=${fmt(halfValue / bestValue)}"
                 )
                 // halfLag 자체도 추가 교정 대상인지 재귀적으로 확인 (최대 1회)
                 val quarterLag = halfLag / 2
                 if (quarterLag >= minLag) {
                     val quarterValue = corrArray[quarterLag]
-                    val quarterBeatMs = quarterLag * hopMs
-                    val effectiveQuarterRatio = if (quarterBeatMs < HARMONIC_FOLD_GUARD_MS)
-                        HARMONIC_FOLD_HALF_RATIO_FAST else HARMONIC_FOLD_HALF_RATIO
-                    if (quarterValue >= halfValue * effectiveQuarterRatio) {
+                    if (quarterValue >= halfValue * HARMONIC_FOLD_HALF_RATIO) {
+                        val quarterBeatMs = quarterLag * hopMs
                         Log.d(
                             TAG,
                             "harmonic fold (/4): halfLag=$halfLag (${halfBeatMs}ms) " +
                                     "→ quarterLag=$quarterLag (${quarterBeatMs}ms) " +
-                                    "quarterCorr=${fmt(quarterValue)} halfCorr=${fmt(halfValue)} " +
-                                    "threshold=${fmt(effectiveQuarterRatio)}"
+                                    "quarterCorr=${fmt(quarterValue)} halfCorr=${fmt(halfValue)}"
                         )
                         return quarterBeatMs to quarterValue.coerceIn(0f, 1f)
                     }
@@ -814,16 +636,14 @@ object BeatDetectorV8 {
         val thirdLag = bestLag / 3
         if (thirdLag >= minLag) {
             val thirdValue = corrArray[thirdLag]
-            val thirdBeatMs = thirdLag * hopMs
-            val effectiveThirdRatio = if (thirdBeatMs < HARMONIC_FOLD_GUARD_MS)
-                HARMONIC_FOLD_THIRD_RATIO_FAST else HARMONIC_FOLD_THIRD_RATIO
-            if (thirdValue >= bestValue * effectiveThirdRatio) {
+            if (thirdValue >= bestValue * HARMONIC_FOLD_THIRD_RATIO) {
+                val thirdBeatMs = thirdLag * hopMs
                 Log.d(
                     TAG,
                     "harmonic fold (/3): bestLag=$bestLag (${bestLag * hopMs}ms) " +
                             "→ thirdLag=$thirdLag (${thirdBeatMs}ms) " +
                             "thirdCorr=${fmt(thirdValue)} bestCorr=${fmt(bestValue)} " +
-                            "ratio=${fmt(thirdValue / bestValue)} threshold=${fmt(effectiveThirdRatio)}"
+                            "ratio=${fmt(thirdValue / bestValue)}"
                 )
                 return thirdBeatMs to thirdValue.coerceIn(0f, 1f)
             }
@@ -940,64 +760,7 @@ object BeatDetectorV8 {
             }
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // Phase refinement: 정박(downbeat) 정렬
-        //
-        // 문제: rawPeak 앵커에서 출발한 그리드가 실제 비트 위상과
-        //       어긋나 있으면 모든 비트가 일정량 앞/뒤로 치우친다.
-        //       (guitar pickup note, 어쿠스틱 어택 지연 등)
-        //
-        // 해결: 최적 그리드를 결정한 뒤 ±half-beat 범위에서
-        //       onset 에너지가 가장 높은 위상 오프셋을 탐색,
-        //       전체 그리드를 해당 오프셋만큼 이동한다.
-        //       (rawPeak가 없는 위치도 onset 에너지 창으로 평가)
-        if (bestGrid.size >= 2) {
-            bestGrid = refineGridPhase(bestGrid, onset, beatFrames, tolFrames, hopMs)
-        }
         return bestGrid
-    }
-
-    /**
-     * 전체 그리드를 ±halfBeat 범위에서 위상 이동하며
-     * onset 에너지 창(window) 합계가 최대인 오프셋을 찾아 그리드를 정렬한다.
-     *
-     * scoreGridWithWindow: rawPeak 유무 관계없이 각 그리드 위치 주변
-     * tolFrames 내 최대 onset 값을 합산해 위상 품질을 평가한다.
-     */
-    private fun refineGridPhase(
-        grid: List<Int>,
-        onset: List<Float>,
-        beatFrames: Int,
-        tolFrames: Int,
-        hopMs: Long
-    ): List<Int> {
-        if (grid.size < 2 || beatFrames <= 0) return grid
-        val halfBeat = max(1, beatFrames / 2)
-        var bestShift = 0
-        var bestScore = scoreGridWithWindow(grid, onset, tolFrames)
-        for (shift in -halfBeat until halfBeat) {
-            if (shift == 0) continue
-            val score = scoreGridWithWindow(
-                grid.map { (it + shift).coerceIn(0, onset.size - 1) }, onset, tolFrames
-            )
-            if (score > bestScore) { bestScore = score; bestShift = shift }
-        }
-        if (bestShift == 0) return grid
-        Log.d(TAG, "phase refine shift=${bestShift}f (${bestShift * hopMs}ms) score=${fmt(bestScore)}")
-        return grid.map { (it + bestShift).coerceIn(0, onset.size - 1) }.distinct().sorted()
-    }
-
-    /** 그리드 각 위치 ±tolFrames 창 내 최대 onset 값 합산 */
-    private fun scoreGridWithWindow(grid: List<Int>, onset: List<Float>, tolFrames: Int): Float {
-        var score = 0f
-        for (g in grid) {
-            val lo = max(0, g - tolFrames)
-            val hi = min(onset.lastIndex, g + tolFrames)
-            var peak = 0f
-            for (i in lo..hi) if (onset[i] > peak) peak = onset[i]
-            score += peak
-        }
-        return score
     }
 
     /**
@@ -1045,251 +808,6 @@ object BeatDetectorV8 {
             }
         }
         return kept
-    }
-
-    // =========================================================================
-    // Grid projection: rawPeak 없이 onset 에너지 기반 등간격 비트 생성
-    // =========================================================================
-
-    /**
-     * 비트 주기가 알려져 있을 때 onset 에너지 창으로 그리드를 평가해 합성 비트 시퀀스를 반환.
-     *
-     * 사용 목적:
-     * - autocorrelation fold가 유효한 beatMs를 반환했으나 rawPeak가 드물어
-     *   snap→chain이 짧아지는 경우(chain too short)의 대안.
-     * - Pass 2: 전체 합의 beatMs로 실패 세그먼트를 재시도할 때.
-     *
-     * rawPeak 앵커 + frame0 + onset 최대값 위치를 모두 시도,
-     * scoreGridWithWindow(onset 에너지 창 합산)이 최고인 그리드를 반환한다.
-     *
-     * 품질 기준: per-beat 점수 ≥ max(meanOnset × 0.30, 0.008)
-     */
-    private fun gridProjectBeats(
-        rawPeakFrames: List<Int>,
-        onset: List<Float>,
-        beatMs: Long,
-        hopMs: Long,
-        snapToleranceMs: Long,
-        minBeats: Int
-    ): List<Int>? {
-        if (onset.isEmpty() || beatMs <= 0L) return null
-        val beatFrames = max(1, (beatMs / hopMs).toInt())
-        val tolFrames = max(1, (snapToleranceMs / hopMs).toInt())
-
-        // 앵커 후보: rawPeaks + frame 0 + onset 최대값 위치
-        val anchors = LinkedHashSet<Int>()
-        anchors.add(0)
-        rawPeakFrames.forEach { anchors.add(it) }
-        var maxIdx = 0
-        for (i in onset.indices) if (onset[i] > onset[maxIdx]) maxIdx = i
-        anchors.add(maxIdx)
-
-        var bestGrid: List<Int>? = null
-        var bestPerBeatScore = 0f
-
-        for (anchor in anchors) {
-            val grid = ArrayList<Int>()
-            var g = anchor
-            while (g >= 0) { grid.add(g); g -= beatFrames }
-            g = anchor + beatFrames
-            while (g < onset.size) { grid.add(g); g += beatFrames }
-            val sorted = grid.distinct().sorted()
-            if (sorted.size < minBeats) continue
-
-            val perBeatScore = scoreGridWithWindow(sorted, onset, tolFrames) / sorted.size.toFloat()
-            if (perBeatScore > bestPerBeatScore) {
-                bestPerBeatScore = perBeatScore
-                bestGrid = sorted
-            }
-        }
-
-        if (bestGrid == null || (bestGrid?.size ?: 0) < minBeats) return null
-
-        val meanOnset = meanOf(onset)
-        val qualThreshold = max(meanOnset * 0.30f, 0.008f)
-        if (bestPerBeatScore < qualThreshold) {
-            Log.d(TAG, "gridProject rejected: perBeat=${fmt(bestPerBeatScore)} < threshold=${fmt(qualThreshold)}")
-            return null
-        }
-        return bestGrid
-    }
-
-    // =========================================================================
-    // Tempo competition: 다중 후보 BPM 경쟁으로 최적 beatMs 선택
-    // =========================================================================
-
-    /**
-     * autocorr 결과 + 하모닉 변형 + rawPeak 간격 + BPM 스윕 전수검사로
-     * 평가 대상 tempo 후보 목록을 생성한다.
-     *
-     * BPM 스윕(sweepMin~maxBeatMs, hopMs 단위)은 창 겹침이 생기는 구간(beatMs ≤ 2×snapTol)을
-     * 제외하고 진행한다. 이 방식으로 autocorr 하모닉 폴딩 실패(fold ratio 부족 등)를 우회한다.
-     */
-    private fun buildTempoCandidates(
-        acBeatMs: Long?,
-        rawPeaks: List<Int>,
-        params: Params
-    ): List<Long> {
-        val candidates = LinkedHashSet<Long>()
-
-        if (acBeatMs != null && acBeatMs > 0L) {
-            candidates.add(acBeatMs)
-            for (div in 2..3) {
-                val c = acBeatMs / div
-                if (c in params.minBeatMs..params.maxBeatMs) candidates.add(c)
-            }
-            val c2 = acBeatMs * 2
-            if (c2 in params.minBeatMs..params.maxBeatMs) candidates.add(c2)
-            val c23 = acBeatMs * 2 / 3
-            if (c23 in params.minBeatMs..params.maxBeatMs) candidates.add(c23)
-        }
-
-        if (rawPeaks.size >= 3) {
-            val intervals = (1 until rawPeaks.size)
-                .map { (rawPeaks[it] - rawPeaks[it - 1]).toLong() * params.hopMs }
-                .filter { it in params.minBeatMs..params.maxBeatMs }
-            if (intervals.size >= 2) {
-                val sorted = intervals.sorted()
-                val med = sorted[sorted.size / 2]
-                candidates.add(med)
-                if (med / 2 in params.minBeatMs..params.maxBeatMs) candidates.add(med / 2)
-                if (med * 2 in params.minBeatMs..params.maxBeatMs) candidates.add(med * 2)
-            }
-        }
-
-        // BPM 스윕: 창 겹침이 없는 구간만 검사 (beatMs > 2 × snapToleranceMs)
-        val sweepMin = max(params.minBeatMs, 2L * params.snapToleranceMs + params.hopMs)
-        var sweepMs = sweepMin
-        while (sweepMs <= params.maxBeatMs) {
-            candidates.add(sweepMs)
-            sweepMs += params.hopMs
-        }
-
-        return candidates.filter { it in params.minBeatMs..params.maxBeatMs }
-    }
-
-    /**
-     * 후보 beatMs 목록 각각을 onset 에너지 그리드 정렬로 점수화해 최적 beatMs 반환.
-     *
-     * 각 후보에 대해 여러 앵커(rawPeak + frame0 + onset 최대값)에서 등간격 그리드를 생성하고,
-     * scoreGridWithWindow(beat 위치 ±tolFrames 내 최대 onset 합산)의 per-beat 평균을 비교한다.
-     * 가장 높은 per-beat 점수를 가진 후보가 실제 비트 주기일 가능성이 가장 높다.
-     */
-    private fun selectBestTempoByGrid(
-        candidates: List<Long>,
-        onset: List<Float>,
-        rawPeaks: List<Int>,
-        params: Params
-    ): Long? {
-        if (candidates.isEmpty() || onset.isEmpty()) return null
-        val tolFrames = max(1, (params.snapToleranceMs / params.hopMs).toInt())
-
-        val anchors = LinkedHashSet<Int>()
-        anchors.add(0)
-        rawPeaks.take(5).forEach { anchors.add(it) }
-        var maxIdx = 0
-        for (i in onset.indices) if (onset[i] > onset[maxIdx]) maxIdx = i
-        anchors.add(maxIdx)
-
-        var bestMs = 0L
-        var bestPerBeat = 0f
-
-        for (candMs in candidates) {
-            val beatFrames = max(1, (candMs / params.hopMs).toInt())
-            var bestAnchorPerBeat = 0f
-
-            for (anchor in anchors) {
-                val grid = ArrayList<Int>()
-                var g = anchor
-                while (g >= 0) { grid.add(g); g -= beatFrames }
-                g = anchor + beatFrames
-                while (g < onset.size) { grid.add(g); g += beatFrames }
-                val sorted = grid.distinct().sorted()
-                if (sorted.size < 2) continue
-                val perBeat = scoreGridWithWindow(sorted, onset, tolFrames) / sorted.size.toFloat()
-                if (perBeat > bestAnchorPerBeat) bestAnchorPerBeat = perBeat
-            }
-
-            if (bestAnchorPerBeat > bestPerBeat) {
-                bestPerBeat = bestAnchorPerBeat
-                bestMs = candMs
-            }
-        }
-
-        Log.d(TAG, "tempoGrid winner=${bestMs}ms perBeat=${fmt(bestPerBeat)} candidates=${candidates.size}")
-        return if (bestMs > 0L && bestPerBeat > 0f) bestMs else null
-    }
-
-    // =========================================================================
-    // Pass 2: fixed-beatMs grid projection for failed segments
-    // =========================================================================
-
-    /**
-     * autocorr을 건너뛰고 fixedBeatMs로 grid projection만 시도.
-     * Pass 2에서 첫 번째 패스에 실패한 세그먼트를 consensus beatMs로 재시도할 때 사용.
-     */
-    private fun detectSingleSourceWithFixedBeatMs(
-        segmentIndex: Int,
-        source: BeatSource,
-        env: List<Float>,
-        fixedBeatMs: Long,
-        params: Params
-    ): TrialResult {
-        if (env.size < 8) return TrialResult(
-            source = source, beatTimesMs = emptyList(), beatMs = 0L, score = 0f,
-            rawPeakCount = 0, snappedCount = 0, onsetMean = 0f, onsetStd = 0f, onsetMax = 0f,
-            acPeak = 0f, snapRatio = 0f, reason = "env too short"
-        )
-        val onset = computeODF(env, params.onsetSmoothWindow)
-
-        val mean = meanOf(onset)
-        val std = stdOf(onset, mean)
-        val onsetMax = maxOfList(onset)
-
-        val threshold = max(params.minPeakAbs, mean + std * params.peakThresholdK)
-        val minPeakFrames = max(1, (params.minPeakDistanceMs / params.hopMs).toInt())
-        val rawPeaks = findPeaks(onset, threshold, minPeakFrames)
-
-        val segDurationMs = env.size.toLong() * params.hopMs
-        val effectiveMinChain = if (segDurationMs < 15_000L) 2 else params.minChainCount
-
-        val projFrames = gridProjectBeats(
-            rawPeakFrames = rawPeaks,
-            onset = onset,
-            beatMs = fixedBeatMs,
-            hopMs = params.hopMs,
-            snapToleranceMs = params.snapToleranceMs,
-            minBeats = effectiveMinChain
-        ) ?: return TrialResult(
-            source = source, beatTimesMs = emptyList(), beatMs = fixedBeatMs, score = 0.1f,
-            rawPeakCount = rawPeaks.size, snappedCount = 0, onsetMean = mean, onsetStd = std,
-            onsetMax = onsetMax, acPeak = 0f, snapRatio = 0f, reason = "grid-project failed"
-        )
-
-        val projBeatsMs = projFrames.map { it.toLong() * params.hopMs }
-        val tolF = max(1, (params.snapToleranceMs / params.hopMs).toInt())
-        val projSnapRatio = if (rawPeaks.isEmpty()) 0f else
-            projFrames.count { pf -> rawPeaks.any { abs(it - pf) <= tolF } }
-                .toFloat() / rawPeaks.size.toFloat()
-        val expBeats = max(1, (segDurationMs / fixedBeatMs).toInt())
-        val densProj = min(1f, projBeatsMs.size.toFloat() / expBeats.toFloat())
-        val scoreProj = (densProj * 0.40f + projSnapRatio * 0.30f +
-                min(1f, onsetMax) * 0.10f).coerceIn(0f, 1f)
-        Log.d(TAG, "SEG[$segmentIndex] fixedBeat: beatMs=$fixedBeatMs beats=${projBeatsMs.size} score=${fmt(scoreProj)}")
-        return TrialResult(
-            source = source,
-            beatTimesMs = projBeatsMs,
-            beatMs = fixedBeatMs,
-            score = scoreProj,
-            rawPeakCount = rawPeaks.size,
-            snappedCount = projFrames.size,
-            onsetMean = mean,
-            onsetStd = std,
-            onsetMax = onsetMax,
-            acPeak = 0f,
-            snapRatio = projSnapRatio,
-            reason = "grid-projected-fixed"
-        )
     }
 
     // =========================================================================
@@ -1413,35 +931,6 @@ object BeatDetectorV8 {
         val range = (mx - mn)
         if (range <= 1e-6f) return List(src.size) { 0f }
         return src.map { ((it - mn) / range).coerceIn(0f, 1f) }
-    }
-
-    /**
-     * 슬라이딩 윈도우 지역 정규화: 각 프레임을 주변 windowFrames 내 최대값으로 나눈다.
-     * 전역 normalize01과 달리 조용한 구간에서도 onset 피크를 살려준다.
-     * (큰 소리 하나가 전체를 0에 수렴시키는 문제 해결)
-     */
-    private fun localNormalize(src: List<Float>, windowFrames: Int = 40): List<Float> {
-        if (src.isEmpty()) return emptyList()
-        val out = ArrayList<Float>(src.size)
-        for (i in src.indices) {
-            val lo = max(0, i - windowFrames)
-            val hi = min(src.lastIndex, i + windowFrames)
-            var localMax = 0f
-            for (j in lo..hi) if (src[j] > localMax) localMax = src[j]
-            out.add(if (localMax > 1e-6f) (src[i] / localMax).coerceIn(0f, 1f) else 0f)
-        }
-        return out
-    }
-
-    /**
-     * Onset Detection Function: smooth → positive diff → normalize01.
-     * 전역 정규화를 사용해야 그리드 품질 점수에서 실제 비트 위치가 높은 값을 유지한다.
-     * (localNormalize는 모든 창을 1.0에 수렴시켜 긴 주기 그리드가 과대 점수를 받는 문제 발생)
-     */
-    private fun computeODF(env: List<Float>, smoothWindow: Int): List<Float> {
-        val smooth = movingAverage(env, smoothWindow)
-        val diff = positiveDiff(smooth)
-        return normalize01(diff)
     }
 
     private fun mix(a: List<Float>, b: List<Float>, aw: Float, bw: Float): List<Float> {
