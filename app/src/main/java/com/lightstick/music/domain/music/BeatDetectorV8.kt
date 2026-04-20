@@ -1191,13 +1191,12 @@ object BeatDetectorV8 {
         for (i in onset.indices) if (onset[i] > onset[maxIdx]) maxIdx = i
         anchors.add(maxIdx)
 
-        val totalOnset = onset.sum().coerceAtLeast(1e-6f)
         var bestMs = 0L
-        var bestCoverage = 0f
+        var bestPerBeat = 0f
 
         for (candMs in candidates) {
             val beatFrames = max(1, (candMs / params.hopMs).toInt())
-            var bestAnchorCoverage = 0f
+            var bestAnchorPerBeat = 0f
 
             for (anchor in anchors) {
                 val grid = ArrayList<Int>()
@@ -1207,18 +1206,18 @@ object BeatDetectorV8 {
                 while (g < onset.size) { grid.add(g); g += beatFrames }
                 val sorted = grid.distinct().sorted()
                 if (sorted.size < 2) continue
-                val coverage = scoreGridWithWindow(sorted, onset, tolFrames) / totalOnset
-                if (coverage > bestAnchorCoverage) bestAnchorCoverage = coverage
+                val perBeat = scoreGridWithWindow(sorted, onset, tolFrames) / sorted.size.toFloat()
+                if (perBeat > bestAnchorPerBeat) bestAnchorPerBeat = perBeat
             }
 
-            if (bestAnchorCoverage > bestCoverage) {
-                bestCoverage = bestAnchorCoverage
+            if (bestAnchorPerBeat > bestPerBeat) {
+                bestPerBeat = bestAnchorPerBeat
                 bestMs = candMs
             }
         }
 
-        Log.d(TAG, "tempoGrid winner=${bestMs}ms coverage=${fmt(bestCoverage)} candidates=${candidates.size}")
-        return if (bestMs > 0L && bestCoverage > 0f) bestMs else null
+        Log.d(TAG, "tempoGrid winner=${bestMs}ms perBeat=${fmt(bestPerBeat)} candidates=${candidates.size}")
+        return if (bestMs > 0L && bestPerBeat > 0f) bestMs else null
     }
 
     // =========================================================================
