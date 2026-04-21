@@ -986,8 +986,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
             if (section.engine == FgEngine.BREATH) {
                 val (fg, bg) = colorsForEngine(palette, section.engine, sameTypeIdx)
-                // VERSE: randomDelay=0 (비트 동기 우선) / 나머지(BRIDGE 등): randomDelay=5 (파도 효과 유지)
-                val breathSectionDelay = if (section.type == SectionType.VERSE) 0 else 5
+                // VERSE: randomDelay=0 (비트 동기 우선) / 나머지(BRIDGE 등): period의 10% (파도 효과)
+                val breathSectionDelay = if (section.type == SectionType.VERSE) 0 else msToBreathRandomDelay(section.beatMs)
                 putFrame(section.startMs, buildPayload(section.engine, fg, bg, section.beatMs),
                     section, "SECTION_START", FgEngine.BREATH,
                     fg = fg, bg = bg, period = msToBreathPeriod(section.beatMs), randomDelay = breathSectionDelay)
@@ -1029,7 +1029,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                 val mFg = palette.white; val mBg = palette.breathSet.bg
                 putFrame(section.startMs, buildPayload(FgEngine.BREATH, mFg, mBg, section.beatMs),
                     section, "TRANSITION_BREATH", FgEngine.BREATH,
-                    fg = mFg, bg = mBg, period = msToBreathPeriod(section.beatMs), randomDelay = 5,
+                    fg = mFg, bg = mBg, period = msToBreathPeriod(section.beatMs), randomDelay = msToBreathRandomDelay(section.beatMs),
                     note = "gap=${interSectionGapMs}ms transition-marker")
                 Log.d(TAG, "transition breath: idx=$index t=${section.startMs}ms gap=${interSectionGapMs}ms")
 
@@ -1118,10 +1118,10 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         effectiveBeatEngine == FgEngine.STROBE && nearClimax -> 1
                         effectiveBeatEngine == FgEngine.ON_TRANSIT_ROTATE    -> null
                         effectiveBeatEngine == FgEngine.ON_PULSE             -> null
-                        // VERSE BREATH: randomDelay=0 / BRIDGE BREATH: randomDelay=5 (파도 효과 유지)
+                        // VERSE BREATH: randomDelay=0 / BRIDGE BREATH: period의 10% (파도 효과)
                         effectiveBeatEngine == FgEngine.BREATH &&
                                 section.type == SectionType.VERSE            -> 0
-                        effectiveBeatEngine == FgEngine.BREATH               -> 5
+                        effectiveBeatEngine == FgEngine.BREATH               -> msToBreathRandomDelay(section.beatMs)
                         else                                                  -> null
                     }
 
@@ -1294,6 +1294,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
     private fun msToBlinkPeriod(beatMs: Long)  = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToStrobePeriod(beatMs: Long) = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToBreathPeriod(beatMs: Long) = (beatMs / 20L).toInt().coerceIn(1, 255)
+    // breath randomDelay = period의 10% (파도 효과 강도를 템포에 비례)
+    private fun msToBreathRandomDelay(beatMs: Long) = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
 
     // =========================================================================
     // Color helpers
