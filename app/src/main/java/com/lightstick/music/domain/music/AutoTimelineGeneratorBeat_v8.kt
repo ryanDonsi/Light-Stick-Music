@@ -45,6 +45,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         private const val ON_TRANSIT = 2
 
         private const val INTRO_PRESTART_TRANSIT_MS = 1_000L
+        private const val MIN_TRAILING_SILENCE_MS   = 1_500L
         private const val MIN_SECTION_MS = 1_000L
 
         private const val ACTUAL_BEAT_USE_RATIO = 0.45f
@@ -266,6 +267,13 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             )
         }
 
+        val finalOffMs = detectLastMusicEndMs(
+            energyFrames = fullEnv.take(envSize).toFloatArray(),
+            hopMs = HOP_MS,
+            minTrailingSilenceMs = MIN_TRAILING_SILENCE_MS
+        ).coerceIn(0L, durationMs)
+        Log.d(TAG, "finalOffMs=$finalOffMs durationMs=$durationMs trailingSilence=${durationMs - finalOffMs}ms")
+
         val frames = buildFramesFromSections(
             musicId = musicId,
             palette = palette,
@@ -273,7 +281,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             beatTimes = beatTimes,
             durationMs = durationMs,
             climaxMoments = effectiveClimaxMoments,
-            isBalladMode = isBalladMode
+            isBalladMode = isBalladMode,
+            finalOffMs = finalOffMs
         )
 
         Log.d(TAG, "v8 frames(final)=${frames.size}")
@@ -928,7 +937,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         beatTimes: List<Long>,
         durationMs: Long,
         climaxMoments: List<Long>,
-        isBalladMode: Boolean = false
+        isBalladMode: Boolean = false,
+        finalOffMs: Long = durationMs
     ): List<Pair<Long, ByteArray>> {
         val frameMap = LinkedHashMap<Long, ByteArray>(beatTimes.size * 4 + sections.size + 8)
 
@@ -1187,9 +1197,13 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             prevSectionEndMs = section.endMs
         }
 
-        if (frameMap.keys.none { it >= durationMs }) {
-            val endSection = Section(durationMs, durationMs, SectionType.END, FgEngine.OFF_TRANSIT, 0L, 0, "final-off", ChangeLevel.STRONG)
-            putFrame(durationMs, buildOffPayload(), endSection, "FINAL_OFF", FgEngine.OFF_TRANSIT, transit = ON_TRANSIT)
+        // 음악이 끝나기 전에 정적 구간이 있으면 그 시점에 OFF_TRANSIT 배치
+        if (finalOffMs < durationMs) {
+            frameMap.keys.filter { it > finalOffMs }.forEach { frameMap.remove(it) }
+        }
+        if (frameMap.keys.none { it >= finalOffMs }) {
+            val endSection = Section(finalOffMs, finalOffMs, SectionType.END, FgEngine.OFF_TRANSIT, 0L, 0, "final-off", ChangeLevel.STRONG)
+            putFrame(finalOffMs, buildOffPayload(), endSection, "FINAL_OFF", FgEngine.OFF_TRANSIT, transit = ON_TRANSIT)
         }
 
         Log.d(TAG, "timeline final uniqueFrames=${frameMap.size}")
@@ -1413,6 +1427,27 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             else run = 0
         }
         return 0L
+    }
+
+    private fun detectLastMusicEndMs(energyFrames: FloatArray, hopMs: Long, minTrailingSilenceMs: Long): Long {
+        if (energyFrames.isEmpty()) return 0L
+        val totalMs = energyFrames.size * hopMs
+        val smooth = FloatArray(energyFrames.size)
+        for (i in energyFrames.indices) {
+            var sum = 0f; var count = 0
+            for (k in -4..4) { val j = i + k; if (j in energyFrames.indices) { sum += energyFrames[j]; count++ } }
+            smooth[i] = if (count > 0) sum / count else energyFrames[i]
+        }
+        val activeMax = smooth.maxOrNull() ?: 0f
+        val threshold = max(activeMax * 0.03f, 0.01f)
+        for (i in smooth.indices.reversed()) {
+            if (smooth[i] >= threshold) {
+                val lastActiveMs = (i + 1) * hopMs
+                val trailingSilenceMs = totalMs - lastActiveMs
+                return if (trailingSilenceMs >= minTrailingSilenceMs) lastActiveMs else totalMs
+            }
+        }
+        return totalMs
     }
 
     private fun percentile(values: List<Float>, p: Float): Float {
