@@ -201,14 +201,7 @@ object BeatDetectorV9 {
             return DetectResult(emptyList(), 0L, null, "all segments failed", segResults)
         }
 
-        // segment-voted beatMs takes priority over noisy inter-beat-diff median
-        val segBeatMsMode = segResults
-            .filter { it.reason == "ok" && it.beatMs in params.minBeatMs..params.maxBeatMs }
-            .groupBy { it.beatMs }
-            .maxByOrNull { it.value.size }
-            ?.key
-        val finalBeatMs = segBeatMsMode
-            ?: estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs)
+        val finalBeatMs = estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs)
         val finalSource = sourceVotes.maxByOrNull { it.value }?.key
 
         Log.d(TAG,
