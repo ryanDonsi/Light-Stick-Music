@@ -7,12 +7,6 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.AutoTimelineGenerator
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v1
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v2
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v3
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v4
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v5
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v6
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v7
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v8
 import kotlinx.coroutines.yield
@@ -73,12 +67,6 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
 
         // 현재 설정 버전에 해당하는 제너레이터만 생성
         val generator: AutoTimelineGenerator = when (version) {
-            1 -> AutoTimelineGeneratorBeat_v1()
-            2 -> AutoTimelineGeneratorBeat_v2()
-            3 -> AutoTimelineGeneratorBeat_v3()
-            4 -> AutoTimelineGeneratorBeat_v4()
-            5 -> AutoTimelineGeneratorBeat_v5()
-            6 -> AutoTimelineGeneratorBeat_v6()
             7 -> AutoTimelineGeneratorBeat_v7()
             8 -> AutoTimelineGeneratorBeat_v8()
             else -> throw IllegalArgumentException("Unsupported version: $version")

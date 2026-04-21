@@ -46,7 +46,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
         private const val INTRO_PRESTART_TRANSIT_MS = 1_000L
         private const val MIN_SECTION_MS = 1_000L
-        private const val SECTION_MERGE_GAP_MS = 0L
 
         private const val ACTUAL_BEAT_USE_RATIO = 0.45f
 
@@ -161,11 +160,11 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
         val durationMs = envSize.toLong() * HOP_MS
 
-        val detect = BeatDetectorV8.detect(
+        val detect = BeatDetectorV9.detect(
             lowEnv = lowEnv.take(envSize),
             midEnv = midEnv.take(envSize),
             fullEnv = fullEnv.take(envSize),
-            params = BeatDetectorV8.Params(
+            params = BeatDetectorV9.Params(
                 hopMs = HOP_MS,
                 minBeatMs = MIN_BEAT_MS,
                 maxBeatMs = MAX_BEAT_MS,
@@ -481,103 +480,98 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             return raw.filter { it.endMs > it.startMs }
         }
 
-        val winMs = (beatMs * 4L).coerceAtLeast(2_000L)
-        val windows = ArrayList<Triple<Long, Long, Float>>()
+        // ─────────────────────────────────────────────────────────────────────
+        // Novelty 기반 변화점 탐지
+        //
+        // 기존: 고정 윈도우(beatMs×4) → 각 윈도우 독립 분류 → 동일 타입 병합
+        //       → 섹션 경계가 beatMs×4 배수에 고정, 실제 변화점과 미정렬
+        //
+        // 개선: 2박자 해상도 스코어 계산 → 스무딩 → Novelty 함수(전후 평균 차) →
+        //       피크(= 실제 변화점) 탐지 → 변화점 사이 구간을 통째로 분류
+        // ─────────────────────────────────────────────────────────────────────
+
+        // Step 1: 2박자 해상도로 에너지 스코어 계산
+        val stepMs      = (beatMs * 2L).coerceAtLeast(1_000L)
+        val frameTimes  = ArrayList<Long>()
+        val frameScores = ArrayList<Float>()
 
         var t = contentStartMs
         while (t < durationMs) {
-            val e = min(durationMs, t + winMs)
-            val score = sectionEnergyScore(lowEnv, midEnv, fullEnv, t, e)
-            windows += Triple(t, e, score)
-            t = e
+            val e = min(durationMs, t + stepMs)
+            frameTimes  += t
+            frameScores += sectionEnergyScore(lowEnv, midEnv, fullEnv, t, e)
+            t += stepMs
         }
 
-        if (windows.isEmpty()) {
+        if (frameTimes.isEmpty()) {
             raw += Section(
-                startMs = contentStartMs,
-                endMs = durationMs,
-                type = SectionType.END,
-                engine = FgEngine.OFF_TRANSIT,
-                beatMs = beatMs,
+                startMs = contentStartMs, endMs = durationMs, type = SectionType.END,
+                engine = FgEngine.OFF_TRANSIT, beatMs = beatMs,
                 beats = estimateBeatCount(contentStartMs, durationMs, beatMs),
-                source = "end-protected",
-                change = ChangeLevel.STRONG
+                source = "end-protected", change = ChangeLevel.STRONG
             )
             return raw.filter { it.endMs > it.startMs }
         }
 
-        val scores = windows.map { it.third }
-        val lowTh = percentile(scores, 0.35f)
-        val highTh = percentile(scores, 0.70f)
+        // Step 2: 전역 임계값 (분류에 사용)
+        val lowTh  = percentile(frameScores, 0.35f)
+        val highTh = percentile(frameScores, 0.70f)
 
-        val contentSections = ArrayList<Section>()
-        var currentStart = windows.first().first
-        var currentEnd = windows.first().second
-        var currentType = classifyType(windows.first().third, lowTh, highTh)
-        var currentScoreSum = windows.first().third
-        var currentScoreCount = 1
+        // Step 3: 스코어 스무딩 (노이즈 제거)
+        val smoothed = smoothScores(frameScores, window = 3)
 
-        for (i in 1 until windows.size) {
-            val w = windows[i]
-            val type = classifyType(w.third, lowTh, highTh)
+        // Step 4: Novelty 함수 — 각 위치에서 직전 k프레임 평균 vs 직후 k프레임 평균의 차
+        val k = 2
+        val novelty = ArrayList<Float>(smoothed.size)
+        for (i in smoothed.indices) {
+            val backIdx = max(0, i - k) until i
+            val fwdIdx  = (i + 1) until min(smoothed.size, i + k + 1)
+            val back = if (backIdx.isEmpty()) 0f else backIdx.sumOf { smoothed[it].toDouble() }.toFloat() / backIdx.count()
+            val fwd  = if (fwdIdx.isEmpty())  0f else fwdIdx.sumOf  { smoothed[it].toDouble() }.toFloat() / fwdIdx.count()
+            novelty += abs(fwd - back)
+        }
+        val smoothNovelty = smoothScores(novelty, window = 2)
 
-            if (type == currentType || w.first - currentEnd <= SECTION_MERGE_GAP_MS) {
-                if (type == currentType) {
-                    currentEnd = w.second
-                    currentScoreSum += w.third
-                    currentScoreCount++
-                } else {
-                    val avgScore = if (currentScoreCount > 0) currentScoreSum / currentScoreCount else 0f
-                    contentSections += buildContentSection(
-                        startMs = currentStart,
-                        endMs = currentEnd,
-                        type = currentType,
-                        beatMs = beatMs,
-                        energyScore = avgScore,
-                        lowTh = lowTh,
-                        highTh = highTh,
-                        climaxMoments = climaxMoments,
-                        isBalladMode = isBalladMode
-                    )
-                    currentStart = w.first
-                    currentEnd = w.second
-                    currentType = type
-                    currentScoreSum = w.third
-                    currentScoreCount = 1
-                }
-            } else {
-                val avgScore = if (currentScoreCount > 0) currentScoreSum / currentScoreCount else 0f
-                contentSections += buildContentSection(
-                    startMs = currentStart,
-                    endMs = currentEnd,
-                    type = currentType,
-                    beatMs = beatMs,
-                    energyScore = avgScore,
-                    lowTh = lowTh,
-                    highTh = highTh,
-                    climaxMoments = climaxMoments,
-                    isBalladMode = isBalladMode
-                )
-                currentStart = w.first
-                currentEnd = w.second
-                currentType = type
-                currentScoreSum = w.third
-                currentScoreCount = 1
+        // Step 5: Novelty 피크 = 섹션 경계
+        // 피크 조건: 로컬 최댓값 + 평균의 1.5배 초과 + 최소 8박자 간격
+        val minGapFrames  = max(2, (beatMs * 8L / stepMs).toInt())
+        val noveltyMean   = smoothNovelty.average().toFloat()
+        val noveltyTh     = noveltyMean * 1.5f
+
+        val boundaryTimes = ArrayList<Long>()
+        boundaryTimes += contentStartMs
+        var lastPeakIdx   = -minGapFrames
+
+        for (i in 1 until smoothNovelty.size - 1) {
+            val isPeak = smoothNovelty[i] > smoothNovelty[i - 1] &&
+                    smoothNovelty[i] >= smoothNovelty[i + 1] &&
+                    smoothNovelty[i] > noveltyTh &&
+                    (i - lastPeakIdx) >= minGapFrames
+            if (isPeak) {
+                boundaryTimes += frameTimes[i]
+                lastPeakIdx = i
             }
         }
+        boundaryTimes += durationMs
 
-        val lastAvgScore = if (currentScoreCount > 0) currentScoreSum / currentScoreCount else 0f
-        contentSections += buildContentSection(
-            startMs = currentStart,
-            endMs = currentEnd,
-            type = currentType,
-            beatMs = beatMs,
-            energyScore = lastAvgScore,
-            lowTh = lowTh,
-            highTh = highTh,
-            climaxMoments = climaxMoments,
-            isBalladMode = isBalladMode
-        )
+        Log.d(TAG, "novelty boundaries(${boundaryTimes.size - 2} found) " +
+                "noveltyMean=${"%.3f".format(noveltyMean)} th=${"%.3f".format(noveltyTh)} " +
+                "boundaries=${boundaryTimes.dropLast(1).drop(1).joinToString { "${it / 1000}s" }}")
+
+        // Step 6: 각 구간을 통째로 분류 (변화점 사이 평균 스코어 기준)
+        val contentSections = ArrayList<Section>()
+        for (idx in 0 until boundaryTimes.size - 1) {
+            val sStart = boundaryTimes[idx]
+            val sEnd   = boundaryTimes[idx + 1]
+            if (sEnd <= sStart) continue
+            val avgScore = sectionEnergyScore(lowEnv, midEnv, fullEnv, sStart, sEnd)
+            val type     = classifyType(avgScore, lowTh, highTh)
+            contentSections += buildContentSection(
+                startMs = sStart, endMs = sEnd, type = type, beatMs = beatMs,
+                energyScore = avgScore, lowTh = lowTh, highTh = highTh,
+                climaxMoments = climaxMoments, isBalladMode = isBalladMode
+            )
+        }
 
         val merged = mergeSmallSections(contentSections, beatMs)
         raw += merged
@@ -738,6 +732,16 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
         out += cur
         return out
+    }
+
+    /** 이동 평균 스무딩 — Novelty 계산 전 노이즈 제거용 */
+    private fun smoothScores(scores: List<Float>, window: Int): List<Float> {
+        val half = window / 2
+        return scores.mapIndexed { i, _ ->
+            val s = max(0, i - half)
+            val e = min(scores.size, i + half + 1)
+            scores.subList(s, e).sum() / (e - s).toFloat()
+        }
     }
 
     private fun classifyType(score: Float, lowTh: Float, highTh: Float): SectionType {
@@ -1012,6 +1016,15 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             val firstBeat  = effectiveSectionBeats.first()
             val coverGapMs = firstBeat - section.startMs
 
+            // STROBE 섹션은 섹션 전체 범위 기준으로 nearClimax를 한 번만 판정
+            // → 섹션 커버 필 + 비트 루프 모두 동일 기준 적용
+            val sectionNearClimax: Boolean = if (section.engine == FgEngine.STROBE) {
+                climaxMoments.any { climax ->
+                    climax + CLIMAX_WINDOW_HALF_MS >= section.startMs &&
+                            climax - CLIMAX_WINDOW_HALF_MS <= section.endMs
+                }
+            } else false
+
             if (insertTransitionBreath) {
                 val mFg = palette.white; val mBg = palette.breathSet.bg
                 putFrame(section.startMs, buildPayload(FgEngine.BREATH, mFg, mBg, section.beatMs),
@@ -1043,7 +1056,12 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         val (cvFg, cvBg) = colorsForEngine(palette, beatEngineForFill, sameTypeIdx, fillIdx, section.type)
                         val fillRotateTransit = if (section.engine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
                             ON_ROTATE_BALLAD_TRANSIT else 0
+                        val fillPeriod = when (section.engine) {
+                            FgEngine.STROBE -> if (sectionNearClimax) 1 else msToStrobePeriod(section.beatMs)
+                            else -> null
+                        }
                         putFrame(fillT, buildPayload(section.engine, cvFg, cvBg, section.beatMs,
+                            period = fillPeriod,
                             rotateTransit = fillRotateTransit),
                             section, if (fillIdx == 0) "SECTION_COVER" else "SECTION_COVER_FILL", section.engine,
                             fg = cvFg, bg = cvBg,
@@ -1052,10 +1070,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                                 FgEngine.ON_TRANSIT_ROTATE -> fillRotateTransit.takeIf { it > 0 }
                                 else                       -> null
                             },
-                            period = when (section.engine) {
-                                FgEngine.STROBE -> msToStrobePeriod(section.beatMs)
-                                else -> null
-                            }, note = "section-cover-fill gap=${coverGapMs}ms fillIdx=$fillIdx sectionEngine=${section.engine.name}")
+                            period = fillPeriod,
+                            note = "section-cover-fill gap=${coverGapMs}ms fillIdx=$fillIdx sectionEngine=${section.engine.name}")
                         if (beatEngineForFill == FgEngine.ON_PULSE) {
                             val offT = min(firstBeat, fillT + section.beatMs * 3L / 10L)
                             if (offT > fillT)
@@ -1068,15 +1084,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                     Log.d(TAG, "section-cover long gap=${coverGapMs}ms filled=$fillIdx beats")
                 }
             }
-
-            // STROBE 섹션은 섹션 전체 범위 기준으로 nearClimax를 한 번만 판정
-            // → 섹션 중간에 BREATH→STROBE가 갑자기 전환되는 현상 방지
-            val sectionNearClimax: Boolean = if (section.engine == FgEngine.STROBE) {
-                climaxMoments.any { climax ->
-                    climax + CLIMAX_WINDOW_HALF_MS >= section.startMs &&
-                            climax - CLIMAX_WINDOW_HALF_MS <= section.endMs
-                }
-            } else false
 
             for ((beatIndex, t) in effectiveSectionBeats.withIndex()) {
                 if (beatIndex == 0 && section.type == SectionType.INTRO) {
@@ -1108,7 +1115,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         else            -> null
                     }
                     val beatRandomDelay = when {
-                        effectiveBeatEngine == FgEngine.STROBE && nearClimax -> 2
+                        effectiveBeatEngine == FgEngine.STROBE && nearClimax -> 1
                         effectiveBeatEngine == FgEngine.ON_TRANSIT_ROTATE    -> null
                         effectiveBeatEngine == FgEngine.ON_PULSE             -> null
                         // VERSE BREATH: randomDelay=0 / BRIDGE BREATH: randomDelay=5 (파도 효과 유지)

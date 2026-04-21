@@ -53,16 +53,6 @@ object BeatDetectorV8 {
     // 조건: 2/3 lag이 minBeatMs 이상이고 maxBeatMs * 0.65 이하일 때만 적용
     private const val HARMONIC_TWO_THIRDS_RATIO = 0.75f
 
-    // 조용한 기타/어쿠스틱 곡 대응 — 빠른 결과 주기에서 더 보수적인 fold ratio
-    // fold 결과가 이 값(ms) 미만이면 harmonic ringing 오검출 가능성이 높다고 판단
-    // 350ms: K-팝 실제 비트 하한(≈171 BPM)에 맞게 낮춤
-    //   → 750ms→375ms fold 는 표준 비율(0.40) 적용 (기존 380 → 보수적 0.65 방지)
-    //   → 700ms→350ms 경계, 600ms→300ms 이하는 여전히 보수적 0.65 유지
-    private const val HARMONIC_FOLD_GUARD_MS = 350L
-    // 빠른 결과 주기용 higher ratio (0.40 → 0.65): ringing 으로 인한 fold 억제
-    private const val HARMONIC_FOLD_HALF_RATIO_FAST  = 0.65f
-    private const val HARMONIC_FOLD_THIRD_RATIO_FAST = 0.55f
-
     enum class BeatSource {
         LOW,
         MID,
@@ -611,39 +601,29 @@ object BeatDetectorV8 {
         if (confidence < 0.012f) return null    // 완화: 0.025→0.012 (잔잔한 곡/짧은 세그먼트)
 
         // ② harmonic folding: bestLag/2 검사 (빠른 곡 — 2배 편향 교정)
-        // 조용한 기타/어쿠스틱 곡 대응:
-        // 기타 harmonic ringing은 실제 비트 주기의 1/2, 1/3 에서도 상관값이 발생해
-        // 정상 비트(1000ms)를 절반(500ms)이나 그 이하로 잘못 교정할 수 있음.
-        // fold 결과가 HARMONIC_FOLD_GUARD_MS(380ms) 미만이면 ringing 오검출로 간주,
-        // 더 높은 ratio를 요구해 fold를 억제한다.
         val halfLag = bestLag / 2
         if (halfLag >= minLag) {
             val halfValue = corrArray[halfLag]
-            val halfBeatMs = halfLag * hopMs
-            val effectiveHalfRatio = if (halfBeatMs < HARMONIC_FOLD_GUARD_MS)
-                HARMONIC_FOLD_HALF_RATIO_FAST else HARMONIC_FOLD_HALF_RATIO
-            if (halfValue >= bestValue * effectiveHalfRatio) {
+            if (halfValue >= bestValue * HARMONIC_FOLD_HALF_RATIO) {
+                val halfBeatMs = halfLag * hopMs
                 Log.d(
                     TAG,
                     "harmonic fold (/2): bestLag=$bestLag (${bestLag * hopMs}ms) " +
                             "→ halfLag=$halfLag (${halfBeatMs}ms) " +
                             "halfCorr=${fmt(halfValue)} bestCorr=${fmt(bestValue)} " +
-                            "ratio=${fmt(halfValue / bestValue)} threshold=${fmt(effectiveHalfRatio)}"
+                            "ratio=${fmt(halfValue / bestValue)}"
                 )
                 // halfLag 자체도 추가 교정 대상인지 재귀적으로 확인 (최대 1회)
                 val quarterLag = halfLag / 2
                 if (quarterLag >= minLag) {
                     val quarterValue = corrArray[quarterLag]
-                    val quarterBeatMs = quarterLag * hopMs
-                    val effectiveQuarterRatio = if (quarterBeatMs < HARMONIC_FOLD_GUARD_MS)
-                        HARMONIC_FOLD_HALF_RATIO_FAST else HARMONIC_FOLD_HALF_RATIO
-                    if (quarterValue >= halfValue * effectiveQuarterRatio) {
+                    if (quarterValue >= halfValue * HARMONIC_FOLD_HALF_RATIO) {
+                        val quarterBeatMs = quarterLag * hopMs
                         Log.d(
                             TAG,
                             "harmonic fold (/4): halfLag=$halfLag (${halfBeatMs}ms) " +
                                     "→ quarterLag=$quarterLag (${quarterBeatMs}ms) " +
-                                    "quarterCorr=${fmt(quarterValue)} halfCorr=${fmt(halfValue)} " +
-                                    "threshold=${fmt(effectiveQuarterRatio)}"
+                                    "quarterCorr=${fmt(quarterValue)} halfCorr=${fmt(halfValue)}"
                         )
                         return quarterBeatMs to quarterValue.coerceIn(0f, 1f)
                     }
@@ -656,16 +636,14 @@ object BeatDetectorV8 {
         val thirdLag = bestLag / 3
         if (thirdLag >= minLag) {
             val thirdValue = corrArray[thirdLag]
-            val thirdBeatMs = thirdLag * hopMs
-            val effectiveThirdRatio = if (thirdBeatMs < HARMONIC_FOLD_GUARD_MS)
-                HARMONIC_FOLD_THIRD_RATIO_FAST else HARMONIC_FOLD_THIRD_RATIO
-            if (thirdValue >= bestValue * effectiveThirdRatio) {
+            if (thirdValue >= bestValue * HARMONIC_FOLD_THIRD_RATIO) {
+                val thirdBeatMs = thirdLag * hopMs
                 Log.d(
                     TAG,
                     "harmonic fold (/3): bestLag=$bestLag (${bestLag * hopMs}ms) " +
                             "→ thirdLag=$thirdLag (${thirdBeatMs}ms) " +
                             "thirdCorr=${fmt(thirdValue)} bestCorr=${fmt(bestValue)} " +
-                            "ratio=${fmt(thirdValue / bestValue)} threshold=${fmt(effectiveThirdRatio)}"
+                            "ratio=${fmt(thirdValue / bestValue)}"
                 )
                 return thirdBeatMs to thirdValue.coerceIn(0f, 1f)
             }
@@ -782,64 +760,7 @@ object BeatDetectorV8 {
             }
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // Phase refinement: 정박(downbeat) 정렬
-        //
-        // 문제: rawPeak 앵커에서 출발한 그리드가 실제 비트 위상과
-        //       어긋나 있으면 모든 비트가 일정량 앞/뒤로 치우친다.
-        //       (guitar pickup note, 어쿠스틱 어택 지연 등)
-        //
-        // 해결: 최적 그리드를 결정한 뒤 ±half-beat 범위에서
-        //       onset 에너지가 가장 높은 위상 오프셋을 탐색,
-        //       전체 그리드를 해당 오프셋만큼 이동한다.
-        //       (rawPeak가 없는 위치도 onset 에너지 창으로 평가)
-        if (bestGrid.size >= 2) {
-            bestGrid = refineGridPhase(bestGrid, onset, beatFrames, tolFrames, hopMs)
-        }
         return bestGrid
-    }
-
-    /**
-     * 전체 그리드를 ±halfBeat 범위에서 위상 이동하며
-     * onset 에너지 창(window) 합계가 최대인 오프셋을 찾아 그리드를 정렬한다.
-     *
-     * scoreGridWithWindow: rawPeak 유무 관계없이 각 그리드 위치 주변
-     * tolFrames 내 최대 onset 값을 합산해 위상 품질을 평가한다.
-     */
-    private fun refineGridPhase(
-        grid: List<Int>,
-        onset: List<Float>,
-        beatFrames: Int,
-        tolFrames: Int,
-        hopMs: Long
-    ): List<Int> {
-        if (grid.size < 2 || beatFrames <= 0) return grid
-        val halfBeat = max(1, beatFrames / 2)
-        var bestShift = 0
-        var bestScore = scoreGridWithWindow(grid, onset, tolFrames)
-        for (shift in -halfBeat until halfBeat) {
-            if (shift == 0) continue
-            val score = scoreGridWithWindow(
-                grid.map { (it + shift).coerceIn(0, onset.size - 1) }, onset, tolFrames
-            )
-            if (score > bestScore) { bestScore = score; bestShift = shift }
-        }
-        if (bestShift == 0) return grid
-        Log.d(TAG, "phase refine shift=${bestShift}f (${bestShift * hopMs}ms) score=${fmt(bestScore)}")
-        return grid.map { (it + bestShift).coerceIn(0, onset.size - 1) }.distinct().sorted()
-    }
-
-    /** 그리드 각 위치 ±tolFrames 창 내 최대 onset 값 합산 */
-    private fun scoreGridWithWindow(grid: List<Int>, onset: List<Float>, tolFrames: Int): Float {
-        var score = 0f
-        for (g in grid) {
-            val lo = max(0, g - tolFrames)
-            val hi = min(onset.lastIndex, g + tolFrames)
-            var peak = 0f
-            for (i in lo..hi) if (onset[i] > peak) peak = onset[i]
-            score += peak
-        }
-        return score
     }
 
     /**
