@@ -1266,8 +1266,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         @Suppress("UNUSED_PARAMETER") beatMs: Long, relScore: Float = 0.5f,
         isBalladMode: Boolean = false
     ): FgEngine {
-        // 발라드 모드: bridge 전 구간 BREATH (ON ROTATE·STROBE 없음)
-        if (isBalladMode) return FgEngine.BREATH
+        // 발라드 모드 또는 초저에너지(quiet intro/outro): bridge 전 구간 BREATH
+        if (isBalladMode || relScore < 0.1f) return FgEngine.BREATH
         if (totalBeats <= 0) return FgEngine.STROBE
         val strobeEntry = (0.80f - relScore * 0.55f).coerceIn(0.20f, 0.85f)
         return when {
