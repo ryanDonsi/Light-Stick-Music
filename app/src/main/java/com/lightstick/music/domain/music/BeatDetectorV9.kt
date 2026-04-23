@@ -201,7 +201,7 @@ object BeatDetectorV9 {
             return DetectResult(emptyList(), 0L, null, "all segments failed", segResults)
         }
 
-        val finalBeatMs = estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs)
+        val finalBeatMs = estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs, params.hopMs)
         val finalSource = sourceVotes.maxByOrNull { it.value }?.key
 
         Log.d(TAG,
@@ -496,7 +496,7 @@ object BeatDetectorV9 {
     // Utility
     // =========================================================================
 
-    private fun estimateMedianInterval(beats: List<Long>, minBeatMs: Long, maxBeatMs: Long): Long {
+    private fun estimateMedianInterval(beats: List<Long>, minBeatMs: Long, maxBeatMs: Long, hopMs: Long = 50L): Long {
         if (beats.size < 2) return 500L
         val diffs = ArrayList<Long>()
         for (i in 1 until beats.size) {
@@ -504,8 +504,11 @@ object BeatDetectorV9 {
             if (d in minBeatMs..maxBeatMs) diffs += d
         }
         if (diffs.isEmpty()) return 500L
-        val sorted = diffs.sorted()
-        return sorted[sorted.size / 2]
+        // hop 그리드(50ms)로 올림해 mode를 취함: 양자화 노이즈로 median이
+        // 인접 hop 값(450ms)으로 튀는 현상 방지 (예: TOMBOY 400ms → 450ms 오검출)
+        val binned = diffs.map { (it / hopMs) * hopMs }
+        val mode = binned.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
+        return mode ?: diffs.sorted()[diffs.size / 2]
     }
 
     private fun dedupeCloseBeats(beats: List<Long>, minDistanceMs: Long): List<Long> {
