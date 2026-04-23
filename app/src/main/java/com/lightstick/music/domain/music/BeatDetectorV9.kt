@@ -201,7 +201,18 @@ object BeatDetectorV9 {
             return DetectResult(emptyList(), 0L, null, "all segments failed", segResults)
         }
 
-        val finalBeatMs = estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs, params.hopMs)
+        val rawBeatMs = estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs, params.hopMs)
+        // 전곡 autocorr(globalBeatMs)가 inter-beat mode보다 신뢰도 높을 수 있음:
+        // - 33개처럼 비트가 드문 곡에서 hop 양자화로 450ms 편향이 생길 때
+        // - globalBeatMs가 rawBeatMs보다 작고 17% 이내이면 globalBeatMs 우선
+        val finalBeatMs = if (globalBeatMs != null &&
+            globalBeatMs < rawBeatMs &&
+            rawBeatMs - globalBeatMs < rawBeatMs / 6) {
+            Log.d(TAG, "finalBeatMs: globalBeatMs=$globalBeatMs preferred over rawBeatMs=$rawBeatMs")
+            globalBeatMs
+        } else {
+            rawBeatMs
+        }
         val finalSource = sourceVotes.maxByOrNull { it.value }?.key
 
         Log.d(TAG,
