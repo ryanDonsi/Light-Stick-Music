@@ -156,6 +156,10 @@ class MusicViewModel @Inject constructor(
     }
 
     fun loadMusic() {
+        if (!PermissionManager.hasStoragePermission(context)) {
+            Log.w(TAG, "loadMusic skipped: no storage permission")
+            return
+        }
         viewModelScope.launch {
             val musicItems = withContext(Dispatchers.IO) {
                 val resolver   = context.contentResolver
