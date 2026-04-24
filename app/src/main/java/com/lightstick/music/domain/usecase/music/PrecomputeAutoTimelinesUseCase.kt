@@ -15,8 +15,13 @@ import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v5
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v6
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v7
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v8
-import kotlinx.coroutines.yield
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 
 /**
@@ -41,9 +46,9 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         private const val TEST_FORCE_REGENERATE = false
 
         /**
-         * ✅ 디코딩/분석이 길 때 UI 갱신 부드럽게 하기 위한 yield 주기
+         * 동시 처리할 파일 수. MediaCodec 인스턴스 수와 CPU 부하를 고려해 3으로 고정.
          */
-        private const val YIELD_EVERY_N = 2
+        private const val PARALLEL_COUNT = 3
     }
 
     /**
@@ -71,7 +76,6 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
             }
         }
 
-        // 현재 설정 버전에 해당하는 제너레이터만 생성
         val generator: AutoTimelineGenerator = when (version) {
             1 -> AutoTimelineGeneratorBeat_v1()
             2 -> AutoTimelineGeneratorBeat_v2()
@@ -84,53 +88,54 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
             else -> throw IllegalArgumentException("Unsupported version: $version")
         }
 
-        val total = musicFiles.size
-        var processed = 0
-        var created = 0
-        var skipped = 0
-        var failed = 0
+        val total    = musicFiles.size
+        val processed = AtomicInteger(0)
+        val created   = AtomicInteger(0)
+        val skipped   = AtomicInteger(0)
+        val failed    = AtomicInteger(0)
 
-        Log.d(TAG, "🚀 Precompute start: total=$total version=$version paletteSize=$paletteSize")
+        Log.d(TAG, "🚀 Precompute start: total=$total version=$version paletteSize=$paletteSize parallelism=$PARALLEL_COUNT")
 
-        for ((idx, file) in musicFiles.withIndex()) {
-            processed++
-            onProgress(processed, total, file.nameWithoutExtension)
+        val semaphore = Semaphore(PARALLEL_COUNT)
 
-            val musicId = runCatching { MusicId.fromFile(file) }.getOrNull()
-            if (musicId == null) {
-                failed++
-                if (idx % YIELD_EVERY_N == 0) yield()
-                continue
-            }
+        coroutineScope {
+            musicFiles.map { file ->
+                async {
+                    semaphore.withPermit {
+                        val p = processed.incrementAndGet()
+                        onProgress(p, total, file.nameWithoutExtension)
 
-            if (!TEST_FORCE_REGENERATE && storage.exists(context, musicId)) {
-                skipped++
-                if (idx % YIELD_EVERY_N == 0) yield()
-                continue
-            }
+                        val musicId = runCatching { MusicId.fromFile(file) }.getOrNull()
+                        if (musicId == null) {
+                            failed.incrementAndGet()
+                            return@withPermit
+                        }
 
-            try {
-                val frames = generator.generate(file.absolutePath, musicId, paletteSize = paletteSize)
+                        if (!TEST_FORCE_REGENERATE && storage.exists(context, musicId)) {
+                            skipped.incrementAndGet()
+                            return@withPermit
+                        }
 
-                if (frames.isEmpty()) {
-                    failed++
-                    Log.w(TAG, "⚠️ empty frames -> skip save file=${file.name} musicId=$musicId")
-                    if (idx % YIELD_EVERY_N == 0) yield()
-                    continue
+                        try {
+                            val frames = generator.generate(file.absolutePath, musicId, paletteSize = paletteSize)
+
+                            if (frames.isEmpty()) {
+                                failed.incrementAndGet()
+                                Log.w(TAG, "⚠️ empty frames -> skip save file=${file.name} musicId=$musicId")
+                            } else {
+                                storage.save(context, musicId, frames)
+                                created.incrementAndGet()
+                                Log.d(TAG, "✅ saved v$version musicId=$musicId frames=${frames.size} file=${file.name}")
+                            }
+                        } catch (t: Throwable) {
+                            failed.incrementAndGet()
+                            Log.e(TAG, "❌ failed v$version file=${file.name} err=${t.message}")
+                        }
+                    }
                 }
-
-                storage.save(context, musicId, frames)
-                created++
-                Log.d(TAG, "✅ saved v$version musicId=$musicId frames=${frames.size} file=${file.name}")
-
-            } catch (t: Throwable) {
-                failed++
-                Log.e(TAG, "❌ failed v$version file=${file.name} err=${t.message}")
-            }
-
-            if (idx % YIELD_EVERY_N == 0) yield()
+            }.awaitAll()
         }
 
-        Log.d(TAG, "🏁 Precompute done: v$version created=$created skipped=$skipped failed=$failed")
+        Log.d(TAG, "🏁 Precompute done: v$version created=${created.get()} skipped=${skipped.get()} failed=${failed.get()}")
     }
 }

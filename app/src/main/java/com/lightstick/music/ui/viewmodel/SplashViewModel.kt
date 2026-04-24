@@ -222,40 +222,30 @@ class SplashViewModel @Inject constructor(
         val sort = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
         val musicItems = mutableListOf<MusicItem>()
-        val totalFiles = mutableListOf<String>()
 
-        // 먼저 전체 파일 수 확인
         resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
-            val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
-            while (cursor.moveToNext()) {
-                totalFiles.add(cursor.getString(dataCol))
-            }
-        }
+            val total = cursor.count
+            Log.d("InitVM", "📀 Found $total music files")
+            _state.value = InitializationState.ScanningMusic(0, total)
+            _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(0, total))
 
-        Log.d("InitVM", "📀 Found ${totalFiles.size} music files")
-        _state.value = InitializationState.ScanningMusic(0, totalFiles.size)
-        _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(0, totalFiles.size))
-
-        // Music ID 계산하면서 스캔
-        resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
-            val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+            val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+            val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-            val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+            val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
 
             var index = 0
             val retriever = MediaMetadataRetriever()
             try {
                 while (cursor.moveToNext()) {
-                    val path = cursor.getString(dataCol)
+                    val path      = cursor.getString(dataCol)
                     val metaTitle = cursor.getString(titleCol)
-                    val fileName = cursor.getString(nameCol) ?: "Unknown"
-                    val title = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
-                    val artist = cursor.getString(artistCol) ?: "Unknown"
+                    val fileName  = cursor.getString(nameCol) ?: "Unknown"
+                    val title     = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
+                    val artist    = cursor.getString(artistCol) ?: "Unknown"
 
-                    // 진행 상황 업데이트
                     index++
-                    val calcState = InitializationState.CalculatingMusicIds(index, totalFiles.size)
+                    val calcState = InitializationState.CalculatingMusicIds(index, total)
                     _state.value = calcState
                     _splashState.value = SplashState.Initializing(calcState)
 
@@ -264,37 +254,29 @@ class SplashViewModel @Inject constructor(
 
                     try {
                         retriever.setDataSource(path)
-
-                        // 앨범아트 추출
                         art = retriever.embeddedPicture?.let {
                             val file = File(context.cacheDir, "${title.hashCode()}.jpg")
                             file.writeBytes(it)
                             file.absolutePath
                         }
-
-                        // Duration 추출
                         val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                         duration = durationStr?.toLongOrNull() ?: 0L
-
                     } catch (e: Exception) {
                         Log.e("InitVM", "Failed to extract metadata: ${e.message}")
                     }
 
                     musicItems.add(
                         MusicItem(
-                            title = title,
-                            artist = artist,
-                            filePath = path,
+                            title        = title,
+                            artist       = artist,
+                            filePath     = path,
                             albumArtPath = art,
-                            hasEffect = false,
-                            duration = duration
+                            hasEffect    = false,
+                            duration     = duration
                         )
                     )
 
-                    // UI 업데이트를 위한 짧은 지연
-                    if (index % 10 == 0) {
-                        delay(10)
-                    }
+                    if (index % 10 == 0) delay(10)
                 }
             } finally {
                 retriever.release()
