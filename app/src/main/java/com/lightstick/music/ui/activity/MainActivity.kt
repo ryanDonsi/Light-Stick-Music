@@ -83,6 +83,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (PermissionManager.hasStoragePermission(this)) {
+            musicViewModel.loadMusic()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -171,12 +178,24 @@ class MainActivity : ComponentActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            permissions.add(Manifest.permission.READ_MEDIA_AUDIO)
+        } else {
+            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
 
         val permissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
         ) { results ->
             PermissionManager.logPermissionStatus(this, "PermissionResult")
+
+            val storageGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                results[Manifest.permission.READ_MEDIA_AUDIO] == true
+            } else {
+                results[Manifest.permission.READ_EXTERNAL_STORAGE] == true
+            }
+            if (storageGranted) {
+                musicViewModel.loadMusic()
+            }
 
             val allGranted = results.values.all { it }
             if (!allGranted) {

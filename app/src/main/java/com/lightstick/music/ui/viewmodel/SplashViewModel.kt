@@ -3,6 +3,8 @@ package com.lightstick.music.ui.viewmodel
 import android.app.Application
 import android.content.Context
 import android.media.MediaMetadataRetriever
+import android.media.MediaScannerConnection
+import android.os.Environment
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,6 +18,7 @@ import com.lightstick.music.data.model.SplashState
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.domain.usecase.music.PrecomputeAutoTimelinesUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -23,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -82,6 +86,9 @@ class SplashViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val startTime = System.currentTimeMillis()
+
+                // 0단계: 파일시스템 탐색 → MediaStore 강제 인덱싱
+                triggerMediaStoreScan()
 
                 // 1단계: 음악 파일 스캔 및 Music ID 계산
                 val musicList = scanMusicFiles()
@@ -158,6 +165,45 @@ class SplashViewModel @Inject constructor(
     }
 
     /**
+     * 0단계: 파일시스템 직접 탐색 후 MediaStore 강제 인덱싱
+     * - MediaStore 자동 스캔이 누락한 파일을 초기화 시점에 한 번 등록
+     */
+    private suspend fun triggerMediaStoreScan() = withContext(Dispatchers.IO) {
+        val audioExtensions = setOf("mp3", "m4a", "flac", "aac", "ogg", "wav", "wma", "opus")
+        val scanDirs = listOf(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS),
+        ).filter { it != null && it.exists() }
+
+        val audioFiles = scanDirs
+            .flatMap { dir ->
+                dir.walkTopDown()
+                    .filter { it.isFile && it.extension.lowercase() in audioExtensions }
+                    .map { it.absolutePath }
+                    .toList()
+            }
+            .distinct()
+
+        Log.d("InitVM", "MediaStore re-index: ${audioFiles.size} files found")
+        if (audioFiles.isEmpty()) return@withContext
+
+        suspendCancellableCoroutine { cont ->
+            val remaining = AtomicInteger(audioFiles.size)
+            MediaScannerConnection.scanFile(
+                context,
+                audioFiles.toTypedArray(),
+                null
+            ) { _, _ ->
+                if (remaining.decrementAndGet() == 0) {
+                    Log.d("InitVM", "MediaStore re-index complete")
+                    cont.resume(Unit) {}
+                }
+            }
+        }
+    }
+
+    /**
      * 1단계: 음악 파일 스캔 및 Music ID 계산
      */
     private suspend fun scanMusicFiles(): List<MusicItem> = withContext(Dispatchers.IO) {
@@ -176,40 +222,30 @@ class SplashViewModel @Inject constructor(
         val sort = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
         val musicItems = mutableListOf<MusicItem>()
-        val totalFiles = mutableListOf<String>()
 
-        // 먼저 전체 파일 수 확인
         resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
-            val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
-            while (cursor.moveToNext()) {
-                totalFiles.add(cursor.getString(dataCol))
-            }
-        }
+            val total = cursor.count
+            Log.d("InitVM", "📀 Found $total music files")
+            _state.value = InitializationState.ScanningMusic(0, total)
+            _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(0, total))
 
-        Log.d("InitVM", "📀 Found ${totalFiles.size} music files")
-        _state.value = InitializationState.ScanningMusic(0, totalFiles.size)
-        _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(0, totalFiles.size))
-
-        // Music ID 계산하면서 스캔
-        resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
-            val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+            val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+            val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-            val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+            val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
 
             var index = 0
             val retriever = MediaMetadataRetriever()
             try {
                 while (cursor.moveToNext()) {
-                    val path = cursor.getString(dataCol)
+                    val path      = cursor.getString(dataCol)
                     val metaTitle = cursor.getString(titleCol)
-                    val fileName = cursor.getString(nameCol) ?: "Unknown"
-                    val title = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
-                    val artist = cursor.getString(artistCol) ?: "Unknown"
+                    val fileName  = cursor.getString(nameCol) ?: "Unknown"
+                    val title     = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
+                    val artist    = cursor.getString(artistCol) ?: "Unknown"
 
-                    // 진행 상황 업데이트
                     index++
-                    val calcState = InitializationState.CalculatingMusicIds(index, totalFiles.size)
+                    val calcState = InitializationState.CalculatingMusicIds(index, total)
                     _state.value = calcState
                     _splashState.value = SplashState.Initializing(calcState)
 
@@ -218,37 +254,29 @@ class SplashViewModel @Inject constructor(
 
                     try {
                         retriever.setDataSource(path)
-
-                        // 앨범아트 추출
                         art = retriever.embeddedPicture?.let {
                             val file = File(context.cacheDir, "${title.hashCode()}.jpg")
                             file.writeBytes(it)
                             file.absolutePath
                         }
-
-                        // Duration 추출
                         val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                         duration = durationStr?.toLongOrNull() ?: 0L
-
                     } catch (e: Exception) {
                         Log.e("InitVM", "Failed to extract metadata: ${e.message}")
                     }
 
                     musicItems.add(
                         MusicItem(
-                            title = title,
-                            artist = artist,
-                            filePath = path,
+                            title        = title,
+                            artist       = artist,
+                            filePath     = path,
                             albumArtPath = art,
-                            hasEffect = false,
-                            duration = duration
+                            hasEffect    = false,
+                            duration     = duration
                         )
                     )
 
-                    // UI 업데이트를 위한 짧은 지연
-                    if (index % 10 == 0) {
-                        delay(10)
-                    }
+                    if (index % 10 == 0) delay(10)
                 }
             } finally {
                 retriever.release()
