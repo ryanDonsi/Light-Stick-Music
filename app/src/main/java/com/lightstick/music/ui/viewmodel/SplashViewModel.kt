@@ -3,6 +3,8 @@ package com.lightstick.music.ui.viewmodel
 import android.app.Application
 import android.content.Context
 import android.media.MediaMetadataRetriever
+import android.media.MediaScannerConnection
+import android.os.Environment
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,6 +18,7 @@ import com.lightstick.music.data.model.SplashState
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.domain.usecase.music.PrecomputeAutoTimelinesUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -23,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -82,6 +86,9 @@ class SplashViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val startTime = System.currentTimeMillis()
+
+                // 0단계: 파일시스템 탐색 → MediaStore 강제 인덱싱
+                triggerMediaStoreScan()
 
                 // 1단계: 음악 파일 스캔 및 Music ID 계산
                 val musicList = scanMusicFiles()
@@ -153,6 +160,45 @@ class SplashViewModel @Inject constructor(
                 val errorState = InitializationState.Error(e.message ?: "Unknown error")
                 _state.value = errorState
                 _splashState.value = SplashState.Initializing(errorState)
+            }
+        }
+    }
+
+    /**
+     * 0단계: 파일시스템 직접 탐색 후 MediaStore 강제 인덱싱
+     * - MediaStore 자동 스캔이 누락한 파일을 초기화 시점에 한 번 등록
+     */
+    private suspend fun triggerMediaStoreScan() = withContext(Dispatchers.IO) {
+        val audioExtensions = setOf("mp3", "m4a", "flac", "aac", "ogg", "wav", "wma", "opus")
+        val scanDirs = listOf(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS),
+        ).filter { it != null && it.exists() }
+
+        val audioFiles = scanDirs
+            .flatMap { dir ->
+                dir.walkTopDown()
+                    .filter { it.isFile && it.extension.lowercase() in audioExtensions }
+                    .map { it.absolutePath }
+                    .toList()
+            }
+            .distinct()
+
+        Log.d("InitVM", "MediaStore re-index: ${audioFiles.size} files found")
+        if (audioFiles.isEmpty()) return@withContext
+
+        suspendCancellableCoroutine { cont ->
+            val remaining = AtomicInteger(audioFiles.size)
+            MediaScannerConnection.scanFile(
+                context,
+                audioFiles.toTypedArray(),
+                null
+            ) { _, _ ->
+                if (remaining.decrementAndGet() == 0) {
+                    Log.d("InitVM", "MediaStore re-index complete")
+                    cont.resume(Unit) {}
+                }
             }
         }
     }

@@ -1,11 +1,5 @@
 package com.lightstick.music.ui.screen.music
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,7 +9,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -40,23 +33,13 @@ fun MusicListScreen(
     viewModel: MusicViewModel,
     onNavigateBack: () -> Unit
 ) {
-    val musicList          by viewModel.musicList.collectAsState()
-    val nowPlaying         by viewModel.nowPlaying.collectAsState()
-    val isAutoModeEnabled  by viewModel.isAutoModeEnabled.collectAsState()
-    val isScanning         by viewModel.isScanning.collectAsState()
+    val musicList         by viewModel.musicList.collectAsState()
+    val nowPlaying        by viewModel.nowPlaying.collectAsState()
+    val isAutoModeEnabled by viewModel.isAutoModeEnabled.collectAsState()
+    // [추가] TimelineEffectBadge 표시용
     val latestTransmission by viewModel.latestTransmission.collectAsState()
 
     val toastState = rememberToastState()
-
-    val infiniteTransition = rememberInfiniteTransition(label = "scan_spin")
-    val scanRotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue  = 360f,
-        animationSpec = infiniteRepeatable(tween(800, easing = LinearEasing)),
-        label = "scan_rotation"
-    )
-
-    BackHandler { onNavigateBack() }
 
     Box(
         modifier = Modifier
@@ -75,22 +58,7 @@ fun MusicListScreen(
                     else          "자동 연출 기능을 중지합니다."
                     toastState.show(message)
                 },
-                actionTextColor = if (isAutoModeEnabled) Secondary else Color.Gray,
-                trailingIcon = {
-                    IconButton(
-                        onClick  = { if (!isScanning) viewModel.scanAndReloadMusic() },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            painter            = painterResource(R.drawable.ic_research),
-                            contentDescription = "미디어 스캔",
-                            tint               = if (isScanning) Secondary else Color.Gray,
-                            modifier           = Modifier
-                                .size(20.dp)
-                                .graphicsLayer { rotationZ = if (isScanning) scanRotation else 0f }
-                        )
-                    }
-                }
+                actionTextColor = if (isAutoModeEnabled) Secondary else Color.Gray
             )
 
             Box(
@@ -128,7 +96,7 @@ fun MusicListScreen(
                             modifier            = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(musicList, key = { it.filePath }) { item ->
+                            items(musicList) { item ->
                                 val isPlaying = nowPlaying?.filePath == item.filePath
                                 MusicListItemCard(
                                     musicItem          = item,

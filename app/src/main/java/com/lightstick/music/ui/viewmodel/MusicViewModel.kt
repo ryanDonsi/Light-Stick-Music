@@ -4,8 +4,6 @@ import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
 import android.media.MediaMetadataRetriever
-import android.media.MediaScannerConnection
-import android.os.Environment
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -34,7 +32,6 @@ import com.lightstick.music.domain.usecase.music.LoadMusicTimelineUseCase
 import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
 import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -92,9 +89,6 @@ class MusicViewModel @Inject constructor(
 
     private val _duration = MutableStateFlow(0)
     val duration: StateFlow<Int> = _duration.asStateFlow()
-
-    private val _isScanning = MutableStateFlow(false)
-    val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
     // [추가] BleTransmissionMonitor.latestTransmission 직접 노출
     // MusicControlScreen / MusicListScreen 에서 TimelineEffectBadge 표시에 사용
@@ -158,60 +152,6 @@ class MusicViewModel @Inject constructor(
             val initialized = prefs.getBoolean("is_initialized", false)
             Log.d(TAG, if (initialized) "Loading from initialized state" else "First launch, scanning music...")
             loadMusic()
-        }
-    }
-
-    fun scanAndReloadMusic() {
-        if (!PermissionManager.hasStoragePermission(context)) {
-            Log.w(TAG, "scanAndReloadMusic skipped: no storage permission")
-            return
-        }
-        if (_isScanning.value) return
-
-        _isScanning.value = true
-        Log.d(TAG, "MediaStore scan started")
-
-        viewModelScope.launch(Dispatchers.IO) {
-            val audioExtensions = setOf("mp3", "m4a", "flac", "aac", "ogg", "wav", "wma", "opus")
-            val scanDirs = listOf(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS),
-                Environment.getExternalStorageDirectory()
-            ).filter { it != null && it.exists() }
-
-            val audioFiles = scanDirs
-                .flatMap { dir ->
-                    dir.walkTopDown()
-                        .filter { it.isFile && it.extension.lowercase() in audioExtensions }
-                        .map { it.absolutePath }
-                        .toList()
-                }
-                .distinct()
-
-            Log.d(TAG, "Found ${audioFiles.size} audio files to scan")
-
-            if (audioFiles.isEmpty()) {
-                _isScanning.value = false
-                loadMusic()
-                return@launch
-            }
-
-            val remaining = AtomicInteger(audioFiles.size)
-            MediaScannerConnection.scanFile(
-                context,
-                audioFiles.toTypedArray(),
-                null
-            ) { path, _ ->
-                Log.d(TAG, "Scanned: $path")
-                if (remaining.decrementAndGet() == 0) {
-                    Log.d(TAG, "MediaStore scan complete")
-                    viewModelScope.launch {
-                        _isScanning.value = false
-                        loadMusic()
-                    }
-                }
-            }
         }
     }
 
