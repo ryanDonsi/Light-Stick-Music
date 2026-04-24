@@ -105,23 +105,15 @@ class SplashActivity : ComponentActivity() {
      * - 권한 없음 → 권한 안내 다이얼로그 표시
      */
     private fun checkPermissionsAndProceed() {
-        // ⭐ 테스트용: 항상 다이얼로그 표시
-        // TODO: 최종 릴리즈 전에 아래 주석을 해제하고 테스트 코드 삭제
-        viewModel.onLogoTimeout()
-
-        /* 원래 코드 (최종 릴리즈 시 사용)
         val requiredPermissions = PermissionManager.getAllRequiredPermissions()
         val deniedPermissions = PermissionManager.getDeniedPermissions(this, requiredPermissions)
 
         if (deniedPermissions.isEmpty()) {
-            // 모든 권한이 이미 허용됨 → 바로 초기화 시작
             viewModel.onPermissionAllowed()
-            initializeSdkAndStartApp()
+            initializeStartApp()
         } else {
-            // 권한 없음 → 권한 안내 다이얼로그 표시
             viewModel.onLogoTimeout()
         }
-        */
     }
 
     /**
