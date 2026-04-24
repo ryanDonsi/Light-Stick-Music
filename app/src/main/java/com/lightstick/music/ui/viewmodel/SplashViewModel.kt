@@ -21,7 +21,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -276,7 +275,6 @@ class SplashViewModel @Inject constructor(
                         )
                     )
 
-                    if (index % 10 == 0) delay(10)
                 }
             } finally {
                 retriever.release()
@@ -328,11 +326,6 @@ class SplashViewModel @Inject constructor(
                 val updatedMatchState = InitializationState.MatchingEffects(index + 1, musicList.size)
                 _state.value = updatedMatchState
                 _splashState.value = SplashState.Initializing(updatedMatchState)
-
-                // UI 업데이트를 위한 짧은 지연
-                if (index % 5 == 0) {
-                    delay(10)
-                }
 
                 item.copy(hasEffect = hasEffect)
             }
