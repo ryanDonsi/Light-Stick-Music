@@ -34,7 +34,8 @@ fun CustomTopBar(
     actionText: String? = null,
     onActionClick: (() -> Unit)? = null,
     actionTextColor: Color = MaterialTheme.customColors.secondary,
-    backgroundColor: Color = MaterialTheme.customColors.surface
+    backgroundColor: Color = MaterialTheme.customColors.surface,
+    trailingIcon: (@Composable () -> Unit)? = null
 ) {
     Box(
         modifier = modifier
@@ -77,13 +78,16 @@ fun CustomTopBar(
             }
         }
 
-        // 우측 액션 텍스트
-        if (actionText != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 8.dp)
-            ) {
+        // 우측 액션 영역 (아이콘 + 텍스트)
+        Row(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            trailingIcon?.invoke()
+
+            if (actionText != null) {
                 TextButton(
                     onClick = { onActionClick?.invoke() },
                     contentPadding = PaddingValues(horizontal = 8.dp)
@@ -109,7 +113,8 @@ fun TopBarWithBack(
     onBackClick: () -> Unit,
     actionText: String? = null,
     onActionClick: (() -> Unit)? = null,
-    actionTextColor: Color = MaterialTheme.customColors.secondary
+    actionTextColor: Color = MaterialTheme.customColors.secondary,
+    trailingIcon: (@Composable () -> Unit)? = null
 ) {
     CustomTopBar(
         title = title,
@@ -118,6 +123,7 @@ fun TopBarWithBack(
         actionText = actionText,
         onActionClick = onActionClick,
         actionTextColor = actionTextColor,
+        trailingIcon = trailingIcon,
         modifier = modifier
     )
 }
