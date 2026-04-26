@@ -24,6 +24,7 @@ fun CustomNavigationBar(
     val navItems = listOf(
         NavItem("effect", R.drawable.ic_navi_effect),
         NavItem("music", R.drawable.ic_navi_music),
+        NavItem("game", R.drawable.ic_navi_game),
         NavItem("deviceList", R.drawable.ic_navi_device)
     )
 
