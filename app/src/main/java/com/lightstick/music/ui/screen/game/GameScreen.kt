@@ -36,14 +36,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,19 +56,36 @@ import com.lightstick.music.data.model.GameState
 import com.lightstick.music.data.model.TeamWinner
 import com.lightstick.music.data.model.WandResult
 import com.lightstick.music.domain.game.GameBleManager
+import com.lightstick.music.ui.components.common.BaseButton
+import com.lightstick.music.ui.components.common.BaseDialog
+import com.lightstick.music.ui.components.common.ButtonStyle
+import com.lightstick.music.ui.components.common.CommonProgressBar
+import com.lightstick.music.ui.components.common.CustomChip
+import com.lightstick.music.ui.components.common.CustomToast
+import com.lightstick.music.ui.components.common.TopBarCentered
+import com.lightstick.music.ui.components.common.rememberToastState
 import com.lightstick.music.ui.theme.customColors
+import com.lightstick.music.ui.theme.customTextStyles
 import com.lightstick.music.ui.viewmodel.GameViewModel
 
 @Composable
 fun GameScreen(viewModel: GameViewModel) {
-    val selectedMode by viewModel.selectedMode.collectAsState()
+    val selectedMode     by viewModel.selectedMode.collectAsState()
     val selectedDifficulty by viewModel.selectedDifficulty.collectAsState()
-    val gameState by viewModel.gameState.collectAsState()
-    val bleState by viewModel.bleConnectionState.collectAsState()
+    val gameState        by viewModel.gameState.collectAsState()
+    val bleState         by viewModel.bleConnectionState.collectAsState()
     val countdownSeconds by viewModel.countdownSeconds.collectAsState()
 
-    LaunchedEffect(Unit) {
-        viewModel.connectIfNeeded()
+    val toastState = rememberToastState()
+    var showStopDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { viewModel.connectIfNeeded() }
+
+    // 에러 상태 토스트 표시
+    LaunchedEffect(gameState) {
+        if (gameState is GameState.Error) {
+            toastState.show((gameState as GameState.Error).message)
+        }
     }
 
     Box(
@@ -75,38 +93,67 @@ fun GameScreen(viewModel: GameViewModel) {
             .fillMaxSize()
             .background(MaterialTheme.customColors.background)
     ) {
-        AnimatedContent(
-            targetState = gameState,
-            transitionSpec = {
-                (fadeIn(tween(300)) + slideInVertically { it / 4 })
-                    .togetherWith(fadeOut(tween(200)) + slideOutVertically { -it / 4 })
-            },
-            label = "game_state_transition"
-        ) { state ->
-            when (state) {
-                is GameState.Idle -> ModeSelectionContent(
-                    selectedMode = selectedMode,
-                    selectedDifficulty = selectedDifficulty,
-                    bleState = bleState,
-                    onModeSelect = viewModel::selectMode,
-                    onDifficultySelect = viewModel::selectDifficulty,
-                    onStart = viewModel::startGame
-                )
-                is GameState.Ready -> CountdownContent(countdownSeconds = countdownSeconds)
-                is GameState.Playing -> PlayingContent(
-                    mode = selectedMode,
-                    onStop = viewModel::stopGame
-                )
-                is GameState.Finished -> ResultContent(
-                    summary = state.summary,
-                    onPlayAgain = viewModel::resetToIdle
-                )
-                is GameState.Error -> ErrorContent(
-                    message = state.message,
-                    onRetry = viewModel::resetToIdle
-                )
+        Column(modifier = Modifier.fillMaxSize()) {
+
+            TopBarCentered(
+                title = "Game Mode",
+                actionText = if (gameState is GameState.Playing) "중지" else null,
+                onActionClick = { showStopDialog = true },
+                actionTextColor = MaterialTheme.colorScheme.error
+            )
+
+            AnimatedContent(
+                targetState = gameState,
+                transitionSpec = {
+                    (fadeIn(tween(300)) + slideInVertically { it / 6 })
+                        .togetherWith(fadeOut(tween(200)) + slideOutVertically { -it / 6 })
+                },
+                label = "game_state"
+            ) { state ->
+                when (state) {
+                    is GameState.Idle, is GameState.Error -> ModeSelectionContent(
+                        selectedMode = selectedMode,
+                        selectedDifficulty = selectedDifficulty,
+                        bleState = bleState,
+                        onModeSelect = viewModel::selectMode,
+                        onDifficultySelect = viewModel::selectDifficulty,
+                        onStart = viewModel::startGame
+                    )
+                    is GameState.Ready  -> CountdownContent(countdownSeconds = countdownSeconds)
+                    is GameState.Playing -> PlayingContent(
+                        mode = selectedMode,
+                        onStopClick = { showStopDialog = true }
+                    )
+                    is GameState.Finished -> ResultContent(
+                        summary = state.summary,
+                        onPlayAgain = viewModel::resetToIdle
+                    )
+                }
             }
         }
+
+        // 게임 중지 확인 다이얼로그
+        if (showStopDialog) {
+            BaseDialog(
+                title = "게임 중지",
+                subtitle = "진행 중인 게임을 중지할까요?",
+                onDismiss = { showStopDialog = false },
+                onConfirm = {
+                    showStopDialog = false
+                    viewModel.stopGame()
+                },
+                confirmText = "중지",
+                dismissText = "취소"
+            )
+        }
+
+        // 토스트
+        CustomToast(
+            message = toastState.message,
+            isVisible = toastState.isVisible,
+            onDismiss = toastState::dismiss,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 }
 
@@ -127,26 +174,17 @@ private fun ModeSelectionContent(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 24.dp),
+            .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "Game Mode",
-            style = MaterialTheme.typography.headlineMedium.copy(
-                fontWeight = FontWeight.Bold,
-                color = colors.onSurface
-            )
-        )
-
-        // BLE 연결 상태 배너
+        // BLE 연결 상태
         BleBanner(bleState = bleState)
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // 게임 모드 카드 선택
+        // 모드 선택
         Text(
             text = "모드 선택",
-            style = MaterialTheme.typography.labelLarge.copy(color = colors.surfaceVariant)
+            style = MaterialTheme.customTextStyles.bodyAccent,
+            color = colors.surfaceVariant
         )
 
         GameMode.entries.forEach { mode ->
@@ -157,43 +195,45 @@ private fun ModeSelectionContent(
             )
         }
 
-        // 난이도 선택 (모드가 선택된 경우)
+        // 난이도 선택
         AnimatedVisibility(visible = selectedMode != null) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "난이도",
-                    style = MaterialTheme.typography.labelLarge.copy(color = colors.surfaceVariant)
+                    style = MaterialTheme.customTextStyles.bodyAccent,
+                    color = colors.surfaceVariant
                 )
-                DifficultySelector(
+                DifficultyRow(
                     selected = selectedDifficulty,
                     onSelect = onDifficultySelect
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         // 시작 버튼
-        val canStart = selectedMode != null &&
-            bleState is GameBleManager.ConnectionState.Connected
-
-        StartButton(
-            enabled = canStart,
-            onClick = onStart
+        BaseButton(
+            text = "게임 시작",
+            onClick = onStart,
+            enabled = selectedMode != null && bleState is GameBleManager.ConnectionState.Connected,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
         )
 
+        // BLE 미연결 안내
         if (bleState !is GameBleManager.ConnectionState.Connected) {
             Text(
                 text = when (bleState) {
                     is GameBleManager.ConnectionState.Connecting -> "기기에 연결 중..."
-                    is GameBleManager.ConnectionState.Error -> (bleState as GameBleManager.ConnectionState.Error).message
+                    is GameBleManager.ConnectionState.Error ->
+                        (bleState as GameBleManager.ConnectionState.Error).message
                     else -> "게임을 시작하려면 응원봉을 연결하세요"
                 },
-                style = MaterialTheme.typography.bodySmall.copy(
-                    color = colors.surfaceVariant,
-                    textAlign = TextAlign.Center
-                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textTertiary,
+                textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -203,15 +243,24 @@ private fun ModeSelectionContent(
 @Composable
 private fun BleBanner(bleState: GameBleManager.ConnectionState) {
     val colors = MaterialTheme.customColors
-    val (bgColor, text) = when (bleState) {
-        is GameBleManager.ConnectionState.Connected ->
-            Color(0xFF1A3A1A) to "응원봉 연결됨"
-        is GameBleManager.ConnectionState.Connecting ->
-            Color(0xFF2A2A0A) to "연결 중..."
-        is GameBleManager.ConnectionState.Error ->
-            Color(0xFF3A1A1A) to (bleState as GameBleManager.ConnectionState.Error).message
-        else ->
-            Color(0xFF252525) to "응원봉 미연결"
+
+    val bgColor = when (bleState) {
+        is GameBleManager.ConnectionState.Connected  -> Color(0xFF1A3A1A)
+        is GameBleManager.ConnectionState.Connecting -> Color(0xFF2A2A0A)
+        is GameBleManager.ConnectionState.Error      -> Color(0xFF3A1A1A)
+        else                                         -> Color(0xFF252525)
+    }
+    val dotColor = when (bleState) {
+        is GameBleManager.ConnectionState.Connected  -> Color(0xFF4CAF50)
+        is GameBleManager.ConnectionState.Connecting -> MaterialTheme.customColors.secondary
+        else                                         -> colors.surfaceVariant
+    }
+    val labelText = when (bleState) {
+        is GameBleManager.ConnectionState.Connected  -> "응원봉 연결됨"
+        is GameBleManager.ConnectionState.Connecting -> "연결 중..."
+        is GameBleManager.ConnectionState.Error      ->
+            (bleState as GameBleManager.ConnectionState.Error).message
+        else -> "응원봉 미연결"
     }
 
     Row(
@@ -223,22 +272,18 @@ private fun BleBanner(bleState: GameBleManager.ConnectionState) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        val dotColor = when (bleState) {
-            is GameBleManager.ConnectionState.Connected -> Color(0xFF4CAF50)
-            is GameBleManager.ConnectionState.Connecting -> Color(0xFFFFD46F)
-            else -> Color(0xFF757575)
-        }
         Box(
             modifier = Modifier
                 .size(8.dp)
                 .background(dotColor, CircleShape)
         )
         Text(
-            text = text,
-            style = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface)
+            text = labelText,
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.onSurface,
+            modifier = Modifier.weight(1f)
         )
         if (bleState is GameBleManager.ConnectionState.Connecting) {
-            Spacer(modifier = Modifier.width(4.dp))
             CircularProgressIndicator(
                 modifier = Modifier.size(14.dp),
                 strokeWidth = 2.dp,
@@ -256,12 +301,15 @@ private fun GameModeCard(
 ) {
     val colors = MaterialTheme.customColors
     val borderColor = if (selected) colors.primary else Color.Transparent
-    val bgColor = if (selected) colors.primary.copy(alpha = 0.12f) else colors.onSurface.copy(alpha = 0.05f)
+    val bgColor = if (selected)
+        colors.primary.copy(alpha = 0.12f)
+    else
+        colors.onSurface.copy(alpha = 0.05f)
 
     val modeEmoji = when (mode) {
         GameMode.SPEED_REACTION -> "⚡"
-        GameMode.TEMPO -> "🎵"
-        GameMode.TEAM_BATTLE -> "⚔️"
+        GameMode.TEMPO          -> "🎵"
+        GameMode.TEAM_BATTLE    -> "⚔️"
     }
 
     Row(
@@ -284,20 +332,18 @@ private fun GameModeCard(
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
                 text = mode.nameKr,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (selected) colors.primary else colors.onSurface
-                )
+                style = MaterialTheme.typography.titleSmall,
+                color = if (selected) colors.primary else colors.onSurface
             )
             Text(
                 text = mode.descKr,
-                style = MaterialTheme.typography.bodySmall.copy(color = colors.surfaceVariant)
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.surfaceVariant
             )
             Text(
                 text = mode.winConditionKr,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    color = if (selected) colors.primary.copy(alpha = 0.8f) else colors.textTertiary
-                )
+                style = MaterialTheme.customTextStyles.badgeMedium,
+                color = if (selected) colors.primary.copy(alpha = 0.8f) else colors.textTertiary
             )
         }
 
@@ -320,121 +366,74 @@ private fun GameModeCard(
 }
 
 @Composable
-private fun DifficultySelector(
+private fun DifficultyRow(
     selected: GameDifficulty,
     onSelect: (GameDifficulty) -> Unit
 ) {
     val colors = MaterialTheme.customColors
+
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         GameDifficulty.entries.forEach { diff ->
             val isSelected = diff == selected
-            val bgColor = when {
-                isSelected && diff == GameDifficulty.EASY -> Color(0xFF1A3A1A)
-                isSelected && diff == GameDifficulty.NORMAL -> Color(0xFF1A2A3A)
-                isSelected && diff == GameDifficulty.HARD -> Color(0xFF3A1A1A)
+            val chipBg = when {
+                isSelected && diff == GameDifficulty.EASY   -> Color(0xFF1A3A1A)
+                isSelected && diff == GameDifficulty.NORMAL -> colors.primaryContainer.copy(alpha = 0.3f)
+                isSelected && diff == GameDifficulty.HARD   -> Color(0xFF3A1A1A)
                 else -> colors.onSurface.copy(alpha = 0.05f)
             }
-            val textColor = when {
-                isSelected && diff == GameDifficulty.EASY -> Color(0xFF4CAF50)
+            val chipContent = when {
+                isSelected && diff == GameDifficulty.EASY   -> Color(0xFF4CAF50)
                 isSelected && diff == GameDifficulty.NORMAL -> colors.primary
-                isSelected && diff == GameDifficulty.HARD -> Color(0xFFFF5252)
+                isSelected && diff == GameDifficulty.HARD   -> MaterialTheme.colorScheme.error
                 else -> colors.surfaceVariant
             }
-            val borderColor = if (isSelected) textColor else Color.Transparent
 
-            Box(
+            CustomChip(
+                text = diff.nameKr,
+                onClick = { onSelect(diff) },
+                containerColor = chipBg,
+                contentColor = chipContent,
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(bgColor)
-                    .border(1.dp, borderColor, RoundedCornerShape(10.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { onSelect(diff) }
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = diff.nameKr,
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        color = textColor,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                    )
-                )
-            }
+                    .height(40.dp)
+            )
         }
     }
 }
 
-@Composable
-private fun StartButton(enabled: Boolean, onClick: () -> Unit) {
-    val colors = MaterialTheme.customColors
-    val bgBrush = if (enabled) {
-        Brush.horizontalGradient(listOf(colors.gradientStart, colors.gradientEnd))
-    } else {
-        Brush.horizontalGradient(listOf(colors.disable, colors.disable))
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(52.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(bgBrush)
-            .clickable(
-                enabled = enabled,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "게임 시작",
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.Bold,
-                color = if (enabled) colors.onPrimary else colors.onDisable
-            )
-        )
-    }
-}
-
-// ─── Countdown / Ready ────────────────────────────────────────────────────────
+// ─── Countdown ────────────────────────────────────────────────────────────────
 
 @Composable
 private fun CountdownContent(countdownSeconds: Int) {
     val colors = MaterialTheme.customColors
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Text(
                 text = "준비 중",
-                style = MaterialTheme.typography.headlineSmall.copy(color = colors.surfaceVariant)
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.surfaceVariant
             )
-            Spacer(modifier = Modifier.height(16.dp))
             AnimatedContent(
                 targetState = countdownSeconds,
-                transitionSpec = {
-                    fadeIn(tween(200)).togetherWith(fadeOut(tween(150)))
-                },
+                transitionSpec = { fadeIn(tween(200)).togetherWith(fadeOut(tween(150))) },
                 label = "countdown"
             ) { sec ->
                 Text(
                     text = if (sec > 0) "$sec" else "시작!",
-                    style = MaterialTheme.typography.displayLarge.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        color = colors.primary,
-                        fontSize = 80.sp
-                    )
+                    style = MaterialTheme.typography.displayLarge,
+                    color = colors.primary
                 )
             }
-            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = "응원봉이 곧 시작됩니다",
-                style = MaterialTheme.typography.bodyMedium.copy(color = colors.textTertiary)
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.textTertiary
             )
         }
     }
@@ -443,12 +442,13 @@ private fun CountdownContent(countdownSeconds: Int) {
 // ─── Playing ─────────────────────────────────────────────────────────────────
 
 @Composable
-private fun PlayingContent(mode: GameMode?, onStop: () -> Unit) {
+private fun PlayingContent(mode: GameMode?, onStopClick: () -> Unit) {
     val colors = MaterialTheme.customColors
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            modifier = Modifier.padding(32.dp)
         ) {
             CircularProgressIndicator(
                 modifier = Modifier.size(56.dp),
@@ -457,41 +457,28 @@ private fun PlayingContent(mode: GameMode?, onStop: () -> Unit) {
             )
             Text(
                 text = "게임 진행 중",
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = colors.onSurface
-                )
+                style = MaterialTheme.typography.headlineSmall,
+                color = colors.onSurface
             )
             if (mode != null) {
                 Text(
                     text = mode.nameKr,
-                    style = MaterialTheme.typography.bodyLarge.copy(color = colors.surfaceVariant)
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = colors.surfaceVariant
                 )
             }
             Text(
                 text = "결과를 기다리는 중...",
-                style = MaterialTheme.typography.bodyMedium.copy(color = colors.textTertiary)
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.textTertiary
             )
-            Spacer(modifier = Modifier.height(32.dp))
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF3A1A1A))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onStop
-                    )
-                    .padding(horizontal = 28.dp, vertical = 14.dp)
-            ) {
-                Text(
-                    text = "게임 중지",
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        color = Color(0xFFFF5252),
-                        fontWeight = FontWeight.SemiBold
-                    )
-                )
-            }
+            Spacer(modifier = Modifier.height(24.dp))
+            BaseButton(
+                text = "게임 중지",
+                onClick = onStopClick,
+                style = ButtonStyle.ERROR,
+                modifier = Modifier.width(160.dp).height(48.dp)
+            )
         }
     }
 }
@@ -505,41 +492,49 @@ private fun ResultContent(summary: GameResultSummary, onPlayAgain: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 24.dp),
+            .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "게임 결과",
-            style = MaterialTheme.typography.headlineMedium.copy(
-                fontWeight = FontWeight.Bold,
-                color = colors.onSurface
-            )
-        )
-
         when (summary.mode) {
             GameMode.SPEED_REACTION, GameMode.TEMPO -> SoloResultContent(summary)
-            GameMode.TEAM_BATTLE -> TeamResultContent(summary)
+            GameMode.TEAM_BATTLE                    -> TeamResultContent(summary)
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        StartButton(enabled = true, onClick = onPlayAgain)
+        Text(
+            text = "참여 응원봉: ${summary.totalWandCount}개",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.textTertiary,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.End
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        BaseButton(
+            text = "다시 하기",
+            onClick = onPlayAgain,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+        )
     }
 }
 
 @Composable
 private fun SoloResultContent(summary: GameResultSummary) {
-    val colors = MaterialTheme.customColors
-
-    // 우승자 배너
     val winner = summary.soloWinner
     if (winner != null) {
-        WinnerBanner(label = "우승!", subtitle = "응원봉 #${winner.wandId.toString(16).uppercase()} | ${winner.redScore}점")
+        WinnerBanner(
+            label = "우승!",
+            subtitle = "응원봉 #${winner.wandId.toString(16).uppercase()} · ${winner.redScore}점"
+        )
     }
 
     Spacer(modifier = Modifier.height(4.dp))
     Text(
         text = "순위표",
-        style = MaterialTheme.typography.labelLarge.copy(color = colors.surfaceVariant)
+        style = MaterialTheme.customTextStyles.bodyAccent,
+        color = MaterialTheme.customColors.surfaceVariant
     )
 
     summary.rankedResults.forEachIndexed { index, result ->
@@ -551,10 +546,8 @@ private fun SoloResultContent(summary: GameResultSummary) {
 private fun TeamResultContent(summary: GameResultSummary) {
     val colors = MaterialTheme.customColors
 
-    // 팀 결과
-    val winner = summary.teamWinner
-    val winnerLabel = when (winner) {
-        TeamWinner.RED -> "Red팀 승리!"
+    val winnerLabel = when (summary.teamWinner) {
+        TeamWinner.RED  -> "Red팀 승리!"
         TeamWinner.BLUE -> "Blue팀 승리!"
         TeamWinner.DRAW -> "무승부!"
     }
@@ -563,18 +556,17 @@ private fun TeamResultContent(summary: GameResultSummary) {
         subtitle = "Red ${summary.totalRedScore}점  |  Blue ${summary.totalBlueScore}점"
     )
 
-    Spacer(modifier = Modifier.height(4.dp))
-
     // 팀 점수 비교 바
     TeamScoreBar(
         redScore = summary.totalRedScore,
         blueScore = summary.totalBlueScore
     )
 
-    Spacer(modifier = Modifier.height(8.dp))
+    Spacer(modifier = Modifier.height(4.dp))
     Text(
         text = "개인 점수",
-        style = MaterialTheme.typography.labelLarge.copy(color = colors.surfaceVariant)
+        style = MaterialTheme.customTextStyles.bodyAccent,
+        color = colors.surfaceVariant
     )
 
     summary.wandResults
@@ -583,13 +575,6 @@ private fun TeamResultContent(summary: GameResultSummary) {
         .forEachIndexed { index, result ->
             RankRow(rank = index + 1, result = result, isTeamBattle = true)
         }
-
-    Text(
-        text = "참여 응원봉: ${summary.totalWandCount}개",
-        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.customColors.textTertiary),
-        modifier = Modifier.fillMaxWidth(),
-        textAlign = TextAlign.End
-    )
 }
 
 @Composable
@@ -605,23 +590,20 @@ private fun WinnerBanner(label: String, subtitle: String) {
             .padding(20.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "🏆",
-                fontSize = 36.sp
-            )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(text = "🏆", fontSize = 36.sp)
             Text(
                 text = label,
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.ExtraBold,
-                    color = colors.onPrimary
-                )
+                style = MaterialTheme.typography.headlineSmall,
+                color = colors.onPrimary
             )
             Text(
                 text = subtitle,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    color = colors.onPrimary.copy(alpha = 0.8f)
-                )
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onPrimary.copy(alpha = 0.85f)
             )
         }
     }
@@ -629,12 +611,12 @@ private fun WinnerBanner(label: String, subtitle: String) {
 
 @Composable
 private fun TeamScoreBar(redScore: Int, blueScore: Int) {
+    val colors = MaterialTheme.customColors
     val total = (redScore + blueScore).coerceAtLeast(1)
-    val redRatio = redScore.toFloat() / total
-    val animatedRatio by animateFloatAsState(
-        targetValue = redRatio,
+    val redRatio by animateFloatAsState(
+        targetValue = redScore.toFloat() / total,
         animationSpec = tween(800),
-        label = "team_score_bar"
+        label = "team_score_ratio"
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -643,33 +625,32 @@ private fun TeamScoreBar(redScore: Int, blueScore: Int) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = "Red  $redScore점",
-                style = MaterialTheme.typography.labelLarge.copy(
-                    color = Color(0xFFFF5252),
-                    fontWeight = FontWeight.Bold
-                )
+                text = "Red  ${redScore}점",
+                style = MaterialTheme.customTextStyles.buttonSmall,
+                color = MaterialTheme.colorScheme.error
             )
             Text(
-                text = "$blueScore점  Blue",
-                style = MaterialTheme.typography.labelLarge.copy(
-                    color = Color(0xFF448AFF),
-                    fontWeight = FontWeight.Bold
-                )
+                text = "${blueScore}점  Blue",
+                style = MaterialTheme.customTextStyles.buttonSmall,
+                color = Color(0xFF448AFF)
             )
         }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(12.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(Color(0xFF448AFF))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(animatedRatio)
-                    .height(12.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFFFF5252))
+
+        // 배경 = Blue, 전경 = Red
+        Box(modifier = Modifier.fillMaxWidth()) {
+            CommonProgressBar(
+                progress = 1f,
+                progressColor = Color(0xFF448AFF),
+                trackColor = Color(0xFF448AFF),
+                height = 12.dp,
+                modifier = Modifier.fillMaxWidth()
+            )
+            CommonProgressBar(
+                progress = redRatio,
+                progressColor = MaterialTheme.colorScheme.error,
+                trackColor = Color.Transparent,
+                height = 12.dp,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -679,9 +660,9 @@ private fun TeamScoreBar(redScore: Int, blueScore: Int) {
 private fun RankRow(rank: Int, result: WandResult, isTeamBattle: Boolean) {
     val colors = MaterialTheme.customColors
     val medalColor = when (rank) {
-        1 -> Color(0xFFFFD700)
-        2 -> Color(0xFFC0C0C0)
-        3 -> Color(0xFFCD7F32)
+        1    -> Color(0xFFFFD700)
+        2    -> Color(0xFFC0C0C0)
+        3    -> Color(0xFFCD7F32)
         else -> colors.surfaceVariant
     }
     val score = if (isTeamBattle) result.redScore + result.blueScore else result.redScore
@@ -697,65 +678,20 @@ private fun RankRow(rank: Int, result: WandResult, isTeamBattle: Boolean) {
     ) {
         Text(
             text = "${rank}위",
-            style = MaterialTheme.typography.labelLarge.copy(
-                color = medalColor,
-                fontWeight = FontWeight.Bold
-            ),
+            style = MaterialTheme.customTextStyles.buttonSmall,
+            color = medalColor,
             modifier = Modifier.width(36.dp)
         )
         Text(
             text = "응원봉 #${result.wandId.toString(16).uppercase()}",
-            style = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface),
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.onSurface,
             modifier = Modifier.weight(1f)
         )
         Text(
             text = "${score}점",
-            style = MaterialTheme.typography.titleMedium.copy(
-                color = colors.primary,
-                fontWeight = FontWeight.Bold
-            )
+            style = MaterialTheme.typography.titleSmall,
+            color = colors.primary
         )
-    }
-}
-
-// ─── Error ────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun ErrorContent(message: String, onRetry: () -> Unit) {
-    val colors = MaterialTheme.customColors
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(32.dp)
-        ) {
-            Text(text = "⚠️", fontSize = 48.sp)
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    color = colors.onSurface,
-                    textAlign = TextAlign.Center
-                )
-            )
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.primary.copy(alpha = 0.15f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onRetry
-                    )
-                    .padding(horizontal = 28.dp, vertical = 14.dp)
-            ) {
-                Text(
-                    text = "돌아가기",
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        color = colors.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                )
-            }
-        }
     }
 }
