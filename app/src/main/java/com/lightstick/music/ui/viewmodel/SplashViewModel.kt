@@ -196,7 +196,7 @@ class SplashViewModel @Inject constructor(
             ) { _, _ ->
                 if (remaining.decrementAndGet() == 0) {
                     Log.d("InitVM", "MediaStore re-index complete")
-                    cont.resume(Unit)
+                    cont.resume(Unit, null)
                 }
             }
         }
