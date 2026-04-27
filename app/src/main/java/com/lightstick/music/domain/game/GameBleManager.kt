@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.os.Build
 import android.content.Context
 import com.lightstick.LSBluetooth
 import com.lightstick.music.core.permission.PermissionManager
@@ -115,8 +116,15 @@ class GameBleManager @Inject constructor() {
                 return
             }
 
-            cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            val ok = gatt.writeDescriptor(cccd)
+            val enableValue = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            val ok = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeDescriptor(cccd, enableValue) == BluetoothGatt.GATT_SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                cccd.value = enableValue
+                @Suppress("DEPRECATION")
+                gatt.writeDescriptor(cccd)
+            }
             Log.d(TAG, "FF04 CCCD subscribe: $ok")
         }
 
@@ -132,19 +140,36 @@ class GameBleManager @Inject constructor() {
             }
         }
 
+        // API 33+: value가 콜백 파라미터로 직접 전달됩니다.
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
+        ) {
+            if (characteristic.uuid == GameProtocol.CHAR_GAME_RESULT_UUID) {
+                handleGameResult(value)
+            }
+        }
+
+        // API 31–32 fallback: value를 characteristic에서 읽습니다.
+        @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic
         ) {
-            if (characteristic.uuid == GameProtocol.CHAR_GAME_RESULT_UUID) {
-                val data = characteristic.value ?: return
-                val parsed = GameProtocol.parseResultPacket(data) ?: return
-                Log.d(TAG, "Game result: mode=${parsed.subIndex} red=${parsed.redScore} blue=${parsed.blueScore} wand=0x${parsed.wandId.toString(16)}")
-                _gameResultFlow.tryEmit(parsed)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU &&
+                characteristic.uuid == GameProtocol.CHAR_GAME_RESULT_UUID
+            ) {
+                handleGameResult(characteristic.value ?: return)
             }
         }
 
-        @Suppress("DEPRECATION")
+        private fun handleGameResult(data: ByteArray) {
+            val parsed = GameProtocol.parseResultPacket(data) ?: return
+            Log.d(TAG, "Game result: mode=${parsed.subIndex} red=${parsed.redScore} blue=${parsed.blueScore} wand=0x${parsed.wandId.toString(16)}")
+            _gameResultFlow.tryEmit(parsed)
+        }
+
         override fun onCharacteristicWrite(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
@@ -214,11 +239,21 @@ class GameBleManager @Inject constructor() {
         }
         val activeGatt = gatt ?: return false
 
-        char.value = payload
-        char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-        return activeGatt.writeCharacteristic(char).also { ok ->
-            Log.d(TAG, "FF03 Write issued: $ok (${payload.size}B)")
+        val ok = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            activeGatt.writeCharacteristic(
+                char,
+                payload,
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            ) == BluetoothGatt.GATT_SUCCESS
+        } else {
+            @Suppress("DEPRECATION")
+            char.value = payload
+            char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            @Suppress("DEPRECATION")
+            activeGatt.writeCharacteristic(char)
         }
+        Log.d(TAG, "FF03 Write issued: $ok (${payload.size}B)")
+        return ok
     }
 
     /** GATT 연결 해제 */
