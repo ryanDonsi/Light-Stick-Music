@@ -72,7 +72,7 @@ class GameBleManager @Inject constructor() {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.d(TAG, "GATT connected — discovering services")
-                    _connectionState.value = ConnectionState.Connected
+                    // Connected 상태는 서비스 발견 완료 후 onServicesDiscovered에서 설정
                     gatt.discoverServices()
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
@@ -119,6 +119,7 @@ class GameBleManager @Inject constructor() {
             }
 
             Log.d(TAG, "Game chars ready — cmd=${gameCmdChar!!.uuid} result=${gameResultChar!!.uuid}")
+            _connectionState.value = ConnectionState.Connected
             subscribeToNotifications(gatt)
         }
 

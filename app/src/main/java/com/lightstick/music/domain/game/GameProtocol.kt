@@ -20,10 +20,15 @@ object GameProtocol {
 
     // ─── Service & Characteristic UUIDs ──────────────────────────────────────
 
-    val SERVICE_UUID: UUID = UUID.fromString("0001FF01-0000-1000-8000-00805F9800C4")
+    // FE01 = 메인 서비스 (FF01~FF05 characteristic 포함)
+    val SERVICE_UUID: UUID = UUID.fromString("0001FE01-0000-1000-8000-00805F9800C4")
 
-    /** FF03 — 게임 명령 Write (앱 → 중계기/응원봉) */
-    val CHAR_GAME_CMD_UUID: UUID = UUID.fromString("0001FF03-0000-1000-8000-00805F9800C4")
+    /**
+     * FF01 — 게임 명령 Write (앱 → 중계기/응원봉)
+     * 이펙트 전송과 동일한 characteristic; effectIndex=0x0005 로 게임 명령 구분.
+     * FF03은 기기 펌웨어에 존재하지 않음 (SDK AAR 분석 확인).
+     */
+    val CHAR_GAME_CMD_UUID: UUID = UUID.fromString("0001FF01-0000-1000-8000-00805F9800C4")
 
     /** FF04 — 게임 결과 Notify (중계기/응원봉 → 앱) */
     val CHAR_GAME_RESULT_UUID: UUID = UUID.fromString("0001FF04-0000-1000-8000-00805F9800C4")
