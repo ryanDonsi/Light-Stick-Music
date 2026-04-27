@@ -90,19 +90,46 @@ class GameBleManager @Inject constructor() {
                 return
             }
 
-            gameCmdChar = gatt.getService(GameProtocol.SERVICE_UUID)
-                ?.getCharacteristic(GameProtocol.CHAR_GAME_CMD_UUID)
+            // 발견된 모든 서비스/특성을 로그로 출력 — 기기 불일치 진단용
+            gatt.services.forEach { svc ->
+                Log.d(TAG, "Service: ${svc.uuid}")
+                svc.characteristics.forEach { c ->
+                    Log.d(TAG, "  └ Char: ${c.uuid}  props=0x${c.properties.toString(16)}")
+                }
+            }
 
-            gameResultChar = gatt.getService(GameProtocol.SERVICE_UUID)
-                ?.getCharacteristic(GameProtocol.CHAR_GAME_RESULT_UUID)
+            // 지정 서비스 먼저 시도 → 없으면 전체 서비스에서 탐색 (서비스 UUID 불일치 대응)
+            val targetSvc = gatt.getService(GameProtocol.SERVICE_UUID)
+
+            gameCmdChar = targetSvc?.getCharacteristic(GameProtocol.CHAR_GAME_CMD_UUID)
+                ?: findCharInAllServices(gatt, GameProtocol.CHAR_GAME_CMD_UUID)
+
+            gameResultChar = targetSvc?.getCharacteristic(GameProtocol.CHAR_GAME_RESULT_UUID)
+                ?: findCharInAllServices(gatt, GameProtocol.CHAR_GAME_RESULT_UUID)
 
             if (gameCmdChar == null || gameResultChar == null) {
-                Log.w(TAG, "Game characteristics not found — possibly legacy firmware")
-                _connectionState.value = ConnectionState.Error("게임 기능 미지원 기기입니다")
+                val missing = buildList {
+                    if (gameCmdChar == null) add("FF03(cmd)")
+                    if (gameResultChar == null) add("FF04(result)")
+                }
+                Log.w(TAG, "Game characteristics not found: $missing")
+                Log.w(TAG, "확인 사항: 기기 펌웨어에 FF03/FF04 특성이 추가되었는지, 앱이 올바른 기기(중계기 또는 마스터 응원봉)에 연결되었는지 확인하세요.")
+                _connectionState.value = ConnectionState.Error("게임 기능 미지원 기기입니다 (${missing.joinToString()})")
                 return
             }
 
+            Log.d(TAG, "Game chars ready — cmd=${gameCmdChar!!.uuid} result=${gameResultChar!!.uuid}")
             subscribeToNotifications(gatt)
+        }
+
+        private fun findCharInAllServices(
+            gatt: BluetoothGatt,
+            charUuid: java.util.UUID
+        ): BluetoothGattCharacteristic? {
+            gatt.services.forEach { svc ->
+                svc.getCharacteristic(charUuid)?.let { return it }
+            }
+            return null
         }
 
         @SuppressLint("MissingPermission")
