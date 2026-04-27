@@ -28,6 +28,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -222,17 +226,12 @@ private fun ModeSelectionContent(
                 .height(52.dp)
         )
 
-        // BLE 미연결 안내
-        if (bleState !is GameBleManager.ConnectionState.Connected) {
+        // 게임 미지원 기기 에러 메시지만 표시
+        if (bleState is GameBleManager.ConnectionState.Error) {
             Text(
-                text = when (bleState) {
-                    is GameBleManager.ConnectionState.Connecting -> "기기에 연결 중..."
-                    is GameBleManager.ConnectionState.Error ->
-                        (bleState as GameBleManager.ConnectionState.Error).message
-                    else -> "게임을 시작하려면 응원봉을 연결하세요"
-                },
+                text = (bleState as GameBleManager.ConnectionState.Error).message,
                 style = MaterialTheme.typography.bodySmall,
-                color = colors.textTertiary,
+                color = MaterialTheme.colorScheme.error,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -306,10 +305,10 @@ private fun GameModeCard(
     else
         colors.onSurface.copy(alpha = 0.05f)
 
-    val modeEmoji = when (mode) {
-        GameMode.SPEED_REACTION -> "⚡"
-        GameMode.TEMPO          -> "🎵"
-        GameMode.TEAM_BATTLE    -> "⚔️"
+    val modeIcon = when (mode) {
+        GameMode.SPEED_REACTION -> Icons.Filled.Bolt
+        GameMode.TEMPO          -> Icons.Filled.MusicNote
+        GameMode.TEAM_BATTLE    -> Icons.Filled.Groups
     }
 
     Row(
@@ -327,7 +326,12 @@ private fun GameModeCard(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text(text = modeEmoji, fontSize = 28.sp)
+        Icon(
+            imageVector = modeIcon,
+            contentDescription = null,
+            tint = if (selected) colors.primary else colors.surfaceVariant,
+            modifier = Modifier.size(28.dp)
+        )
 
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
