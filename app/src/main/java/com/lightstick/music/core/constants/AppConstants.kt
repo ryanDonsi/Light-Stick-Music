@@ -293,5 +293,9 @@ object AppConstants {
         Feature.PERMISSION_MANAGER,
         Feature.COMMAND_BUS,
         Feature.SERVICE_CONTROLLER,
+
+        // ── Game ──────────────────────────────────────────────
+        Feature.GAME_BLE_MANAGER,
+        Feature.VM_GAME,
     )
 }
