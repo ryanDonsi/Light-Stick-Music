@@ -228,6 +228,7 @@ class GameBleManager @Inject constructor() {
 
         private fun handleGameResult(data: ByteArray) {
             Log.d(TAG, "▶ handleGameResult  len=${data.size}")
+            Log.d(TAG, GameProtocol.dumpPacket(data, "RX"))
             val parsed = GameProtocol.parseResultPacket(data)
             if (parsed == null) {
                 Log.w(TAG, "  ✗ 파싱 실패 — effectIndex 또는 cmdIndex 불일치")
@@ -319,6 +320,7 @@ class GameBleManager @Inject constructor() {
     @SuppressLint("MissingPermission")
     fun sendCommand(context: Context, payload: ByteArray): Boolean {
         Log.d(TAG, "▶ sendCommand()  len=${payload.size}  hex=${payload.toHexString()}")
+        Log.d(TAG, GameProtocol.dumpPacket(payload, "TX"))
 
         if (!PermissionManager.hasBluetoothConnectPermission(context)) {
             Log.e(TAG, "  ✗ 권한 없음")

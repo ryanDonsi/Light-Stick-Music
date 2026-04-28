@@ -134,6 +134,66 @@ object GameProtocol {
         )
     }
 
+    // ─── Packet Dump ─────────────────────────────────────────────────────────
+
+    /**
+     * 20바이트 패킷을 필드별로 분석한 문자열을 반환합니다.
+     *
+     * TX (앱 → 기기) 송신 패킷:
+     *   [0-1]  effectIndex  [2-3] subIndex  [4-5] cmdIndex
+     *   [6-7]  level        [8-9] option    [10-19] reserved
+     *
+     * RX (기기 → 앱) 수신 패킷:
+     *   [0-1]  effectIndex  [2-3] subIndex  [4-5]  cmdIndex
+     *   [6-7]  redScore     [8-9] blueScore [10-11] totalCount
+     *   [12-13] reserved    [14-15] wandId  [16-19] reserved
+     */
+    fun dumpPacket(data: ByteArray, direction: String = "??"): String {
+        if (data.size < 2) return "[$direction] too short (${data.size}B)"
+
+        val hex = data.joinToString(" ") { "%02X".format(it) }
+        if (data.size < 10) return "[$direction] hex=$hex"
+
+        val effectIndex = getU16(data, 0)
+        val subIndex    = getU16(data, 2)
+        val cmdIndex    = getU16(data, 4)
+        val f6          = getU16(data, 6)
+        val f8          = getU16(data, 8)
+        val f10         = if (data.size >= 12) getU16(data, 10) else 0
+        val f14         = if (data.size >= 16) getU16(data, 14) else 0
+
+        val cmdName = when (cmdIndex) {
+            CMD_READY  -> "READY"
+            CMD_STOP   -> "STOP"
+            CMD_CLEAR  -> "CLEAR"
+            CMD_RESULT -> "RESULT"
+            else       -> "UNKNOWN"
+        }
+        val modeName = when (subIndex) {
+            1    -> "SPEED_REACTION"
+            2    -> "TEMPO"
+            3    -> "TEAM_BATTLE"
+            0    -> "-"
+            else -> "UNKNOWN($subIndex)"
+        }
+
+        return buildString {
+            appendLine("[$direction] ${data.size}B  hex: $hex")
+            appendLine("  effectIndex = 0x${effectIndex.toString(16).uppercase().padStart(4,'0')}  (expect 0x0005 = ${effectIndex == EFFECT_INDEX})")
+            appendLine("  subIndex    = $subIndex  → $modeName")
+            appendLine("  cmdIndex    = $cmdIndex  → $cmdName")
+            if (cmdIndex == CMD_RESULT) {
+                appendLine("  redScore    = $f6")
+                appendLine("  blueScore   = $f8")
+                appendLine("  totalCount  = $f10")
+                append(  "  wandId      = 0x${f14.toString(16).uppercase().padStart(4,'0')}  ($f14)")
+            } else {
+                appendLine("  level/opt1  = $f6")
+                append(  "  option/opt2 = $f8  ${if (f8 == OPTION_TEAM_RANDOM) "(TEAM_RANDOM)" else ""}")
+            }
+        }
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private fun putU16(buf: ByteArray, offset: Int, value: Int) {
