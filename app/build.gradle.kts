@@ -135,8 +135,7 @@ dependencies {
     // Blur (Glide Transformation)
     implementation(libs.glide.transformations)
 
-    // SDK 소스 직접 참조 (composite build via settings.gradle.kts)
-    implementation("com.lightstick:lightstick:1.4.0")
+    implementation(files("libs/lightstick-sdk-1.4.1.aar"))
 
     // 테스트
     testImplementation(libs.junit)
