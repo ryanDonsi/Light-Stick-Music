@@ -146,7 +146,13 @@ class GameViewModel @Inject constructor(
     }
 
     private fun onResultReceived(result: GameResult) {
-        if (!result.isWandIdValid) return
+        if (!result.isWandIdValid) {
+            // wandId=0x0000/0xFFFF: 게임 종료 요약 패킷 → 즉시 결과 확정
+            Log.d(TAG, "Summary packet received: red=${result.redScore} blue=${result.blueScore} total=${result.totalCount}")
+            resultCollectJob?.cancel()
+            finalizeSummaryPacket(result)
+            return
+        }
 
         val wandResult = WandResult(
             wandId = result.wandId,
@@ -166,6 +172,32 @@ class GameViewModel @Inject constructor(
                 finalizeResults(result.mode)
             }
         }
+    }
+
+    private fun finalizeSummaryPacket(result: GameResult) {
+        val mode = GameMode.fromSdkMode(result.mode) ?: _selectedMode.value ?: return
+        val accumulated = collectedResults.toList()
+
+        val summary = if (accumulated.isNotEmpty()) {
+            GameResultSummary(
+                mode           = mode,
+                wandResults    = accumulated,
+                totalWandCount = result.totalCount.takeIf { it > 0 } ?: accumulated.size,
+                totalRedScore  = accumulated.sumOf { it.redScore },
+                totalBlueScore = accumulated.sumOf { it.blueScore }
+            )
+        } else {
+            GameResultSummary(
+                mode           = mode,
+                wandResults    = emptyList(),
+                totalWandCount = result.totalCount,
+                totalRedScore  = result.redScore,
+                totalBlueScore = result.blueScore
+            )
+        }
+
+        _gameState.value = GameState.Finished(summary)
+        Log.d(TAG, "Game finalized by summary: mode=$mode red=${summary.totalRedScore} blue=${summary.totalBlueScore} count=${summary.totalWandCount}")
     }
 
     private fun finalizeResults(sdkMode: SdkGameMode) {
