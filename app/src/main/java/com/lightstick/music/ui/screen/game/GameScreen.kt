@@ -329,7 +329,7 @@ private fun GameModeCard(
         Icon(
             imageVector = modeIcon,
             contentDescription = null,
-            tint = if (selected) colors.primary else colors.surfaceVariant,
+            tint = if (selected) colors.onSurface else colors.surfaceVariant,
             modifier = Modifier.size(28.dp)
         )
 
@@ -337,7 +337,7 @@ private fun GameModeCard(
             Text(
                 text = mode.nameKr,
                 style = MaterialTheme.typography.titleSmall,
-                color = if (selected) colors.primary else colors.onSurface
+                color = colors.onSurface
             )
             Text(
                 text = mode.descKr,
@@ -347,7 +347,7 @@ private fun GameModeCard(
             Text(
                 text = mode.winConditionKr,
                 style = MaterialTheme.customTextStyles.badgeMedium,
-                color = if (selected) colors.primary.copy(alpha = 0.8f) else colors.textTertiary
+                color = if (selected) colors.onSurface.copy(alpha = 0.7f) else colors.textTertiary
             )
         }
 
