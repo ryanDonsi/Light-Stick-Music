@@ -58,6 +58,18 @@ object DevicePreferences {
         prefs?.getBoolean(PrefsKeys.deviceBroadcastKey(mac), true) ?: true
 
     // ═══════════════════════════════════════════════════════════
+    // Device Name
+    // ═══════════════════════════════════════════════════════════
+
+    fun saveDeviceName(mac: String, name: String?) {
+        if (name.isNullOrBlank()) return
+        prefs?.edit()?.putString(PrefsKeys.deviceNameKey(mac), name)?.apply()
+    }
+
+    fun getDeviceName(mac: String): String? =
+        prefs?.getString(PrefsKeys.deviceNameKey(mac), null)
+
+    // ═══════════════════════════════════════════════════════════
     // Auto Reconnect
     // ═══════════════════════════════════════════════════════════
 
@@ -78,6 +90,7 @@ object DevicePreferences {
             remove(PrefsKeys.deviceCallKey(mac))
             remove(PrefsKeys.deviceSmsKey(mac))
             remove(PrefsKeys.deviceBroadcastKey(mac))
+            remove(PrefsKeys.deviceNameKey(mac))
             apply()
         }
     }

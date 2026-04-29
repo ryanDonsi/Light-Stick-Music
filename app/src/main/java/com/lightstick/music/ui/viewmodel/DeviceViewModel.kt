@@ -158,7 +158,7 @@ class DeviceViewModel @Inject constructor(
         }
 
         val device = _devices.value.find { it.mac == mac }
-            ?: Device(mac = mac, name = null, rssi = null)
+            ?: Device(mac = mac, name = DevicePreferences.getDeviceName(mac), rssi = null)
 
         connectedDevices[mac] = device
 
@@ -228,6 +228,7 @@ class DeviceViewModel @Inject constructor(
      * onFound 콜백에서 호출됩니다.
      */
     private fun applyScannedDevice(device: Device) {
+        DevicePreferences.saveDeviceName(device.mac, device.name)
         val current = _devices.value.toMutableList()
         val idx = current.indexOfFirst { it.mac == device.mac }
         if (idx >= 0) {
@@ -245,6 +246,7 @@ class DeviceViewModel @Inject constructor(
      * 스캔 완료 후 전체 결과를 일괄 반영
      */
     private fun applyScannedDevices(scannedDevices: List<Device>) {
+        scannedDevices.forEach { DevicePreferences.saveDeviceName(it.mac, it.name) }
         val current = _devices.value.toMutableList()
         scannedDevices.forEach { device ->
             val idx = current.indexOfFirst { it.mac == device.mac }
