@@ -1,7 +1,7 @@
 package com.lightstick.music.domain.usecase.game
 
+import com.lightstick.game.GameResult
 import com.lightstick.music.domain.game.GameBleManager
-import com.lightstick.music.domain.game.ParsedGameResult
 import kotlinx.coroutines.flow.SharedFlow
 import javax.inject.Inject
 
@@ -13,5 +13,5 @@ import javax.inject.Inject
 class ObserveGameResultsUseCase @Inject constructor(
     private val gameBleManager: GameBleManager
 ) {
-    operator fun invoke(): SharedFlow<ParsedGameResult> = gameBleManager.gameResultFlow
+    operator fun invoke(): SharedFlow<GameResult> = gameBleManager.gameResultFlow
 }

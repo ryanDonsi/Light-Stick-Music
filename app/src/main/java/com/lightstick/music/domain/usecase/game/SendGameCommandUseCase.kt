@@ -1,6 +1,5 @@
 package com.lightstick.music.domain.usecase.game
 
-import android.content.Context
 import com.lightstick.music.data.model.GameDifficulty
 import com.lightstick.music.data.model.GameMode
 import com.lightstick.music.domain.game.GameBleManager
@@ -15,12 +14,12 @@ import javax.inject.Inject
 class SendGameCommandUseCase @Inject constructor(
     private val gameBleManager: GameBleManager
 ) {
-    fun sendReady(context: Context, mode: GameMode, difficulty: GameDifficulty): Boolean =
-        gameBleManager.sendReady(mode, difficulty)
+    fun sendReady(mode: GameMode, difficulty: GameDifficulty): Boolean =
+        gameBleManager.startGame(mode, difficulty)
 
-    fun sendStop(context: Context): Boolean =
-        gameBleManager.sendStop()
+    fun sendStop(): Boolean =
+        gameBleManager.stopGame()
 
-    fun sendClear(context: Context): Boolean =
-        gameBleManager.sendClear()
+    fun sendClear(): Boolean =
+        gameBleManager.clearGame()
 }

@@ -3,6 +3,8 @@ package com.lightstick.music.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lightstick.game.GameMode as SdkGameMode
+import com.lightstick.game.GameResult
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.model.GameDifficulty
 import com.lightstick.music.data.model.GameMode
@@ -10,8 +12,6 @@ import com.lightstick.music.data.model.GameResultSummary
 import com.lightstick.music.data.model.GameState
 import com.lightstick.music.data.model.WandResult
 import com.lightstick.music.domain.game.GameBleManager
-import com.lightstick.music.domain.game.GameProtocol
-import com.lightstick.music.domain.game.ParsedGameResult
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.domain.usecase.game.ObserveGameResultsUseCase
 import com.lightstick.music.domain.usecase.game.SendGameCommandUseCase
@@ -91,12 +91,11 @@ class GameViewModel @Inject constructor(
     fun startGame() {
         val mode = _selectedMode.value ?: return
         val difficulty = _selectedDifficulty.value
-        val ctx = getApplication<Application>()
 
         collectedResults.clear()
         resultCollectJob?.cancel()
 
-        val ok = sendGameCommandUseCase.sendReady(ctx, mode, difficulty)
+        val ok = sendGameCommandUseCase.sendReady(mode, difficulty)
         if (!ok) {
             _gameState.value = GameState.Error("명령 전송 실패. 기기 연결을 확인하세요.")
             return
@@ -118,8 +117,7 @@ class GameViewModel @Inject constructor(
 
     /** 게임 강제 중지 */
     fun stopGame() {
-        val ctx = getApplication<Application>()
-        sendGameCommandUseCase.sendStop(ctx)
+        sendGameCommandUseCase.sendStop()
         resultCollectJob?.cancel()
         _gameState.value = GameState.Idle
         Log.d(TAG, "STOP sent")
@@ -127,8 +125,7 @@ class GameViewModel @Inject constructor(
 
     /** 결과 화면 → 다시 모드 선택으로 */
     fun resetToIdle() {
-        val ctx = getApplication<Application>()
-        sendGameCommandUseCase.sendClear(ctx)
+        sendGameCommandUseCase.sendClear()
         collectedResults.clear()
         resultCollectJob?.cancel()
         _gameState.value = GameState.Idle
@@ -139,41 +136,40 @@ class GameViewModel @Inject constructor(
 
     private fun observeGameResults() {
         viewModelScope.launch {
-            observeGameResultsUseCase().collect { parsed ->
+            observeGameResultsUseCase().collect { result ->
                 if (_gameState.value !is GameState.Playing &&
                     _gameState.value !is GameState.Ready) return@collect
 
-                onResultReceived(parsed)
+                onResultReceived(result)
             }
         }
     }
 
-    private fun onResultReceived(parsed: ParsedGameResult) {
-        val wandResult = parsed.toWandResult()
+    private fun onResultReceived(result: GameResult) {
+        if (!result.isWandIdValid) return
 
-        // 유효하지 않은 wand_id 무시
-        if (wandResult.wandId == 0 || wandResult.wandId == 0xFFFF) return
+        val wandResult = WandResult(
+            wandId = result.wandId,
+            redScore = result.redScore,
+            blueScore = result.blueScore
+        )
 
-        // 중복 제거 (같은 wandId 는 먼저 받은 결과 우선)
         if (collectedResults.none { it.wandId == wandResult.wandId }) {
             collectedResults.add(wandResult)
         }
 
         Log.d(TAG, "Result collected: wand=0x${wandResult.wandId.toString(16)} red=${wandResult.redScore} total=${collectedResults.size}")
 
-        // 첫 결과 수신 시 취합 타이머 시작
         if (resultCollectJob == null || resultCollectJob?.isCompleted == true) {
             resultCollectJob = viewModelScope.launch {
                 delay(RESULT_COLLECT_WINDOW_MS)
-                finalizeResults(parsed.subIndex)
+                finalizeResults(result.mode)
             }
         }
     }
 
-    private fun finalizeResults(subIndex: Int) {
-        val mode = GameMode.entries.find { it.subIndex == subIndex }
-            ?: _selectedMode.value
-            ?: return
+    private fun finalizeResults(sdkMode: SdkGameMode) {
+        val mode = GameMode.fromSdkMode(sdkMode) ?: _selectedMode.value ?: return
 
         val results = collectedResults.toList()
         if (results.isEmpty()) {

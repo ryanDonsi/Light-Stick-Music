@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
+import com.lightstick.game.GameResult
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.model.GameDifficulty
@@ -20,13 +21,9 @@ import javax.inject.Singleton
 /**
  * 게임 모드 BLE 통신 관리자.
  *
- * SDK [Device] API 위에 구축:
- * - TX: [Device.sendGameReady] / [Device.sendGameStop] / [Device.sendGameClear]
- *       → [Device.sendRawGameCommand] → Facade.sendGameCommandTo → LCS_COLOR(FF01)
- * - RX: [Device.subscribeGameResults]
- *       → [Device.subscribeCharacteristic] → GattClient.setCharacteristicNotification → FF04 Notify
- *
- * 별도 BluetoothGatt 연결 없이 SDK가 관리하는 기존 연결을 공유한다.
+ * SDK [Device] 고수준 API를 사용:
+ * - TX+RX: [Device.startGame] → FF03 READY 전송 + FF04 Notify 구독 일괄 처리
+ * - TX: [Device.stopGame] / [Device.clearGame]
  */
 @Singleton
 class GameBleManager @Inject constructor() {
@@ -47,8 +44,8 @@ class GameBleManager @Inject constructor() {
 
     // ─── Game Result Stream ───────────────────────────────────────────────────
 
-    private val _gameResultFlow = MutableSharedFlow<ParsedGameResult>(extraBufferCapacity = 32)
-    val gameResultFlow: SharedFlow<ParsedGameResult> = _gameResultFlow.asSharedFlow()
+    private val _gameResultFlow = MutableSharedFlow<GameResult>(extraBufferCapacity = 32)
+    val gameResultFlow: SharedFlow<GameResult> = _gameResultFlow.asSharedFlow()
 
     // ─── Active Device ────────────────────────────────────────────────────────
 
@@ -57,138 +54,91 @@ class GameBleManager @Inject constructor() {
     // ─── Public API ───────────────────────────────────────────────────────────
 
     /**
-     * SDK가 이미 연결한 기기 중 첫 번째를 게임 기기로 선택하고 FF04 Notify를 구독한다.
+     * SDK가 이미 연결한 기기 중 첫 번째를 게임 기기로 선택한다.
      *
-     * 별도 GATT 연결을 생성하지 않으며, SDK의 기존 연결을 재사용한다.
+     * FF04 Notify 구독은 [startGame] 호출 시 SDK가 자동으로 처리한다.
      */
     @SuppressLint("MissingPermission")
     fun connect(context: Context) {
-        Log.d(TAG, "═══════════════════════════════════════")
-        Log.d(TAG, "▶ connect()  현재상태=${_connectionState.value}")
-
         val current = _connectionState.value
-        if (current is ConnectionState.Connected || current is ConnectionState.Connecting) {
-            Log.d(TAG, "  이미 $current → 재연결 스킵")
-            return
-        }
+        if (current is ConnectionState.Connected || current is ConnectionState.Connecting) return
 
-        // SDK 연결 기기 목록 조회
+        _connectionState.value = ConnectionState.Connecting
+
         val sdkDevices = try {
             LSBluetooth.connectedDevices()
         } catch (e: Exception) {
-            Log.e(TAG, "  LSBluetooth.connectedDevices() 예외: ${e.message}")
-            emptyList()
-        }
-
-        Log.d(TAG, "  LSBluetooth 연결 기기 수: ${sdkDevices.size}")
-        sdkDevices.forEachIndexed { i, dev ->
-            Log.d(TAG, "    [$i] mac=${dev.mac}  name=${dev.name ?: "(없음)"}")
+            Log.e(TAG, "LSBluetooth.connectedDevices() 예외: ${e.message}")
+            _connectionState.value = ConnectionState.Error("기기 조회 실패: ${e.message}")
+            return
         }
 
         val sdkDevice = sdkDevices.firstOrNull() ?: run {
-            Log.e(TAG, "  ✗ 연결된 기기 없음")
+            Log.e(TAG, "연결된 기기 없음")
             _connectionState.value = ConnectionState.Error("연결된 응원봉이 없습니다")
             return
         }
 
         val device = Device(mac = sdkDevice.mac, name = sdkDevice.name)
-        Log.d(TAG, "  타겟: mac=${device.mac}  name=${device.name}")
-
         if (!device.isConnected()) {
-            Log.e(TAG, "  ✗ SDK 기기가 연결 상태가 아님 (mac=${device.mac})")
+            Log.e(TAG, "SDK 기기가 연결 상태가 아님 (mac=${device.mac})")
             _connectionState.value = ConnectionState.Error("기기가 연결되어 있지 않습니다")
             return
         }
 
-        _connectionState.value = ConnectionState.Connecting
-        Log.d(TAG, "  FF04 Notify 구독 시작 → Connecting 상태")
-
-        val ok = device.subscribeGameResults(
-            onResult = { parsed ->
-                Log.d(TAG, "▶ 게임 결과 수신: mode=${parsed.subIndex}  red=${parsed.redScore}  blue=${parsed.blueScore}  wandId=0x${parsed.wandId.toString(16)}")
-                Log.d(TAG, GameProtocol.dumpPacket(
-                    data = byteArrayOf(
-                        0x05, 0x00,
-                        parsed.subIndex.toByte(), 0x00,
-                        0x05, 0x00,
-                        parsed.redScore.toByte(), 0x00,
-                        parsed.blueScore.toByte(), 0x00,
-                        parsed.totalCount.toByte(), 0x00,
-                        0x00, 0x00,
-                        parsed.wandId.toByte(), (parsed.wandId shr 8).toByte(),
-                        0x00, 0x00, 0x00, 0x00
-                    ),
-                    direction = "RX"
-                ))
-                _gameResultFlow.tryEmit(parsed)
-            },
-            onSubscribed = { result ->
-                result.fold(
-                    onSuccess = {
-                        Log.d(TAG, "  ✓ FF04 Notify 구독 완료 → Connected 상태")
-                        activeDevice = device
-                        _connectionState.value = ConnectionState.Connected
-                    },
-                    onFailure = { t ->
-                        Log.e(TAG, "  ✗ FF04 Notify 구독 실패: ${t.message}")
-                        _connectionState.value = ConnectionState.Error("게임 결과 구독 실패: ${t.message}")
-                    }
-                )
-            }
-        )
-
-        if (!ok) {
-            Log.e(TAG, "  ✗ subscribeGameResults() false 반환")
-            _connectionState.value = ConnectionState.Error("게임 결과 구독 요청 실패")
-        }
+        activeDevice = device
+        _connectionState.value = ConnectionState.Connected
+        Log.d(TAG, "Device selected: mac=${device.mac} name=${device.name}")
     }
 
-    /** 게임 시작 커맨드 전송 */
+    /** 게임 시작: FF04 Notify 구독 + READY 커맨드 전송을 SDK가 일괄 처리 */
     @SuppressLint("MissingPermission")
-    fun sendReady(mode: GameMode, difficulty: GameDifficulty): Boolean {
+    fun startGame(mode: GameMode, difficulty: GameDifficulty): Boolean {
         val device = activeDevice ?: run {
-            Log.e(TAG, "▶ sendReady() — activeDevice null")
+            Log.e(TAG, "startGame() — activeDevice null")
             return false
         }
-        val payload = GameProtocol.buildReadyPayload(mode, difficulty)
-        Log.d(TAG, GameProtocol.dumpPacket(payload, "TX"))
-        return device.sendGameReady(mode, difficulty).also { ok ->
-            Log.d(TAG, "  sendReady 결과: $ok")
+        val option = if (mode == GameMode.TEAM_BATTLE) Device.GAME_OPTION_RANDOM_TEAM else 0
+        return device.startGame(
+            mode   = mode.toSdkMode(),
+            level  = difficulty.toSdkLevel(),
+            option = option
+        ) { result ->
+            Log.d(TAG, "게임 결과 수신: mode=${result.mode} red=${result.redScore} blue=${result.blueScore} wandId=0x${result.wandId.toString(16)}")
+            _gameResultFlow.tryEmit(result)
+        }.also { ok ->
+            Log.d(TAG, "startGame 결과: $ok (mode=$mode difficulty=$difficulty)")
         }
     }
 
     /** 게임 중지 커맨드 전송 */
     @SuppressLint("MissingPermission")
-    fun sendStop(): Boolean {
+    fun stopGame(): Boolean {
         val device = activeDevice ?: run {
-            Log.e(TAG, "▶ sendStop() — activeDevice null")
+            Log.e(TAG, "stopGame() — activeDevice null")
             return false
         }
-        val payload = GameProtocol.buildStopPayload()
-        Log.d(TAG, GameProtocol.dumpPacket(payload, "TX"))
-        return device.sendGameStop().also { ok ->
-            Log.d(TAG, "  sendStop 결과: $ok")
+        return device.stopGame().also { ok ->
+            Log.d(TAG, "stopGame 결과: $ok")
         }
     }
 
-    /** 게임 초기화 커맨드 전송 */
+    /** 게임 초기화 커맨드 전송 및 FF04 Notify 구독 해제 */
     @SuppressLint("MissingPermission")
-    fun sendClear(): Boolean {
+    fun clearGame(): Boolean {
         val device = activeDevice ?: run {
-            Log.e(TAG, "▶ sendClear() — activeDevice null")
+            Log.e(TAG, "clearGame() — activeDevice null")
             return false
         }
-        val payload = GameProtocol.buildClearPayload()
-        Log.d(TAG, GameProtocol.dumpPacket(payload, "TX"))
-        return device.sendGameClear().also { ok ->
-            Log.d(TAG, "  sendClear 결과: $ok")
+        return device.clearGame().also { ok ->
+            Log.d(TAG, "clearGame 결과: $ok")
         }
     }
 
     /** FF04 Notify 구독 해제 */
     @SuppressLint("MissingPermission")
     fun disconnect() {
-        Log.d(TAG, "▶ disconnect()")
+        Log.d(TAG, "disconnect()")
         activeDevice?.unsubscribeGameResults()
         activeDevice = null
         _connectionState.value = ConnectionState.Disconnected

@@ -1,5 +1,8 @@
 package com.lightstick.music.data.model
 
+import com.lightstick.game.GameLevel as SdkGameLevel
+import com.lightstick.game.GameMode as SdkGameMode
+
 // ─── Game Mode ───────────────────────────────────────────────────────────────
 
 enum class GameMode(
@@ -30,6 +33,17 @@ enum class GameMode(
         winConditionKr = "5라운드 팀 점수 합산 승리",
         defaultDifficulty = GameDifficulty.EASY
     );
+
+    fun toSdkMode(): SdkGameMode = when (this) {
+        SPEED_REACTION -> SdkGameMode.SPEED_REACTION
+        TEMPO          -> SdkGameMode.TEMPO
+        TEAM_BATTLE    -> SdkGameMode.TEAM_BATTLE
+    }
+
+    companion object {
+        fun fromSdkMode(sdkMode: SdkGameMode): GameMode? =
+            entries.find { it.toSdkMode() == sdkMode }
+    }
 }
 
 // ─── Difficulty ───────────────────────────────────────────────────────────────
@@ -37,7 +51,13 @@ enum class GameMode(
 enum class GameDifficulty(val level: Int, val nameKr: String) {
     EASY(1, "쉬움"),
     NORMAL(2, "보통"),
-    HARD(3, "어려움")
+    HARD(3, "어려움");
+
+    fun toSdkLevel(): SdkGameLevel = when (this) {
+        EASY   -> SdkGameLevel.EASY
+        NORMAL -> SdkGameLevel.NORMAL
+        HARD   -> SdkGameLevel.HARD
+    }
 }
 
 // ─── Game State ───────────────────────────────────────────────────────────────
