@@ -457,44 +457,44 @@ private fun PlayingContent(
     val showRanking = (mode == GameMode.SPEED_REACTION || mode == GameMode.TEMPO) &&
             partialResults.isNotEmpty()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // 상단 헤더
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+    if (showRanking) {
+        // 결과가 들어오기 시작하면 상단 compact + 하단 순위 리스트
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
-                color = colors.primary,
-                strokeWidth = 2.5.dp
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    color = colors.primary,
+                    strokeWidth = 3.dp
+                )
                 Text(
                     text = "게임 진행 중",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = colors.onSurface
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colors.primary
                 )
                 if (mode != null) {
                     Text(
                         text = mode.nameKr,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = colors.surfaceVariant
                     )
                 }
             }
-        }
 
-        if (showRanking) {
             Text(
                 text = "실시간 순위",
                 style = MaterialTheme.customTextStyles.bodyAccent,
                 color = colors.surfaceVariant
             )
+
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -505,27 +505,47 @@ private fun PlayingContent(
                     RankRow(rank = index + 1, result = result, isTeamBattle = false)
                 }
             }
-        } else {
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.Center
+
+            BaseButton(
+                text = "게임 중지",
+                onClick = onStopClick,
+                style = ButtonStyle.ERROR,
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            )
+        }
+    } else {
+        // 결과 대기 중 — 카운트다운과 동일한 센터 레이아웃
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(56.dp),
+                    color = colors.primary,
+                    strokeWidth = 4.dp
+                )
                 Text(
-                    text = "결과를 기다리는 중...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colors.textTertiary
+                    text = "게임 진행 중",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = colors.primary
+                )
+                if (mode != null) {
+                    Text(
+                        text = mode.nameKr,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = colors.surfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.height(32.dp))
+                BaseButton(
+                    text = "게임 중지",
+                    onClick = onStopClick,
+                    style = ButtonStyle.ERROR,
+                    modifier = Modifier.width(200.dp).height(48.dp)
                 )
             }
         }
-
-        BaseButton(
-            text = "게임 중지",
-            onClick = onStopClick,
-            style = ButtonStyle.ERROR,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-        )
     }
 }
 
@@ -590,21 +610,111 @@ private fun SoloResultContent(summary: GameResultSummary) {
 
 @Composable
 private fun TeamResultContent(summary: GameResultSummary) {
+    val colors = MaterialTheme.customColors
+
     val winnerLabel = when (summary.teamWinner) {
         TeamWinner.RED  -> "Red팀 승리!"
         TeamWinner.BLUE -> "Blue팀 승리!"
         TeamWinner.DRAW -> "무승부!"
     }
-    WinnerBanner(
-        label = winnerLabel,
-        subtitle = "Red ${summary.totalRedScore}점  |  Blue ${summary.totalBlueScore}점"
-    )
 
-    // 팀 점수 비교 바
-    TeamScoreBar(
-        redScore = summary.totalRedScore,
-        blueScore = summary.totalBlueScore
-    )
+    // 우승 + 점수 카드
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                Brush.verticalGradient(listOf(colors.gradientStart, colors.gradientEnd))
+            )
+            .padding(vertical = 28.dp, horizontal = 24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            Text(text = "🏆", fontSize = 44.sp)
+            Text(
+                text = winnerLabel,
+                style = MaterialTheme.typography.headlineSmall,
+                color = colors.onPrimary
+            )
+
+            // 점수 카드
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Red 점수
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Red",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.onPrimary.copy(alpha = 0.7f)
+                    )
+                    Text(
+                        text = "${summary.totalRedScore}",
+                        style = MaterialTheme.typography.displayMedium,
+                        color = colors.onPrimary
+                    )
+                    Text(
+                        text = "점",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onPrimary.copy(alpha = 0.7f)
+                    )
+                }
+
+                // 구분선
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(72.dp)
+                        .background(colors.onPrimary.copy(alpha = 0.3f))
+                )
+
+                // Blue 점수
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Blue",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.onPrimary.copy(alpha = 0.7f)
+                    )
+                    Text(
+                        text = "${summary.totalBlueScore}",
+                        style = MaterialTheme.typography.displayMedium,
+                        color = colors.onPrimary
+                    )
+                    Text(
+                        text = "점",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onPrimary.copy(alpha = 0.7f)
+                    )
+                }
+            }
+        }
+    }
+
+    // 점수 비교 바 카드
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(colors.onSurface.copy(alpha = 0.05f))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        TeamScoreBar(
+            redScore = summary.totalRedScore,
+            blueScore = summary.totalBlueScore
+        )
+    }
 }
 
 @Composable
