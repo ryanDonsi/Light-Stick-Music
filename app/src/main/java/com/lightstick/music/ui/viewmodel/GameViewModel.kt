@@ -146,10 +146,13 @@ class GameViewModel @Inject constructor(
         viewModelScope.launch {
             observeGameResultsUseCase().collect { result ->
                 Log.d(TAG, "Flow 수신: wandId=0x${result.wandId.toString(16)} state=${_gameState.value::class.simpleName}")
-                if (_gameState.value !is GameState.Playing &&
-                    _gameState.value !is GameState.Ready) return@collect
-
-                onResultReceived(result)
+                val state = _gameState.value
+                when {
+                    state is GameState.Playing || state is GameState.Ready ->
+                        onResultReceived(result)
+                    state is GameState.Finished && result.isWandIdValid ->
+                        onLateResultReceived(result)
+                }
             }
         }
     }
@@ -179,12 +182,34 @@ class GameViewModel @Inject constructor(
 
         Log.d(TAG, "Result collected: wand=0x${wandResult.wandId.toString(16)} red=${wandResult.redScore} total=${collectedResults.size}")
 
-        if (resultCollectJob == null || resultCollectJob?.isCompleted == true) {
-            resultCollectJob = viewModelScope.launch {
-                delay(RESULT_COLLECT_WINDOW_MS)
-                finalizeResults(result.mode)
-            }
+        // 슬라이딩 윈도우 — 새 결과가 올 때마다 타이머 리셋
+        resultCollectJob?.cancel()
+        resultCollectJob = viewModelScope.launch {
+            delay(RESULT_COLLECT_WINDOW_MS)
+            finalizeResults(result.mode)
         }
+    }
+
+    private fun onLateResultReceived(result: GameResult) {
+        val wandResult = WandResult(
+            wandId = result.wandId,
+            redScore = result.redScore,
+            blueScore = result.blueScore
+        )
+        val current = _gameState.value as? GameState.Finished ?: return
+        if (current.summary.wandResults.any { it.wandId == wandResult.wandId }) return
+
+        collectedResults.add(wandResult)
+        val updated = current.summary.wandResults + wandResult
+        _gameState.value = GameState.Finished(
+            current.summary.copy(
+                wandResults    = updated,
+                totalWandCount = updated.size,
+                totalRedScore  = updated.sumOf { it.redScore },
+                totalBlueScore = updated.sumOf { it.blueScore }
+            )
+        )
+        Log.d(TAG, "Late result added: wand=0x${wandResult.wandId.toString(16)} total=${updated.size}")
     }
 
     private fun finalizeSummaryPacket(result: GameResult) {
