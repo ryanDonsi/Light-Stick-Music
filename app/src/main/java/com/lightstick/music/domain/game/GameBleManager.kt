@@ -105,7 +105,8 @@ class GameBleManager @Inject constructor() {
             option = option
         ) { result ->
             Log.d(TAG, "게임 결과 수신: mode=${result.mode} red=${result.redScore} blue=${result.blueScore} wandId=0x${result.wandId.toString(16)}")
-            _gameResultFlow.tryEmit(result)
+            val emitted = _gameResultFlow.tryEmit(result)
+            Log.d(TAG, "tryEmit 결과: $emitted (subscribers=${_gameResultFlow.subscriptionCount.value})")
         }.also { ok ->
             Log.d(TAG, "startGame 결과: $ok (mode=$mode difficulty=$difficulty)")
         }

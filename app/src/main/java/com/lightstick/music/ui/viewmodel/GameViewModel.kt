@@ -137,6 +137,7 @@ class GameViewModel @Inject constructor(
     private fun observeGameResults() {
         viewModelScope.launch {
             observeGameResultsUseCase().collect { result ->
+                Log.d(TAG, "Flow 수신: wandId=0x${result.wandId.toString(16)} state=${_gameState.value::class.simpleName}")
                 if (_gameState.value !is GameState.Playing &&
                     _gameState.value !is GameState.Ready) return@collect
 
