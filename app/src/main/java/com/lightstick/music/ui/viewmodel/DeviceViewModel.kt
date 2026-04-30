@@ -159,9 +159,7 @@ class DeviceViewModel @Inject constructor(
         }
 
         val device = _devices.value.find { it.mac == mac }
-            ?: Device(mac = mac, name = null, rssi = null)
-        val sdkName = LSBluetooth.connectedDevices().find { it.mac == mac }?.name
-        Log.d(TAG, "🔍 Device name check: _devices=${device.name} SDK.connectedDevices=$sdkName")
+            ?: Device(mac = mac, name = LSBluetooth.connectedDevices().find { it.mac == mac }?.name, rssi = null)
 
         connectedDevices[mac] = device
 
