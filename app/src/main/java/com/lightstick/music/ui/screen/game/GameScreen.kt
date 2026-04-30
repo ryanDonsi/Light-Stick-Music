@@ -548,8 +548,6 @@ private fun SoloResultContent(summary: GameResultSummary) {
 
 @Composable
 private fun TeamResultContent(summary: GameResultSummary) {
-    val colors = MaterialTheme.customColors
-
     val winnerLabel = when (summary.teamWinner) {
         TeamWinner.RED  -> "Red팀 승리!"
         TeamWinner.BLUE -> "Blue팀 승리!"
@@ -565,20 +563,6 @@ private fun TeamResultContent(summary: GameResultSummary) {
         redScore = summary.totalRedScore,
         blueScore = summary.totalBlueScore
     )
-
-    Spacer(modifier = Modifier.height(4.dp))
-    Text(
-        text = "개인 점수",
-        style = MaterialTheme.customTextStyles.bodyAccent,
-        color = colors.surfaceVariant
-    )
-
-    summary.wandResults
-        .filter { it.wandId != 0 && it.wandId != 0xFFFF }
-        .sortedByDescending { it.redScore + it.blueScore }
-        .forEachIndexed { index, result ->
-            RankRow(rank = index + 1, result = result, isTeamBattle = true)
-        }
 }
 
 @Composable
