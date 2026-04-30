@@ -61,6 +61,11 @@ class GameViewModel @Inject constructor(
     private val collectedResults = mutableListOf<WandResult>()
     private var resultCollectJob: Job? = null
 
+    // ─── Partial Results (Mode 1/2 진행 중 실시간 순위) ───────────────────────
+
+    private val _partialResults = MutableStateFlow<List<WandResult>>(emptyList())
+    val partialResults: StateFlow<List<WandResult>> = _partialResults.asStateFlow()
+
     // ─── Init ─────────────────────────────────────────────────────────────────
 
     init {
@@ -94,6 +99,7 @@ class GameViewModel @Inject constructor(
 
         collectedResults.clear()
         resultCollectJob?.cancel()
+        _partialResults.value = emptyList()
 
         val ok = sendGameCommandUseCase.sendReady(mode, difficulty)
         if (!ok) {
@@ -119,6 +125,7 @@ class GameViewModel @Inject constructor(
     fun stopGame() {
         sendGameCommandUseCase.sendStop()
         resultCollectJob?.cancel()
+        _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
         Log.d(TAG, "STOP sent")
     }
@@ -128,6 +135,7 @@ class GameViewModel @Inject constructor(
         sendGameCommandUseCase.sendClear()
         collectedResults.clear()
         resultCollectJob?.cancel()
+        _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
         Log.d(TAG, "CLEAR sent, back to Idle")
     }
@@ -163,6 +171,10 @@ class GameViewModel @Inject constructor(
 
         if (collectedResults.none { it.wandId == wandResult.wandId }) {
             collectedResults.add(wandResult)
+            val mode = _selectedMode.value
+            if (mode == GameMode.SPEED_REACTION || mode == GameMode.TEMPO) {
+                _partialResults.value = collectedResults.toList()
+            }
         }
 
         Log.d(TAG, "Result collected: wand=0x${wandResult.wandId.toString(16)} red=${wandResult.redScore} total=${collectedResults.size}")

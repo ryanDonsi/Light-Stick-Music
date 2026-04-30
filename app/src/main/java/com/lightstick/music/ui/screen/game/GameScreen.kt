@@ -79,6 +79,7 @@ fun GameScreen(viewModel: GameViewModel) {
     val gameState        by viewModel.gameState.collectAsState()
     val bleState         by viewModel.bleConnectionState.collectAsState()
     val countdownSeconds by viewModel.countdownSeconds.collectAsState()
+    val partialResults   by viewModel.partialResults.collectAsState()
 
     val toastState = rememberToastState()
     var showStopDialog by remember { mutableStateOf(false) }
@@ -126,6 +127,7 @@ fun GameScreen(viewModel: GameViewModel) {
                     is GameState.Ready  -> CountdownContent(countdownSeconds = countdownSeconds)
                     is GameState.Playing -> PlayingContent(
                         mode = selectedMode,
+                        partialResults = partialResults,
                         onStopClick = { showStopDialog = true }
                     )
                     is GameState.Finished -> ResultContent(
@@ -446,44 +448,84 @@ private fun CountdownContent(countdownSeconds: Int) {
 // ─── Playing ─────────────────────────────────────────────────────────────────
 
 @Composable
-private fun PlayingContent(mode: GameMode?, onStopClick: () -> Unit) {
+private fun PlayingContent(
+    mode: GameMode?,
+    partialResults: List<WandResult>,
+    onStopClick: () -> Unit
+) {
     val colors = MaterialTheme.customColors
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-            modifier = Modifier.padding(32.dp)
+    val showRanking = (mode == GameMode.SPEED_REACTION || mode == GameMode.TEMPO) &&
+            partialResults.isNotEmpty()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 상단 헤더
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             CircularProgressIndicator(
-                modifier = Modifier.size(56.dp),
+                modifier = Modifier.size(20.dp),
                 color = colors.primary,
-                strokeWidth = 4.dp
+                strokeWidth = 2.5.dp
             )
-            Text(
-                text = "게임 진행 중",
-                style = MaterialTheme.typography.headlineSmall,
-                color = colors.onSurface
-            )
-            if (mode != null) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = mode.nameKr,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = colors.surfaceVariant
+                    text = "게임 진행 중",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.onSurface
+                )
+                if (mode != null) {
+                    Text(
+                        text = mode.nameKr,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.surfaceVariant
+                    )
+                }
+            }
+        }
+
+        if (showRanking) {
+            Text(
+                text = "실시간 순위",
+                style = MaterialTheme.customTextStyles.bodyAccent,
+                color = colors.surfaceVariant
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                partialResults.forEachIndexed { index, result ->
+                    RankRow(rank = index + 1, result = result, isTeamBattle = false)
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "결과를 기다리는 중...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.textTertiary
                 )
             }
-            Text(
-                text = "결과를 기다리는 중...",
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.textTertiary
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            BaseButton(
-                text = "게임 중지",
-                onClick = onStopClick,
-                style = ButtonStyle.ERROR,
-                modifier = Modifier.width(160.dp).height(48.dp)
-            )
         }
+
+        BaseButton(
+            text = "게임 중지",
+            onClick = onStopClick,
+            style = ButtonStyle.ERROR,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+        )
     }
 }
 
