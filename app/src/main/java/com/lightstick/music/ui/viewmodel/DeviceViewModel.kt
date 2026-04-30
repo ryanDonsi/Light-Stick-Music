@@ -25,6 +25,7 @@ import com.lightstick.music.domain.usecase.device.GetCachedDeviceInfoUseCase
 import com.lightstick.music.domain.usecase.device.StartScanUseCase
 import com.lightstick.music.domain.usecase.device.StopScanUseCase
 import com.lightstick.music.domain.usecase.device.ObserveDeviceStatesUseCase
+import com.lightstick.LSBluetooth
 import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
 import com.lightstick.device.DeviceInfo
@@ -158,7 +159,9 @@ class DeviceViewModel @Inject constructor(
         }
 
         val device = _devices.value.find { it.mac == mac }
-            ?: Device(mac = mac, name = DevicePreferences.getDeviceName(mac), rssi = null)
+            ?: Device(mac = mac, name = null, rssi = null)
+        val sdkName = LSBluetooth.connectedDevices().find { it.mac == mac }?.name
+        Log.d(TAG, "🔍 Device name check: _devices=${device.name} SDK.connectedDevices=$sdkName")
 
         connectedDevices[mac] = device
 
@@ -228,7 +231,6 @@ class DeviceViewModel @Inject constructor(
      * onFound 콜백에서 호출됩니다.
      */
     private fun applyScannedDevice(device: Device) {
-        DevicePreferences.saveDeviceName(device.mac, device.name)
         val current = _devices.value.toMutableList()
         val idx = current.indexOfFirst { it.mac == device.mac }
         if (idx >= 0) {
@@ -246,7 +248,6 @@ class DeviceViewModel @Inject constructor(
      * 스캔 완료 후 전체 결과를 일괄 반영
      */
     private fun applyScannedDevices(scannedDevices: List<Device>) {
-        scannedDevices.forEach { DevicePreferences.saveDeviceName(it.mac, it.name) }
         val current = _devices.value.toMutableList()
         scannedDevices.forEach { device ->
             val idx = current.indexOfFirst { it.mac == device.mac }

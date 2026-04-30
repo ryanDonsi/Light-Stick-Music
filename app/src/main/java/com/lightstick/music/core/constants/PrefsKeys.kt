@@ -80,9 +80,6 @@ object PrefsKeys {
     /** 브로드캐스팅 활성화 key prefix — "broadcast_$mac" 형태 */
     const val KEY_DEVICE_BROADCAST_PREFIX = "broadcast_"
 
-    /** 디바이스 이름 key prefix — "device_name_$mac" 형태 */
-    const val KEY_DEVICE_NAME_PREFIX      = "device_name_"
-
     /** 자동 재연결 활성화 key */
     const val KEY_DEVICE_AUTO_RECONNECT   = "auto_reconnect_enabled"
 
@@ -110,7 +107,4 @@ object PrefsKeys {
 
     /** 디바이스 브로드캐스팅 key 생성 */
     fun deviceBroadcastKey(mac: String): String = KEY_DEVICE_BROADCAST_PREFIX + mac
-
-    /** 디바이스 이름 key 생성 */
-    fun deviceNameKey(mac: String): String = KEY_DEVICE_NAME_PREFIX + mac
 }
