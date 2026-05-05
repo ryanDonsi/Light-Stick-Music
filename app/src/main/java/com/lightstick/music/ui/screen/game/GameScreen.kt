@@ -4,18 +4,19 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,12 +31,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -46,13 +51,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.lightstick.music.R
 import com.lightstick.music.data.model.GameDifficulty
 import com.lightstick.music.data.model.GameMode
 import com.lightstick.music.data.model.GameResultSummary
@@ -86,7 +91,6 @@ fun GameScreen(viewModel: GameViewModel) {
 
     LaunchedEffect(Unit) { viewModel.connectIfNeeded() }
 
-    // 에러 상태 토스트 표시
     LaunchedEffect(gameState) {
         if (gameState is GameState.Error) {
             toastState.show((gameState as GameState.Error).message)
@@ -138,7 +142,6 @@ fun GameScreen(viewModel: GameViewModel) {
             }
         }
 
-        // 게임 중지 확인 다이얼로그
         if (showStopDialog) {
             BaseDialog(
                 title = "게임 중지",
@@ -153,7 +156,6 @@ fun GameScreen(viewModel: GameViewModel) {
             )
         }
 
-        // 토스트
         CustomToast(
             message = toastState.message,
             isVisible = toastState.isVisible,
@@ -183,10 +185,8 @@ private fun ModeSelectionContent(
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // BLE 연결 상태
         BleBanner(bleState = bleState)
 
-        // 모드 선택
         Text(
             text = "모드 선택",
             style = MaterialTheme.customTextStyles.bodyAccent,
@@ -194,31 +194,38 @@ private fun ModeSelectionContent(
         )
 
         GameMode.entries.forEach { mode ->
-            GameModeCard(
-                mode = mode,
-                selected = selectedMode == mode,
-                onClick = { onModeSelect(mode) }
-            )
-        }
-
-        // 난이도 선택
-        AnimatedVisibility(visible = selectedMode != null) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "난이도",
-                    style = MaterialTheme.customTextStyles.bodyAccent,
-                    color = colors.surfaceVariant
+            // Each mode card + its inline difficulty row are grouped
+            Column {
+                GameModeCard(
+                    mode = mode,
+                    selected = selectedMode == mode,
+                    onClick = { onModeSelect(mode) }
                 )
-                DifficultyRow(
-                    selected = selectedDifficulty,
-                    onSelect = onDifficultySelect
-                )
+                AnimatedVisibility(
+                    visible = selectedMode == mode,
+                    enter = fadeIn(tween(200)) + expandVertically(animationSpec = tween(200)),
+                    exit = fadeOut(tween(150)) + shrinkVertically(animationSpec = tween(150))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(top = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "난이도",
+                            style = MaterialTheme.customTextStyles.bodyAccent,
+                            color = colors.surfaceVariant
+                        )
+                        DifficultyRow(
+                            selected = selectedDifficulty,
+                            onSelect = onDifficultySelect
+                        )
+                    }
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // 시작 버튼
         BaseButton(
             text = "게임 시작",
             onClick = onStart,
@@ -228,7 +235,6 @@ private fun ModeSelectionContent(
                 .height(52.dp)
         )
 
-        // 게임 미지원 기기 에러 메시지만 표시
         if (bleState is GameBleManager.ConnectionState.Error) {
             Text(
                 text = (bleState as GameBleManager.ConnectionState.Error).message,
@@ -301,11 +307,9 @@ private fun GameModeCard(
     onClick: () -> Unit
 ) {
     val colors = MaterialTheme.customColors
-    val borderColor = if (selected) colors.primary else Color.Transparent
-    val bgColor = if (selected)
-        colors.primary.copy(alpha = 0.12f)
-    else
-        colors.onSurface.copy(alpha = 0.05f)
+    val bgColor = if (selected) colors.primary.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.05f)
+    val borderColor = if (selected) colors.primary else colors.onSurface.copy(alpha = 0.14f)
+    val borderWidth = if (selected) 2.dp else 1.dp
 
     val modeIcon = when (mode) {
         GameMode.SPEED_REACTION -> Icons.Filled.Bolt
@@ -313,58 +317,49 @@ private fun GameModeCard(
         GameMode.TEAM_BATTLE    -> Icons.Filled.Groups
     }
 
-    Row(
+    Card(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(bgColor)
-            .border(1.5.dp, borderColor, RoundedCornerShape(14.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            )
-            .padding(horizontal = 18.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
+            .shadow(
+                elevation = 20.dp,
+                shape = RoundedCornerShape(12.dp),
+                spotColor = Color.Black.copy(alpha = 0.20f),
+                ambientColor = Color.Transparent
+            ),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = bgColor),
+        border = BorderStroke(borderWidth, borderColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Icon(
-            imageVector = modeIcon,
-            contentDescription = null,
-            tint = if (selected) colors.onSurface else colors.surfaceVariant,
-            modifier = Modifier.size(28.dp)
-        )
-
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                text = mode.nameKr,
-                style = MaterialTheme.typography.titleSmall,
-                color = colors.onSurface
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Icon(
+                imageVector = modeIcon,
+                contentDescription = null,
+                tint = if (selected) colors.onSurface else colors.surfaceVariant,
+                modifier = Modifier.size(28.dp)
             )
-            Text(
-                text = mode.descKr,
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.surfaceVariant
-            )
-            Text(
-                text = mode.winConditionKr,
-                style = MaterialTheme.customTextStyles.badgeMedium,
-                color = if (selected) colors.onSurface.copy(alpha = 0.7f) else colors.textTertiary
-            )
-        }
-
-        if (selected) {
-            Box(
-                modifier = Modifier
-                    .size(22.dp)
-                    .background(colors.primary, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_check),
-                    contentDescription = null,
-                    tint = colors.onPrimary,
-                    modifier = Modifier.size(13.dp)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = mode.nameKr,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = colors.onSurface
+                )
+                Text(
+                    text = mode.descKr,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.surfaceVariant
+                )
+                Text(
+                    text = mode.winConditionKr,
+                    style = MaterialTheme.customTextStyles.badgeMedium,
+                    color = if (selected) colors.onSurface.copy(alpha = 0.7f) else colors.textTertiary
                 )
             }
         }
@@ -458,7 +453,6 @@ private fun PlayingContent(
             partialResults.isNotEmpty()
 
     if (showRanking) {
-        // 결과가 들어오기 시작하면 상단 compact + 하단 순위 리스트
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -502,7 +496,7 @@ private fun PlayingContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 partialResults.forEachIndexed { index, result ->
-                    RankRow(rank = index + 1, result = result, isTeamBattle = false)
+                    RankRow(rank = index + 1, result = result)
                 }
             }
 
@@ -514,7 +508,6 @@ private fun PlayingContent(
             )
         }
     } else {
-        // 결과 대기 중 — 카운트다운과 동일한 센터 레이아웃
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -553,7 +546,6 @@ private fun PlayingContent(
 
 @Composable
 private fun ResultContent(summary: GameResultSummary, onPlayAgain: () -> Unit) {
-    val colors = MaterialTheme.customColors
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -565,14 +557,6 @@ private fun ResultContent(summary: GameResultSummary, onPlayAgain: () -> Unit) {
             GameMode.SPEED_REACTION, GameMode.TEMPO -> SoloResultContent(summary)
             GameMode.TEAM_BATTLE                    -> TeamResultContent(summary)
         }
-
-        Text(
-            text = "참여 응원봉: ${summary.totalWandCount}개",
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.textTertiary,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.End
-        )
 
         Spacer(modifier = Modifier.height(4.dp))
 
@@ -588,23 +572,57 @@ private fun ResultContent(summary: GameResultSummary, onPlayAgain: () -> Unit) {
 
 @Composable
 private fun SoloResultContent(summary: GameResultSummary) {
+    var showAllResults by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.customColors
     val winner = summary.soloWinner
+
     if (winner != null) {
         WinnerBanner(
             label = "우승!",
-            subtitle = "응원봉 #${winner.wandId.toString(16).uppercase()} · ${winner.redScore}점"
+            wandId = "응원봉 ${winner.wandId.toString(16).uppercase().padStart(4, '0')}",
+            score = "${winner.redScore}점"
         )
     }
 
-    Spacer(modifier = Modifier.height(4.dp))
+    Text(
+        text = "참여 응원봉: ${summary.totalWandCount}개",
+        style = MaterialTheme.typography.bodySmall,
+        color = colors.textTertiary,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.End
+    )
+
     Text(
         text = "순위표",
         style = MaterialTheme.customTextStyles.bodyAccent,
-        color = MaterialTheme.customColors.surfaceVariant
+        color = colors.surfaceVariant
     )
 
-    summary.rankedResults.forEachIndexed { index, result ->
-        RankRow(rank = index + 1, result = result, isTeamBattle = false)
+    val displayedResults = if (showAllResults) summary.rankedResults
+                           else summary.rankedResults.take(3)
+    displayedResults.forEachIndexed { index, result ->
+        RankRow(rank = index + 1, result = result)
+    }
+
+    if (!showAllResults && summary.rankedResults.size > 3) {
+        TextButton(
+            onClick = { showAllResults = true },
+            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = "모든 결과 보기",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = colors.onSurface
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = colors.onSurface,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
@@ -640,13 +658,11 @@ private fun TeamResultContent(summary: GameResultSummary) {
                 color = colors.onPrimary
             )
 
-            // 점수 카드
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Red 점수
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -668,7 +684,6 @@ private fun TeamResultContent(summary: GameResultSummary) {
                     )
                 }
 
-                // 구분선
                 Box(
                     modifier = Modifier
                         .width(1.dp)
@@ -676,7 +691,6 @@ private fun TeamResultContent(summary: GameResultSummary) {
                         .background(colors.onPrimary.copy(alpha = 0.3f))
                 )
 
-                // Blue 점수
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -701,6 +715,15 @@ private fun TeamResultContent(summary: GameResultSummary) {
         }
     }
 
+    // 참여 응원봉 수 — 상단 카드 바로 아래
+    Text(
+        text = "참여 응원봉: ${summary.totalWandCount}개",
+        style = MaterialTheme.typography.bodySmall,
+        color = colors.textTertiary,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.End
+    )
+
     // 점수 비교 바 카드
     Column(
         modifier = Modifier
@@ -718,7 +741,7 @@ private fun TeamResultContent(summary: GameResultSummary) {
 }
 
 @Composable
-private fun WinnerBanner(label: String, subtitle: String) {
+private fun WinnerBanner(label: String, wandId: String, score: String) {
     val colors = MaterialTheme.customColors
     Box(
         modifier = Modifier
@@ -727,23 +750,29 @@ private fun WinnerBanner(label: String, subtitle: String) {
             .background(
                 Brush.horizontalGradient(listOf(colors.gradientStart, colors.gradientEnd))
             )
-            .padding(20.dp),
+            .padding(vertical = 24.dp, horizontal = 20.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(text = "🏆", fontSize = 36.sp)
+            Text(text = "🏆", fontSize = 40.sp)
             Text(
                 text = label,
                 style = MaterialTheme.typography.headlineSmall,
                 color = colors.onPrimary
             )
             Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.onPrimary.copy(alpha = 0.85f)
+                text = wandId,
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.onPrimary.copy(alpha = 0.9f)
+            )
+            Text(
+                text = score,
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+                color = colors.onPrimary
             )
         }
     }
@@ -776,7 +805,6 @@ private fun TeamScoreBar(redScore: Int, blueScore: Int) {
             )
         }
 
-        // 배경 = Blue, 전경 = Red
         Box(modifier = Modifier.fillMaxWidth()) {
             CommonProgressBar(
                 progress = 1f,
@@ -797,41 +825,60 @@ private fun TeamScoreBar(redScore: Int, blueScore: Int) {
 }
 
 @Composable
-private fun RankRow(rank: Int, result: WandResult, isTeamBattle: Boolean) {
+private fun RankRow(rank: Int, result: WandResult) {
     val colors = MaterialTheme.customColors
+    val isWinner = rank == 1
     val medalColor = when (rank) {
         1    -> Color(0xFFFFD700)
         2    -> Color(0xFFC0C0C0)
         3    -> Color(0xFFCD7F32)
         else -> colors.surfaceVariant
     }
-    val score = if (isTeamBattle) result.redScore + result.blueScore else result.redScore
+    val bgColor = if (isWinner) colors.primary.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.05f)
+    val borderColor = if (isWinner) colors.primary else colors.onSurface.copy(alpha = 0.14f)
+    val borderWidth = if (isWinner) 2.dp else 1.dp
+    val wandHex = result.wandId.toString(16).uppercase().padStart(4, '0')
 
-    Row(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(colors.onSurface.copy(alpha = 0.05f))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .shadow(
+                elevation = 20.dp,
+                shape = RoundedCornerShape(12.dp),
+                spotColor = Color.Black.copy(alpha = 0.20f),
+                ambientColor = Color.Transparent
+            ),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = bgColor),
+        border = BorderStroke(borderWidth, borderColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Text(
-            text = "${rank}위",
-            style = MaterialTheme.customTextStyles.buttonSmall,
-            color = medalColor,
-            modifier = Modifier.width(36.dp)
-        )
-        Text(
-            text = "응원봉 #${result.wandId.toString(16).uppercase()}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.onSurface,
-            modifier = Modifier.weight(1f)
-        )
-        Text(
-            text = "${score}점",
-            style = MaterialTheme.typography.titleSmall,
-            color = colors.primary
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "${rank}위",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = medalColor,
+                modifier = Modifier.width(48.dp)
+            )
+            Text(
+                text = "응원봉 $wandHex",
+                style = MaterialTheme.typography.titleSmall,
+                color = colors.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "${result.redScore}점",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = colors.primary
+            )
+        }
     }
 }
