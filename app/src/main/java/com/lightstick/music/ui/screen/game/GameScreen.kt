@@ -642,7 +642,7 @@ private fun TeamResultContent(summary: GameResultSummary) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(
-                Brush.verticalGradient(listOf(colors.gradientStart, colors.gradientEnd))
+                Brush.verticalGradient(listOf(colors.primary.copy(alpha = 0.85f), colors.primaryContainer))
             )
             .padding(vertical = 28.dp, horizontal = 24.dp),
         contentAlignment = Alignment.Center
@@ -748,7 +748,7 @@ private fun WinnerBanner(label: String, wandId: String, score: String) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(
-                Brush.horizontalGradient(listOf(colors.gradientStart, colors.gradientEnd))
+                Brush.verticalGradient(listOf(colors.primary.copy(alpha = 0.85f), colors.primaryContainer))
             )
             .padding(vertical = 24.dp, horizontal = 20.dp),
         contentAlignment = Alignment.Center
