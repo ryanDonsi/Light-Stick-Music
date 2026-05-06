@@ -709,8 +709,12 @@ class DeviceViewModel @Inject constructor(
     private fun updateDeviceInfoFromCallback(mac: String, deviceInfo: DeviceInfo) {
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
-            this[mac] = existing?.copy(deviceInfo = deviceInfo, batteryLevel = deviceInfo.batteryLevel)
-                ?: DeviceDetailInfo(
+            Log.d(TAG, "📋 DeviceInfo callback: mac=$mac disName=${deviceInfo.deviceName} existing.name=${existing?.name}")
+            this[mac] = existing?.copy(
+                name         = existing.name ?: deviceInfo.deviceName,  // DIS 이름으로 fallback
+                deviceInfo   = deviceInfo,
+                batteryLevel = deviceInfo.batteryLevel
+            ) ?: DeviceDetailInfo(
                     mac          = mac,
                     name         = deviceInfo.deviceName,
                     rssi         = deviceInfo.rssi,
@@ -718,8 +722,8 @@ class DeviceViewModel @Inject constructor(
                     deviceInfo   = deviceInfo,
                     batteryLevel = deviceInfo.batteryLevel
                 )
+            Log.d(TAG, "✅ DeviceInfo updated: $mac → name=${this[mac]?.name}")
         }
-        Log.d(TAG, "✅ DeviceInfo updated: $mac")
     }
 
     private fun updateBatteryLevel(mac: String, level: Int) {
