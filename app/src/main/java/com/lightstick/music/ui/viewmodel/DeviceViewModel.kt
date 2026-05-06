@@ -151,6 +151,7 @@ class DeviceViewModel @Inject constructor(
      * [수정] 스캔 없이 복원된 기기도 _devices에 즉시 추가
      * → 스캔 중 연결되어도 "연결된 기기" 섹션에 즉시 표시
      */
+    @android.annotation.SuppressLint("MissingPermission")
     private fun onDeviceConnectedFromSdk(mac: String) {
         Log.d(TAG, "🔗 [SDK] Connected: $mac")
 
@@ -178,10 +179,20 @@ class DeviceViewModel @Inject constructor(
             initializeDeviceDetail(device)
         }
 
-        val deviceInfo = getCachedDeviceInfoUseCase(mac)
-        if (deviceInfo != null) {
-            updateDeviceInfoFromCallback(mac, deviceInfo)
+        // 캐시가 있으면 즉시 반영 (이전 세션 데이터)
+        val cachedInfo = getCachedDeviceInfoUseCase(mac)
+        if (cachedInfo != null) {
+            updateDeviceInfoFromCallback(mac, cachedInfo)
             Log.d(TAG, "✅ DeviceInfo 캐시 적용: $mac")
+        }
+
+        // 자동 재연결 시 onDeviceInfo 콜백이 없으므로 DIS를 직접 요청
+        if (PermissionManager.hasBluetoothConnectPermission(context)) {
+            val submitted = device.fetchDeviceInfo { info ->
+                Log.d(TAG, "📋 fetchDeviceInfo 완료: $mac name=${info.deviceName} fw=${info.firmwareRevision}")
+                updateDeviceInfoFromCallback(mac, info)
+            }
+            Log.d(TAG, if (submitted) "📡 fetchDeviceInfo 요청됨: $mac" else "⚠️ fetchDeviceInfo 제출 실패: $mac")
         }
 
         registerDeviceEventRules(device)
