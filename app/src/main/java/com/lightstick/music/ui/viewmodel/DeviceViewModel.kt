@@ -725,12 +725,17 @@ class DeviceViewModel @Inject constructor(
             Log.d(TAG, "✅ DeviceInfo updated: $mac → name=${this[mac]?.name}")
         }
 
-        // DIS 이름을 _devices의 Device.name에도 동기화 → 모든 UI가 device.name 하나를 신뢰
-        if (!deviceInfo.deviceName.isNullOrBlank()) {
+        // DIS 결과를 _devices의 Device에도 동기화 → 모든 UI가 device 하나를 신뢰
+        val disName = deviceInfo.deviceName.takeUnless { it.isNullOrBlank() }
+        val disRssi = deviceInfo.rssi
+        if (disName != null || disRssi != null) {
             _devices.value = _devices.value.map { device ->
-                if (device.mac == mac) device.copy(name = deviceInfo.deviceName) else device
+                if (device.mac == mac) device.copy(
+                    name = disName ?: device.name,
+                    rssi = disRssi ?: device.rssi
+                ) else device
             }
-            Log.d(TAG, "📋 _devices name synced: $mac → ${deviceInfo.deviceName}")
+            Log.d(TAG, "📋 _devices synced: $mac → name=$disName rssi=$disRssi")
         }
     }
 
