@@ -711,7 +711,7 @@ class DeviceViewModel @Inject constructor(
             val existing = this[mac]
             Log.d(TAG, "📋 DeviceInfo callback: mac=$mac disName=${deviceInfo.deviceName} existing.name=${existing?.name}")
             this[mac] = existing?.copy(
-                name         = existing.name ?: deviceInfo.deviceName,  // DIS 이름으로 fallback
+                name         = existing.name ?: deviceInfo.deviceName,
                 deviceInfo   = deviceInfo,
                 batteryLevel = deviceInfo.batteryLevel
             ) ?: DeviceDetailInfo(
@@ -723,6 +723,14 @@ class DeviceViewModel @Inject constructor(
                     batteryLevel = deviceInfo.batteryLevel
                 )
             Log.d(TAG, "✅ DeviceInfo updated: $mac → name=${this[mac]?.name}")
+        }
+
+        // DIS 이름을 _devices의 Device.name에도 동기화 → 모든 UI가 device.name 하나를 신뢰
+        if (!deviceInfo.deviceName.isNullOrBlank()) {
+            _devices.value = _devices.value.map { device ->
+                if (device.mac == mac) device.copy(name = deviceInfo.deviceName) else device
+            }
+            Log.d(TAG, "📋 _devices name synced: $mac → ${deviceInfo.deviceName}")
         }
     }
 
