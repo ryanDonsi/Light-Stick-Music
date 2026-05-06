@@ -21,7 +21,6 @@ import com.lightstick.music.domain.usecase.device.DisconnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.RegisterEventRulesUseCase
 import com.lightstick.music.domain.usecase.device.SendFindEffectUseCase
 import com.lightstick.music.domain.usecase.device.SendConnectionEffectUseCase
-import com.lightstick.music.domain.usecase.device.GetCachedDeviceInfoUseCase
 import com.lightstick.music.domain.usecase.device.StartScanUseCase
 import com.lightstick.music.domain.usecase.device.StopScanUseCase
 import com.lightstick.music.domain.usecase.device.ObserveDeviceStatesUseCase
@@ -45,7 +44,6 @@ class DeviceViewModel @Inject constructor(
     private val disconnectDeviceUseCase:     DisconnectDeviceUseCase,
     private val registerEventRulesUseCase:   RegisterEventRulesUseCase,
     private val sendConnectionEffectUseCase: SendConnectionEffectUseCase,
-    private val getCachedDeviceInfoUseCase:  GetCachedDeviceInfoUseCase,
     private val startScanUseCase:            StartScanUseCase,
     private val stopScanUseCase:             StopScanUseCase
 ) : ViewModel() {
@@ -107,6 +105,9 @@ class DeviceViewModel @Inject constructor(
     /** 배터리 모니터링 Job (MAC → Job) */
     private val batteryMonitoringJobs = mutableMapOf<String, Job>()
 
+    /** 연결 세션당 DIS fetch 중복 방지 (연결 해제 시 제거) */
+    private val disFetchedMacs = mutableSetOf<String>()
+
     // ═══════════════════════════════════════════════════════════
     // Initialization
     // ═══════════════════════════════════════════════════════════
@@ -155,6 +156,16 @@ class DeviceViewModel @Inject constructor(
     private fun onDeviceConnectedFromSdk(mac: String) {
         Log.d(TAG, "🔗 [SDK] Connected: $mac")
 
+        // DIS fetch: early return / 중복 처리와 무관하게 연결 세션당 정확히 1회 실행
+        if (disFetchedMacs.add(mac) && PermissionManager.hasBluetoothConnectPermission(context)) {
+            val fetchDevice = _devices.value.find { it.mac == mac } ?: Device(mac = mac)
+            val submitted = fetchDevice.fetchDeviceInfo { info ->
+                Log.d(TAG, "📋 DIS 완료: $mac name=${info.deviceName} fw=${info.firmwareRevision}")
+                updateDeviceInfoFromCallback(mac, info)
+            }
+            Log.d(TAG, if (submitted) "📡 DIS 요청: $mac" else "⚠️ DIS 제출 실패: $mac")
+        }
+
         if (connectedDevices.containsKey(mac)) {
             Log.d(TAG, "⏭️ 이미 관리 중: $mac"); return
         }
@@ -164,7 +175,7 @@ class DeviceViewModel @Inject constructor(
 
         connectedDevices[mac] = device
 
-        // ✅ _devices에 없는 기기(스캔 외 복원/외부 연결)도 즉시 목록에 추가
+        // _devices에 없는 기기(스캔 외 복원/외부 연결)도 즉시 목록에 추가
         if (_devices.value.none { it.mac == mac }) {
             _devices.value = (_devices.value + device).sortedWith(
                 compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
@@ -177,22 +188,6 @@ class DeviceViewModel @Inject constructor(
 
         if (!_deviceDetails.value.containsKey(mac)) {
             initializeDeviceDetail(device)
-        }
-
-        // 캐시가 있으면 즉시 반영 (이전 세션 데이터)
-        val cachedInfo = getCachedDeviceInfoUseCase(mac)
-        if (cachedInfo != null) {
-            updateDeviceInfoFromCallback(mac, cachedInfo)
-            Log.d(TAG, "✅ DeviceInfo 캐시 적용: $mac")
-        }
-
-        // 자동 재연결 시 onDeviceInfo 콜백이 없으므로 DIS를 직접 요청
-        if (PermissionManager.hasBluetoothConnectPermission(context)) {
-            val submitted = device.fetchDeviceInfo { info ->
-                Log.d(TAG, "📋 fetchDeviceInfo 완료: $mac name=${info.deviceName} fw=${info.firmwareRevision}")
-                updateDeviceInfoFromCallback(mac, info)
-            }
-            Log.d(TAG, if (submitted) "📡 fetchDeviceInfo 요청됨: $mac" else "⚠️ fetchDeviceInfo 제출 실패: $mac")
         }
 
         registerDeviceEventRules(device)
@@ -208,6 +203,7 @@ class DeviceViewModel @Inject constructor(
         Log.d(TAG, "🔌 [SDK] Disconnected: $mac")
 
         connectedDevices.remove(mac)
+        disFetchedMacs.remove(mac)
         updateConnectionState(mac, false)
         stopBatteryMonitoring(mac)
 
@@ -380,12 +376,11 @@ class DeviceViewModel @Inject constructor(
                 Log.d(TAG, "🔗 Connecting to ${device.mac}...")
 
                 connectDeviceUseCase(
-                    context      = context,
-                    device       = device,
-                    onConnected  = {
+                    context     = context,
+                    device      = device,
+                    onConnected = {
                         Log.d(TAG, "✅ Connected: ${device.mac}")
-                        // SDK 이벤트로 onDeviceConnectedFromSdk 호출 전에 먼저 등록
-                        // → 중복 처리 방지
+                        // SDK 이벤트로 onDeviceConnectedFromSdk 호출 전에 먼저 등록 → 중복 처리 방지
                         connectedDevices[device.mac] = device
                         viewModelScope.launch {
                             sendConnectionEffectUseCase(context, device).onFailure { error ->
@@ -393,14 +388,11 @@ class DeviceViewModel @Inject constructor(
                             }
                         }
                     },
-                    onFailed     = { error ->
+                    onFailed    = { error ->
                         Log.e(TAG, "❌ Connection failed: ${error.message}")
                         connectedDevices.remove(device.mac)
-                    },
-                    onDeviceInfo = { info ->
-                        Log.d(TAG, "📋 DeviceInfo: ${info.deviceName}, bat=${info.batteryLevel}%")
-                        updateDeviceInfoFromCallback(device.mac, info)
                     }
+                    // DIS는 onDeviceConnectedFromSdk에서 단일 경로로 처리
                 ).onFailure { error ->
                     Log.e(TAG, "❌ Connect use case failed: ${error.message}")
                     connectedDevices.remove(device.mac)
