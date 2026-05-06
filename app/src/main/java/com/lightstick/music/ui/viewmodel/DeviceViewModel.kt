@@ -105,8 +105,6 @@ class DeviceViewModel @Inject constructor(
     /** 배터리 모니터링 Job (MAC → Job) */
     private val batteryMonitoringJobs = mutableMapOf<String, Job>()
 
-    /** 연결 세션당 DIS fetch 중복 방지 (연결 해제 시 제거) */
-    private val disFetchedMacs = mutableSetOf<String>()
 
     // ═══════════════════════════════════════════════════════════
     // Initialization
@@ -156,8 +154,12 @@ class DeviceViewModel @Inject constructor(
     private fun onDeviceConnectedFromSdk(mac: String) {
         Log.d(TAG, "🔗 [SDK] Connected: $mac")
 
-        // DIS fetch: early return / 중복 처리와 무관하게 연결 세션당 정확히 1회 실행
-        if (disFetchedMacs.add(mac) && PermissionManager.hasBluetoothConnectPermission(context)) {
+        // DIS fetch: deviceInfo가 없을 때만 실행 (연결/재연결 모두 동일 경로)
+        // - disconnect 시 deviceInfo를 null로 초기화 → 재연결 시 자동 재요청
+        // - 동일 연결 세션에서 이미 deviceInfo가 채워졌으면 skip
+        if (_deviceDetails.value[mac]?.deviceInfo == null
+            && PermissionManager.hasBluetoothConnectPermission(context)
+        ) {
             val fetchDevice = _devices.value.find { it.mac == mac } ?: Device(mac = mac)
             val submitted = fetchDevice.fetchDeviceInfo { info ->
                 Log.d(TAG, "📋 DIS 완료: $mac name=${info.deviceName} fw=${info.firmwareRevision}")
@@ -203,14 +205,13 @@ class DeviceViewModel @Inject constructor(
         Log.d(TAG, "🔌 [SDK] Disconnected: $mac")
 
         connectedDevices.remove(mac)
-        disFetchedMacs.remove(mac)
         updateConnectionState(mac, false)
         stopBatteryMonitoring(mac)
 
-        // 연결 해제 시 디바이스 상세 상태 초기화
+        // 연결 해제 시 deviceInfo 초기화 → 재연결 시 DIS 재요청 보장
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
-            if (existing != null) this[mac] = existing.copy(isConnected = false)
+            if (existing != null) this[mac] = existing.copy(isConnected = false, deviceInfo = null)
         }
 
         // OTA 진행 상태 정리
