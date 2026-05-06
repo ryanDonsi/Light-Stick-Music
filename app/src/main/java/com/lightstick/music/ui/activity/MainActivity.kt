@@ -33,6 +33,7 @@ import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.music.ui.viewmodel.EffectViewModel
 import com.lightstick.music.ui.viewmodel.DeviceViewModel
 import com.lightstick.music.ui.viewmodel.MusicViewModel
+import com.lightstick.music.ui.viewmodel.GameViewModel
 import com.lightstick.music.core.permission.PermissionManager
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavType
@@ -50,6 +51,7 @@ import com.lightstick.music.ui.components.device.OtaUpdateConfirmDialog
 import com.lightstick.music.ui.components.device.OtaVersionInfoDialog
 import com.lightstick.music.ui.components.device.ReconnectConfirmDialog
 import com.lightstick.music.ui.screen.device.DeviceDetailScreen
+import com.lightstick.music.ui.screen.game.GameScreen
 
 @AndroidEntryPoint
 @UnstableApi
@@ -57,6 +59,7 @@ class MainActivity : ComponentActivity() {
     private val deviceViewModel: DeviceViewModel by viewModels()
     private val musicViewModel: MusicViewModel by viewModels()
     private val effectViewModel: EffectViewModel by viewModels()
+    private val gameViewModel: GameViewModel by viewModels()
 
     /**
      * ✅ SAF를 통한 Effects 디렉토리 선택 (수동 선택용)
@@ -159,6 +162,7 @@ class MainActivity : ComponentActivity() {
                         deviceViewModel = deviceViewModel,
                         musicViewModel = musicViewModel,
                         effectViewModel = effectViewModel,
+                        gameViewModel = gameViewModel,
                         onRequestEffectsDirectory = { requestEffectsDirectory() }
                     )
                 }
@@ -229,6 +233,7 @@ fun AppNavigation(
     deviceViewModel: DeviceViewModel,
     musicViewModel: MusicViewModel,
     effectViewModel: EffectViewModel,
+    gameViewModel: GameViewModel,
     onRequestEffectsDirectory: () -> Unit
 ) {
     val context = LocalContext.current
@@ -265,6 +270,11 @@ fun AppNavigation(
                 viewModel = effectViewModel,
                 navController = navController
             )
+        }
+
+        // 🎮 GameScreen (게임 모드 화면)
+        composable("game") {
+            GameScreen(viewModel = gameViewModel)
         }
 
         // 📱 DeviceListScreen (디바이스 목록 화면)

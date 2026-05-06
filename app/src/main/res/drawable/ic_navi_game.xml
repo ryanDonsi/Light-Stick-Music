@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp"
+    android:height="50dp"
+    android:viewportWidth="40"
+    android:viewportHeight="50">
+
+    <!-- Controller body (outer) -->
+    <path
+        android:pathData="M27.5,6H12.5C9.46,6 7,8.46 7,11.5v7C7,21.54 9.46,24 12.5,24h15C30.54,24 33,21.54 33,18.5v-7C33,8.46 30.54,6 27.5,6zM31,18.5C31,20.43 29.43,22 27.5,22H12.5C10.57,22 9,20.43 9,18.5v-7C9,9.57 10.57,8 12.5,8h15C29.43,8 31,9.57 31,11.5V18.5z"
+        android:fillColor="@android:color/white"/>
+    <!-- D-pad -->
+    <path
+        android:pathData="M15,11.5h-1.5v-1.5h-2v1.5H10v2h1.5v1.5h2v-1.5H15V11.5z"
+        android:fillColor="@android:color/white"/>
+    <!-- Action buttons -->
+    <path
+        android:pathData="M26,11.5m-1.25,0a1.25,1.25 0,1 1,2.5 0a1.25,1.25 0,1 1,-2.5 0"
+        android:fillColor="@android:color/white"/>
+    <path
+        android:pathData="M28.75,14.25m-1.25,0a1.25,1.25 0,1 1,2.5 0a1.25,1.25 0,1 1,-2.5 0"
+        android:fillColor="@android:color/white"/>
+    <path
+        android:pathData="M23.25,14.25m-1.25,0a1.25,1.25 0,1 1,2.5 0a1.25,1.25 0,1 1,-2.5 0"
+        android:fillColor="@android:color/white"/>
+    <path
+        android:pathData="M26,17m-1.25,0a1.25,1.25 0,1 1,2.5 0a1.25,1.25 0,1 1,-2.5 0"
+        android:fillColor="@android:color/white"/>
+
+    <!-- Text "G" (C shifted -20.19) + spur to make G -->
+    <path
+        android:pathData="M10.9121 41.8438C10.8583 41.5394 10.7455 41.2762 10.5737 41.0542C10.4018 40.8322 10.1852 40.6639 9.9238 40.5493C9.6624 40.4312 9.3723 40.3721 9.0537 40.3721C8.6275 40.3721 8.2498 40.4795 7.9204 40.6943C7.5945 40.9056 7.3385 41.2171 7.1523 41.6289C6.9697 42.0407 6.8784 42.5348 6.8784 43.1113C6.8784 43.695 6.9697 44.1909 7.1523 44.5991C7.3385 45.0073 7.5945 45.3188 7.9204 45.5337C8.2462 45.745 8.6222 45.8506 9.0483 45.8506C9.3598 45.8506 9.6463 45.7951 9.9077 45.6841C10.169 45.5695 10.3857 45.4048 10.5576 45.1899C10.733 44.9751 10.8512 44.7191 10.9121 44.4219L12.3246 44.4272C12.2495 44.9285 12.0668 45.3833 11.7768 45.7915C11.4903 46.1961 11.1108 46.5166 10.6381 46.7529C10.1655 46.9893 9.6301 47.1074 9.0322 47.1074C8.3447 47.1074 7.7324 46.9481 7.1953 46.6294C6.6581 46.3071 6.2374 45.8452 5.933 45.2437C5.6287 44.6385 5.4765 43.9277 5.4765 43.1113C5.4765 42.2913 5.6305 41.5806 5.9384 40.979C6.2464 40.3739 6.6671 39.9119 7.2006 39.5933C7.7377 39.2746 8.3482 39.1152 9.0322 39.1152C9.6051 39.1152 10.1261 39.2227 10.5952 39.4375C11.0678 39.6523 11.4527 39.9657 11.7499 40.3774C12.0507 40.7892 12.2423 41.278 12.3246 41.8438H10.9121ZM8.6 43.0H12.3V44.6H8.6Z"
+        android:fillColor="@android:color/white"/>
+
+    <!-- Text "A" with inner triangle cutout -->
+    <path
+        android:pathData="M16.1 39.2H17.3L19.9 47.0H18.7L17.85 44.5H15.55L14.5 47.0H13.4ZM16.7 40.5L15.55 43.0H17.85Z"
+        android:fillColor="@android:color/white"
+        android:fillType="evenOdd"/>
+
+    <!-- Text "M" (from MUSIC icon, shifted +17.73) -->
+    <path
+        android:pathData="M22.7178 39.2227L25.0327 44.873H25.124L27.439 39.2227H29.1524V47H27.8096V41.645H27.7344L25.5806 46.9731H24.5762L22.417 41.6343H22.3526V47H21.0044V39.2227H22.7178Z"
+        android:fillColor="@android:color/white"/>
+
+    <!-- Text "E" (from DEVICE icon, shifted -3.72) -->
+    <path
+        android:pathData="M29.998 39.2227H35.052V40.3989H31.394V42.5259H34.789V43.6914H31.394V45.8237H35.074V47H29.998V39.2227Z"
+        android:fillColor="@android:color/white"/>
+
+</vector>

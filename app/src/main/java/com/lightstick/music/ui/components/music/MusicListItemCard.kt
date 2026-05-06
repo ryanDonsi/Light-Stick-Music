@@ -103,7 +103,7 @@ fun MusicListItemCard(
 
                 // [추가] 이펙트 뱃지 — TIMELINE_EFFECT 수신 시 우측 하단 오버레이 (원형만)
                 val isTimeline = latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT
-                if (isTimeline && latestTransmission != null) {
+                if (isTimeline) {
                     EffectOverlayBadge(
                         transmission   = latestTransmission,
                         modifier       = Modifier

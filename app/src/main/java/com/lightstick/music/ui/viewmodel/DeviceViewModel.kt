@@ -25,6 +25,7 @@ import com.lightstick.music.domain.usecase.device.GetCachedDeviceInfoUseCase
 import com.lightstick.music.domain.usecase.device.StartScanUseCase
 import com.lightstick.music.domain.usecase.device.StopScanUseCase
 import com.lightstick.music.domain.usecase.device.ObserveDeviceStatesUseCase
+import com.lightstick.LSBluetooth
 import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
 import com.lightstick.device.DeviceInfo
@@ -158,7 +159,7 @@ class DeviceViewModel @Inject constructor(
         }
 
         val device = _devices.value.find { it.mac == mac }
-            ?: Device(mac = mac, name = null, rssi = null)
+            ?: Device(mac = mac, name = LSBluetooth.connectedDevices().find { it.mac == mac }?.name, rssi = null)
 
         connectedDevices[mac] = device
 

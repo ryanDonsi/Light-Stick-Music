@@ -173,6 +173,12 @@ object AppConstants {
         /** ProcessFFTUseCase.kt */
         const val UC_PROCESS_FFT        = "UC_ProcessFFT"
 
+        // ── Game Mode ─────────────────────────────────────────
+        /** GameViewModel.kt */
+        const val VM_GAME               = "GameVM"
+        /** GameBleManager.kt */
+        const val GAME_BLE_MANAGER      = "GameBleManager"
+
         // ── Domain ────────────────────────────────────────────
         /** EffectEngineController.kt */
         const val EFFECT_ENGINE         = "EffectEngine"
@@ -287,5 +293,9 @@ object AppConstants {
         Feature.PERMISSION_MANAGER,
         Feature.COMMAND_BUS,
         Feature.SERVICE_CONTROLLER,
+
+        // ── Game ──────────────────────────────────────────────
+        Feature.GAME_BLE_MANAGER,
+        Feature.VM_GAME,
     )
 }
