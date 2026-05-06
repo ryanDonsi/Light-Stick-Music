@@ -379,18 +379,8 @@ private fun DifficultyRow(
     ) {
         GameDifficulty.entries.forEach { diff ->
             val isSelected = diff == selected
-            val chipBg = when {
-                isSelected && diff == GameDifficulty.EASY   -> Color(0xFF1A3A1A)
-                isSelected && diff == GameDifficulty.NORMAL -> colors.primaryContainer.copy(alpha = 0.3f)
-                isSelected && diff == GameDifficulty.HARD   -> Color(0xFF3A1A1A)
-                else -> colors.onSurface.copy(alpha = 0.05f)
-            }
-            val chipContent = when {
-                isSelected && diff == GameDifficulty.EASY   -> Color(0xFF4CAF50)
-                isSelected && diff == GameDifficulty.NORMAL -> colors.primary
-                isSelected && diff == GameDifficulty.HARD   -> MaterialTheme.colorScheme.error
-                else -> colors.surfaceVariant
-            }
+            val chipBg      = if (isSelected) colors.primary.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.05f)
+            val chipContent = if (isSelected) colors.primary else colors.surfaceVariant
 
             CustomChip(
                 text = diff.nameKr,
