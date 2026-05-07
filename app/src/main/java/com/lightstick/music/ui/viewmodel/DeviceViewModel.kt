@@ -149,9 +149,10 @@ class DeviceViewModel @Inject constructor(
      * SDK에서 연결 이벤트 감지 시 처리.
      * DeviceViewModel.connect()를 통해 이미 처리된 경우는 skip.
      *
-     * [수정] 스캔 없이 복원된 기기도 _devices에 즉시 추가
+     * 스캔 없이 복원된 기기도 _devices에 즉시 추가
      * → 스캔 중 연결되어도 "연결된 기기" 섹션에 즉시 표시
      */
+    @SuppressLint("MissingPermission")
     private fun onDeviceConnectedFromSdk(mac: String) {
         Log.d(TAG, "🔗 [SDK] Connected: $mac")
 
@@ -159,8 +160,9 @@ class DeviceViewModel @Inject constructor(
             Log.d(TAG, "⏭️ 이미 관리 중: $mac"); return
         }
 
+        val sdkDevice = LSBluetooth.connectedDevices().find { it.mac == mac }
         val device = _devices.value.find { it.mac == mac }
-            ?: Device(mac = mac, name = LSBluetooth.connectedDevices().find { it.mac == mac }?.name, rssi = null)
+            ?: Device(mac = mac, name = sdkDevice?.name, rssi = sdkDevice?.rssi?.takeIf { it != 0 })
 
         connectedDevices[mac] = device
 
@@ -298,7 +300,7 @@ class DeviceViewModel @Inject constructor(
     /**
      * Pull-to-Refresh 전용 재스캔.
      *
-     * [수정] 기존 문제: 외부 launch의 finally { _isScanning = false }가
+     * 기존 문제: 외부 launch의 finally { _isScanning = false }가
      * 내부 scanJob 완료 전 즉시 실행 → PullToRefresh 인디케이터 즉시 사라짐
      *
      * 해결: stop 처리 후 startScan() 재사용
@@ -449,7 +451,7 @@ class DeviceViewModel @Inject constructor(
     // ═══════════════════════════════════════════════════════════
 
     /**
-     * [테스트용] 파일 선택 → 버전 비교 → [otaVersionCheck] StateFlow 업데이트
+     * 파일 선택 → 버전 비교 → otaVersionCheck StateFlow 업데이트
      *
      * 흐름:
      *  1. URI에서 파일 바이트 읽기 (IO 스레드)
