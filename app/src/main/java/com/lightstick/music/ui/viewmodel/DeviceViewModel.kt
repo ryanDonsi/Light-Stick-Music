@@ -173,12 +173,9 @@ class DeviceViewModel @Inject constructor(
         }
 
         val sdkDevice = LSBluetooth.connectedDevices().find { it.mac == mac }
-        // sdkDevice.rssi는 Facade.lastSeenRssi 기반인데 스캔 종료 시 초기화됨
-        // → StartScanUseCase.rssiCache로 fallback (스캔 종료 후에도 값 유지)
-        val cachedRssi = sdkDevice?.rssi?.takeIf { it != 0 } ?: StartScanUseCase.getCachedRssi(mac)
-        Log.d(TAG, "📶 sdkDevice: $mac rssi=${sdkDevice?.rssi} cachedRssi=$cachedRssi")
+        Log.d(TAG, "📶 sdkDevice: $mac rssi=${sdkDevice?.rssi}")
         val device = _devices.value.find { it.mac == mac }
-            ?: Device(mac = mac, name = sdkDevice?.name, rssi = cachedRssi)
+            ?: Device(mac = mac, name = sdkDevice?.name, rssi = sdkDevice?.rssi?.takeIf { it != 0 })
         Log.d(TAG, "📶 device for connect: $mac rssi=${device.rssi} (from=${if (_devices.value.any { it.mac == mac }) "_devices" else "new"})")
 
         connectedDevices[mac] = device

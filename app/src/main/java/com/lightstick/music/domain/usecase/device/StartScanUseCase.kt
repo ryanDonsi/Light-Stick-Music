@@ -6,7 +6,6 @@ import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.permission.PermissionManager
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.delay
 import javax.inject.Inject
 
@@ -31,12 +30,6 @@ class StartScanUseCase @Inject constructor() {
 
     companion object {
         private const val TAG = AppConstants.Feature.UC_START_SCAN
-
-        // Facade.lastSeenRssi는 스캔 종료 시 초기화됨 → 연결 시점에 rssi=null이 됨
-        // 스캔 종료 후에도 rssi를 유지하기 위해 별도 캐시 유지
-        private val rssiCache = ConcurrentHashMap<String, Int>()
-
-        fun getCachedRssi(mac: String): Int? = rssiCache[mac]
     }
 
     /**
@@ -72,9 +65,6 @@ class StartScanUseCase @Inject constructor() {
                 if (filter(device)) {
                     val isNew = !scannedDevices.containsKey(device.mac)
                     scannedDevices[device.mac] = device
-
-                    // rssi 캐시 갱신 (스캔 종료 후 연결 시에도 rssi를 제공하기 위함)
-                    device.rssi?.takeIf { it != 0 }?.let { rssiCache[device.mac] = it }
 
                     // 신규 발견 또는 RSSI 갱신 모두 즉시 콜백
                     onFound?.invoke(device)
