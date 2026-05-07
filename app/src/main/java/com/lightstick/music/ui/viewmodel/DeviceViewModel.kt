@@ -239,8 +239,9 @@ class DeviceViewModel @Inject constructor(
     private fun applyScannedDevice(device: Device) {
         val current = _devices.value.toMutableList()
         val idx = current.indexOfFirst { it.mac == device.mac }
-        // rssi=0은 일부 BLE 스택이 연결된 기기를 스캔할 때 반환하는 이상값 → 기존 값 유지
-        val effective = if (device.rssi == 0 && idx >= 0) device.copy(rssi = current[idx].rssi) else device
+        // rssi=0은 BLE 스택 이상값 → 신규/기존 모두 null 처리 (기존 값이 있으면 유지)
+        val validRssi = device.rssi?.takeIf { it != 0 } ?: current.getOrNull(idx)?.rssi
+        val effective = device.copy(rssi = validRssi)
         if (idx >= 0) {
             current[idx] = effective
         } else {
@@ -259,7 +260,8 @@ class DeviceViewModel @Inject constructor(
         val current = _devices.value.toMutableList()
         scannedDevices.forEach { device ->
             val idx = current.indexOfFirst { it.mac == device.mac }
-            val effective = if (device.rssi == 0 && idx >= 0) device.copy(rssi = current[idx].rssi) else device
+            val validRssi = device.rssi?.takeIf { it != 0 } ?: current.getOrNull(idx)?.rssi
+            val effective = device.copy(rssi = validRssi)
             if (idx >= 0) current[idx] = effective else current.add(effective)
         }
         _devices.value = current.sortedWith(
