@@ -107,7 +107,7 @@ fun GameScreen(viewModel: GameViewModel) {
 
             TopBarCentered(
                 title = "Game Mode",
-                actionText = if (gameState is GameState.Playing) "중지" else null,
+                actionText = null,
                 onActionClick = { showStopDialog = true },
                 actionTextColor = MaterialTheme.colorScheme.error
             )
@@ -276,7 +276,8 @@ private fun GameStatusBanner(
         else                                         -> "응원봉 미연결"
     }
 
-    val progress = if (maxSeconds > 0) (elapsedSeconds.toFloat() / maxSeconds).coerceIn(0f, 1f) else 0f
+    val remaining = if (maxSeconds > 0) (maxSeconds - elapsedSeconds).coerceAtLeast(0) else 0
+    val progress = if (maxSeconds > 0) remaining.toFloat() / maxSeconds else 0f
     val animatedProgress by animateFloatAsState(
         targetValue = progress,
         animationSpec = tween(500),
@@ -314,14 +315,14 @@ private fun GameStatusBanner(
                 )
             }
             if (isPlaying) {
-                val m = elapsedSeconds / 60
-                val s = elapsedSeconds % 60
+                val m = remaining / 60
+                val s = remaining % 60
                 val timeText = if (m > 0) "${m}분 ${s}초" else "${s}초"
                 Text(
                     text = timeText,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    color = colors.primary
+                    color = if (remaining <= 10) MaterialTheme.colorScheme.error else colors.primary
                 )
             }
         }
