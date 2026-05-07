@@ -172,8 +172,9 @@ class DeviceViewModel @Inject constructor(
             Log.d(TAG, "⏭️ 이미 관리 중: $mac"); return
         }
 
+        val sdkDevice = LSBluetooth.connectedDevices().find { it.mac == mac }
         val device = _devices.value.find { it.mac == mac }
-            ?: Device(mac = mac, name = LSBluetooth.connectedDevices().find { it.mac == mac }?.name, rssi = null)
+            ?: Device(mac = mac, name = sdkDevice?.name, rssi = sdkDevice?.rssi?.takeIf { it != 0 })
 
         connectedDevices[mac] = device
 
