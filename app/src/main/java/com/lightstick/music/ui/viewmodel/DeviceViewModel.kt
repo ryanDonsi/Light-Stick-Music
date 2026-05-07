@@ -240,9 +240,11 @@ class DeviceViewModel @Inject constructor(
     private fun applyScannedDevice(device: Device) {
         val current = _devices.value.toMutableList()
         val idx = current.indexOfFirst { it.mac == device.mac }
-        // rssi=0은 BLE 스택 이상값 → 신규/기존 모두 null 처리 (기존 값이 있으면 유지)
-        val validRssi = device.rssi?.takeIf { it != 0 } ?: current.getOrNull(idx)?.rssi
-        val effective = device.copy(rssi = validRssi)
+        val existing = current.getOrNull(idx)
+        // 새 값이 없으면 기존 값 유지
+        val validRssi  = device.rssi?.takeIf { it != 0 } ?: existing?.rssi
+        val validName  = device.name?.takeUnless { it.isBlank() } ?: existing?.name
+        val effective = device.copy(name = validName, rssi = validRssi)
         if (idx >= 0) {
             current[idx] = effective
         } else {
@@ -261,8 +263,10 @@ class DeviceViewModel @Inject constructor(
         val current = _devices.value.toMutableList()
         scannedDevices.forEach { device ->
             val idx = current.indexOfFirst { it.mac == device.mac }
-            val validRssi = device.rssi?.takeIf { it != 0 } ?: current.getOrNull(idx)?.rssi
-            val effective = device.copy(rssi = validRssi)
+            val existing = current.getOrNull(idx)
+            val validRssi  = device.rssi?.takeIf { it != 0 } ?: existing?.rssi
+            val validName  = device.name?.takeUnless { it.isBlank() } ?: existing?.name
+            val effective = device.copy(name = validName, rssi = validRssi)
             if (idx >= 0) current[idx] = effective else current.add(effective)
         }
         _devices.value = current.sortedWith(
@@ -723,7 +727,7 @@ class DeviceViewModel @Inject constructor(
             this[mac] = existing?.copy(
                 name         = existing.name ?: deviceInfo.deviceName,
                 deviceInfo   = deviceInfo,
-                batteryLevel = deviceInfo.batteryLevel
+                batteryLevel = deviceInfo.batteryLevel ?: existing.batteryLevel
             ) ?: DeviceDetailInfo(
                     mac          = mac,
                     name         = deviceInfo.deviceName,
