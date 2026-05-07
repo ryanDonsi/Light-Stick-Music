@@ -42,6 +42,9 @@ class GameBleManager @Inject constructor() {
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
+    private val _isGameModeSupported = MutableStateFlow(false)
+    val isGameModeSupported: StateFlow<Boolean> = _isGameModeSupported.asStateFlow()
+
     // ─── Game Result Stream ───────────────────────────────────────────────────
 
     private val _gameResultFlow = MutableSharedFlow<GameResult>(extraBufferCapacity = 32)
@@ -87,8 +90,9 @@ class GameBleManager @Inject constructor() {
         }
 
         activeDevice = device
+        _isGameModeSupported.value = device.supportsGameMode()
         _connectionState.value = ConnectionState.Connected
-        Log.d(TAG, "Device selected: mac=${device.mac} name=${device.name}")
+        Log.d(TAG, "Device selected: mac=${device.mac} name=${device.name} gameMode=${_isGameModeSupported.value}")
     }
 
     /** 게임 시작: FF04 Notify 구독 + READY 커맨드 전송을 SDK가 일괄 처리 */
@@ -142,6 +146,7 @@ class GameBleManager @Inject constructor() {
         Log.d(TAG, "disconnect()")
         activeDevice?.unsubscribeGameResults()
         activeDevice = null
+        _isGameModeSupported.value = false
         _connectionState.value = ConnectionState.Disconnected
     }
 }

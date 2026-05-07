@@ -36,6 +36,20 @@ class GameViewModel @Inject constructor(
         private const val TAG = AppConstants.Feature.VM_GAME
         private const val RESULT_COLLECT_WINDOW_MS = 4_000L
         private const val AUTO_START_DELAY_MS = 2_000L
+
+        private fun maxPlaySeconds(mode: GameMode, difficulty: GameDifficulty): Int = when (mode) {
+            GameMode.SPEED_REACTION -> when (difficulty) {
+                GameDifficulty.EASY   -> 64
+                GameDifficulty.NORMAL -> 44
+                GameDifficulty.HARD   -> 24
+            }
+            GameMode.TEMPO -> 24
+            GameMode.TEAM_BATTLE -> when (difficulty) {
+                GameDifficulty.EASY   -> 24
+                GameDifficulty.NORMAL -> 21
+                GameDifficulty.HARD   -> 19
+            }
+        }
     }
 
     // ─── UI State ─────────────────────────────────────────────────────────────
@@ -50,11 +64,20 @@ class GameViewModel @Inject constructor(
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
     val bleConnectionState = gameBleManager.connectionState
+    val isGameModeSupported = gameBleManager.isGameModeSupported
 
     // ─── Countdown ────────────────────────────────────────────────────────────
 
     private val _countdownSeconds = MutableStateFlow(0)
     val countdownSeconds: StateFlow<Int> = _countdownSeconds.asStateFlow()
+
+    // ─── Playing Timer ────────────────────────────────────────────────────────
+
+    private val _playingElapsedSeconds = MutableStateFlow(0)
+    val playingElapsedSeconds: StateFlow<Int> = _playingElapsedSeconds.asStateFlow()
+    private val _playingMaxSeconds = MutableStateFlow(0)
+    val playingMaxSeconds: StateFlow<Int> = _playingMaxSeconds.asStateFlow()
+    private var timerJob: Job? = null
 
     // ─── Accumulated Results ──────────────────────────────────────────────────
 
@@ -118,6 +141,7 @@ class GameViewModel @Inject constructor(
             }
             _countdownSeconds.value = 0
             _gameState.value = GameState.Playing
+            startPlayingTimer(mode, difficulty)
         }
     }
 
@@ -125,6 +149,7 @@ class GameViewModel @Inject constructor(
     fun stopGame() {
         sendGameCommandUseCase.sendStop()
         resultCollectJob?.cancel()
+        cancelTimer()
         _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
         Log.d(TAG, "STOP sent")
@@ -135,9 +160,29 @@ class GameViewModel @Inject constructor(
         sendGameCommandUseCase.sendClear()
         collectedResults.clear()
         resultCollectJob?.cancel()
+        cancelTimer()
         _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
         Log.d(TAG, "CLEAR sent, back to Idle")
+    }
+
+    // ─── Playing Timer ────────────────────────────────────────────────────────
+
+    private fun startPlayingTimer(mode: GameMode, difficulty: GameDifficulty) {
+        timerJob?.cancel()
+        _playingElapsedSeconds.value = 0
+        _playingMaxSeconds.value = maxPlaySeconds(mode, difficulty)
+        timerJob = viewModelScope.launch {
+            while (true) {
+                delay(1_000L)
+                _playingElapsedSeconds.value++
+            }
+        }
+    }
+
+    private fun cancelTimer() {
+        timerJob?.cancel()
+        timerJob = null
     }
 
     // ─── Result Collection ────────────────────────────────────────────────────
@@ -213,6 +258,7 @@ class GameViewModel @Inject constructor(
     }
 
     private fun finalizeSummaryPacket(result: GameResult) {
+        cancelTimer()
         val mode = GameMode.fromSdkMode(result.mode) ?: _selectedMode.value ?: return
         val accumulated = collectedResults.toList()
 
@@ -239,6 +285,7 @@ class GameViewModel @Inject constructor(
     }
 
     private fun finalizeResults(sdkMode: SdkGameMode) {
+        cancelTimer()
         val mode = GameMode.fromSdkMode(sdkMode) ?: _selectedMode.value ?: return
 
         val results = collectedResults.toList()
