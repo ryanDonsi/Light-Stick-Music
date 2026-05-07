@@ -152,7 +152,7 @@ class DeviceViewModel @Inject constructor(
      */
     @android.annotation.SuppressLint("MissingPermission")
     private fun onDeviceConnectedFromSdk(mac: String) {
-        Log.d(TAG, "🔗 [SDK] Connected: $mac")
+        Log.d(TAG, "🔗 [SDK] Connected: $mac  _devices.rssi=${_devices.value.find { it.mac == mac }?.rssi}")
 
         // DIS fetch: deviceInfo가 없을 때만 실행 (연결/재연결 모두 동일 경로)
         // - disconnect 시 deviceInfo를 null로 초기화 → 재연결 시 자동 재요청
@@ -173,8 +173,10 @@ class DeviceViewModel @Inject constructor(
         }
 
         val sdkDevice = LSBluetooth.connectedDevices().find { it.mac == mac }
+        Log.d(TAG, "📶 sdkDevice: $mac rssi=${sdkDevice?.rssi}")
         val device = _devices.value.find { it.mac == mac }
             ?: Device(mac = mac, name = sdkDevice?.name, rssi = sdkDevice?.rssi?.takeIf { it != 0 })
+        Log.d(TAG, "📶 device for connect: $mac rssi=${device.rssi} (from=${if (_devices.value.any { it.mac == mac }) "_devices" else "new"})")
 
         connectedDevices[mac] = device
 
@@ -245,6 +247,7 @@ class DeviceViewModel @Inject constructor(
         val validRssi  = device.rssi?.takeIf { it != 0 } ?: existing?.rssi
         val validName  = device.name?.takeUnless { it.isBlank() } ?: existing?.name
         val effective = device.copy(name = validName, rssi = validRssi)
+        Log.d(TAG, "📶 applyScannedDevice: ${device.mac} scan.rssi=${device.rssi} existing.rssi=${existing?.rssi} → valid=$validRssi")
         if (idx >= 0) {
             current[idx] = effective
         } else {
@@ -289,7 +292,10 @@ class DeviceViewModel @Inject constructor(
 
         _isScanning.value = true
         // 연결된 기기는 유지, 미연결 기기만 초기화
+        val beforeFilter = _devices.value.map { "${it.mac.takeLast(5)}:${it.rssi}" }
         _devices.value = _devices.value.filter { _connectionStates.value[it.mac] == true }
+        val afterFilter  = _devices.value.map { "${it.mac.takeLast(5)}:${it.rssi}" }
+        Log.d(TAG, "📶 startScan filter: before=$beforeFilter after=$afterFilter")
 
         scanJob = viewModelScope.launch {
             try {
@@ -721,6 +727,7 @@ class DeviceViewModel @Inject constructor(
     }
 
     private fun updateDeviceInfoFromCallback(mac: String, deviceInfo: DeviceInfo) {
+        Log.d(TAG, "📶 updateDeviceInfo start: $mac _devices.rssi=${_devices.value.find { it.mac == mac }?.rssi}")
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
             Log.d(TAG, "📋 DeviceInfo callback: mac=$mac disName=${deviceInfo.deviceName} existing.name=${existing?.name}")
@@ -784,7 +791,7 @@ class DeviceViewModel @Inject constructor(
     private fun updateConnectionState(mac: String, isConnected: Boolean) {
         _connectionStates.value += (mac to isConnected)
         _connectedDeviceCount.value = _connectionStates.value.count { it.value }
-        Log.d(TAG, "📍 Connection state: $mac → $isConnected")
+        Log.d(TAG, "📍 Connection state: $mac → $isConnected  rssi=${_devices.value.find { it.mac == mac }?.rssi}")
 
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
