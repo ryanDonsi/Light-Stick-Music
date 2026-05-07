@@ -733,16 +733,14 @@ class DeviceViewModel @Inject constructor(
         }
 
         // DIS 결과를 _devices의 Device에도 동기화 → 모든 UI가 device 하나를 신뢰
+        // disRssi는 DIS에서 제공하지 않으므로 항상 null → 스캔 rssi 유지
         val disName = deviceInfo.deviceName.takeUnless { it.isNullOrBlank() }
-        val disRssi = deviceInfo.rssi
-        if (disName != null || disRssi != null) {
+        if (disName != null) {
             _devices.value = _devices.value.map { device ->
-                if (device.mac == mac) device.copy(
-                    name = disName ?: device.name,
-                    rssi = disRssi ?: device.rssi
-                ) else device
+                if (device.mac == mac) device.copy(name = disName) else device
             }
-            Log.d(TAG, "📋 _devices synced: $mac → name=$disName rssi=$disRssi")
+            val finalRssi = _devices.value.find { it.mac == mac }?.rssi
+            Log.d(TAG, "📋 _devices synced: $mac → name=$disName rssi=$finalRssi")
         }
     }
 
