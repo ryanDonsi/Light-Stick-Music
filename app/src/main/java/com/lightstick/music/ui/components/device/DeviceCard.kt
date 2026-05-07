@@ -76,7 +76,7 @@ fun DeviceCard(
         ) {
             // 좌측: 디바이스 정보 (공통 컴포넌트 사용)
             DeviceInfoHeader(
-                deviceName = deviceDetail?.deviceInfo?.deviceName ?: device.name ?: "Unknown Device",
+                deviceName = device.name ?: "Unknown Device",
                 batteryLevel = if (isConnected) deviceDetail?.batteryLevel else null,
                 macAddress = device.mac,
                 rssi = device.rssi,

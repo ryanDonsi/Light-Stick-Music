@@ -82,7 +82,6 @@ fun GameScreen(viewModel: GameViewModel) {
     val selectedDifficulty    by viewModel.selectedDifficulty.collectAsState()
     val gameState             by viewModel.gameState.collectAsState()
     val bleState              by viewModel.bleConnectionState.collectAsState()
-    val isGameModeSupported   by viewModel.isGameModeSupported.collectAsState()
     val countdownSeconds      by viewModel.countdownSeconds.collectAsState()
     val partialResults        by viewModel.partialResults.collectAsState()
     val playingElapsedSeconds by viewModel.playingElapsedSeconds.collectAsState()
@@ -115,7 +114,6 @@ fun GameScreen(viewModel: GameViewModel) {
 
             GameStatusBanner(
                 bleState = bleState,
-                isGameModeSupported = isGameModeSupported,
                 gameState = gameState,
                 elapsedSeconds = playingElapsedSeconds,
                 maxSeconds = playingMaxSeconds,
@@ -252,7 +250,6 @@ private fun ModeSelectionContent(
 @Composable
 private fun GameStatusBanner(
     bleState: GameBleManager.ConnectionState,
-    isGameModeSupported: Boolean,
     gameState: GameState,
     elapsedSeconds: Int,
     maxSeconds: Int,
@@ -315,23 +312,6 @@ private fun GameStatusBanner(
                     strokeWidth = 2.dp,
                     color = colors.primary
                 )
-            }
-            if (bleState is GameBleManager.ConnectionState.Connected) {
-                val badgeGreen = Color(0xFF4CAF50)
-                val badgeColor = if (isGameModeSupported) badgeGreen else colors.surfaceVariant
-                val badgeText  = if (isGameModeSupported) "게임지원" else "미지원"
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(badgeColor.copy(alpha = 0.18f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = badgeText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = badgeColor
-                    )
-                }
             }
             if (isPlaying) {
                 val m = elapsedSeconds / 60

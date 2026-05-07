@@ -3,6 +3,7 @@ package com.lightstick.music.domain.usecase.device
 import android.annotation.SuppressLint
 import android.content.Context
 import com.lightstick.device.Device
+import com.lightstick.device.DeviceInfo
 import com.lightstick.music.core.permission.PermissionManager
 import kotlinx.coroutines.CompletableDeferred
 import javax.inject.Inject
@@ -35,7 +36,8 @@ class ConnectDeviceUseCase @Inject constructor() {
         context: Context,
         device: Device,
         onConnected: () -> Unit = {},
-        onFailed: (Throwable) -> Unit = {}
+        onFailed: (Throwable) -> Unit = {},
+        onDeviceInfo: (DeviceInfo) -> Unit = {}
     ): Result<Unit> {
         return try {
             // ✅ 1. Permission 체크
@@ -48,8 +50,6 @@ class ConnectDeviceUseCase @Inject constructor() {
             // ✅ 2. 비동기 연결을 동기적으로 대기
             val completionDeferred = CompletableDeferred<Result<Unit>>()
 
-            // onDeviceInfo=null: SDK가 내부적으로 DIS fetch 하지 않도록 명시
-            // DIS는 onDeviceConnectedFromSdk에서 단일 경로로 처리
             device.connect(
                 onConnected = {
                     onConnected()
@@ -59,7 +59,7 @@ class ConnectDeviceUseCase @Inject constructor() {
                     onFailed(error)
                     completionDeferred.complete(Result.failure(error))
                 },
-                onDeviceInfo = null
+                onDeviceInfo = { info -> onDeviceInfo(info) }
             )
 
             // ✅ 3. 연결 완료 대기

@@ -18,6 +18,7 @@ import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.DisconnectDeviceUseCase
+import com.lightstick.music.domain.usecase.device.GetCachedDeviceInfoUseCase
 import com.lightstick.music.domain.usecase.device.RegisterEventRulesUseCase
 import com.lightstick.music.domain.usecase.device.SendFindEffectUseCase
 import com.lightstick.music.domain.usecase.device.SendConnectionEffectUseCase
@@ -44,6 +45,7 @@ class DeviceViewModel @Inject constructor(
     private val disconnectDeviceUseCase:     DisconnectDeviceUseCase,
     private val registerEventRulesUseCase:   RegisterEventRulesUseCase,
     private val sendConnectionEffectUseCase: SendConnectionEffectUseCase,
+    private val getCachedDeviceInfoUseCase:  GetCachedDeviceInfoUseCase,
     private val startScanUseCase:            StartScanUseCase,
     private val stopScanUseCase:             StopScanUseCase
 ) : ViewModel() {
@@ -150,49 +152,36 @@ class DeviceViewModel @Inject constructor(
      * [수정] 스캔 없이 복원된 기기도 _devices에 즉시 추가
      * → 스캔 중 연결되어도 "연결된 기기" 섹션에 즉시 표시
      */
-    @android.annotation.SuppressLint("MissingPermission")
     private fun onDeviceConnectedFromSdk(mac: String) {
-        Log.d(TAG, "🔗 [SDK] Connected: $mac  _devices.rssi=${_devices.value.find { it.mac == mac }?.rssi}")
-
-        // DIS fetch: deviceInfo가 없을 때만 실행 (연결/재연결 모두 동일 경로)
-        // - disconnect 시 deviceInfo를 null로 초기화 → 재연결 시 자동 재요청
-        // - 동일 연결 세션에서 이미 deviceInfo가 채워졌으면 skip
-        if (_deviceDetails.value[mac]?.deviceInfo == null
-            && PermissionManager.hasBluetoothConnectPermission(context)
-        ) {
-            val fetchDevice = _devices.value.find { it.mac == mac } ?: Device(mac = mac)
-            val submitted = fetchDevice.fetchDeviceInfo { info ->
-                Log.d(TAG, "📋 DIS 완료: $mac name=${info.deviceName} fw=${info.firmwareRevision}")
-                updateDeviceInfoFromCallback(mac, info)
-            }
-            Log.d(TAG, if (submitted) "📡 DIS 요청: $mac" else "⚠️ DIS 제출 실패: $mac")
-        }
+        Log.d(TAG, "🔗 [SDK] Connected: $mac")
 
         if (connectedDevices.containsKey(mac)) {
             Log.d(TAG, "⏭️ 이미 관리 중: $mac"); return
         }
 
-        val sdkDevice = LSBluetooth.connectedDevices().find { it.mac == mac }
-        Log.d(TAG, "📶 sdkDevice: $mac rssi=${sdkDevice?.rssi}")
         val device = _devices.value.find { it.mac == mac }
-            ?: Device(mac = mac, name = sdkDevice?.name, rssi = sdkDevice?.rssi?.takeIf { it != 0 })
-        Log.d(TAG, "📶 device for connect: $mac rssi=${device.rssi} (from=${if (_devices.value.any { it.mac == mac }) "_devices" else "new"})")
+            ?: Device(mac = mac, name = LSBluetooth.connectedDevices().find { it.mac == mac }?.name, rssi = null)
 
         connectedDevices[mac] = device
 
-        // _devices에 없는 기기(스캔 외 복원/외부 연결)도 즉시 목록에 추가
+        // ✅ _devices에 없는 기기(스캔 외 복원/외부 연결)도 즉시 목록에 추가
         if (_devices.value.none { it.mac == mac }) {
             _devices.value = (_devices.value + device).sortedWith(
                 compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
                     .thenByDescending { it.rssi ?: -100 }
             )
-            Log.d(TAG, "📋 Device added to list: $mac")
         }
 
         updateConnectionState(mac, true)
 
         if (!_deviceDetails.value.containsKey(mac)) {
             initializeDeviceDetail(device)
+        }
+
+        val deviceInfo = getCachedDeviceInfoUseCase(mac)
+        if (deviceInfo != null) {
+            updateDeviceInfoFromCallback(mac, deviceInfo)
+            Log.d(TAG, "✅ DeviceInfo 캐시 적용: $mac")
         }
 
         registerDeviceEventRules(device)
@@ -211,10 +200,10 @@ class DeviceViewModel @Inject constructor(
         updateConnectionState(mac, false)
         stopBatteryMonitoring(mac)
 
-        // 연결 해제 시 deviceInfo 초기화 → 재연결 시 DIS 재요청 보장
+        // 연결 해제 시 디바이스 상세 상태 초기화
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
-            if (existing != null) this[mac] = existing.copy(isConnected = false, deviceInfo = null)
+            if (existing != null) this[mac] = existing.copy(isConnected = false)
         }
 
         // OTA 진행 상태 정리
@@ -242,16 +231,10 @@ class DeviceViewModel @Inject constructor(
     private fun applyScannedDevice(device: Device) {
         val current = _devices.value.toMutableList()
         val idx = current.indexOfFirst { it.mac == device.mac }
-        val existing = current.getOrNull(idx)
-        // 새 값이 없으면 기존 값 유지
-        val validRssi  = device.rssi?.takeIf { it != 0 } ?: existing?.rssi
-        val validName  = device.name?.takeUnless { it.isBlank() } ?: existing?.name
-        val effective = device.copy(name = validName, rssi = validRssi)
-        Log.d(TAG, "📶 applyScannedDevice: ${device.mac} scan.rssi=${device.rssi} existing.rssi=${existing?.rssi} → valid=$validRssi")
         if (idx >= 0) {
-            current[idx] = effective
+            current[idx] = device  // RSSI 등 정보 갱신
         } else {
-            current.add(effective)
+            current.add(device)    // 신규 디바이스 추가
         }
         _devices.value = current.sortedWith(
             compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
@@ -266,11 +249,7 @@ class DeviceViewModel @Inject constructor(
         val current = _devices.value.toMutableList()
         scannedDevices.forEach { device ->
             val idx = current.indexOfFirst { it.mac == device.mac }
-            val existing = current.getOrNull(idx)
-            val validRssi  = device.rssi?.takeIf { it != 0 } ?: existing?.rssi
-            val validName  = device.name?.takeUnless { it.isBlank() } ?: existing?.name
-            val effective = device.copy(name = validName, rssi = validRssi)
-            if (idx >= 0) current[idx] = effective else current.add(effective)
+            if (idx >= 0) current[idx] = device else current.add(device)
         }
         _devices.value = current.sortedWith(
             compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
@@ -292,10 +271,7 @@ class DeviceViewModel @Inject constructor(
 
         _isScanning.value = true
         // 연결된 기기는 유지, 미연결 기기만 초기화
-        val beforeFilter = _devices.value.map { "${it.mac.takeLast(5)}:${it.rssi}" }
         _devices.value = _devices.value.filter { _connectionStates.value[it.mac] == true }
-        val afterFilter  = _devices.value.map { "${it.mac.takeLast(5)}:${it.rssi}" }
-        Log.d(TAG, "📶 startScan filter: before=$beforeFilter after=$afterFilter")
 
         scanJob = viewModelScope.launch {
             try {
@@ -393,11 +369,12 @@ class DeviceViewModel @Inject constructor(
                 Log.d(TAG, "🔗 Connecting to ${device.mac}...")
 
                 connectDeviceUseCase(
-                    context     = context,
-                    device      = device,
-                    onConnected = {
+                    context      = context,
+                    device       = device,
+                    onConnected  = {
                         Log.d(TAG, "✅ Connected: ${device.mac}")
-                        // SDK 이벤트로 onDeviceConnectedFromSdk 호출 전에 먼저 등록 → 중복 처리 방지
+                        // SDK 이벤트로 onDeviceConnectedFromSdk 호출 전에 먼저 등록
+                        // → 중복 처리 방지
                         connectedDevices[device.mac] = device
                         viewModelScope.launch {
                             sendConnectionEffectUseCase(context, device).onFailure { error ->
@@ -405,11 +382,14 @@ class DeviceViewModel @Inject constructor(
                             }
                         }
                     },
-                    onFailed    = { error ->
+                    onFailed     = { error ->
                         Log.e(TAG, "❌ Connection failed: ${error.message}")
                         connectedDevices.remove(device.mac)
+                    },
+                    onDeviceInfo = { info ->
+                        Log.d(TAG, "📋 DeviceInfo: ${info.deviceName}, bat=${info.batteryLevel}%")
+                        updateDeviceInfoFromCallback(device.mac, info)
                     }
-                    // DIS는 onDeviceConnectedFromSdk에서 단일 경로로 처리
                 ).onFailure { error ->
                     Log.e(TAG, "❌ Connect use case failed: ${error.message}")
                     connectedDevices.remove(device.mac)
@@ -727,15 +707,10 @@ class DeviceViewModel @Inject constructor(
     }
 
     private fun updateDeviceInfoFromCallback(mac: String, deviceInfo: DeviceInfo) {
-        Log.d(TAG, "📶 updateDeviceInfo start: $mac _devices.rssi=${_devices.value.find { it.mac == mac }?.rssi}")
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
-            Log.d(TAG, "📋 DeviceInfo callback: mac=$mac disName=${deviceInfo.deviceName} existing.name=${existing?.name}")
-            this[mac] = existing?.copy(
-                name         = existing.name ?: deviceInfo.deviceName,
-                deviceInfo   = deviceInfo,
-                batteryLevel = deviceInfo.batteryLevel ?: existing.batteryLevel
-            ) ?: DeviceDetailInfo(
+            this[mac] = existing?.copy(deviceInfo = deviceInfo, batteryLevel = deviceInfo.batteryLevel)
+                ?: DeviceDetailInfo(
                     mac          = mac,
                     name         = deviceInfo.deviceName,
                     rssi         = deviceInfo.rssi,
@@ -743,19 +718,8 @@ class DeviceViewModel @Inject constructor(
                     deviceInfo   = deviceInfo,
                     batteryLevel = deviceInfo.batteryLevel
                 )
-            Log.d(TAG, "✅ DeviceInfo updated: $mac → name=${this[mac]?.name}")
         }
-
-        // DIS 결과를 _devices의 Device에도 동기화 → 모든 UI가 device 하나를 신뢰
-        // disRssi는 DIS에서 제공하지 않으므로 항상 null → 스캔 rssi 유지
-        val disName = deviceInfo.deviceName.takeUnless { it.isNullOrBlank() }
-        if (disName != null) {
-            _devices.value = _devices.value.map { device ->
-                if (device.mac == mac) device.copy(name = disName) else device
-            }
-            val finalRssi = _devices.value.find { it.mac == mac }?.rssi
-            Log.d(TAG, "📋 _devices synced: $mac → name=$disName rssi=$finalRssi")
-        }
+        Log.d(TAG, "✅ DeviceInfo updated: $mac")
     }
 
     private fun updateBatteryLevel(mac: String, level: Int) {
@@ -791,7 +755,7 @@ class DeviceViewModel @Inject constructor(
     private fun updateConnectionState(mac: String, isConnected: Boolean) {
         _connectionStates.value += (mac to isConnected)
         _connectedDeviceCount.value = _connectionStates.value.count { it.value }
-        Log.d(TAG, "📍 Connection state: $mac → $isConnected  rssi=${_devices.value.find { it.mac == mac }?.rssi}")
+        Log.d(TAG, "📍 Connection state: $mac → $isConnected")
 
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]

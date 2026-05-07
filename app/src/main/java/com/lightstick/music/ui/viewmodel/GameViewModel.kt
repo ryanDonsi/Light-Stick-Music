@@ -64,7 +64,6 @@ class GameViewModel @Inject constructor(
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
     val bleConnectionState = gameBleManager.connectionState
-    val isGameModeSupported = gameBleManager.isGameModeSupported
 
     // ─── Countdown ────────────────────────────────────────────────────────────
 
