@@ -1,6 +1,5 @@
 package com.lightstick.music.domain.ble
 
-import com.lightstick.music.core.util.Log
 import com.lightstick.music.core.constants.AppConstants
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -86,8 +85,6 @@ object BleTransmissionMonitor {
 
                 // 우선순위가 낮은 소스는 최근(500ms 이내) 높은 우선순위 이벤트를 덮어쓰지 못함
                 if (newPriority < currentPriority && timeSinceLast < 500) {
-                    Log.d(TAG, "⏭️ Skipping lower priority event: ${event.source} (current: ${currentLatest.source})")
-
                     // 히스토리에는 추가 (통계용)
                     val updated = (_transmissionHistory.value + event)
                         .takeLast(AppConstants.MAX_TRANSMISSION_HISTORY)
@@ -109,9 +106,6 @@ object BleTransmissionMonitor {
         // 통계 업데이트
         transmissionCounts[event.source] = (transmissionCounts[event.source] ?: 0) + 1
         lastTransmissionByDevice[event.deviceMac] = event.timestamp
-
-        // 디버그 로깅
-        Log.d(TAG, "📤 [${event.getSourceDisplayName()}] ${event.getEffectTypeDisplayName()} → ${event.deviceMac}")
     }
 
     /**
@@ -132,7 +126,6 @@ object BleTransmissionMonitor {
     fun clearHistory() {
         _transmissionHistory.value = emptyList()
         _latestTransmission.value = null
-        Log.d(TAG, "🗑️ Transmission history cleared")
     }
 
     /**
@@ -141,7 +134,6 @@ object BleTransmissionMonitor {
     fun clearStatistics() {
         transmissionCounts.clear()
         lastTransmissionByDevice.clear()
-        Log.d(TAG, "📊 Statistics cleared")
     }
 
     /**
@@ -150,7 +142,6 @@ object BleTransmissionMonitor {
     fun reset() {
         clearHistory()
         clearStatistics()
-        Log.d(TAG, "♻️ Monitor reset")
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -262,23 +253,6 @@ object BleTransmissionMonitor {
      * 디버그 정보 출력
      */
     fun printDebugInfo() {
-        Log.d(TAG, "═══════════════════════════════════════")
-        Log.d(TAG, "📊 BLE Transmission Monitor Statistics")
-        Log.d(TAG, "═══════════════════════════════════════")
-        Log.d(TAG, "Total Transmissions: ${getTotalTransmissionCount()}")
-        Log.d(TAG, "History Size: ${_transmissionHistory.value.size}")
-        Log.d(TAG, "")
-        Log.d(TAG, "Transmissions by Source:")
-        transmissionCounts.forEach { (source, count) ->
-            Log.d(TAG, "  - ${source.name}: $count")
-        }
-        Log.d(TAG, "")
-        Log.d(TAG, "Active Devices: ${lastTransmissionByDevice.size}")
-        lastTransmissionByDevice.forEach { (mac, timestamp) ->
-            val elapsed = System.currentTimeMillis() - timestamp
-            Log.d(TAG, "  - $mac: ${elapsed}ms ago")
-        }
-        Log.d(TAG, "═══════════════════════════════════════")
     }
 
     /**
@@ -287,10 +261,5 @@ object BleTransmissionMonitor {
      * @param count 출력할 개수 (기본: 10)
      */
     fun printRecentTransmissions(count: Int = 10) {
-        val recent = _transmissionHistory.value.takeLast(count)
-        Log.d(TAG, "Recent $count transmissions:")
-        recent.forEach { event ->
-            Log.d(TAG, "  [${event.getTimestampFormatted()}] ${event.getSourceDisplayName()} - ${event.getEffectTypeDisplayName()} → ${event.deviceMac}")
-        }
     }
 }

@@ -140,9 +140,7 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         musicId: Int,
         paletteSize: Int
     ): List<Pair<Long, ByteArray>> {
-        Log.d(TAG, "v8 generate() start file=$musicPath musicId=$musicId paletteSize=$paletteSize")
 
-        Log.d(TAG, "palette source=musicId seed=$musicId")
         val palette = buildPalette(musicId)
 
         // [PERF] 단일 패스 디코딩 — MediaCodec 1회로 low/mid/full 동시 추출
@@ -192,18 +190,12 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             return emptyList()
         }
 
-        Log.d(
-            TAG,
-            "beat detect OK totalBeats=${beatTimes.size} " +
-                    "beatMs=${detect.beatMs} first=${beatTimes.firstOrNull()} last=${beatTimes.lastOrNull()}"
-        )
 
         // 1곡 전체에 단일 beatMs 적용 — 구간마다 beatMs가 달라 비트가 들죽날죽하게
         // 느껴지는 문제 해결. detect.beatMs(전체 비트 간격 중앙값)을 기준으로 하되,
         // 900ms 초과 시 절반으로 보정하여 느린 곡의 반속 감지 오류도 교정한다.
         val beatMs = detect.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
             .let { raw -> if (raw > 900L) raw / 2L else raw }
-        Log.d(TAG, "globalBeatMs=$beatMs (raw=${detect.beatMs})")
 
         val firstMusicMs = detectFirstMusicStartMs(
             energyFrames = fullEnv.take(envSize).toFloatArray(),
@@ -218,18 +210,12 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             else -> firstMusicMs - INTRO_PRESTART_TRANSIT_MS
         }
 
-        Log.d(
-            TAG,
-            "intro tuning firstMusicMs=$firstMusicMs introEndMs=$introEndMs " +
-                    "forceTransitFromZero=$forceTransitFromZero durationMs=$durationMs"
-        )
 
         val climaxMoments = detectClimaxPeakMoments(
             fullEnv = fullEnv.take(envSize),
             durationMs = durationMs,
             beatMs = beatMs
         )
-        Log.d(TAG, "climax moments=${climaxMoments.joinToString()}")
 
         // 활성 프레임만 평균 — 긴 인트로/아웃트로 무음 구간이 평균을 끌어내리는 현상 방지
         val allFrames    = fullEnv.take(envSize)
@@ -237,11 +223,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         val avgFullEnergy = if (activeFrames.size > 10) activeFrames.average().toFloat()
                            else allFrames.average().toFloat()
         val isBalladMode  = isQuietFolkOrBallad(beatMs, avgFullEnergy)
-        Log.d(TAG, "balladMode=$isBalladMode beatMs=$beatMs " +
-                "activeAvgEnergy=${"%.3f".format(avgFullEnergy)} " +
-                "allAvgEnergy=${"%.3f".format(allFrames.average().toFloat())} " +
-                "activeFrames=${activeFrames.size}/${allFrames.size} " +
-                "climax=${climaxMoments.size}")
 
         // 발라드 모드: 클라이맥스 연출 완전 차단
         val effectiveClimaxMoments = if (isBalladMode) emptyList() else climaxMoments
@@ -259,12 +240,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         )
 
         sections.forEachIndexed { idx, s ->
-            Log.d(
-                TAG,
-                "section beat idx=$idx ${s.startMs}~${s.endMs} " +
-                        "type=${s.type} beats=${s.beats} beatMs=${s.beatMs} " +
-                        "source=${s.source} engine=${s.engine} change=${s.change}"
-            )
         }
 
         val finalOffMs = detectLastMusicEndMs(
@@ -272,7 +247,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             hopMs = HOP_MS,
             minTrailingSilenceMs = MIN_TRAILING_SILENCE_MS
         ).coerceIn(0L, durationMs)
-        Log.d(TAG, "finalOffMs=$finalOffMs durationMs=$durationMs trailingSilence=${durationMs - finalOffMs}ms")
 
         val frames = buildFramesFromSections(
             musicId = musicId,
@@ -285,7 +259,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             finalOffMs = finalOffMs
         )
 
-        Log.d(TAG, "v8 frames(final)=${frames.size}")
         return frames.sortedBy { it.first }
     }
 
@@ -563,9 +536,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         }
         boundaryTimes += durationMs
 
-        Log.d(TAG, "novelty boundaries(${boundaryTimes.size - 2} found) " +
-                "noveltyMean=${"%.3f".format(noveltyMean)} th=${"%.3f".format(noveltyTh)} " +
-                "boundaries=${boundaryTimes.dropLast(1).drop(1).joinToString { "${it / 1000}s" }}")
 
         // Step 6: 각 구간을 통째로 분류 (변화점 사이 평균 스코어 기준)
         val contentSections = ArrayList<Section>()
@@ -689,13 +659,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             else -> ChangeLevel.STRONG
         }
 
-        Log.d(
-            TAG,
-            "section energy type=$normalizedType engine=$engine " +
-                    "energyScore=${"%.3f".format(energyScore)} relScore=${"%.3f".format(rel)} " +
-                    "lowTh=${"%.3f".format(lowTh)} highTh=${"%.3f".format(highTh)} " +
-                    "beatMs=${beatMs}ms beats=$beats"
-        )
 
         return Section(
             startMs = startMs,
@@ -832,10 +795,8 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         val peakRatio = if (envMean > 0f) peakScore / envMean else 0f
 
         if (cv < CLIMAX_MIN_CV || peakRatio < CLIMAX_MIN_PEAK_RATIO) {
-            Log.d(TAG, "climax skip: CV=${"%.3f".format(cv)} peakRatio=${"%.2f".format(peakRatio)} → no climax")
             return emptyList()
         }
-        Log.d(TAG, "climax CV=${"%.3f".format(cv)} peakRatio=${"%.2f".format(peakRatio)} → proceed detection")
 
         val candidates = ArrayList<PeakCandidate>()
         for (i in 2 until scoreArray.size - 2) {
@@ -877,8 +838,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         val minActualRequired = (expectedBeats * ACTUAL_BEAT_USE_RATIO).toInt().coerceAtLeast(2)
 
         if (actualBeats.size >= minActualRequired) {
-            Log.d(TAG, "beatGrid section=${section.type} actualBeats=${actualBeats.size} " +
-                    "expected=$expectedBeats → using actual beats (with gap fill)")
             return fillBeatGaps(actualBeats.sorted(), section.beatMs, section.endMs)
         }
 
@@ -887,7 +846,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
         while (t < section.endMs) { grid += t; t += section.beatMs }
 
         if (actualBeats.isEmpty()) {
-            Log.d(TAG, "beatGrid section=${section.type} no actualBeats → pure grid size=${grid.size}")
             return grid
         }
 
@@ -896,8 +854,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             val closest = actualBeats.minByOrNull { abs(it - g) }
             if (closest != null && abs(closest - g) <= snapMs) closest else g
         }
-        Log.d(TAG, "beatGrid section=${section.type} gridBeats=${grid.size} " +
-                "actualBeats=${actualBeats.size} snapMs=$snapMs → snapped grid")
         return snapped.distinct().sorted()
     }
 
@@ -918,7 +874,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         val interpolated = prev + step * k
                         if (interpolated < sectionEndMs) out += interpolated
                     }
-                    Log.d(TAG, "beatGapFill prev=${prev}ms cur=${cur}ms gap=${gap}ms beatMs=${beatMs}ms filled=$fillCount beats")
                 }
             }
             out += cur
@@ -967,7 +922,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
 
         if (!frameMap.containsKey(0L)) {
             frameMap[0L] = buildOffPayload()
-            Log.d(TAG, "timeline t=0ms OFF (always)")
         }
 
         var prevSectionEndMs = 0L
@@ -985,9 +939,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             val actualSectionBeats = beatTimes.filter { it >= section.startMs && it < section.endMs }
             val effectiveSectionBeats = buildSectionBeatGrid(section, actualSectionBeats)
 
-            Log.d(TAG, "section timeline idx=$index type=${section.type} range=${section.startMs}~${section.endMs} " +
-                    "section.beats=${section.beats} actualSectionBeats=${actualSectionBeats.size} " +
-                    "gridSectionBeats=${effectiveSectionBeats.size} engine=${section.engine} source=${section.source}")
 
             if (section.engine == FgEngine.OFF_TRANSIT) {
                 putFrame(section.startMs, buildOffPayload(), section, "SECTION_OFF", FgEngine.OFF_TRANSIT, transit = ON_TRANSIT)
@@ -1041,7 +992,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                     section, "TRANSITION_BREATH", FgEngine.BREATH,
                     fg = mFg, bg = mBg, period = msToBreathPeriod(section.beatMs), randomDelay = msToBreathRandomDelay(section.beatMs),
                     note = "gap=${interSectionGapMs}ms transition-marker")
-                Log.d(TAG, "transition breath: idx=$index t=${section.startMs}ms gap=${interSectionGapMs}ms")
 
             } else if (coverGapMs > 0L && section.type != SectionType.INTRO) {
                 val longCoverThresholdMs = section.beatMs * 3L / 2L
@@ -1091,7 +1041,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                         }
                         fillT += section.beatMs; fillIdx++
                     }
-                    Log.d(TAG, "section-cover long gap=${coverGapMs}ms filled=$fillIdx beats")
                 }
             }
 
@@ -1155,8 +1104,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
                     }
 
                     if (skipRepeat) {
-                        Log.d(TAG, "timeline skip-repeat t=${t}ms section=${section.type} " +
-                                "engine=${effectiveBeatEngine.name} beatIndex=$beatIndex → same fg/bg/period")
                     } else {
                         putFrame(t, buildPayload(effectiveBeatEngine, fg, bg, section.beatMs, beatPeriod,
                             beatRandomDelay ?: 0, rotateTransit = beatRotateTransit),
@@ -1206,7 +1153,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             putFrame(finalOffMs, buildOffPayload(), endSection, "FINAL_OFF", FgEngine.OFF_TRANSIT, transit = ON_TRANSIT)
         }
 
-        Log.d(TAG, "timeline final uniqueFrames=${frameMap.size}")
         return frameMap.entries.sortedBy { it.key }.map { it.key to it.value }
     }
 
@@ -1395,7 +1341,6 @@ class AutoTimelineGeneratorBeat_v8 : AutoTimelineGenerator {
             randomDelay?.let { append(" randomDelay=$it")          }
             note?.let        { append(" note=$it")                 }
         }
-        Log.d(TAG, "timeline add t=${t}ms type=${frameType}[${engine.name}] section=${section.type} source=${section.source} beats=${section.beats}$extra")
     }
 
     // =========================================================================

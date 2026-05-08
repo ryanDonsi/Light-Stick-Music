@@ -64,7 +64,6 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         if (TEST_FORCE_REGENERATE) {
             runCatching {
                 storage.clearAll(context)
-                Log.d(TAG, "🧹 Cleared all timelines for version=$version")
             }.onFailure {
                 Log.e(TAG, "Failed to clear timelines: ${it.message}")
             }
@@ -82,7 +81,6 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         val skipped   = AtomicInteger(0)
         val failed    = AtomicInteger(0)
 
-        Log.d(TAG, "🚀 Precompute start: total=$total version=$version paletteSize=$paletteSize parallelism=$PARALLEL_COUNT")
 
         val semaphore = Semaphore(PARALLEL_COUNT)
 
@@ -113,7 +111,6 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                             } else {
                                 storage.save(context, musicId, frames)
                                 created.incrementAndGet()
-                                Log.d(TAG, "✅ saved v$version musicId=$musicId frames=${frames.size} file=${file.name}")
                             }
                         } catch (t: Throwable) {
                             failed.incrementAndGet()
@@ -124,6 +121,5 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
             }.awaitAll()
         }
 
-        Log.d(TAG, "🏁 Precompute done: v$version created=${created.get()} skipped=${skipped.get()} failed=${failed.get()}")
     }
 }

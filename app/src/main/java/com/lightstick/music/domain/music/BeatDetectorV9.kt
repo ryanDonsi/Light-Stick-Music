@@ -106,14 +106,11 @@ object BeatDetectorV9 {
 
         // ① 전곡 글로벌 BPM 추정
         val globalBeatMs = estimateGlobalBpm(low, mid, params)
-        Log.d(TAG, "V9 globalBeatMs=$globalBeatMs durationMs=$durationMs")
 
         val effectiveSegmentMs = if (durationMs < 60_000L) durationMs else params.segmentMs
         val segmentFrames = max(1, (effectiveSegmentMs / params.hopMs).toInt())
         val segmentCount = (minSize + segmentFrames - 1) / segmentFrames
 
-        Log.d(TAG, "envSize low=${low.size} mid=${mid.size} full=${full.size} durationMs=$durationMs hopMs=${params.hopMs}")
-        Log.d(TAG, "segments=$segmentCount segmentMs=${params.segmentMs} minBeatMs=${params.minBeatMs} maxBeatMs=${params.maxBeatMs}")
 
         val segResults = ArrayList<SegmentResult>()
         val mergedBeats = ArrayList<Long>()
@@ -131,10 +128,6 @@ object BeatDetectorV9 {
             val segEndMs = e.toLong() * params.hopMs
 
             val srcOrder = buildSourceOrder(lowSeg, midSeg, fullSeg)
-            Log.d(TAG,
-                "SEG[$segIndex] srcOrder=$srcOrder " +
-                "lowVar=${fmt(varOf(lowSeg))} midVar=${fmt(varOf(midSeg))} fullVar=${fmt(varOf(fullSeg))} " +
-                "lowPeak=${fmt(maxOfList(lowSeg))} midPeak=${fmt(maxOfList(midSeg))} fullPeak=${fmt(maxOfList(fullSeg))}")
 
             val trials = ArrayList<TrialResult>()
             var best: TrialResult? = null
@@ -151,11 +144,6 @@ object BeatDetectorV9 {
                 )
                 trials += trial
 
-                Log.d(TAG,
-                    "SEG[$segIndex] try=${trial.source} beats=${trial.beatTimesMs.size} beatMs=${trial.beatMs} " +
-                    "score=${fmt(trial.score)} rawPeak=${trial.rawPeakCount} snapped=${trial.snappedCount} " +
-                    "onset(mean/std/max)=${fmt(trial.onsetMean)}/${fmt(trial.onsetStd)}/${fmt(trial.onsetMax)} " +
-                    "acPeak=${fmt(trial.acPeak)} snapRatio=${fmt(trial.snapRatio)} reason=${trial.reason}")
 
                 if (trial.reason == "ok") {
                     val bestNonNull = best
@@ -168,16 +156,12 @@ object BeatDetectorV9 {
                         else -> false
                     }
                     if (isBetter) {
-                        Log.d(TAG,
-                            "SEG[$segIndex] best update: ${best?.source}(${best?.beatTimesMs?.size}beats) " +
-                            "→ ${trial.source}(${trial.beatTimesMs.size}beats) score=${fmt(trial.score)}")
                         best = trial
                     }
                 }
             }
 
             if (best == null) {
-                Log.d(TAG, "SEG[$segIndex] $segStartMs-$segEndMs best=null beats=0 beatMs=0 score=0.0 reason=all failed")
                 Log.w(TAG, "SEG[$segIndex] FAIL -> skip segment")
                 segResults += SegmentResult(segIndex, segStartMs, segEndMs, null, emptyList(), 0L, 0f, "all failed", trials)
                 continue
@@ -187,9 +171,6 @@ object BeatDetectorV9 {
             mergedBeats += absoluteBeats
             sourceVotes[best.source] = (sourceVotes[best.source] ?: 0) + 1
 
-            Log.d(TAG,
-                "SEG[$segIndex] $segStartMs-$segEndMs best=${best.source} beats=${best.beatTimesMs.size} " +
-                "beatMs=${best.beatMs} score=${fmt(best.score)} reason=${best.reason}")
 
             segResults += SegmentResult(segIndex, segStartMs, segEndMs, best.source,
                 absoluteBeats, best.beatMs, best.score, best.reason, trials)
@@ -208,16 +189,12 @@ object BeatDetectorV9 {
         val finalBeatMs = if (globalBeatMs != null &&
             globalBeatMs < rawBeatMs &&
             rawBeatMs - globalBeatMs < rawBeatMs / 6) {
-            Log.d(TAG, "finalBeatMs: globalBeatMs=$globalBeatMs preferred over rawBeatMs=$rawBeatMs")
             globalBeatMs
         } else {
             rawBeatMs
         }
         val finalSource = sourceVotes.maxByOrNull { it.value }?.key
 
-        Log.d(TAG,
-            "beat detect OK source=$finalSource totalBeats=${deduped.size} beatMs=$finalBeatMs " +
-            "first=${deduped.firstOrNull()} last=${deduped.lastOrNull()}")
 
         return DetectResult(deduped, finalBeatMs, finalSource, "ok", segResults)
     }
@@ -273,7 +250,6 @@ object BeatDetectorV9 {
             globalBeatMs != null -> {
                 beatMs = globalBeatMs
                 acPeak = 0.5f
-                Log.d(TAG, "SEG[$segmentIndex] autocorr weak → globalBeatMs=$globalBeatMs fallback")
             }
             else -> {
                 // rawPeak 간격 중앙값 폴백
@@ -287,7 +263,6 @@ object BeatDetectorV9 {
                         val expectedFb = max(1, (segDur / fallbackMs).toInt())
                         val densityFb = min(1f, chainedFb.size.toFloat() / expectedFb.toFloat())
                         val scoreFb = (densityFb * 0.35f + snapRatioFb * 0.30f + 0.10f).coerceIn(0f, 1f)
-                        Log.d(TAG, "onset fallback: beatMs=$fallbackMs beats=${chainedFb.size} score=${fmt(scoreFb)}")
                         return TrialResult(source, chainedFb.map { it.toLong() * params.hopMs },
                             fallbackMs, scoreFb, rawPeaks.size, chainedFb.size,
                             mean, std, onsetMax, 0f, snapRatioFb, "onset-fallback")
@@ -397,7 +372,6 @@ object BeatDetectorV9 {
             val halfValue = corrArray[halfLag]
             if (halfValue >= bestValue * HARMONIC_FOLD_HALF_RATIO) {
                 val halfBeatMs = halfLag * hopMs
-                Log.d(TAG, "harmonic fold (/2): bestLag=$bestLag (${bestLag * hopMs}ms) → halfLag=$halfLag (${halfBeatMs}ms) ratio=${fmt(halfValue / bestValue)}")
                 val quarterLag = halfLag / 2
                 if (quarterLag >= minLag) {
                     val quarterValue = corrArray[quarterLag]
@@ -414,7 +388,6 @@ object BeatDetectorV9 {
         if (thirdLag >= minLag) {
             val thirdValue = corrArray[thirdLag]
             if (thirdValue >= bestValue * HARMONIC_FOLD_THIRD_RATIO) {
-                Log.d(TAG, "harmonic fold (/3): bestLag=$bestLag (${bestLag * hopMs}ms) → thirdLag=$thirdLag ratio=${fmt(thirdValue / bestValue)}")
                 return thirdLag * hopMs to thirdValue.coerceIn(0f, 1f)
             }
         }
@@ -429,7 +402,6 @@ object BeatDetectorV9 {
                 if (count > 0) sum / count.toFloat() else 0f
             }
             if (ttValue >= bestValue * HARMONIC_TWO_THIRDS_RATIO) {
-                Log.d(TAG, "harmonic two-thirds (×2/3): bestLag=$bestLag → ttLag=$twoThirdLag (${twoThirdBeatMs}ms) ratio=${fmt(ttValue / bestValue)}")
                 return twoThirdBeatMs to ttValue.coerceIn(0f, 1f)
             }
         }
@@ -448,7 +420,6 @@ object BeatDetectorV9 {
         }
         val doubleBeatMs = doubleLag * hopMs
         if (bestLag * hopMs > doubleGuardMs && doubleValue >= bestValue * HARMONIC_DOUBLE_RATIO && doubleBeatMs <= maxBeatMs) {
-            Log.d(TAG, "harmonic double (×2): bestLag=$bestLag guard=${doubleGuardMs}ms → doubleLag=$doubleLag (${doubleBeatMs}ms) ratio=${fmt(doubleValue / bestValue)}")
             return doubleBeatMs to doubleValue.coerceIn(0f, 1f)
         }
 

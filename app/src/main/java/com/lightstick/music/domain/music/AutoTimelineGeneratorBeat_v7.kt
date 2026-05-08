@@ -135,7 +135,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         musicId: Int,
         paletteSize: Int
     ): List<Pair<Long, ByteArray>> {
-        Log.d(TAG, "v8 generate() start file=$musicPath musicId=$musicId paletteSize=$paletteSize")
 
         val pSize = paletteSize.coerceIn(3, 5)
         val palette = buildPalette(musicId, pSize)
@@ -168,7 +167,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             musicId = musicId
         )
 
-        Log.d(TAG, "v8 frames(final)=${frames.size}")
         return frames.sortedBy { it.first }
     }
 
@@ -204,7 +202,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             hopMs = HOP_MS
         )
 
-        Log.d(TAG, "global beat beatMs=$beatMs confidence=$periodicity")
         return GlobalBeatResult(
             beatMs = beatMs,
             confidence = periodicity
@@ -485,11 +482,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
                 changeStrength = s.changeStrength
             )
 
-            Log.d(
-                TAG,
-                "section beat idx=$idx ${s.startMs}~${s.endMs} type=${s.sectionType} " +
-                        "beats=${beatTimes.size} beatMs=$finalBeatMs source=$source engine=$engineMode change=${s.changeStrength}"
-            )
 
             out += SectionInfo(
                 index = idx,
@@ -644,12 +636,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
                 }
             }
 
-            Log.d(
-                TAG,
-                "timeline section idx=${section.index} ${section.startMs}~${section.endMs} " +
-                        "section=${section.type} rule=${describeRule(section)} beats=${section.beatTimesMs.size} " +
-                        "beatMs=${section.beatMs} source=${section.source}"
-            )
         }
 
         return frames.sortedBy { it.first }
@@ -843,11 +829,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             }
         }
 
-        Log.d(
-            TAG,
-            "timeline add t=${t}ms section=$sectionType type=BEAT mode=$mode " +
-                    "fg=${colorToString(fg)} bg=${colorToString(bg)}$extra"
-        )
     }
 
     private fun logSectionStart(
@@ -876,11 +857,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             append(" sustain=$sustain")
         }
 
-        Log.d(
-            TAG,
-            "timeline add t=${t}ms section=$sectionType type=SECTION_START mode=$mode " +
-                    "fg=${colorToString(fg)} bg=${colorToString(bg)}$extra"
-        )
     }
 
     private fun logBgRestore(
@@ -889,11 +865,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         bg: LSColor,
         transit: Int
     ) {
-        Log.d(
-            TAG,
-            "timeline add t=${t}ms section=$sectionType type=BEAT_BG " +
-                    "restore bg=${colorToString(bg)} transit=$transit"
-        )
     }
 
     private fun colorToString(c: LSColor): String = "(${c.r},${c.g},${c.b})"

@@ -1,7 +1,6 @@
 package com.lightstick.music.domain.usecase.device
 
 import android.content.Context
-import com.lightstick.music.core.util.Log
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
 import com.lightstick.music.core.constants.AppConstants
@@ -69,20 +68,14 @@ class StartScanUseCase @Inject constructor() {
                     // 신규 발견 또는 RSSI 갱신 모두 즉시 콜백
                     onFound?.invoke(device)
 
-                    if (isNew) {
-                        Log.d(TAG, "📡 New device: ${device.mac} (${device.name}) RSSI:${device.rssi}")
-                    }
                 }
             }
-
-            Log.d(TAG, "🔍 Scan started: ${durationSec}s")
 
             // 4. 지정된 시간 동안 대기
             delay(durationMs)
 
             // 5. 스캔 중지
             LSBluetooth.stopScan()
-            Log.d(TAG, "✅ Scan done: ${scannedDevices.size} device(s) found")
 
             // 6. 결과 반환
             Result.success(scannedDevices.values.toList())

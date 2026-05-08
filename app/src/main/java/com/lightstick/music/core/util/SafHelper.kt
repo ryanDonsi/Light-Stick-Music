@@ -66,7 +66,6 @@ object SafHelper {
                     Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 
             context.contentResolver.takePersistableUriPermission(uri, takeFlags)
-            Log.d(TAG, "✅ Persistable permission granted: $uri")
             true
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to take persistable permission: ${e.message}")
@@ -86,7 +85,6 @@ object SafHelper {
                     Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 
             context.contentResolver.releasePersistableUriPermission(uri, releaseFlags)
-            Log.d(TAG, "🔓 Persistable permission released: $uri")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to release persistable permission: ${e.message}")
         }
@@ -131,7 +129,6 @@ object SafHelper {
                 }
             }
 
-            Log.d(TAG, "✅ Copied to temp: ${tempFile.absolutePath}")
             tempFile
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to copy to temp: ${e.message}")

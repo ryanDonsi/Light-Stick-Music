@@ -466,19 +466,6 @@ private fun calculateEffectColorFromTransmission(
 ): EffectColorData? {
     val lastAnimationKeyRef = remember { mutableStateOf<String?>(null) }
 
-    android.util.Log.d(
-        "EFFECT_TRACE",
-        "CALL transmission " +
-                "source=${transmission.source} " +
-                "effect=${transmission.effectType} " +
-                "transit=${transmission.transit} " +
-                "period=${transmission.period} " +
-                "color=${transmission.color} " +
-                "bg=${transmission.backgroundColor} " +
-                "lastColor=${lastColorRef.value} " +
-                "displayedColor=${currentDisplayedColorRef.value} " +
-                "lastAnimationKey=${lastAnimationKeyRef.value}"
-    )
 
     fun staticColorData(color: Color): EffectColorData {
         val gradientColor =
@@ -498,21 +485,10 @@ private fun calculateEffectColorFromTransmission(
                     val targetColor = transmission.color?.toComposeColor() ?: Color.White
                     val animKey = "TX_ON_${transit}_${targetColor.toArgb()}"
 
-                    android.util.Log.d(
-                        "ON_ANIM",
-                        "CALL transmission ON transit=$transit " +
-                                "displayedColor=${currentDisplayedColorRef.value} " +
-                                "lastColor=${lastColorRef.value} " +
-                                "target=$targetColor animKey=$animKey"
-                    )
 
                     if (lastAnimationKeyRef.value == animKey &&
                         currentDisplayedColorRef.value == targetColor
                     ) {
-                        android.util.Log.d(
-                            "ON_ANIM",
-                            "SKIP animation reuse static targetColor=$targetColor animKey=$animKey"
-                        )
                         staticColorData(targetColor)
                     } else {
                         lastAnimationKeyRef.value = animKey
@@ -532,20 +508,10 @@ private fun calculateEffectColorFromTransmission(
                     val transit = transmission.transit ?: 10
                     val animKey = "TX_OFF_$transit"
 
-                    android.util.Log.d(
-                        "OFF_ANIM",
-                        "CALL transmission OFF transit=$transit " +
-                                "displayedColor=${currentDisplayedColorRef.value} " +
-                                "lastColor=${lastColorRef.value} animKey=$animKey"
-                    )
 
                     if (lastAnimationKeyRef.value == animKey &&
                         currentDisplayedColorRef.value.isBlack()
                     ) {
-                        android.util.Log.d(
-                            "OFF_ANIM",
-                            "SKIP animation reuse static black animKey=$animKey"
-                        )
                         staticColorData(Color.Black)
                     } else {
                         lastAnimationKeyRef.value = animKey
@@ -567,10 +533,6 @@ private fun calculateEffectColorFromTransmission(
 
                     lastAnimationKeyRef.value = "TX_STROBE_$period"
 
-                    android.util.Log.d(
-                        "STROBE_ANIM",
-                        "CALL transmission STROBE period=$period fgThreshold=$fgThreshold"
-                    )
 
                     animatePeriodicEffect(
                         effectName = "STROBE",
@@ -588,10 +550,6 @@ private fun calculateEffectColorFromTransmission(
 
                     lastAnimationKeyRef.value = "TX_BLINK_$period"
 
-                    android.util.Log.d(
-                        "BLINK_ANIM",
-                        "CALL transmission BLINK period=$period fgThreshold=0.5"
-                    )
 
                     animatePeriodicEffect(
                         effectName = "BLINK",
@@ -610,12 +568,6 @@ private fun calculateEffectColorFromTransmission(
                     val bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black
                     val animKey = "TX_BREATH_${period}_${fgColor.toArgb()}_${bgColor.toArgb()}"
 
-                    android.util.Log.d(
-                        "BREATH_ANIM",
-                        "CALL transmission BREATH period=$period " +
-                                "displayedColor=${currentDisplayedColorRef.value} " +
-                                "lastColor=${lastColorRef.value} fg=$fgColor bg=$bgColor animKey=$animKey"
-                    )
 
                     lastAnimationKeyRef.value = animKey
 
@@ -668,15 +620,6 @@ private fun calculateEffectColor(
     lastColorRef: MutableState<Color>,
     currentDisplayedColorRef: MutableState<Color>
 ): EffectColorData? {
-    android.util.Log.d(
-        "EFFECT_TRACE",
-        "CALL selected " +
-                "isPlaying=$isPlaying " +
-                "selectedEffect=$selectedEffect " +
-                "settings=$effectSettings " +
-                "lastColor=${lastColorRef.value} " +
-                "displayedColor=${currentDisplayedColorRef.value}"
-    )
 
     if (!isPlaying || selectedEffect == null || effectSettings == null) {
         lastColorRef.value = Color.White
@@ -861,11 +804,6 @@ private fun animateOnEffect(
     val animatable = remember(animationKey) { Animatable(0f) }
 
     LaunchedEffect(animationKey) {
-        android.util.Log.d(
-            "ON_ANIM",
-            "START key=$animationKey transit=$transit duration=${transit * 100} " +
-                    "startColor=$fixedStartColor targetColor=$targetColor randomColor=$randomColor"
-        )
 
         animatable.snapTo(0f)
         animatable.animateTo(
@@ -878,10 +816,6 @@ private fun animateOnEffect(
 
         onColorUpdate(targetColor)
 
-        android.util.Log.d(
-            "ON_ANIM",
-            "END key=$animationKey transit=$transit finalProgress=${animatable.value} finalColor=$targetColor"
-        )
     }
 
     val progress = animatable.value
@@ -890,11 +824,6 @@ private fun animateOnEffect(
         else hsvLerp(fixedStartColor, targetColor, progress)
 
     LaunchedEffect(animationKey, (progress * 10).toInt()) {
-        android.util.Log.d(
-            "ON_ANIM",
-            "SAMPLE key=$animationKey progress=$progress transit=$transit " +
-                    "startColor=$fixedStartColor targetColor=$targetColor iconColor=$iconColor"
-        )
     }
 
     val gradientColor =
@@ -924,10 +853,6 @@ private fun animateOffEffect(
     }
 
     LaunchedEffect(animationKey) {
-        android.util.Log.d(
-            "OFF_ANIM",
-            "START key=$animationKey transit=$transit duration=${transit * 110} fixedStartColor=$fixedStartColor"
-        )
 
         animatable.snapTo(0f)
         animatable.animateTo(
@@ -940,20 +865,12 @@ private fun animateOffEffect(
 
         onColorUpdate(Color.Black)
 
-        android.util.Log.d(
-            "OFF_ANIM",
-            "END key=$animationKey transit=$transit finalProgress=${animatable.value}"
-        )
     }
 
     val progress = animatable.value
     val iconColor = hsvLerp(fixedStartColor, Color.Black, progress)
 
     LaunchedEffect(animationKey, (progress * 10).toInt()) {
-        android.util.Log.d(
-            "OFF_ANIM",
-            "SAMPLE key=$animationKey progress=$progress transit=$transit fixedStartColor=$fixedStartColor iconColor=$iconColor"
-        )
     }
 
     val gradientColor =
@@ -984,11 +901,6 @@ private fun animatePeriodicEffect(
     val duration = (period * uiPeriodScale).roundToInt().coerceAtLeast(104)
 
     LaunchedEffect(effectName, fgColor, bgColor, period, randomColor, fgThreshold) {
-        android.util.Log.d(
-            "${effectName}_ANIM",
-            "START period=$period duration=$duration uiPeriodScale=$uiPeriodScale " +
-                    "fg=$fgColor bg=$bgColor randomColor=$randomColor fgThreshold=$fgThreshold"
-        )
     }
 
     val progress by rememberInfiniteTransition(label = "${effectName}_periodic")
@@ -1005,11 +917,6 @@ private fun animatePeriodicEffect(
     val iconColor = if (progress < fgThreshold) resolvedFg else resolvedBg
 
     LaunchedEffect((progress * 10).toInt()) {
-        android.util.Log.d(
-            "${effectName}_ANIM",
-            "SAMPLE progress=$progress period=$period duration=$duration " +
-                    "iconColor=$iconColor fg=$resolvedFg bg=$resolvedBg"
-        )
     }
 
     val gradientColor =
@@ -1034,10 +941,6 @@ private fun animateBreathEffect(
     onColorUpdate: (Color) -> Unit
 ): EffectColorData {
     if (period <= 0) {
-        android.util.Log.d(
-            "BREATH_ANIM",
-            "BYPASS key=$animationKey period=$period fgColor=$fgColor bgColor=$bgColor"
-        )
         return EffectColorData(
             iconColor = fgColor,
             iconBrush = null,
@@ -1056,11 +959,6 @@ private fun animateBreathEffect(
     val duration = (period * uiPeriodScale).roundToInt().coerceAtLeast(105)
 
     LaunchedEffect(animationKey) {
-        android.util.Log.d(
-            "BREATH_ANIM",
-            "START key=$animationKey period=$period duration=$duration uiPeriodScale=$uiPeriodScale " +
-                    "fromColor=$fixedStartColor fgColor=$resolvedFg bgColor=$resolvedBg randomColor=$randomColor"
-        )
     }
 
     val transition = rememberInfiniteTransition(label = "breathEffect_$animationKey")
@@ -1075,18 +973,12 @@ private fun animateBreathEffect(
     )
 
     LaunchedEffect(animationKey, (progress * 10).toInt()) {
-        android.util.Log.d(
-            "BREATH_ANIM",
-            "SAMPLE key=$animationKey progress=$progress period=$period duration=$duration " +
-                    "fromColor=$fixedStartColor fgColor=$resolvedFg bgColor=$resolvedBg firstCycle=${isFirstCycle.value}"
-        )
     }
 
     // 한 사이클 끝나면 이후부터는 일반 반복
     LaunchedEffect(progress) {
         if (progress >= 0.99f && isFirstCycle.value) {
             isFirstCycle.value = false
-            android.util.Log.d("BREATH_ANIM", "FIRST_CYCLE_END key=$animationKey")
         }
     }
 

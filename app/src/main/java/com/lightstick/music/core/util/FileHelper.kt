@@ -182,7 +182,6 @@ object FileHelper {
             } ?: 0
 
             if (deletedCount > 0) {
-                Log.d(TAG, "Cleared $deletedCount old cache files")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear old cache files: ${e.message}")

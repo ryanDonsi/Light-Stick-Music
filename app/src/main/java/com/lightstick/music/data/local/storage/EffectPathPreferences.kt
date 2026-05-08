@@ -40,7 +40,6 @@ object EffectPathPreferences {
         val prefs = context.getSharedPreferences(PrefsKeys.PREFS_EFFECT_DIRECTORY, Context.MODE_PRIVATE)
 
         if (prefs.getBoolean(PrefsKeys.KEY_AUTO_CONFIGURED, false)) {
-            Log.d(TAG, "✓ Already auto-configured")
             return true
         }
 
@@ -51,7 +50,6 @@ object EffectPathPreferences {
 
             if (!effectsDir.exists()) {
                 effectsDir.mkdirs()
-                Log.d(TAG, "✅ Created Effects directory: ${effectsDir.absolutePath}")
             }
 
             prefs.edit()
@@ -59,7 +57,6 @@ object EffectPathPreferences {
                 .putBoolean(PrefsKeys.KEY_AUTO_CONFIGURED, true)
                 .apply()
 
-            Log.d(TAG, "✅ Auto-configured: ${effectsDir.absolutePath}")
             true
         } catch (e: Exception) {
             Log.e(TAG, "❌ Auto-configuration failed: ${e.message}")
@@ -101,7 +98,6 @@ object EffectPathPreferences {
             Log.w(TAG, "Could not take persistable permission: ${e.message}")
         }
 
-        Log.d(TAG, "✅ Saved directory URI: $uri")
     }
 
     /**
@@ -158,10 +154,6 @@ object EffectPathPreferences {
 
             directory.listFiles()
                 .filter { it.isFile && it.name?.endsWith(".efx", ignoreCase = true) == true }
-                .also { files ->
-                    Log.d(TAG, "📂 Found ${files.size} EFX files")
-                    files.forEach { Log.d(TAG, "  - ${it.name}") }
-                }
         } catch (e: Exception) {
             Log.e(TAG, "Error listing files: ${e.message}")
             emptyList()
@@ -191,7 +183,6 @@ object EffectPathPreferences {
                     input.copyTo(output)
                 }
             }
-            Log.d(TAG, "✅ Copied to temp: ${tempFile.absolutePath}")
             tempFile
         } catch (e: Exception) {
             Log.e(TAG, "Error copying to temp: ${e.message}")
@@ -213,6 +204,5 @@ object EffectPathPreferences {
             .remove(PrefsKeys.KEY_DIRECTORY_URI)
             .remove(PrefsKeys.KEY_AUTO_CONFIGURED)
             .apply()
-        Log.d(TAG, "🗑️ Cleared directory configuration")
     }
 }

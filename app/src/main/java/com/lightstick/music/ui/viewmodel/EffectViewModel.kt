@@ -212,14 +212,11 @@ class EffectViewModel @Inject constructor(
                                 val device = Device(mac = event.mac, name = null, rssi = null)
                                 _deviceConnectionState.value =
                                     DeviceConnectionState.Connected(device)
-                                Log.d(TAG, "Device state → Connected: ${event.mac}")
                             }
                         }
                         is ConnectionState.Disconnected -> {
-                            Log.d(TAG, "Disconnect: mac=${event.mac} reason=${state.reason}")
                             if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
                                 _deviceConnectionState.value = DeviceConnectionState.Disconnected
-                                Log.d(TAG, "Device state → Disconnected")
                             }
                         }
                         else -> Unit  // Connecting / Disconnecting → UI 변경 없음
@@ -237,7 +234,6 @@ class EffectViewModel @Inject constructor(
             MusicPlaybackState.isPlayingWithAutoMode.collect { playingWithAutoMode ->
                 val blocked = playingWithAutoMode && controlMode == ControlMode.EXCLUSIVE
                 _isEffectBlocked.value = blocked
-                Log.d(TAG, "Effect blocked: $blocked (${controlMode.getDescription()})")
 
                 if (blocked) {
                     effectListJob?.cancel()
@@ -265,7 +261,6 @@ class EffectViewModel @Inject constructor(
             try {
                 // 1순위: ViewModel 상태 확인
                 if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
-                    Log.d(TAG, "Already connected (state)")
                     return@launch
                 }
 
@@ -277,14 +272,12 @@ class EffectViewModel @Inject constructor(
                 if (sdkConnected.isNotEmpty()) {
                     val device = sdkConnected.first()
                     _deviceConnectionState.value = DeviceConnectionState.Connected(device)
-                    Log.d(TAG, "Already connected via SDK: ${device.mac}")
                     return@launch
                 }
 
                 val bondedDevices = getBondedDevicesUseCase(context).getOrNull() ?: emptyList()
                 if (bondedDevices.isEmpty()) {
                     _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
-                    Log.d(TAG, "No bonded devices → NoBondedDevice")
                     return@launch
                 }
 
@@ -307,14 +300,12 @@ class EffectViewModel @Inject constructor(
 
                 if (bestDevice == null) {
                     _deviceConnectionState.value = DeviceConnectionState.ScanFailed
-                    Log.d(TAG, "No device found → ScanFailed")
                     return@launch
                 }
 
                 // 연결 성공 시 공통 처리 (1차·2차 재시도 공유)
                 val onConnectedCallback: () -> Unit = {
                     _deviceConnectionState.value = DeviceConnectionState.Connected(bestDevice)
-                    Log.d(TAG, "Auto connected: ${bestDevice.mac}")
                     viewModelScope.launch {
                         sendConnectionEffectUseCase(context, bestDevice)
                             .onFailure { Log.e(TAG, "Connection animation failed: ${it.message}") }

@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import com.lightstick.music.core.util.Log
 import androidx.core.content.ContextCompat
 
 object PermissionManager {
@@ -146,16 +145,5 @@ object PermissionManager {
      * 디버깅: 모든 권한 상태 로깅
      */
     fun logPermissionStatus(context: Context, tag: String = "PermissionUtils") {
-        Log.d(tag, "═══════════════════════════════════════")
-        Log.d(tag, "Permission Status:")
-        Log.d(tag, "  Bluetooth:")
-        Log.d(tag, "    ├─ SCAN: ${hasBluetoothScanPermission(context)}")
-        Log.d(tag, "    └─ CONNECT: ${hasBluetoothConnectPermission(context)}")
-        Log.d(tag, "  Storage:")
-        Log.d(tag, "    └─ ${hasStoragePermission(context)}")
-        Log.d(tag, "  Notification:")
-        Log.d(tag, "    └─ ${hasNotificationPermission(context)}")
-        Log.d(tag, "  All Required: ${hasAllRequiredPermissions(context)}")
-        Log.d(tag, "═══════════════════════════════════════")
     }
 }

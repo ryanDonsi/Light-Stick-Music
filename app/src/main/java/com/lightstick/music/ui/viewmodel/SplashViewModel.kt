@@ -152,7 +152,6 @@ class SplashViewModel @Inject constructor(
                 _state.value = completedState
                 _splashState.value = SplashState.Initializing(completedState)
 
-                Log.d("InitVM", "✅ Initialization completed in ${duration}ms")
 
             } catch (e: Exception) {
                 Log.e("InitVM", "❌ Initialization failed: ${e.message}", e)
@@ -184,7 +183,6 @@ class SplashViewModel @Inject constructor(
             }
             .distinct()
 
-        Log.d("InitVM", "MediaStore re-index: ${audioFiles.size} files found")
         if (audioFiles.isEmpty()) return@withContext
 
         suspendCancellableCoroutine { cont ->
@@ -195,7 +193,6 @@ class SplashViewModel @Inject constructor(
                 null
             ) { _, _ ->
                 if (remaining.decrementAndGet() == 0) {
-                    Log.d("InitVM", "MediaStore re-index complete")
                     cont.resumeWith(Result.success(Unit))
                 }
             }
@@ -224,7 +221,6 @@ class SplashViewModel @Inject constructor(
 
         resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
             val total = cursor.count
-            Log.d("InitVM", "📀 Found $total music files")
             _state.value = InitializationState.ScanningMusic(0, total)
             _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(0, total))
 
@@ -281,7 +277,6 @@ class SplashViewModel @Inject constructor(
             }
         }
 
-        Log.d("InitVM", "✅ Scanned ${musicItems.size} music files")
         musicItems
     }
 
@@ -301,7 +296,6 @@ class SplashViewModel @Inject constructor(
         _state.value = completedScanState
         _splashState.value = SplashState.Initializing(completedScanState)
 
-        Log.d("InitVM", "✅ Scanned $effectCount effect files")
         effectCount
     }
 
@@ -330,9 +324,6 @@ class SplashViewModel @Inject constructor(
                 item.copy(hasEffect = hasEffect)
             }
 
-            val matchedCount = matchedList.count { it.hasEffect }
-            Log.d("InitVM", "✅ Matched $matchedCount / ${musicList.size} files")
-
             matchedList
         }
 
@@ -351,6 +342,5 @@ class SplashViewModel @Inject constructor(
             .putLong(PrefsKeys.KEY_LAST_INIT_TIME, System.currentTimeMillis())
             .apply()
 
-        Log.d("InitVM", "💾 Saved initialization result")
     }
 }

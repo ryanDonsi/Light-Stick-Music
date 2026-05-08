@@ -107,10 +107,6 @@ class RegisterEventRulesUseCase @Inject constructor() {
             // ✅ 4. 규칙 등록
             device.registerEventRules(rules)
 
-            Log.d(TAG, "✅ Event rules registered for ${device.mac}")
-            Log.d(TAG, "   ├─ CALL: ${if (callEventEnabled) "enabled" else "disabled"}")
-            Log.d(TAG, "   └─ SMS:  ${if (smsEventEnabled) "enabled" else "disabled"}")
-
             // ✅ 5. 성공 반환
             Result.success(Unit)
 

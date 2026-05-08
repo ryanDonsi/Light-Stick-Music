@@ -504,12 +504,10 @@ class DeviceViewModel @Inject constructor(
                     firmware   = firmware,
                     onProgress = { percent ->
                         _otaProgress.value += (device.mac to percent)
-                        Log.d(TAG, "OTA progress: $percent%")
                     },
                     onResult   = { result ->
                         _otaInProgress.value += (device.mac to false)
                         result
-                            .onSuccess { Log.d(TAG, "✅ OTA completed: ${device.mac}") }
                             .onFailure { Log.e(TAG, "❌ OTA failed: ${it.message}") }
                     }
                 )
@@ -534,7 +532,6 @@ class DeviceViewModel @Inject constructor(
                     context.contentResolver.openInputStream(firmwareUri)?.use { it.readBytes() }
                 } ?: run { Log.e(TAG, "❌ OTA: Cannot open firmware file"); return@launch }
 
-                Log.d(TAG, "📦 OTA firmware size: ${firmware.size} bytes")
                 startOtaFromBytes(device, firmware)
 
             } catch (e: Exception) {
@@ -567,7 +564,6 @@ class DeviceViewModel @Inject constructor(
         }
 
         registerDeviceEventRules(device)
-        Log.d(TAG, if (enabled) "✅ Call event ON: ${device.mac}" else "🔕 Call event OFF: ${device.mac}")
     }
 
     fun toggleSmsEvent(device: Device, enabled: Boolean) {
@@ -584,7 +580,6 @@ class DeviceViewModel @Inject constructor(
         }
 
         registerDeviceEventRules(device)
-        Log.d(TAG, if (enabled) "✅ SMS event ON: ${device.mac}" else "🔕 SMS event OFF: ${device.mac}")
     }
 
     fun toggleBroadcasting(device: Device, enabled: Boolean) {
@@ -596,7 +591,6 @@ class DeviceViewModel @Inject constructor(
                 ?: buildDeviceDetailInfo(device, broadcasting = enabled)
         }
 
-        Log.d(TAG, if (enabled) "✅ Broadcasting ON: ${device.mac}" else "🔕 Broadcasting OFF: ${device.mac}")
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -616,13 +610,10 @@ class DeviceViewModel @Inject constructor(
 
         val device = connectedDevices[mac] ?: Device(mac = mac)
         if (!device.supportsBattery()) {
-            Log.d(TAG, "🔋 Battery characteristic 없음, 모니터링 생략: $mac")
             return
         }
 
         batteryMonitoringJobs[mac] = viewModelScope.launch {
-            Log.d(TAG, "🔋 Battery monitoring started: $mac")
-
             readBatteryLevel(mac)  // 연결 직후 즉시 1회
 
             while (true) {
@@ -639,7 +630,6 @@ class DeviceViewModel @Inject constructor(
     private fun stopBatteryMonitoring(mac: String) {
         batteryMonitoringJobs[mac]?.cancel()
         batteryMonitoringJobs.remove(mac)
-        Log.d(TAG, "🔋 Battery monitoring stopped: $mac")
     }
 
     /**
@@ -651,7 +641,6 @@ class DeviceViewModel @Inject constructor(
         device.readBattery { result ->
             result
                 .onSuccess { level ->
-                    Log.d(TAG, "🔋 Battery: $mac → $level%")
                     updateBatteryLevel(mac, level)
                 }
                 .onFailure { e ->
@@ -687,8 +676,6 @@ class DeviceViewModel @Inject constructor(
             EventType.CALL_RINGING to callEventEnabled,
             EventType.SMS_RECEIVED to smsEventEnabled
         ))
-
-        Log.d(TAG, "✅ Device detail initialized: ${device.mac}")
     }
 
     private fun updateDeviceInfoFromCallback(mac: String, deviceInfo: DeviceInfo) {
@@ -704,7 +691,6 @@ class DeviceViewModel @Inject constructor(
                     batteryLevel = deviceInfo.batteryLevel
                 )
         }
-        Log.d(TAG, "✅ DeviceInfo updated: $mac")
     }
 
     private fun updateBatteryLevel(mac: String, level: Int) {
@@ -740,7 +726,6 @@ class DeviceViewModel @Inject constructor(
     private fun updateConnectionState(mac: String, isConnected: Boolean) {
         _connectionStates.value += (mac to isConnected)
         _connectedDeviceCount.value = _connectionStates.value.count { it.value }
-        Log.d(TAG, "📍 Connection state: $mac → $isConnected")
 
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
@@ -759,7 +744,6 @@ class DeviceViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        Log.d(TAG, "🧹 Cleaning up ViewModel...")
 
         ProcessLifecycleOwner.get().lifecycle.removeObserver(appLifecycleObserver)
         scanJob?.cancel()
@@ -770,7 +754,6 @@ class DeviceViewModel @Inject constructor(
             connectedDevices.values.forEach { device ->
                 try {
                     disconnectDeviceUseCase(context, device)
-                    Log.d(TAG, "   Disconnected: ${device.mac}")
                 } catch (e: Exception) {
                     Log.e(TAG, "   Error disconnecting ${device.mac}: ${e.message}")
                 }
@@ -778,6 +761,5 @@ class DeviceViewModel @Inject constructor(
         }
 
         connectedDevices.clear()
-        Log.d(TAG, "✅ Cleanup completed")
     }
 }

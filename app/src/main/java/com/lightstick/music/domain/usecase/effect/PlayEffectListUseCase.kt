@@ -152,7 +152,6 @@ class PlayEffectListUseCase @Inject constructor() {
                 val (timestamp, frameBytes) = sortedFrames[0]
                 lastRecordedIndex = 0
                 recordFrame(deviceMac, timestamp, frameBytes, 0)
-                Log.d(TAG, "📋 EffectList first frame recorded immediately")
             }
 
             // ✅ [수정] 이후 프레임 추적 주기: delay(50) → AppConstants.TRANSMISSION_MONITOR_UPDATE_INTERVAL_MS

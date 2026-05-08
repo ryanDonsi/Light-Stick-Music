@@ -68,7 +68,6 @@ object BleTransmissionCoordinator {
         if (acquired) {
             activeSession = source
             sessionStartTime = System.currentTimeMillis()
-            Log.d(TAG, "Session started: $source (priority=$priority, mode=$mode)")
         }
         return acquired
     }
@@ -79,13 +78,9 @@ object BleTransmissionCoordinator {
     @Synchronized
     fun endSession(source: TransmissionSource) {
         if (activeSession == source) {
-            val duration = System.currentTimeMillis() - sessionStartTime
             activeSession = null
             sessionStartTime = 0
             releaseControl(source)
-            Log.d(TAG, "Session ended: $source (duration=${duration}ms)")
-        } else {
-            Log.w(TAG, "End session ignored: $source is not active (active=$activeSession)")
         }
     }
 
@@ -111,7 +106,6 @@ object BleTransmissionCoordinator {
             _currentController.value = newState
             controllerHistory.add(newState)
             notifyControlChange(newState)
-            Log.d(TAG, "Control acquired: $source (priority=$priority, mode=$mode)")
             return true
         }
 
@@ -124,15 +118,12 @@ object BleTransmissionCoordinator {
                 acquiredAt = System.currentTimeMillis()
             )
             _currentController.value = updated
-            Log.d(TAG, "Control updated: $source (priority=$priority, mode=$mode)")
             return true
         }
 
         return when {
             // 3-1. 새 요청이 우선순위 높음 → 강제 획득
             TransmissionPriority.hasHigherPriority(priority, current.priority) -> {
-                Log.d(TAG, "⚡ Control forcefully acquired: $source (priority=$priority) " +
-                        "overrides ${current.source} (priority=${current.priority})")
                 val newState = ControllerState(source, priority, mode, metadata = metadata)
                 _currentController.value = newState
                 controllerHistory.add(newState)
@@ -143,7 +134,6 @@ object BleTransmissionCoordinator {
 
             // 3-2. 현재 제어권이 BACKGROUND 모드 → 양보
             current.mode == ControlMode.BACKGROUND -> {
-                Log.d(TAG, "Background mode yielded: ${current.source} → $source")
                 val newState = ControllerState(source, priority, mode, metadata = metadata)
                 _currentController.value = newState
                 controllerHistory.add(newState)
@@ -154,14 +144,11 @@ object BleTransmissionCoordinator {
 
             // 3-3. COOPERATIVE 모드이고 허용된 조합 → 공존
             current.mode == ControlMode.COOPERATIVE && isCompatible(current.source, source) -> {
-                Log.d(TAG, "Cooperative mode: ${current.source} + $source")
                 true
             }
 
             // 3-4. 그 외 → 거부
             else -> {
-                Log.w(TAG, "Control denied: $source (priority=$priority) " +
-                        "blocked by ${current.source} (priority=${current.priority}, mode=${current.mode})")
                 false
             }
         }
@@ -176,9 +163,6 @@ object BleTransmissionCoordinator {
         if (current?.source == source) {
             _currentController.value = null
             notifyControlChange(null)
-            Log.d(TAG, "Control released: $source")
-        } else {
-            Log.w(TAG, "Release ignored: $source doesn't have control (current=${current?.source})")
         }
     }
 
@@ -191,7 +175,6 @@ object BleTransmissionCoordinator {
         sessionStartTime = 0
         _currentController.value = null
         notifyControlChange(null)
-        Log.d(TAG, "All controls forcefully released")
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -206,7 +189,6 @@ object BleTransmissionCoordinator {
         if (activeSession != null) {
             val compatible = activeSession == source || isCompatible(activeSession!!, source)
             if (!compatible) {
-                Log.v(TAG, "Transmission blocked by active session: $activeSession blocks $source")
                 return false
             }
         }
@@ -226,11 +208,9 @@ object BleTransmissionCoordinator {
      */
     fun sendEffect(event: BleTransmissionEvent): Boolean {
         if (!canTransmit(event.source)) {
-            Log.w(TAG, "Transmission blocked: ${event.source} (controller=${_currentController.value?.source})")
             return false
         }
         BleTransmissionMonitor.recordTransmission(event)
-        Log.d(TAG, "Transmission allowed: ${event.source} → ${event.deviceMac}")
         return true
     }
 
@@ -273,7 +253,6 @@ object BleTransmissionCoordinator {
 
     fun clearHistory() {
         controllerHistory.clear()
-        Log.d(TAG, "History cleared")
     }
 
     fun getControlCount(source: TransmissionSource): Int =
@@ -290,34 +269,6 @@ object BleTransmissionCoordinator {
     // ═══════════════════════════════════════════════════════════
 
     fun printDebugInfo() {
-        Log.d(TAG, "═══════════════════════════════════════")
-        Log.d(TAG, "BLE Transmission Coordinator Status")
-        Log.d(TAG, "═══════════════════════════════════════")
-        if (activeSession != null) {
-            val duration = System.currentTimeMillis() - sessionStartTime
-            Log.d(TAG, "Active Session: $activeSession")
-            Log.d(TAG, "  Duration: ${duration}ms")
-        } else {
-            Log.d(TAG, "Active Session: None")
-        }
-        Log.d(TAG, "")
-        val current = _currentController.value
-        if (current != null) {
-            val elapsed = System.currentTimeMillis() - current.acquiredAt
-            Log.d(TAG, "Current Controller: ${current.source}")
-            Log.d(TAG, "  Priority: ${current.priority} (${TransmissionPriority.getPriorityName(current.priority)})")
-            Log.d(TAG, "  Mode: ${current.mode}")
-            Log.d(TAG, "  Elapsed: ${elapsed}ms")
-            Log.d(TAG, "  Metadata: ${current.metadata}")
-        } else {
-            Log.d(TAG, "Current Controller: None")
-        }
-        Log.d(TAG, "")
-        Log.d(TAG, "History: ${controllerHistory.size} entries")
-        controllerHistory.takeLast(5).forEach { state ->
-            Log.d(TAG, "  - ${state.source} (priority=${state.priority}, mode=${state.mode})")
-        }
-        Log.d(TAG, "═══════════════════════════════════════")
     }
 }
 

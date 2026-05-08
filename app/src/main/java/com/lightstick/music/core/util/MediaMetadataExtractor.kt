@@ -264,8 +264,6 @@ object MediaMetadataExtractor {
                     .sortedBy { it.lastModified() }
                     .take(albumArtFiles.size - maxCacheSize)
                     .forEach { it.delete() }
-
-                Log.d(TAG, "Cleared ${albumArtFiles.size - maxCacheSize} old album art files")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear album art cache: ${e.message}")

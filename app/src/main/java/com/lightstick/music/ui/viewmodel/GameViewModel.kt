@@ -5,7 +5,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lightstick.game.GameMode as SdkGameMode
 import com.lightstick.game.GameResult
-import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.model.GameDifficulty
 import com.lightstick.music.data.model.GameMode
 import com.lightstick.music.data.model.GameResultSummary
@@ -120,7 +119,6 @@ class GameViewModel @Inject constructor(
         }
 
         _gameState.value = GameState.Ready
-        Log.d(TAG, "READY sent: mode=$mode difficulty=$difficulty")
 
         // 응원봉은 READY 수신 후 약 2초 뒤 Auto-START — UI 카운트다운
         viewModelScope.launch {
@@ -141,7 +139,6 @@ class GameViewModel @Inject constructor(
         cancelTimer()
         _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
-        Log.d(TAG, "STOP sent")
     }
 
     /** 결과 화면 → 다시 모드 선택으로 */
@@ -152,7 +149,6 @@ class GameViewModel @Inject constructor(
         cancelTimer()
         _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
-        Log.d(TAG, "CLEAR sent, back to Idle")
     }
 
     // ─── Playing Timer ────────────────────────────────────────────────────────
@@ -179,7 +175,6 @@ class GameViewModel @Inject constructor(
     private fun observeGameResults() {
         viewModelScope.launch {
             observeGameResultsUseCase().collect { result ->
-                Log.d(TAG, "Flow 수신: wandId=0x${result.wandId.toString(16)} state=${_gameState.value::class.simpleName}")
                 val state = _gameState.value
                 when {
                     state is GameState.Playing || state is GameState.Ready ->
@@ -194,7 +189,6 @@ class GameViewModel @Inject constructor(
     private fun onResultReceived(result: GameResult) {
         if (!result.isWandIdValid) {
             // wandId=0x0000/0xFFFF: 게임 종료 요약 패킷 → 즉시 결과 확정
-            Log.d(TAG, "Summary packet received: red=${result.redScore} blue=${result.blueScore} total=${result.totalCount}")
             resultCollectJob?.cancel()
             finalizeSummaryPacket(result)
             return
@@ -213,8 +207,6 @@ class GameViewModel @Inject constructor(
                 _partialResults.value = collectedResults.toList()
             }
         }
-
-        Log.d(TAG, "Result collected: wand=0x${wandResult.wandId.toString(16)} red=${wandResult.redScore} total=${collectedResults.size}")
 
         // 슬라이딩 윈도우 — 새 결과가 올 때마다 타이머 리셋
         resultCollectJob?.cancel()
@@ -243,7 +235,6 @@ class GameViewModel @Inject constructor(
                 totalBlueScore = updated.sumOf { it.blueScore }
             )
         )
-        Log.d(TAG, "Late result added: wand=0x${wandResult.wandId.toString(16)} total=${updated.size}")
     }
 
     private fun finalizeSummaryPacket(result: GameResult) {
@@ -270,7 +261,6 @@ class GameViewModel @Inject constructor(
         }
 
         _gameState.value = GameState.Finished(summary)
-        Log.d(TAG, "Game finalized by summary: mode=$mode red=${summary.totalRedScore} blue=${summary.totalBlueScore} count=${summary.totalWandCount}")
     }
 
     private fun finalizeResults(sdkMode: SdkGameMode) {
@@ -295,7 +285,6 @@ class GameViewModel @Inject constructor(
         )
 
         _gameState.value = GameState.Finished(summary)
-        Log.d(TAG, "Game finished: mode=$mode red=$totalRed blue=$totalBlue count=${results.size}")
     }
 
     // ─── Lifecycle ────────────────────────────────────────────────────────────

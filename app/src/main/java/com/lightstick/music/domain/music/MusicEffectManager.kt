@@ -46,7 +46,6 @@ object MusicEffectManager {
                 val musicId = efx.header.musicId
 
                 effectFileMap[musicId] = tempFile
-                Log.d(TAG, "✅ Loaded: ${docFile.name} -> musicId=0x${musicId.toUInt().toString(16).uppercase()}")
 
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Failed to read EFX file ${docFile.name}: ${e.message}")
@@ -75,7 +74,6 @@ object MusicEffectManager {
                 val musicId = efx.header.musicId
 
                 effectFileMap[musicId] = efxFile
-                Log.d(TAG, "Loaded: ${efxFile.name} -> musicId=0x${musicId.toUInt().toString(16).uppercase()}")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to read EFX file ${efxFile.name}: ${e.message}")
             }
@@ -146,7 +144,6 @@ object MusicEffectManager {
             val efx = Efx.Companion.read(efxFile)
             val entries = efx.body.entries
 
-            Log.d(TAG, "Loaded ${entries.size} entries from ${efxFile.name}")
             entries
 
         } catch (e: Exception) {

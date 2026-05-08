@@ -50,7 +50,6 @@ object EffectEngineController {
         return try {
             val devices = LSBluetooth.connectedDevices()
             if (devices.isEmpty()) {
-                Log.d(TAG, "No connected devices")
                 return false
             }
 
@@ -205,7 +204,6 @@ object EffectEngineController {
                 }
             }.sortedBy { it.timestampMs }
 
-            Log.d(TAG, "✅ Precomputed timeline loaded to ${devices.size} device(s): ${frames.size} frames")
         } catch (e: Exception) {
             isTimelineLoaded = false
             Log.e(TAG, "Precomputed timeline load failed: ${e.message}")
@@ -222,7 +220,6 @@ object EffectEngineController {
         try {
             val loadedEffects = MusicEffectManager.loadEffects(musicFile)
             if (loadedEffects.isNullOrEmpty()) {
-                Log.d(TAG, "No EFX file found for: ${musicFile.name}")
                 isTimelineLoaded = false
                 return
             }
@@ -234,7 +231,6 @@ object EffectEngineController {
             devices.forEach { it.loadTimeline(frames) }
 
             isTimelineLoaded = true
-            Log.d(TAG, "✅ EFX timeline loaded to ${devices.size} device(s): ${frames.size} effects")
         } catch (e: Exception) {
             isTimelineLoaded = false
             Log.e(TAG, "Timeline load failed: ${e.message}")
@@ -263,7 +259,6 @@ object EffectEngineController {
         try {
             lastRecordedEffectIndex = -1
             devices.forEach { it.updatePlaybackPosition(newPositionMs) }
-            Log.d(TAG, "✅ Seek handled on ${devices.size} device(s): ${newPositionMs}ms")
         } catch (e: Exception) {
             Log.e(TAG, "Seek failed: ${e.message}")
         }
@@ -274,7 +269,6 @@ object EffectEngineController {
         resolveAllDevices(context).forEach {
             try { it.pauseEffects() } catch (e: Exception) { Log.e(TAG, "Pause failed ${it.mac}: ${e.message}") }
         }
-        Log.d(TAG, "⏸ Timeline paused")
     }
 
     fun resumeEffects(context: Context) {
@@ -282,7 +276,6 @@ object EffectEngineController {
         resolveAllDevices(context).forEach {
             try { it.resumeEffects() } catch (e: Exception) { Log.e(TAG, "Resume failed ${it.mac}: ${e.message}") }
         }
-        Log.d(TAG, "▶️ Timeline resumed")
     }
 
     @Synchronized
@@ -292,7 +285,6 @@ object EffectEngineController {
         lastRecordedEffectIndex = -1
         try { LSBluetooth.connectedDevices().forEach { it.stopTimeline() } } catch (_: Exception) {}
         targetDevice = null
-        Log.d(TAG, "♻️ Controller reset")
     }
 
     /** FFT는 Timeline이 없을 때만 전송 */

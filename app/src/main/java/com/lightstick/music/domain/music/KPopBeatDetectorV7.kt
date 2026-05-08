@@ -93,8 +93,6 @@ object KPopBeatDetectorV7 {
         val segmentFrames = max(1, (params.segmentMs / params.hopMs).toInt())
         val segmentCount = (minSize + segmentFrames - 1) / segmentFrames
 
-        Log.d(TAG, "envSize low=${low.size} mid=${mid.size} full=${full.size} durationMs=$durationMs hopMs=${params.hopMs}")
-        Log.d(TAG, "segments=$segmentCount segmentMs=${params.segmentMs}")
 
         val segResults = ArrayList<SegmentResult>()
         val mergedBeats = ArrayList<Long>()
@@ -110,12 +108,6 @@ object KPopBeatDetectorV7 {
             val fullSeg = full.subList(s, e)
 
             val srcOrder = buildSourceOrder(lowSeg, midSeg, fullSeg)
-            Log.d(
-                TAG,
-                "SEG[$segIndex] srcOrder=$srcOrder " +
-                        "lowVar=${fmt(varOf(lowSeg))} midVar=${fmt(varOf(midSeg))} fullVar=${fmt(varOf(fullSeg))} " +
-                        "lowPeak=${fmt(maxOfList(lowSeg))} midPeak=${fmt(maxOfList(midSeg))} fullPeak=${fmt(maxOfList(fullSeg))}"
-            )
 
             val trials = ArrayList<TrialResult>()
             var best: TrialResult? = null
@@ -131,13 +123,6 @@ object KPopBeatDetectorV7 {
                 )
                 trials += trial
 
-                Log.d(
-                    TAG,
-                    "SEG[$segIndex] try=${trial.source} beats=${trial.beatTimesMs.size} beatMs=${trial.beatMs} " +
-                            "score=${fmt(trial.score)} rawPeak=${trial.rawPeakCount} snapped=${trial.snappedCount} " +
-                            "onset(mean/std/max)=${fmt(trial.onsetMean)}/${fmt(trial.onsetStd)}/${fmt(trial.onsetMax)} " +
-                            "acPeak=${fmt(trial.acPeak)} snapRatio=${fmt(trial.snapRatio)} reason=${trial.reason}"
-                )
 
                 if (trial.reason == "ok") {
                     if (best == null || trial.score > best!!.score) {
@@ -150,10 +135,6 @@ object KPopBeatDetectorV7 {
             val segEndMs = e.toLong() * params.hopMs
 
             if (best == null) {
-                Log.d(
-                    TAG,
-                    "SEG[$segIndex] $segStartMs-$segEndMs best=null beats=0 beatMs=0 score=0.0 reason=all failed"
-                )
                 Log.w(TAG, "SEG[$segIndex] FAIL -> skip segment")
                 segResults += SegmentResult(
                     index = segIndex,
@@ -173,11 +154,6 @@ object KPopBeatDetectorV7 {
             mergedBeats += absoluteBeats
             sourceVotes[best.source] = (sourceVotes[best.source] ?: 0) + 1
 
-            Log.d(
-                TAG,
-                "SEG[$segIndex] $segStartMs-$segEndMs best=${best.source} beats=${best.beatTimesMs.size} " +
-                        "beatMs=${best.beatMs} score=${fmt(best.score)} reason=${best.reason}"
-            )
 
             segResults += SegmentResult(
                 index = segIndex,
@@ -207,11 +183,6 @@ object KPopBeatDetectorV7 {
         val finalBeatMs = estimateMedianInterval(deduped)
         val finalSource = sourceVotes.maxByOrNull { it.value }?.key
 
-        Log.d(
-            TAG,
-            "beat detect OK source=$finalSource totalBeats=${deduped.size} beatMs=$finalBeatMs " +
-                    "first=${deduped.firstOrNull()} last=${deduped.lastOrNull()}"
-        )
 
         return DetectResult(
             beatTimesMs = deduped,

@@ -57,8 +57,6 @@ class SendConnectionEffectUseCase @Inject constructor() {
                 return Result.failure(Exception("Failed to load timeline"))
             }
 
-            Log.d(TAG, "🎬 Connection animation timeline loaded")
-
             // ✅ 3. Monitor 기록 (시작)
             val startEvent = BleTransmissionEvent(
                 source = TransmissionSource.PAYLOAD_EFFECT,
@@ -101,7 +99,6 @@ class SendConnectionEffectUseCase @Inject constructor() {
             )
             BleTransmissionMonitor.recordTransmission(endEvent)
 
-            Log.d(TAG, "✅ Connection animation completed")
             Result.success(Unit)
 
         } catch (e: Exception) {

@@ -3,7 +3,6 @@ package com.lightstick.music.domain.usecase.device
 import com.lightstick.LSBluetooth
 import com.lightstick.device.ConnectionState
 import com.lightstick.music.core.constants.AppConstants
-import com.lightstick.music.core.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -58,7 +57,6 @@ object ObserveDeviceStatesUseCase {
     fun observeDeviceStateEvents(): Flow<DeviceStateEvent> {
         return LSBluetooth.observeDeviceStateEvents()
             .map { event ->
-                Log.d(TAG, "DeviceStateEvent: mac=${event.mac} state=${event.state}")
                 DeviceStateEvent(mac = event.mac, state = event.state)
             }
     }
