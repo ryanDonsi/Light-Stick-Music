@@ -656,7 +656,11 @@ class DeviceViewModel @Inject constructor(
         batteryMonitoringJobs[mac] = viewModelScope.launch {
             Log.d(TAG, "🔋 Battery monitoring started: $mac")
 
-            readBatteryLevel(mac)  // 연결 직후 즉시 1회
+            val firstReadOk = readBatteryLevel(mac)  // 연결 직후 즉시 1회
+            if (!firstReadOk) {
+                Log.d(TAG, "🔋 Battery characteristic 없음, 모니터링 종료: $mac")
+                return@launch
+            }
 
             while (true) {
                 delay(AppConstants.BATTERY_MONITOR_INTERVAL_MS)
@@ -679,7 +683,7 @@ class DeviceViewModel @Inject constructor(
      * 배터리 레벨 1회 조회 및 UI 업데이트
      */
     @SuppressLint("MissingPermission")
-    private fun readBatteryLevel(mac: String) {
+    private fun readBatteryLevel(mac: String): Boolean {
         val device = Device(mac = mac)
         val submitted = device.readBattery { result ->
             result
@@ -691,7 +695,7 @@ class DeviceViewModel @Inject constructor(
                     Log.w(TAG, "⚠️ Battery read failed: $mac → ${e.message}")
                 }
         }
-        if (!submitted) Log.w(TAG, "⚠️ Battery read not submitted: $mac")
+        return submitted
     }
 
     // ═══════════════════════════════════════════════════════════
