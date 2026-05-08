@@ -5,6 +5,9 @@ import android.content.Context
 import android.net.Uri
 import com.lightstick.music.core.util.FirmwareVersionParser
 import com.lightstick.music.core.util.Log
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -107,6 +110,19 @@ class DeviceViewModel @Inject constructor(
     /** 배터리 모니터링 Job (MAC → Job) */
     private val batteryMonitoringJobs = mutableMapOf<String, Job>()
 
+    private val appLifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onStop(owner: LifecycleOwner) {
+            Log.d(TAG, "백그라운드 전환: 배터리 모니터링 일시정지")
+            batteryMonitoringJobs.values.forEach { it.cancel() }
+            batteryMonitoringJobs.clear()
+        }
+
+        override fun onStart(owner: LifecycleOwner) {
+            Log.d(TAG, "포그라운드 전환: 배터리 모니터링 재시작")
+            connectedDevices.keys.toList().forEach { mac -> startBatteryMonitoring(mac) }
+        }
+    }
+
 
     // ═══════════════════════════════════════════════════════════
     // Initialization
@@ -117,6 +133,7 @@ class DeviceViewModel @Inject constructor(
         PermissionManager.logPermissionStatus(context, TAG)
         Log.d(TAG, "📡 Starting to observe device state events...")
         observeDeviceStateEvents()
+        ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -778,6 +795,7 @@ class DeviceViewModel @Inject constructor(
         super.onCleared()
         Log.d(TAG, "🧹 Cleaning up ViewModel...")
 
+        ProcessLifecycleOwner.get().lifecycle.removeObserver(appLifecycleObserver)
         scanJob?.cancel()
         batteryMonitoringJobs.values.forEach { it.cancel() }
         batteryMonitoringJobs.clear()
