@@ -37,19 +37,8 @@ class GameViewModel @Inject constructor(
         private const val RESULT_COLLECT_WINDOW_MS = 4_000L
         private const val AUTO_START_DELAY_MS = 2_000L
 
-        private fun maxPlaySeconds(mode: GameMode, difficulty: GameDifficulty): Int = when (mode) {
-            GameMode.SPEED_REACTION -> when (difficulty) {
-                GameDifficulty.EASY   -> 64
-                GameDifficulty.NORMAL -> 44
-                GameDifficulty.HARD   -> 24
-            }
-            GameMode.TEMPO -> 24
-            GameMode.TEAM_BATTLE -> when (difficulty) {
-                GameDifficulty.EASY   -> 24
-                GameDifficulty.NORMAL -> 21
-                GameDifficulty.HARD   -> 19
-            }
-        }
+        private fun maxPlaySeconds(mode: GameMode, difficulty: GameDifficulty): Int =
+            (mode.toSdkMode().resultTimeoutMs(difficulty.toSdkLevel()) / 1000L).toInt()
     }
 
     // ─── UI State ─────────────────────────────────────────────────────────────
@@ -63,7 +52,8 @@ class GameViewModel @Inject constructor(
     private val _gameState = MutableStateFlow<GameState>(GameState.Idle)
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
-    val bleConnectionState = gameBleManager.connectionState
+    val bleConnectionState    = gameBleManager.connectionState
+    val isGameModeSupported   = gameBleManager.isGameModeSupported
 
     // ─── Countdown ────────────────────────────────────────────────────────────
 

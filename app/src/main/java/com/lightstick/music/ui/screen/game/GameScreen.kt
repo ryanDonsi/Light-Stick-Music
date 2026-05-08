@@ -82,6 +82,7 @@ fun GameScreen(viewModel: GameViewModel) {
     val selectedDifficulty    by viewModel.selectedDifficulty.collectAsState()
     val gameState             by viewModel.gameState.collectAsState()
     val bleState              by viewModel.bleConnectionState.collectAsState()
+    val isGameModeSupported   by viewModel.isGameModeSupported.collectAsState()
     val countdownSeconds      by viewModel.countdownSeconds.collectAsState()
     val partialResults        by viewModel.partialResults.collectAsState()
     val playingElapsedSeconds by viewModel.playingElapsedSeconds.collectAsState()
@@ -138,7 +139,8 @@ fun GameScreen(viewModel: GameViewModel) {
                         onModeSelect = viewModel::selectMode,
                         onDifficultySelect = viewModel::selectDifficulty,
                         onStart = viewModel::startGame,
-                        bleConnected = bleState is GameBleManager.ConnectionState.Connected
+                        bleConnected = bleState is GameBleManager.ConnectionState.Connected,
+                        isGameModeSupported = isGameModeSupported
                     )
                     is GameState.Ready  -> CountdownContent(countdownSeconds = countdownSeconds)
                     is GameState.Playing -> PlayingContent(
@@ -184,6 +186,7 @@ private fun ModeSelectionContent(
     selectedMode: GameMode?,
     selectedDifficulty: GameDifficulty,
     bleConnected: Boolean,
+    isGameModeSupported: Boolean,
     onModeSelect: (GameMode) -> Unit,
     onDifficultySelect: (GameDifficulty) -> Unit,
     onStart: () -> Unit
@@ -236,10 +239,20 @@ private fun ModeSelectionContent(
 
         Spacer(modifier = Modifier.height(4.dp))
 
+        if (bleConnected && !isGameModeSupported) {
+            Text(
+                text = "연결된 응원봉이 게임 모드를 지원하지 않습니다",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
         BaseButton(
             text = "게임 시작",
             onClick = onStart,
-            enabled = selectedMode != null && bleConnected,
+            enabled = selectedMode != null && bleConnected && isGameModeSupported,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
