@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
 
 @HiltViewModel
 class DeviceViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val sendFindEffectUseCase:       SendFindEffectUseCase,
     private val connectDeviceUseCase:        ConnectDeviceUseCase,
     private val disconnectDeviceUseCase:     DisconnectDeviceUseCase,
@@ -79,9 +79,11 @@ class DeviceViewModel @Inject constructor(
     val connectedDeviceCount: StateFlow<Int> = _connectedDeviceCount.asStateFlow()
 
     private val _otaProgress = MutableStateFlow<Map<String, Int>>(emptyMap())
+    @Suppress("unused")
     val otaProgress: StateFlow<Map<String, Int>> = _otaProgress.asStateFlow()
 
     private val _otaInProgress = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    @Suppress("unused")
     val otaInProgress: StateFlow<Map<String, Boolean>> = _otaInProgress.asStateFlow()
 
     /**
@@ -102,6 +104,7 @@ class DeviceViewModel @Inject constructor(
     private var pendingOtaFirmware: ByteArray? = null
 
     private val _eventStates = MutableStateFlow<Map<String, Map<EventType, Boolean>>>(emptyMap())
+    @Suppress("unused")
     val eventStates: StateFlow<Map<String, Map<EventType, Boolean>>> = _eventStates.asStateFlow()
 
     /** 스캔 Job 추적 */
@@ -213,13 +216,13 @@ class DeviceViewModel @Inject constructor(
 
         // OTA 진행 상태 정리
         if (_otaInProgress.value.containsKey(mac)) {
-            _otaInProgress.value = _otaInProgress.value - mac
-            _otaProgress.value   = _otaProgress.value - mac
+            _otaInProgress.value -= mac
+            _otaProgress.value   -= mac
         }
 
         // 이벤트 규칙 상태 정리
         if (_eventStates.value.containsKey(mac)) {
-            _eventStates.value = _eventStates.value - mac
+            _eventStates.value -= mac
         }
     }
 
@@ -238,21 +241,6 @@ class DeviceViewModel @Inject constructor(
             current[idx] = device  // RSSI 등 정보 갱신
         } else {
             current.add(device)    // 신규 디바이스 추가
-        }
-        _devices.value = current.sortedWith(
-            compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
-                .thenByDescending { it.rssi ?: -100 }
-        )
-    }
-
-    /**
-     * 스캔 완료 후 전체 결과를 일괄 반영
-     */
-    private fun applyScannedDevices(scannedDevices: List<Device>) {
-        val current = _devices.value.toMutableList()
-        scannedDevices.forEach { device ->
-            val idx = current.indexOfFirst { it.mac == device.mac }
-            if (idx >= 0) current[idx] = device else current.add(device)
         }
         _devices.value = current.sortedWith(
             compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
@@ -285,7 +273,7 @@ class DeviceViewModel @Inject constructor(
                 ).onFailure { error ->
                     Log.e(TAG, "❌ Scan failed: ${error.message}")
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // scan job cancelled
             } finally {
                 _isScanning.value = false
@@ -330,6 +318,7 @@ class DeviceViewModel @Inject constructor(
         }
     }
 
+    @Suppress("unused")
     fun stopScan() {
         if (!_isScanning.value) return
 
@@ -523,23 +512,6 @@ class DeviceViewModel @Inject constructor(
         }
     }
 
-    // [테스트용] URI 직접 전달 방식 — checkFirmwareVersion() 으로 대체됨, 하위 호환용으로 유지
-    @SuppressLint("MissingPermission")
-    fun startOta(context: Context, device: Device, firmwareUri: Uri) {
-        viewModelScope.launch {
-            try {
-                val firmware = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(firmwareUri)?.use { it.readBytes() }
-                } ?: run { Log.e(TAG, "❌ OTA: Cannot open firmware file"); return@launch }
-
-                startOtaFromBytes(device, firmware)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ OTA error: ${e.message}", e)
-            }
-        }
-    }
-
     // ═══════════════════════════════════════════════════════════
     // Event Rules
     // ═══════════════════════════════════════════════════════════
@@ -605,6 +577,7 @@ class DeviceViewModel @Inject constructor(
      * - 이후 [AppConstants.BATTERY_MONITOR_INTERVAL_MS] 간격으로 반복 조회
      * - Disconnected 시 [stopBatteryMonitoring]으로 자동 중지
      */
+    @SuppressLint("MissingPermission")
     private fun startBatteryMonitoring(mac: String) {
         stopBatteryMonitoring(mac)  // 중복 방지
 
