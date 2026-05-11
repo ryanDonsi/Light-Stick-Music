@@ -351,6 +351,13 @@ fun AppNavigation(
                 return@composable
             }
 
+            val isConnected = connectionStates[deviceMac] == true
+            LaunchedEffect(isConnected) {
+                if (!isConnected) {
+                    navController.popBackStack()
+                }
+            }
+
             val otaVersionCheck by deviceViewModel.otaVersionCheck.collectAsState()
 
             // TODO: 최종 구현 시 서버 API로 최신 버전 조회 + 다운로드 URL 수신으로 대체
