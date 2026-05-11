@@ -152,7 +152,11 @@ class DeviceViewModel @Inject constructor(
      */
     @SuppressLint("MissingPermission")
     private fun onDeviceConnectedFromSdk(mac: String) {
-        if (connectedDevices.containsKey(mac)) return
+        if (connectedDevices.containsKey(mac)) {
+            Log.d(TAG, "onDeviceConnectedFromSdk: skip (already handled by connect()) $mac")
+            return
+        }
+        Log.i(TAG, "onDeviceConnectedFromSdk: $mac")
 
         val sdkDevice = LSBluetooth.connectedDevices().find { it.mac == mac }
         val device = _devices.value.find { it.mac == mac }
@@ -317,7 +321,14 @@ class DeviceViewModel @Inject constructor(
                     context      = context,
                     device       = device,
                     onConnected  = {
+                        Log.i(TAG, "onConnected: ${device.mac}")
                         connectedDevices[device.mac] = device
+                        updateConnectionState(device.mac, true)
+                        if (!_deviceDetails.value.containsKey(device.mac)) {
+                            initializeDeviceDetail(device)
+                        }
+                        registerDeviceEventRules(device)
+                        startBatteryMonitoring(device.mac)
                         viewModelScope.launch {
                             sendConnectionEffectUseCase(context, device).onFailure { error ->
                                 Log.e(TAG, "Connection animation failed: ${error.message}")
@@ -327,8 +338,10 @@ class DeviceViewModel @Inject constructor(
                     onFailed     = { error ->
                         Log.e(TAG, "Connection failed: ${error.message}")
                         connectedDevices.remove(device.mac)
+                        updateConnectionState(device.mac, false)
                     },
                     onDeviceInfo = { info ->
+                        Log.i(TAG, "onDeviceInfo: ${device.mac} fw=${info.firmwareRevision}")
                         updateDeviceInfoFromCallback(device.mac, info)
                     }
                 ).onFailure { error ->
