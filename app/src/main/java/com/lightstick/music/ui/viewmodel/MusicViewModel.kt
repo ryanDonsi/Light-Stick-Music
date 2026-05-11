@@ -34,6 +34,7 @@ import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -153,7 +154,8 @@ class MusicViewModel @Inject constructor(
             Log.w(TAG, "loadMusic skipped: no storage permission")
             return
         }
-        viewModelScope.launch {
+        loadMusicJob?.cancel()
+        loadMusicJob = viewModelScope.launch {
             val musicItems = withContext(Dispatchers.IO) {
                 val resolver   = context.contentResolver
                 val uri        = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
@@ -382,6 +384,7 @@ class MusicViewModel @Inject constructor(
         }
     }
 
+    private var loadMusicJob: Job? = null
     private var playerReleased = false
 
     override fun onCleared() {
