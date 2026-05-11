@@ -482,6 +482,7 @@ class DeviceViewModel @Inject constructor(
         }
     }
 
+    @SuppressLint("MissingPermission")
     fun abortOta(device: Device) {
         device.abortOta()
         _otaInProgress.value -= device.mac
