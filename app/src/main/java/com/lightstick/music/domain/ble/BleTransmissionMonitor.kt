@@ -39,10 +39,6 @@ object BleTransmissionMonitor {
 
     private const val TAG = AppConstants.Feature.BLE_MONITOR
 
-    // ═══════════════════════════════════════════════════════════
-    // State
-    // ═══════════════════════════════════════════════════════════
-
     /** 최신 전송 이벤트 */
     private val _latestTransmission = MutableStateFlow<BleTransmissionEvent?>(null)
     val latestTransmission: StateFlow<BleTransmissionEvent?> = _latestTransmission.asStateFlow()
@@ -57,10 +53,6 @@ object BleTransmissionMonitor {
     /** 디바이스별 마지막 전송 시각 */
     private val lastTransmissionByDevice = mutableMapOf<String, Long>()
 
-    // ═══════════════════════════════════════════════════════════
-    // Public API
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * BLE 전송 이벤트 기록
      *
@@ -71,39 +63,31 @@ object BleTransmissionMonitor {
      * @param event 전송 이벤트
      */
     fun recordTransmission(event: BleTransmissionEvent) {
-        // ✅ 우선순위 기반 업데이트 로직
         val currentLatest = _latestTransmission.value
 
         if (currentLatest != null) {
-            // 같은 디바이스에 대한 전송만 비교
             if (currentLatest.deviceMac == event.deviceMac) {
                 val timeSinceLast = event.timestamp - currentLatest.timestamp
 
-                // 우선순위 정의
                 val currentPriority = getSourcePriority(currentLatest.source)
                 val newPriority = getSourcePriority(event.source)
 
-                // 우선순위가 낮은 소스는 최근(500ms 이내) 높은 우선순위 이벤트를 덮어쓰지 못함
                 if (newPriority < currentPriority && timeSinceLast < 500) {
-                    // 히스토리에는 추가 (통계용)
                     val updated = (_transmissionHistory.value + event)
                         .takeLast(AppConstants.MAX_TRANSMISSION_HISTORY)
                     _transmissionHistory.value = updated
 
-                    return // latestTransmission은 업데이트하지 않음
+                    return
                 }
             }
         }
 
-        // 최신 전송 업데이트
         _latestTransmission.value = event
 
-        // 히스토리 업데이트 (최대 100개 유지)
         val updated = (_transmissionHistory.value + event)
             .takeLast(AppConstants.MAX_TRANSMISSION_HISTORY)
         _transmissionHistory.value = updated
 
-        // 통계 업데이트
         transmissionCounts[event.source] = (transmissionCounts[event.source] ?: 0) + 1
         lastTransmissionByDevice[event.deviceMac] = event.timestamp
     }
@@ -143,10 +127,6 @@ object BleTransmissionMonitor {
         clearHistory()
         clearStatistics()
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Statistics API
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * 특정 소스의 전송 횟수 조회
@@ -244,10 +224,6 @@ object BleTransmissionMonitor {
             .filter { it.effectType == effectType }
             .takeLast(limit)
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Debug API
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * 디버그 정보 출력

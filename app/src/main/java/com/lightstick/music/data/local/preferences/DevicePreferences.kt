@@ -24,20 +24,12 @@ object DevicePreferences {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Call Event
-    // ═══════════════════════════════════════════════════════════
-
     fun setCallEventEnabled(mac: String, enabled: Boolean) {
         prefs?.edit()?.putBoolean(PrefsKeys.deviceCallKey(mac), enabled)?.apply()
     }
 
     fun getCallEventEnabled(mac: String): Boolean =
         prefs?.getBoolean(PrefsKeys.deviceCallKey(mac), true) ?: true
-
-    // ═══════════════════════════════════════════════════════════
-    // SMS Event
-    // ═══════════════════════════════════════════════════════════
 
     fun setSmsEventEnabled(mac: String, enabled: Boolean) {
         prefs?.edit()?.putBoolean(PrefsKeys.deviceSmsKey(mac), enabled)?.apply()
@@ -46,10 +38,6 @@ object DevicePreferences {
     fun getSmsEventEnabled(mac: String): Boolean =
         prefs?.getBoolean(PrefsKeys.deviceSmsKey(mac), true) ?: true
 
-    // ═══════════════════════════════════════════════════════════
-    // Broadcasting
-    // ═══════════════════════════════════════════════════════════
-
     fun setBroadcasting(mac: String, enabled: Boolean) {
         prefs?.edit()?.putBoolean(PrefsKeys.deviceBroadcastKey(mac), enabled)?.apply()
     }
@@ -57,20 +45,12 @@ object DevicePreferences {
     fun getBroadcasting(mac: String): Boolean =
         prefs?.getBoolean(PrefsKeys.deviceBroadcastKey(mac), true) ?: true
 
-    // ═══════════════════════════════════════════════════════════
-    // Auto Reconnect
-    // ═══════════════════════════════════════════════════════════
-
     fun setAutoReconnectEnabled(enabled: Boolean) {
         prefs?.edit()?.putBoolean(PrefsKeys.KEY_DEVICE_AUTO_RECONNECT, enabled)?.apply()
     }
 
     fun getAutoReconnectEnabled(): Boolean =
         prefs?.getBoolean(PrefsKeys.KEY_DEVICE_AUTO_RECONNECT, true) ?: true
-
-    // ═══════════════════════════════════════════════════════════
-    // Utility
-    // ═══════════════════════════════════════════════════════════
 
     /** 특정 디바이스의 모든 설정 삭제 */
     fun clearDevice(mac: String) {

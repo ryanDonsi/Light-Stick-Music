@@ -52,7 +52,7 @@ fun AddEffectButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 /**
- * ✅ 수정: BaseDialog를 사용하도록 리팩토링
+ *  수정: BaseDialog를 사용하도록 리팩토링
  * 커스텀 이펙트의 이름과 기반 타입을 지정하는 다이얼로그
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,7 +85,6 @@ fun AddCustomEffectDialog(
                 placeholder = { Text("STROBE02") }
             )
 
-            // 기반 이펙트 선택 Dropdown
             ExposedDropdownMenuBox(
                 expanded = isDropdownExpanded,
                 onExpandedChange = { isDropdownExpanded = it }
@@ -118,9 +117,8 @@ fun AddCustomEffectDialog(
     }
 }
 
-
 /**
- * ✅ 수정: BaseDialog를 사용하도록 리팩토링
+ *  수정: BaseDialog를 사용하도록 리팩토링
  * 커스텀 이펙트 추가를 최종 확인하는 다이얼로그
  */
 @Composable
@@ -145,7 +143,7 @@ fun ConfirmAddEffectDialog(
 }
 
 /**
- * ✅ 추가: 커스텀 이펙트 이름 변경 다이얼로그
+ *  추가: 커스텀 이펙트 이름 변경 다이얼로그
  */
 @Composable
 fun RenameEffectDialog(
@@ -172,9 +170,8 @@ fun RenameEffectDialog(
     }
 }
 
-
 /**
- * ✅ 추가: 커스텀 이펙트 삭제 확인 다이얼로그
+ *  추가: 커스텀 이펙트 삭제 확인 다이얼로그
  */
 @Composable
 fun ConfirmDeleteEffectDialog(
@@ -188,6 +185,5 @@ fun ConfirmDeleteEffectDialog(
         onDismiss = onDismiss,
         onConfirm = onConfirm
     ) {
-        // Content is handled by title and subtitle
     }
 }

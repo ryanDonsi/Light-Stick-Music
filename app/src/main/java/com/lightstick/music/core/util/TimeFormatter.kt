@@ -105,7 +105,6 @@ object TimeFormatter {
      */
     fun parseTimeWithMillis(timeString: String): Long {
         return try {
-            // "02:05.678" 형식 파싱
             val parts = timeString.split(":", ".")
             if (parts.size != 3) return 0
 

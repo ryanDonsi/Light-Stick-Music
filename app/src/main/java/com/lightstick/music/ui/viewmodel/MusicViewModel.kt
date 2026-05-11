@@ -90,8 +90,6 @@ class MusicViewModel @Inject constructor(
     private val _duration = MutableStateFlow(0)
     val duration: StateFlow<Int> = _duration.asStateFlow()
 
-    // [추가] BleTransmissionMonitor.latestTransmission 직접 노출
-    // MusicControlScreen / MusicListScreen 에서 TimelineEffectBadge 표시에 사용
     val latestTransmission: StateFlow<BleTransmissionEvent?> =
         BleTransmissionMonitor.latestTransmission
 

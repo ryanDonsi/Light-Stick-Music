@@ -22,10 +22,6 @@ object PermissionManager {
         return permissions.all { hasPermission(context, it) }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 블루투스 권한
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * 블루투스 스캔 권한 확인
      */
@@ -60,10 +56,6 @@ object PermissionManager {
         return permissions.toTypedArray()
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 저장소 권한
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * 저장소 읽기 권한 확인
      */
@@ -86,10 +78,6 @@ object PermissionManager {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 알림 권한
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * 알림 권한 확인 (Android 13+)
      */
@@ -97,13 +85,9 @@ object PermissionManager {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             hasPermission(context, Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            true // Android 12 이하는 권한 불필요
+            true
         }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // 통합 권한 체크
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * 앱에 필요한 모든 권한 확인
@@ -120,13 +104,10 @@ object PermissionManager {
     fun getAllRequiredPermissions(): Array<String> {
         val permissions = mutableListOf<String>()
 
-        // 블루투스 권한
         permissions.addAll(getRequiredBluetoothPermissions())
 
-        // 저장소 권한
         permissions.addAll(getRequiredStoragePermissions())
 
-        // 알림 권한
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }

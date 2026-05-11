@@ -147,16 +147,13 @@ object MediaMetadataExtractor {
         return try {
             val artBytes = retriever.embeddedPicture ?: return null
 
-            // 캐시 파일명 생성 (해시 기반)
             val cacheFileName = "${cacheKey.hashCode()}.jpg"
             val cacheFile = File(context.cacheDir, cacheFileName)
 
-            // 이미 캐시 파일이 있으면 재사용
             if (cacheFile.exists()) {
                 return cacheFile.absolutePath
             }
 
-            // 캐시 파일 저장
             cacheFile.writeBytes(artBytes)
             cacheFile.absolutePath
 
@@ -258,7 +255,6 @@ object MediaMetadataExtractor {
                 file.extension == "jpg" && file.name.contains(".jpg")
             } ?: return
 
-            // 오래된 파일부터 삭제
             if (albumArtFiles.size > maxCacheSize) {
                 albumArtFiles
                     .sortedBy { it.lastModified() }

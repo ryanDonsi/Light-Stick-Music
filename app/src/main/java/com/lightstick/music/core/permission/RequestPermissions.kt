@@ -16,7 +16,6 @@ fun RequestPermissions(
 ) {
     val context = LocalContext.current
 
-    // 권한 요청 런처
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
@@ -29,7 +28,6 @@ fun RequestPermissions(
         }
     }
 
-    // 권한 상태 확인 후 자동 요청
     LaunchedEffect(Unit) {
         val allGranted = permissions.all {
             ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED

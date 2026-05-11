@@ -27,7 +27,6 @@ fun DeviceDetailSection(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Device Info
         deviceDetail.deviceInfo?.let { info ->
             info.modelNumber?.let {
                 DetailRow("모델", it)
@@ -40,7 +39,6 @@ fun DeviceDetailSection(
             }
         }
 
-        // Battery Level
         deviceDetail.batteryLevel?.let { batteryLevel ->
             DetailRow("배터리", "$batteryLevel%")
         }
@@ -49,7 +47,6 @@ fun DeviceDetailSection(
         HorizontalDivider()
         Spacer(modifier = Modifier.height(4.dp))
 
-        // Event Settings
         Text(
             text = "이벤트 설정",
             style = MaterialTheme.typography.titleSmall,
@@ -74,14 +71,12 @@ fun DeviceDetailSection(
             onCheckedChange = onToggleBroadcasting
         )
 
-        // OTA Section
         if (deviceDetail.isOtaInProgress && deviceDetail.otaProgress != null) {
             OtaProgressSection(
                 progress = deviceDetail.otaProgress,
                 onAbort  = onAbortOta
             )
         } else {
-            // OTA 시작 버튼
             Spacer(modifier = Modifier.height(4.dp))
             Button(
                 onClick = onStartOta,

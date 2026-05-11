@@ -179,8 +179,6 @@ fun GameScreen(viewModel: GameViewModel) {
     }
 }
 
-// ─── Mode Selection ───────────────────────────────────────────────────────────
-
 @Composable
 private fun ModeSelectionContent(
     selectedMode: GameMode?,
@@ -207,7 +205,6 @@ private fun ModeSelectionContent(
         )
 
         GameMode.entries.forEach { mode ->
-            // Each mode card + its inline difficulty row are grouped
             Column {
                 GameModeCard(
                     mode = mode,
@@ -461,8 +458,6 @@ private fun DifficultyRow(
     }
 }
 
-// ─── Countdown ────────────────────────────────────────────────────────────────
-
 @Composable
 private fun CountdownContent(countdownSeconds: Int) {
     val colors = MaterialTheme.customColors
@@ -495,8 +490,6 @@ private fun CountdownContent(countdownSeconds: Int) {
         }
     }
 }
-
-// ─── Playing ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun PlayingContent(
@@ -598,8 +591,6 @@ private fun PlayingContent(
     }
 }
 
-// ─── Results ─────────────────────────────────────────────────────────────────
-
 @Composable
 private fun ResultContent(summary: GameResultSummary, onPlayAgain: () -> Unit) {
     Column(
@@ -692,7 +683,6 @@ private fun TeamResultContent(summary: GameResultSummary) {
         TeamWinner.DRAW -> "무승부!"
     }
 
-    // 우승 + 점수 카드
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -771,7 +761,6 @@ private fun TeamResultContent(summary: GameResultSummary) {
         }
     }
 
-    // 참여 응원봉 수 — 상단 카드 바로 아래
     Text(
         text = "참여 응원봉: ${summary.totalWandCount}개",
         style = MaterialTheme.typography.bodySmall,
@@ -780,7 +769,6 @@ private fun TeamResultContent(summary: GameResultSummary) {
         textAlign = TextAlign.End
     )
 
-    // 점수 비교 바 카드
     Column(
         modifier = Modifier
             .fillMaxWidth()

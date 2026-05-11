@@ -21,7 +21,7 @@ import javax.inject.Inject
 /**
  * 초기화 시 자동 타임라인 생성 UseCase
  *
- * ✅ 핵심 보장:
+ *  핵심 보장:
  * - AutoTimelineConfig.VERSION 기준으로 "해당 버전(vX)" 파일만 생성/저장
  * - 기존 파일이 있으면 스킵 (테스트 강제 재생성 옵션 제외)
  * - 테스트 시에는 해당 버전(vX) 파일만 삭제 후 재생성 가능
@@ -35,7 +35,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
         /**
-         * ✅ 테스트 시: true면 해당 버전(vX) 파일을 전부 삭제 후 재생성
+         *  테스트 시: true면 해당 버전(vX) 파일을 전부 삭제 후 재생성
          */
         private const val TEST_FORCE_REGENERATE = false
 
@@ -81,7 +81,6 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         val skipped   = AtomicInteger(0)
         val failed    = AtomicInteger(0)
 
-
         val semaphore = Semaphore(PARALLEL_COUNT)
 
         coroutineScope {
@@ -107,14 +106,14 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
 
                             if (frames.isEmpty()) {
                                 failed.incrementAndGet()
-                                Log.w(TAG, "⚠️ empty frames -> skip save file=${file.name} musicId=$musicId")
+                                Log.w(TAG, "empty frames -> skip save file=${file.name} musicId=$musicId")
                             } else {
                                 storage.save(context, musicId, frames)
                                 created.incrementAndGet()
                             }
                         } catch (t: Throwable) {
                             failed.incrementAndGet()
-                            Log.e(TAG, "❌ failed v$version file=${file.name} err=${t.message}")
+                            Log.e(TAG, "failed v$version file=${file.name} err=${t.message}")
                         }
                     }
                 }

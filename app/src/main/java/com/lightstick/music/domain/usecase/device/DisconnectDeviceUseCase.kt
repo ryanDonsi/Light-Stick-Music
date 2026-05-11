@@ -31,17 +31,14 @@ class DisconnectDeviceUseCase @Inject constructor() {
         device: Device
     ): Result<Unit> {
         return try {
-            // ✅ 1. Permission 체크
             if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                 return Result.failure(
                     SecurityException("BLUETOOTH_CONNECT permission required")
                 )
             }
 
-            // ✅ 2. 연결 해제
             device.disconnect()
 
-            // ✅ 3. 성공 반환
             Result.success(Unit)
 
         } catch (e: SecurityException) {

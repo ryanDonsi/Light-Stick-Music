@@ -32,7 +32,7 @@ import com.lightstick.music.data.local.storage.EffectPathPreferences
 import com.lightstick.music.ui.viewmodel.MusicViewModel
 
 /**
- * 🎵 Music Control Screen (글라스모피즘)
+ *  Music Control Screen (글라스모피즘)
  *
  * [수정] latestTransmission collectAsState 추가 → MusicPlayerCard 에 전달
  */
@@ -48,19 +48,16 @@ fun MusicControlScreen(
     val currentPosition   by viewModel.currentPosition.collectAsState()
     val duration          by viewModel.duration.collectAsState()
     val isAutoModeEnabled by viewModel.isAutoModeEnabled.collectAsState()
-    // [추가] TimelineEffectBadge 표시용
     val latestTransmission by viewModel.latestTransmission.collectAsState()
 
     val isEffectsConfigured = EffectPathPreferences.isDirectoryConfigured(LocalContext.current)
     val effectCount = MusicEffectManager.getLoadedEffectCount()
 
-    // ✅ CustomToast 상태
     val toastState = rememberToastState()
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // ✅ Top Bar (배경색만, 이미지 없음)
             TopBarCentered(
                 title      = "Music Control",
                 actionText = "AUTO",
@@ -71,18 +68,16 @@ fun MusicControlScreen(
                     } else {
                         "자동 연출 기능을 중지합니다."
                     }
-                    toastState.show(message)  // ✅ CustomToast 사용
+                    toastState.show(message)
                 },
                 actionTextColor = if (isAutoModeEnabled) Secondary else Color.Gray
             )
 
-            // ✅ 배경 이미지 영역 (TopBar 아래부터, 오버레이 없음)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                // 배경 이미지
                 Image(
                     painter            = painterResource(id = R.drawable.background),
                     contentDescription = null,
@@ -91,7 +86,6 @@ fun MusicControlScreen(
                     alignment          = Alignment.TopCenter
                 )
 
-                // 콘텐츠
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -99,7 +93,6 @@ fun MusicControlScreen(
                         .padding(horizontal = 16.dp, vertical = 24.dp),
                     verticalArrangement = Arrangement.Top
                 ) {
-                    // ✅ Effects 배너
                     when {
                         !isEffectsConfigured -> {
                             EffectsWarningBanner(
@@ -120,7 +113,6 @@ fun MusicControlScreen(
                         }
                     }
 
-                    // ✅ 중앙 앨범아트 영역 (전체 공간 사용)
                     Box(modifier = Modifier.fillMaxWidth()) {
                         MusicPlayerCard(
                             musicItem        = nowPlaying,
@@ -131,12 +123,11 @@ fun MusicControlScreen(
                             onPlayPauseClick = { viewModel.togglePlayPause() },
                             onNextClick      = { viewModel.playNext() },
                             onSeekTo         = { position -> viewModel.seekTo(position) },
-                            modifier         = Modifier.fillMaxWidth(),  // ✅ 전체 공간 채우기
-                            latestTransmission = latestTransmission       // [추가]
+                            modifier         = Modifier.fillMaxWidth(),
+                            latestTransmission = latestTransmission
                         )
                     }
 
-                    // ✅ MUSIC LIST 버튼 (원본 그대로)
                     Row(
                         modifier              = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
@@ -169,7 +160,6 @@ fun MusicControlScreen(
             }
         }
 
-        // ✅ CustomToast
         CustomToast(
             message   = toastState.message,
             isVisible = toastState.isVisible,

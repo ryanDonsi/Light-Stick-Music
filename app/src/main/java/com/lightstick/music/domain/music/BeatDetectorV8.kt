@@ -38,19 +38,10 @@ object BeatDetectorV8 {
 
     private const val TAG = "AutoTimeline"
 
-    // harmonic folding: bestLag/2 correlation이 bestValue의 이 비율 이상이면 절반 채택 (빠른 곡)
     private const val HARMONIC_FOLD_HALF_RATIO = 0.40f
-    // harmonic folding: bestLag/3 correlation이 bestValue의 이 비율 이상이면 1/3 채택 (빠른 곡)
     private const val HARMONIC_FOLD_THIRD_RATIO = 0.35f
-    // harmonic doubling: bestLag×2 correlation이 bestValue의 이 비율 이상이면 2배 채택 (느린 곡)
-    // 0.55f: 정상 속도 곡의 2배 주기 correlation이 일반적으로 50% 미만임을 감안한 보수적 기준
-    // harmonic doubling: 0.55f → 0.80f로 상향 (ratio=1.3 수준 오작동 방지)
-    // 로그 SEG[3]에서 ratio=1.295로 통과 → 1400ms 오선택 발생
     private const val HARMONIC_DOUBLE_RATIO = 0.80f
 
-    // harmonic 2/3: bestLag * 2/3 교정 (1.5× 편향 보정)
-    // SEG[5,6]에서 450ms 감지 → 실제 DOUBLE CHORUS 287ms ≈ 450 × 2/3 = 300ms
-    // 조건: 2/3 lag이 minBeatMs 이상이고 maxBeatMs * 0.65 이하일 때만 적용
     private const val HARMONIC_TWO_THIRDS_RATIO = 0.75f
 
     enum class BeatSource {
@@ -64,16 +55,16 @@ object BeatDetectorV8 {
 
     data class Params(
         val hopMs: Long = 50L,
-        val minBeatMs: Long = 290L,     // A. 수정: 350 → 290ms (≈207 BPM)
-        val maxBeatMs: Long = 1200L,    // E. 수정: 900 → 1200ms (≈50 BPM)
-        val minPeakDistanceMs: Long = 140L,  // 완화: 180→140ms
+        val minBeatMs: Long = 290L,
+        val maxBeatMs: Long = 1200L,
+        val minPeakDistanceMs: Long = 140L,
         val onsetSmoothWindow: Int = 3,
         val segmentMs: Long = 20_000L,
-        val peakThresholdK: Float = 0.22f,  // 완화: 0.55→0.30→0.22 (낮은 에너지/잔잔한 곡 대응)
-        val minPeakAbs: Float = 0.04f,  // 완화: 0.08→0.05→0.04
-        val snapToleranceMs: Long = 150L,  // 120 → 150ms: 스냅 허용 범위 확대
-        val chainToleranceMs: Long = 170L, // 140 → 170ms: 체인 연속성 오차 허용 확대
-        val minChainCount: Int = 3     // 완화: 4→3 (짧은 구간도 체인 허용)
+        val peakThresholdK: Float = 0.22f,
+        val minPeakAbs: Float = 0.04f,
+        val snapToleranceMs: Long = 150L,
+        val chainToleranceMs: Long = 170L,
+        val minChainCount: Int = 3
     )
 
     data class DetectResult(
@@ -111,10 +102,6 @@ object BeatDetectorV8 {
         val reason: String
     )
 
-    // =========================================================================
-    // Public entry point
-    // =========================================================================
-
     fun detect(
         lowEnv: List<Float>,
         midEnv: List<Float>,
@@ -137,13 +124,9 @@ object BeatDetectorV8 {
         val full = fullEnv.take(minSize)
 
         val durationMs = minSize * params.hopMs
-        // E. 짧은 곡 단일 세그먼트 처리
-        // durationMs < 60초이면 전체를 1개 세그먼트로 처리
-        // 이유: 32초 곡을 20초/12초로 나누면 각 세그먼트가 너무 짧아 autocorr 신뢰도 저하
         val effectiveSegmentMs = if (durationMs < 60_000L) durationMs else params.segmentMs
         val segmentFrames = max(1, (effectiveSegmentMs / params.hopMs).toInt())
         val segmentCount = (minSize + segmentFrames - 1) / segmentFrames
-
 
         val segResults = ArrayList<SegmentResult>()
         val mergedBeats = ArrayList<Long>()
@@ -174,13 +157,8 @@ object BeatDetectorV8 {
                 )
                 trials += trial
 
-
                 if (trial.reason == "ok") {
-                    // [수정] density-first 선택:
-                    // 비트가 더 많고, 점수가 현재 best의 70% 이상이면 더 밀도 높은 소스를 우선 채택
-                    // 이유: acPeak/snapRatio 기반 score만으로 선택하면 비트가 적은 소스가
-                    //       autocorrelation이 강해서 선택되는 문제 발생 (900ms/26비트 사례)
-                    val bestNonNull = best  // null 체크 이후 smart cast 보장용
+                    val bestNonNull = best
                     val isBetter = when {
                         bestNonNull == null -> true
                         trial.beatTimesMs.size > bestNonNull.beatTimesMs.size &&
@@ -218,7 +196,6 @@ object BeatDetectorV8 {
             mergedBeats += absoluteBeats
             sourceVotes[best.source] = (sourceVotes[best.source] ?: 0) + 1
 
-
             segResults += SegmentResult(
                 index = segIndex,
                 startMs = segStartMs,
@@ -244,10 +221,8 @@ object BeatDetectorV8 {
             )
         }
 
-        // D. 수정: estimateMedianInterval에 Params 전달
         val finalBeatMs = estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs)
         val finalSource = sourceVotes.maxByOrNull { it.value }?.key
-
 
         return DetectResult(
             beatTimesMs = deduped,
@@ -257,10 +232,6 @@ object BeatDetectorV8 {
             debugSegments = segResults
         )
     }
-
-    // =========================================================================
-    // Single source detection
-    // =========================================================================
 
     private fun detectSingleSource(
         @Suppress("UNUSED_PARAMETER") segmentIndex: Int,
@@ -298,7 +269,6 @@ object BeatDetectorV8 {
         val minPeakFrames = max(1, (params.minPeakDistanceMs / params.hopMs).toInt())
         val rawPeaks = findPeaks(onset, threshold, minPeakFrames)
 
-        // B. 수정: harmonic folding이 적용된 autoCorrelateBeat 사용
         val beatRange = autoCorrelateBeat(
             onset = onset,
             hopMs = params.hopMs,
@@ -307,20 +277,17 @@ object BeatDetectorV8 {
         )
 
         if (beatRange == null) {
-            // C. Fallback: autocorr 실패 시 rawPeak 간격 중앙값으로 beatMs 추정
-            // 잔잔한 곡/짧은 세그먼트에서 자기상관이 약해도 peak 간격은 유효할 수 있음
             val fallbackBeatMs = if (rawPeaks.size >= 3) {
                 val intervals = (1 until rawPeaks.size)
                     .map { (rawPeaks[it] - rawPeaks[it - 1]).toLong() * params.hopMs }
                     .filter { it in params.minBeatMs..params.maxBeatMs }
                 if (intervals.size >= 2) {
                     val sorted = intervals.sorted()
-                    sorted[sorted.size / 2]  // 중앙값
+                    sorted[sorted.size / 2]
                 } else null
             } else null
 
             if (fallbackBeatMs != null) {
-                // fallback beatMs로 재시도
                 val snappedFb = snapPeaksToGrid(rawPeaks, onset, fallbackBeatMs, params.hopMs, params.snapToleranceMs)
                 val chainedFb = keepConsistentChain(
                     snappedFrames = snappedFb,
@@ -328,7 +295,7 @@ object BeatDetectorV8 {
                     hopMs = params.hopMs,
                     toleranceMs = params.chainToleranceMs
                 )
-                if (chainedFb.size >= 2) {  // fallback: minChainCount=2로 완화
+                if (chainedFb.size >= 2) {
                     val snapRatioFb = chainedFb.size.toFloat() / rawPeaks.size.toFloat()
                     val segDur = env.size.toLong() * params.hopMs
                     val expectedFb = max(1, (segDur / fallbackBeatMs).toInt())
@@ -394,7 +361,6 @@ object BeatDetectorV8 {
             )
         }
 
-        // C. 수정: keepConsistentChain에 params 전달 (2× tolerance 강화)
         val chained = keepConsistentChain(
             snappedFrames = snapped,
             expectedBeatMs = beatMs,
@@ -405,8 +371,6 @@ object BeatDetectorV8 {
         val finalBeatsMs = chained.map { it.toLong() * params.hopMs }
         val snapRatio = if (rawPeaks.isEmpty()) 0f else chained.size.toFloat() / rawPeaks.size.toFloat()
 
-        // D. 짧은 세그먼트 적응형 minChainCount
-        // 세그먼트 길이 < 15초이면 minChainCount=2로 완화 (12.8s SEG에서도 체인 허용)
         val segDurationMs = env.size.toLong() * params.hopMs
         val effectiveMinChain = if (segDurationMs < 15_000L) 2 else params.minChainCount
 
@@ -427,15 +391,9 @@ object BeatDetectorV8 {
             )
         }
 
-        // [수정] densityScore: 고정값(8) 기준 → 세그먼트 길이 기반 기대 비트 수 대비 실제 비율
-        // 기존: min(1f, beats.size / 8f) → 22비트와 2비트를 분별하지 못함
-        // 수정: 실제 감지 비트 / (세그먼트 지속시간 / beatMs) 로 상대 비율 계산
-        // segDurationMs는 위에서 이미 선언됨 (effectiveMinChain 계산에 사용)
         val expectedBeatsInSeg = max(1, (segDurationMs / beatMs).toInt())
         val densityScore = min(1f, finalBeatsMs.size.toFloat() / expectedBeatsInSeg.toFloat())
 
-        // [수정] 가중치 재조정: density 우선 (0.20→0.40), acPeak 완화 (0.40→0.20)
-        // acPeak는 비트가 드물어도 강하면 높게 나와서 sparse 소스를 선호하는 문제 보정
         val score = (
                 densityScore * 0.40f +
                         snapRatio * 0.30f +
@@ -458,10 +416,6 @@ object BeatDetectorV8 {
             reason = "ok"
         )
     }
-
-    // =========================================================================
-    // Source ordering & combination
-    // =========================================================================
 
     private fun buildSourceOrder(
         low: List<Float>,
@@ -500,10 +454,6 @@ object BeatDetectorV8 {
         }
     }
 
-    // =========================================================================
-    // B. autocorrelation + harmonic folding
-    // =========================================================================
-
     /**
      * onset 신호에서 autocorrelation으로 비트 주기를 추정한다.
      *
@@ -529,8 +479,7 @@ object BeatDetectorV8 {
         val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
         if (onset.size <= maxLag + 2) return null
 
-        // ① 전체 탐색 구간의 correlation 배열을 먼저 구한다
-        val corrArray = FloatArray(maxLag + 1)  // 0f로 자동 초기화
+        val corrArray = FloatArray(maxLag + 1)
 
         var bestLag = -1
         var bestValue = 0f
@@ -559,19 +508,16 @@ object BeatDetectorV8 {
         }
 
         if (bestLag <= 0) return null
-        if (bestValue < 0.015f) return null     // 완화: 0.02→0.015 (낮은 에너지 곡 대응)
+        if (bestValue < 0.015f) return null
 
-        // bestValue < 0.015f 체크 이후이므로 항상 양수. 직접 계산
         val confidence = (bestValue - secondValue).coerceAtLeast(0f) + bestValue
-        if (confidence < 0.012f) return null    // 완화: 0.025→0.012 (잔잔한 곡/짧은 세그먼트)
+        if (confidence < 0.012f) return null
 
-        // ② harmonic folding: bestLag/2 검사 (빠른 곡 — 2배 편향 교정)
         val halfLag = bestLag / 2
         if (halfLag >= minLag) {
             val halfValue = corrArray[halfLag]
             if (halfValue >= bestValue * HARMONIC_FOLD_HALF_RATIO) {
                 val halfBeatMs = halfLag * hopMs
-                // halfLag 자체도 추가 교정 대상인지 재귀적으로 확인 (최대 1회)
                 val quarterLag = halfLag / 2
                 if (quarterLag >= minLag) {
                     val quarterValue = corrArray[quarterLag]
@@ -584,7 +530,6 @@ object BeatDetectorV8 {
             }
         }
 
-        // ③ harmonic folding: bestLag/3 검사 (빠른 곡 — 3배 편향 교정)
         val thirdLag = bestLag / 3
         if (thirdLag >= minLag) {
             val thirdValue = corrArray[thirdLag]
@@ -594,9 +539,6 @@ object BeatDetectorV8 {
             }
         }
 
-        // ④-pre: harmonic two-thirds (×2/3): bestLag×2/3 검사 (1.5× 편향 교정)
-        // 대상: 450ms 감지 시 300ms로 교정 → DOUBLE CHORUS(287ms) 근사
-        // 조건: 2/3 lag이 minBeatMs 이상 && maxBeatMs × 0.65 이하
         val twoThirdLag = bestLag * 2 / 3
         val twoThirdBeatMs = twoThirdLag * hopMs
         if (twoThirdLag >= minLag &&
@@ -613,18 +555,10 @@ object BeatDetectorV8 {
             }
         }
 
-        // ④ harmonic doubling: bestLag×2 검사 (느린 곡 — 절반 속도 편향 교정)
-        // 조건: bestLag가 maxBeatMs의 55% 초과일 때만 적용
-        //   이유: 130 BPM(461ms)처럼 정상 속도 곡에서도 2배 주기(922ms)의 correlation이
-        //         HARMONIC_DOUBLE_RATIO를 넘을 수 있어 오 교정이 발생함.
-        //   '느린 곡'은 본래 탐색 범위 상한 부근에서 검출됐을 때만 의심해야 함.
-        //   예) maxBeatMs=1200ms → 660ms(55%) 초과 시만 doubling 검사
         val doubleGuardMs = (maxBeatMs * 0.55f).toLong()
         val doubleLag = bestLag * 2
         val doubleValue: Float = when {
-            // corrArray 범위 안에 있으면 그대로 사용
             doubleLag <= maxLag -> corrArray[doubleLag]
-            // corrArray 범위 밖이지만 onset이 충분히 길면 직접 계산
             doubleLag + 2 < onset.size -> {
                 var sum = 0f
                 var count = 0
@@ -641,17 +575,13 @@ object BeatDetectorV8 {
         val doubleBeatMs = doubleLag * hopMs
         if (bestLag * hopMs > doubleGuardMs &&
             doubleValue >= bestValue * HARMONIC_DOUBLE_RATIO &&
-            doubleBeatMs <= maxBeatMs          // 추가: doubleMs가 maxBeatMs를 넘으면 채택 금지
+            doubleBeatMs <= maxBeatMs
         ) {
             return doubleBeatMs to doubleValue.coerceIn(0f, 1f)
         }
 
         return bestLag * hopMs to bestValue.coerceIn(0f, 1f)
     }
-
-    // =========================================================================
-    // Peak snapping & grid fitting
-    // =========================================================================
 
     private fun snapPeaksToGrid(
         rawPeakFrames: List<Int>,
@@ -730,24 +660,15 @@ object BeatDetectorV8 {
             val diffMs = (cur - prev) * hopMs.toFloat()
 
             when {
-                // 정상 비트 간격
                 abs(diffMs - expected) <= tol -> kept += cur
 
-                // C. 수정: 2배 간격 — tolerance를 1.2f → 0.6f로 타이트하게
-                // fill, pickup 등 일시적 1비트 누락은 허용하되
-                // 반속 그리드 전체가 통과하는 것을 방지
                 abs(diffMs - expected * 2f) <= tol * 0.6f -> kept += cur
 
-                // 0.5배 간격 (서브비트, 비트 밀도 높은 구간) — 기존과 동일
                 abs(diffMs - expected * 0.5f) <= tol * 0.8f -> kept += cur
             }
         }
         return kept
     }
-
-    // =========================================================================
-    // D. estimateMedianInterval — 유효 범위를 Params와 정렬
-    // =========================================================================
 
     /**
      * D. 수정: 유효 diff 범위를 minBeatMs..maxBeatMs로 정렬
@@ -764,17 +685,12 @@ object BeatDetectorV8 {
         val diffs = ArrayList<Long>()
         for (i in 1 until beats.size) {
             val d = beats[i] - beats[i - 1]
-            // D. 수정: 고정 범위(250..1200) → Params 기반 범위
             if (d in minBeatMs..maxBeatMs) diffs += d
         }
         if (diffs.isEmpty()) return 500L
         val sorted = diffs.sorted()
         return sorted[sorted.size / 2]
     }
-
-    // =========================================================================
-    // Utility
-    // =========================================================================
 
     private fun dedupeCloseBeats(beats: List<Long>, minDistanceMs: Long): List<Long> {
         if (beats.isEmpty()) return emptyList()

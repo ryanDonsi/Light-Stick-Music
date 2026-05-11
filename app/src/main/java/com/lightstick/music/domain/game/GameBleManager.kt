@@ -30,8 +30,6 @@ class GameBleManager @Inject constructor() {
 
     private val TAG = AppConstants.Feature.GAME_BLE_MANAGER
 
-    // ─── Connection State ─────────────────────────────────────────────────────
-
     sealed class ConnectionState {
         object Disconnected : ConnectionState()
         object Connecting   : ConnectionState()
@@ -45,16 +43,10 @@ class GameBleManager @Inject constructor() {
     private val _isGameModeSupported = MutableStateFlow(false)
     val isGameModeSupported: StateFlow<Boolean> = _isGameModeSupported.asStateFlow()
 
-    // ─── Game Result Stream ───────────────────────────────────────────────────
-
     private val _gameResultFlow = MutableSharedFlow<GameResult>(extraBufferCapacity = 32)
     val gameResultFlow: SharedFlow<GameResult> = _gameResultFlow.asSharedFlow()
 
-    // ─── Active Device ────────────────────────────────────────────────────────
-
     @Volatile private var activeDevice: Device? = null
-
-    // ─── Public API ───────────────────────────────────────────────────────────
 
     /**
      * SDK가 이미 연결한 기기 중 첫 번째를 게임 기기로 선택한다.

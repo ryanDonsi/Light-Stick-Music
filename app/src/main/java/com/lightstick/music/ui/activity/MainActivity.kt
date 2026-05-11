@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
     private val gameViewModel: GameViewModel by viewModels()
 
     /**
-     * ✅ SAF를 통한 Effects 디렉토리 선택 (수동 선택용)
+     *  SAF를 통한 Effects 디렉토리 선택 (수동 선택용)
      */
     private val directoryPickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -71,7 +71,6 @@ class MainActivity : ComponentActivity() {
             result.data?.data?.let { uri ->
                 EffectPathPreferences.saveDirectoryUri(this, uri)
 
-                // 재초기화
                 MusicEffectManager.initializeFromSAF(this)
 
                 Toast.makeText(
@@ -80,7 +79,6 @@ class MainActivity : ComponentActivity() {
                     Toast.LENGTH_SHORT
                 ).show()
 
-                // 음악 목록 다시 로드하여 hasEffect 상태 업데이트
                 musicViewModel.loadMusic()
             }
         }
@@ -98,15 +96,9 @@ class MainActivity : ComponentActivity() {
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // ✅ 권한 상태 로깅
         PermissionManager.logPermissionStatus(this, "MainActivity")
 
-        // DeviceViewModel을 onCreate() 시점에 미리 생성하여 LSBluetooth SDK 이벤트
-        // 옵저버를 앱 시작 직후 등록합니다. 이렇게 하면 Android BLE GATT 캐시가
-        // Effect Control 진입 전에 warm 상태가 되어 첫 연결 성공률이 높아집니다.
         deviceViewModel
-
-        // MainActivity.kt의 onCreate 함수 내 Scaffold 부분 수정
 
         setContent {
             val lightBackground = !isSystemInDarkTheme()
@@ -134,21 +126,16 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     contentWindowInsets = WindowInsets(0),
                     bottomBar = {
-                        // ✅ CustomNavigationBar 사용
-                        // musicList 화면에서는 Navigation Bar 숨김
                         if (currentRoute != "musicList" && !currentRoute.startsWith("deviceDetail")) {
                             CustomNavigationBar(
                                 modifier = Modifier.navigationBarsPadding(),
                                 selectedRoute = currentRoute,
                                 onNavigate = { route ->
-                                    // ✅ 수정: 백스택 제대로 관리
                                     navController.navigate(route) {
-                                        // 시작 화면(effect)까지 모든 화면 제거
                                         popUpTo("effect") {
-                                            inclusive = false  // effect는 유지
+                                            inclusive = false
                                         }
 
-                                        // 같은 화면 중복 방지
                                         launchSingleTop = true
                                     }
                                 }
@@ -169,7 +156,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ✅ Permissions
         val permissions = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
@@ -215,15 +201,13 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * ✅ Effects 디렉토리 수동 선택 요청
+     *  Effects 디렉토리 수동 선택 요청
      */
     private fun requestEffectsDirectory() {
         val intent = EffectPathPreferences.createDirectoryPickerIntent()
         directoryPickerLauncher.launch(intent)
     }
 }
-
-// MainActivity.kt의 AppNavigation 함수 수정본
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -243,7 +227,6 @@ fun AppNavigation(
         startDestination = "effect",
         modifier = modifier
     ) {
-        // 🎵 MusicControlScreen (메인 음악 화면)
         composable("music") {
             MusicControlScreen(
                 viewModel = musicViewModel,
@@ -254,7 +237,6 @@ fun AppNavigation(
             )
         }
 
-        // 📋 MusicListScreen (음악 목록 화면)
         composable("musicList") {
             MusicListScreen(
                 viewModel = musicViewModel,
@@ -264,7 +246,6 @@ fun AppNavigation(
             )
         }
 
-        // 🎨 EffectScreen (효과 제어 화면)
         composable("effect") {
             EffectScreen(
                 viewModel = effectViewModel,
@@ -272,14 +253,11 @@ fun AppNavigation(
             )
         }
 
-        // 🎮 GameScreen (게임 모드 화면)
         composable("game") {
             GameScreen(viewModel = gameViewModel)
         }
 
-        // 📱 DeviceListScreen (디바이스 목록 화면)
         composable("deviceList") {
-            // ✅ 다이얼로그 상태 관리
             var showConnectDialog by remember { mutableStateOf(false) }
             var showReconnectDialog by remember { mutableStateOf(false) }
             var selectedDevice by remember { mutableStateOf<Device?>(null) }
@@ -303,23 +281,18 @@ fun AppNavigation(
                     val isConnected = connectionStates[device.mac] == true
 
                     if (isConnected) {
-                        // 이미 연결된 기기 → 바로 연결 해제 (다이얼로그 없음)
                         @SuppressLint("MissingPermission")
                         deviceViewModel.toggleConnection(context, device)
                     } else {
-                        // 미연결 기기 → 연결 시도
                         if (connectedDevices > 0) {
-                            // 이미 연결된 다른 기기 있음 → ReconnectConfirmDialog
                             showReconnectDialog = true
                         } else {
-                            // 연결된 기기 없음 → ConnectConfirmDialog
                             showConnectDialog = true
                         }
                     }
                 }
             )
 
-            // ===== 연결 확인 다이얼로그 =====
             if (showConnectDialog && selectedDevice != null) {
                 ConnectConfirmDialog(
                     deviceName = selectedDevice!!.name ?: "Unknown Device",
@@ -336,7 +309,6 @@ fun AppNavigation(
                 )
             }
 
-            // ===== 재연결 확인 다이얼로그 =====
             if (showReconnectDialog && selectedDevice != null) {
                 val devices by deviceViewModel.devices.collectAsState()
                 val currentConnectedDevice = devices.find { connectionStates[it.mac] == true }
@@ -357,7 +329,6 @@ fun AppNavigation(
             }
         }
 
-        // ✅ DeviceDetailScreen (디바이스 상세 화면)
         composable(
             route = "deviceDetail/{deviceMac}",
             arguments = listOf(
@@ -366,7 +337,6 @@ fun AppNavigation(
         ) { backStackEntry ->
             val deviceMac = backStackEntry.arguments?.getString("deviceMac") ?: return@composable
 
-            // ViewModel에서 디바이스 정보 가져오기
             val devices by deviceViewModel.devices.collectAsState()
             val connectionStates by deviceViewModel.connectionStates.collectAsState()
             val deviceDetails by deviceViewModel.deviceDetails.collectAsState()
@@ -375,17 +345,14 @@ fun AppNavigation(
             val deviceDetail = deviceDetails[deviceMac]
 
             if (device == null) {
-                // 디바이스를 찾을 수 없는 경우 뒤로가기
                 LaunchedEffect(Unit) {
                     navController.popBackStack()
                 }
                 return@composable
             }
 
-            // OTA 버전 체크 결과 관찰 — 파일 선택 후 버전 비교 완료 시 다이얼로그 결정
             val otaVersionCheck by deviceViewModel.otaVersionCheck.collectAsState()
 
-            // [테스트용] 파일 선택 → 버전 비교 → 결과에 따라 다이얼로그 표시
             // TODO: 최종 구현 시 서버 API로 최신 버전 조회 + 다운로드 URL 수신으로 대체
             val otaFilePicker = rememberLauncherForActivityResult(
                 ActivityResultContracts.OpenDocument()
@@ -393,18 +360,15 @@ fun AppNavigation(
                 uri?.let { deviceViewModel.checkFirmwareVersion(context, device, it) }
             }
 
-            // ✅ 다이얼로그 상태
             var showDisconnectDialog by remember { mutableStateOf(false) }
             var showDeviceInfoDialog by remember { mutableStateOf(false) }
             var showOtaUpdateDialog by remember { mutableStateOf(false) }
             var showOtaLatestDialog by remember { mutableStateOf(false) }
             var showFindDialog by remember { mutableStateOf(false) }
 
-            // OTA 버전 비교 결과 — 다이얼로그 표시용 임시 보관
             var otaDialogCurrentVersion by remember { mutableStateOf("") }
             var otaDialogNewVersion by remember { mutableStateOf("") }
 
-            // OTA 버전 체크 완료 → 버전 정보 캡처 후 다이얼로그 상태 전환
             LaunchedEffect(otaVersionCheck) {
                 otaVersionCheck?.let { check ->
                     otaDialogCurrentVersion = check.deviceVersion
@@ -418,7 +382,6 @@ fun AppNavigation(
                 }
             }
 
-            // ✅ 수정: deviceDetail이 null이면 Preferences에서 로드
             val callEventEnabled = deviceDetail?.callEventEnabled
                 ?: DevicePreferences.getCallEventEnabled(deviceMac)
             val smsEventEnabled = deviceDetail?.smsEventEnabled
@@ -432,9 +395,9 @@ fun AppNavigation(
                 rssi = device.rssi ?: 0,
                 batteryLevel = deviceDetail?.batteryLevel,
                 deviceInfo = deviceDetail,
-                callEventEnabled = callEventEnabled,       // ✅ 수정
-                smsEventEnabled = smsEventEnabled,         // ✅ 수정
-                broadcastingEnabled = broadcastingEnabled, // ✅ 수정
+                callEventEnabled = callEventEnabled,
+                smsEventEnabled = smsEventEnabled,
+                broadcastingEnabled = broadcastingEnabled,
                 onBackClick = {
                     navController.popBackStack()
                 },
@@ -457,14 +420,10 @@ fun AppNavigation(
                     showFindDialog = true
                 },
                 onOtaUpdateClick = {
-                    // 파일 먼저 선택 → 버전 비교 → 다이얼로그 표시
                     otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
                 }
             )
 
-            // ===== 다이얼로그들 =====
-
-            // 연결 해제 확인 다이얼로그
             if (showDisconnectDialog) {
                 DisconnectConfirmDialog(
                     deviceName = device.name ?: "Unknown Device",
@@ -478,7 +437,6 @@ fun AppNavigation(
                 )
             }
 
-            // 디바이스 정보 다이얼로그
             if (showDeviceInfoDialog) {
                 DeviceInfoDialog(
                     model = deviceDetail?.deviceInfo?.modelNumber ?: "Unknown",
@@ -488,7 +446,6 @@ fun AppNavigation(
                 )
             }
 
-            // ✅ FIND 확인 다이얼로그 (deviceName 파라미터 제거)
             if (showFindDialog) {
                 FindEffectConfirmDialog(
                     onDismiss = { showFindDialog = false },
@@ -499,7 +456,6 @@ fun AppNavigation(
                 )
             }
 
-            // OTA 업데이트 가능 → 현재/새 버전 표시 후 진행 확인
             // TODO: 최종 구현 — 서버 API에서 버전 + 다운로드 URL 조회, 확인 시 파일 다운로드 후 startPendingOta()
             if (showOtaUpdateDialog) {
                 OtaUpdateConfirmDialog(
@@ -517,7 +473,6 @@ fun AppNavigation(
                 )
             }
 
-            // OTA 최신 버전 → 이미 최신 버전임 안내
             if (showOtaLatestDialog) {
                 OtaVersionInfoDialog(
                     deviceName = device.name ?: "Unknown Device",

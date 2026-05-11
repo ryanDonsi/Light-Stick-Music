@@ -35,7 +35,7 @@ fun CustomToast(
 ) {
     LaunchedEffect(isVisible) {
         if (isVisible) {
-            delay(2000)  // 2초 후 자동 사라짐
+            delay(2000)
             onDismiss()
         }
     }

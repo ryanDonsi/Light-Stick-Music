@@ -29,10 +29,6 @@ object EffectPathPreferences {
 
     private const val TAG = AppConstants.Feature.STORAGE_EFFECT_PATH
 
-    // ═══════════════════════════════════════════════════════════
-    // 디렉토리 설정
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * 자동으로 Music/Effects 폴더 설정
      */
@@ -59,7 +55,7 @@ object EffectPathPreferences {
 
             true
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Auto-configuration failed: ${e.message}")
+            Log.e(TAG, "Auto-configuration failed: ${e.message}")
             false
         }
     }
@@ -88,7 +84,7 @@ object EffectPathPreferences {
         val prefs = context.getSharedPreferences(PrefsKeys.PREFS_EFFECT_DIRECTORY, Context.MODE_PRIVATE)
         prefs.edit()
             .putString(PrefsKeys.KEY_DIRECTORY_URI, uri.toString())
-            .putBoolean(PrefsKeys.KEY_AUTO_CONFIGURED, false) // 수동 설정 시 auto 플래그 해제
+            .putBoolean(PrefsKeys.KEY_AUTO_CONFIGURED, false)
             .apply()
 
         try {
@@ -116,10 +112,6 @@ object EffectPathPreferences {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 디렉토리 선택 Intent
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * 디렉토리 선택 Intent 생성 (수동 선택용)
      */
@@ -138,10 +130,6 @@ object EffectPathPreferences {
 
         return intent
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // 파일 목록 / 스트림
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * Effects 디렉토리의 모든 EFX 파일 목록 가져오기
@@ -189,10 +177,6 @@ object EffectPathPreferences {
             null
         }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // 초기화
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * 디렉토리 설정 전체 초기화

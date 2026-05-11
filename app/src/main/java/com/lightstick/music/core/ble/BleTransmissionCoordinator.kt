@@ -29,10 +29,6 @@ object BleTransmissionCoordinator {
     private const val TAG = AppConstants.Feature.BLE_COORDINATOR
     private const val MAX_HISTORY_SIZE = 100
 
-    // ═══════════════════════════════════════════════════════════
-    // State
-    // ═══════════════════════════════════════════════════════════
-
     private val _currentController = MutableStateFlow<ControllerState?>(null)
     val currentController: StateFlow<ControllerState?> = _currentController.asStateFlow()
 
@@ -47,12 +43,7 @@ object BleTransmissionCoordinator {
     private var activeSession: TransmissionSource? = null
     private var sessionStartTime: Long = 0
     private val controllerHistory = mutableListOf<ControllerState>()
-    // CopyOnWriteArrayList: 리스너 호출 중 추가/삭제 시 ConcurrentModificationException 방지
     private val controlChangeListeners = CopyOnWriteArrayList<(ControllerState?) -> Unit>()
-
-    // ═══════════════════════════════════════════════════════════
-    // Public API - Control Management
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * 세션 시작 (제어권 획득 + 독점 플래그 설정)
@@ -100,7 +91,6 @@ object BleTransmissionCoordinator {
     ): Boolean {
         val current = _currentController.value
 
-        // 1. 현재 제어권 없음 → 즉시 획득
         if (current == null) {
             val newState = ControllerState(source, priority, mode, metadata = metadata)
             _currentController.value = newState
@@ -109,7 +99,6 @@ object BleTransmissionCoordinator {
             return true
         }
 
-        // 2. 같은 소스 → 업데이트
         if (current.source == source) {
             val updated = current.copy(
                 priority = priority,
@@ -122,7 +111,6 @@ object BleTransmissionCoordinator {
         }
 
         return when {
-            // 3-1. 새 요청이 우선순위 높음 → 강제 획득
             TransmissionPriority.hasHigherPriority(priority, current.priority) -> {
                 val newState = ControllerState(source, priority, mode, metadata = metadata)
                 _currentController.value = newState
@@ -132,7 +120,6 @@ object BleTransmissionCoordinator {
                 true
             }
 
-            // 3-2. 현재 제어권이 BACKGROUND 모드 → 양보
             current.mode == ControlMode.BACKGROUND -> {
                 val newState = ControllerState(source, priority, mode, metadata = metadata)
                 _currentController.value = newState
@@ -142,12 +129,10 @@ object BleTransmissionCoordinator {
                 true
             }
 
-            // 3-3. COOPERATIVE 모드이고 허용된 조합 → 공존
             current.mode == ControlMode.COOPERATIVE && isCompatible(current.source, source) -> {
                 true
             }
 
-            // 3-4. 그 외 → 거부
             else -> {
                 false
             }
@@ -177,15 +162,10 @@ object BleTransmissionCoordinator {
         notifyControlChange(null)
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Public API - Transmission
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * 전송 허가 확인
      */
     fun canTransmit(source: TransmissionSource): Boolean {
-        // 1. Active Session 체크 (최우선)
         if (activeSession != null) {
             val compatible = activeSession == source || isCompatible(activeSession!!, source)
             if (!compatible) {
@@ -193,7 +173,6 @@ object BleTransmissionCoordinator {
             }
         }
 
-        // 2. 제어권 체크
         val current = _currentController.value
         return when {
             current == null -> true
@@ -214,10 +193,6 @@ object BleTransmissionCoordinator {
         return true
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Private Helpers
-    // ═══════════════════════════════════════════════════════════
-
     private fun isCompatible(source1: TransmissionSource, source2: TransmissionSource): Boolean {
         val compatiblePairs = setOf(
             setOf(TransmissionSource.TIMELINE_EFFECT, TransmissionSource.FFT_EFFECT)
@@ -233,10 +208,6 @@ object BleTransmissionCoordinator {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Public API - Listeners
-    // ═══════════════════════════════════════════════════════════
-
     fun addControlChangeListener(listener: (ControllerState?) -> Unit) {
         controlChangeListeners.add(listener)
     }
@@ -244,10 +215,6 @@ object BleTransmissionCoordinator {
     fun removeControlChangeListener(listener: (ControllerState?) -> Unit) {
         controlChangeListeners.remove(listener)
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Public API - Statistics
-    // ═══════════════════════════════════════════════════════════
 
     fun getHistory(): List<ControllerState> = controllerHistory.toList()
 
@@ -263,10 +230,6 @@ object BleTransmissionCoordinator {
         val elapsed = System.currentTimeMillis() - current.acquiredAt
         return "${current.source} (priority=${current.priority}, mode=${current.mode}, elapsed=${elapsed}ms)"
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Debug API
-    // ═══════════════════════════════════════════════════════════
 
     fun printDebugInfo() {
     }

@@ -58,7 +58,6 @@ fun EffectScreen(
 ) {
     val context = LocalContext.current
 
-    // ── ViewModel State ───────────────────────────────────────
     val selectedEffect           by viewModel.selectedEffect.collectAsState()
     val currentSettings          by viewModel.currentSettings.collectAsState()
     val isPlaying                by viewModel.isPlaying.collectAsState()
@@ -73,10 +72,8 @@ fun EffectScreen(
     val selectedFgPreset         by viewModel.selectedFgPreset.collectAsState()
     val selectedBgPreset         by viewModel.selectedBgPreset.collectAsState()
 
-    // [추가] EXCLUSIVE 모드 음악 재생 중 Effect 잠금 상태
     val isEffectBlocked by viewModel.isEffectBlocked.collectAsState()
 
-    // ── UI State ──────────────────────────────────────────────
     var settingsDialogEffect by remember { mutableStateOf<EffectViewModel.UiEffectType?>(null) }
     var colorPickerState     by remember { mutableStateOf<Pair<EffectViewModel.UiEffectType, Boolean>?>(null) }
     var showEffectListSheet  by remember { mutableStateOf(false) }
@@ -87,7 +84,6 @@ fun EffectScreen(
     var showRenameDialogFor  by remember { mutableStateOf<EffectViewModel.UiEffectType.Custom?>(null) }
     var showDeleteDialogFor  by remember { mutableStateOf<EffectViewModel.UiEffectType.Custom?>(null) }
 
-    // ── BackHandler: 다이얼로그/시트 열려있을 때 뒤로가기로 닫기 ──────
     BackHandler(
         enabled = showEffectListSheet || settingsDialogEffect != null ||
                   colorPickerState != null || showPresetEdit != null ||
@@ -106,7 +102,6 @@ fun EffectScreen(
         }
     }
 
-    // ── Toast ─────────────────────────────────────────────────
     val toastMessage by viewModel.toastMessage.collectAsState()
     val toastState   = rememberToastState()
 
@@ -121,14 +116,12 @@ fun EffectScreen(
             toastState.show("연결 가능한 기기가 없습니다")
         }
     }
-    // [추가] Effect 잠금 시 토스트 표시
     LaunchedEffect(isEffectBlocked) {
         if (isEffectBlocked) {
             toastState.show("음악 자동 재생 중 Effect 조작이 비활성화됩니다")
         }
     }
 
-    // ── Scroll / Collapse ─────────────────────────────────────
     val listState           = rememberLazyListState()
     val coroutineScope      = rememberCoroutineScope()
     val maxCardHeight       = 180.dp
@@ -208,7 +201,6 @@ fun EffectScreen(
 
     LaunchedEffect(Unit) { viewModel.startAutoScan(context) }
 
-    // ── Static Data ───────────────────────────────────────────
     val basicEffects = remember {
         listOf(
             EffectViewModel.UiEffectType.On,
@@ -231,14 +223,10 @@ fun EffectScreen(
 
     val isDeviceConnected = deviceConnectionState is EffectViewModel.DeviceConnectionState.Connected
 
-    // [수정] Effect 카드 활성화 여부 = 디바이스 연결 AND Effect 미잠금
     val isEffectEnabled = isDeviceConnected && !isEffectBlocked
 
     val previewSettings = overrideSettings ?: currentSettings
 
-    // ─────────────────────────────────────────────────────────
-    // Main Layout
-    // ─────────────────────────────────────────────────────────
     Box(modifier = Modifier.fillMaxSize()) {
 
         Column(modifier = Modifier.fillMaxSize()) {
@@ -246,7 +234,6 @@ fun EffectScreen(
             TopBarCentered(
                 title       = "Effect Control",
                 actionText  = "LIST",
-                // [수정] Effect 잠금 시 LIST 버튼도 비활성화 색상으로 표시
                 actionTextColor = when {
                     isEffectBlocked   -> Color.Gray
                     isDeviceConnected -> MaterialTheme.customColors.secondary
@@ -254,8 +241,7 @@ fun EffectScreen(
                 },
                 onActionClick = {
                     if (isEffectBlocked) {
-                        // 잠금 상태 피드백은 ViewModel 에서 toast 로 처리
-                        viewModel.selectEffectList(context, -1) // 차단 로직 트리거
+                        viewModel.selectEffectList(context, -1)
                     } else if (isDeviceConnected) {
                         showEffectListSheet = true
                     }
@@ -316,7 +302,6 @@ fun EffectScreen(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // ── Basic Effects ─────────────────────────────────
                         items(basicEffects, key = { EffectKeys.of(it) }) { effect ->
                             val effectSettings = effectSettingsMap[EffectKeys.of(effect)]
                                 ?: EffectViewModel.EffectSettings.defaultFor(effect)
@@ -324,10 +309,8 @@ fun EffectScreen(
                                 effect         = effect,
                                 effectSettings = effectSettings,
                                 isSelected     = selectedEffect == effect,
-                                // [수정] isEffectBlocked 시 카드 비활성화
                                 isEnabled      = isEffectEnabled,
                                 onEffectClick  = {
-                                    // [수정] toggleEffect 로 교체 (선택 해제 + EXCLUSIVE 처리)
                                     viewModel.toggleEffect(context, effect)
                                 },
                                 onSettingsClick        = { settingsDialogEffect = effect },
@@ -338,7 +321,6 @@ fun EffectScreen(
                             )
                         }
 
-                        // ── Custom Effects ────────────────────────────────
                         items(customEffects, key = { it.id }) { effect ->
                             val effectSettings = effectSettingsMap[EffectKeys.of(effect)]
                                 ?: EffectViewModel.EffectSettings.defaultFor(effect)
@@ -358,7 +340,6 @@ fun EffectScreen(
                             )
                         }
 
-                        // ── Add Button ────────────────────────────────────
                         if (viewModel.canAddCustomEffect()) {
                             item {
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -383,11 +364,6 @@ fun EffectScreen(
         )
     }
 
-    // ─────────────────────────────────────────────────────────
-    // Dialogs / BottomSheets
-    // ─────────────────────────────────────────────────────────
-
-    // Effect List BottomSheet
     if (showEffectListSheet) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
@@ -399,7 +375,6 @@ fun EffectScreen(
                 effectLists              = effectLists,
                 selectedEffectListNumber = selectedEffectListNumber,
                 onEffectClick            = { effectNumber ->
-                    // [수정] EXCLUSIVE 로직은 ViewModel 내부에서 처리
                     viewModel.selectEffectList(context, effectNumber)
                     showEffectListSheet = false
                 },
@@ -411,7 +386,6 @@ fun EffectScreen(
         }
     }
 
-    // Add Custom Effect Dialog
     if (showAddEffectDialog) {
         AddCustomEffectDialog(
             onDismiss = { showAddEffectDialog = false },
@@ -422,7 +396,6 @@ fun EffectScreen(
         )
     }
 
-    // Confirm Add Effect Dialog
     pendingCustomEffect?.let { (name, baseType) ->
         ConfirmAddEffectDialog(
             effectName = name,
@@ -434,7 +407,6 @@ fun EffectScreen(
         )
     }
 
-    // Rename Effect Dialog
     showRenameDialogFor?.let { effectToRename ->
         RenameEffectDialog(
             initialName = effectToRename.name,
@@ -446,7 +418,6 @@ fun EffectScreen(
         )
     }
 
-    // Delete Confirm Dialog
     showDeleteDialogFor?.let { effectToDelete ->
         ConfirmDeleteEffectDialog(
             effectName = effectToDelete.name,
@@ -458,7 +429,6 @@ fun EffectScreen(
         )
     }
 
-    // Effect Settings Dialog
     settingsDialogEffect?.let { effect ->
         val initialSettings = effectSettingsMap[EffectKeys.of(effect)]
             ?: EffectViewModel.EffectSettings.defaultFor(effect)
@@ -480,7 +450,6 @@ fun EffectScreen(
         )
     }
 
-    // Color Picker Dialog
     colorPickerState?.let { (effect, isBackground) ->
         val settings     = effectSettingsMap[EffectKeys.of(effect)]
             ?: EffectViewModel.EffectSettings.defaultFor(effect)
@@ -509,7 +478,6 @@ fun EffectScreen(
         )
     }
 
-    // Preset Color Edit Dialog
     showPresetEdit?.let { (index, isBg) ->
         val colors = if (isBg) bgPresetColors else fgPresetColors
         PresetColorEditDialog(

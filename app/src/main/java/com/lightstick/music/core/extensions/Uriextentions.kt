@@ -102,7 +102,7 @@ fun Uri.copyToCache(context: Context, targetName: String? = null): File? {
 
         cacheFile
     } catch (e: Exception) {
-        Log.e(TAG, "❌ Failed to copy to cache: ${e.message}")
+        Log.e(TAG, "Failed to copy to cache: ${e.message}")
         null
     }
 }

@@ -37,17 +37,14 @@ fun StretchPullRefreshContainer(
     canScrollUp: () -> Boolean,
     modifier: Modifier = Modifier,
 
-    // Appearance
     fillColor: Color,
     edgeColor: Color = Color.Black.copy(alpha = 0.06f),
     edgeWidth: Dp = 0.5.dp,
 
-    // Feel
     maxVisual: Dp = 50.dp,
     trigger: Dp = 40.dp,
     springBackDurationMs: Int = 260,
 
-    // 콘텐츠 이동량 비율 (1.0f면 표면과 동일 이동)
     contentOffsetFactor: Float = 0.85f,
 
     content: @Composable BoxScope.() -> Unit
@@ -59,10 +56,8 @@ fun StretchPullRefreshContainer(
     val triggerPx   = with(density) { trigger.toPx() }
     val edgeWidthPx = with(density) { edgeWidth.toPx() }
 
-    // 풀 거리(픽셀). 단일 소스.
     val pull = remember { Animatable(0f) }
 
-    // 새로고침 중에는 표면/오프셋 숨김
     LaunchedEffect(isRefreshing) {
         if (isRefreshing) pull.snapTo(0f)
     }
@@ -110,7 +105,6 @@ fun StretchPullRefreshContainer(
             .nestedScroll(connection)
             .fillMaxSize()
     ) {
-        // 1) 윗부분 “면” 먼저 그림 (배경처럼)
         val h = pull.value
         if (h > 0.5f) {
             Canvas(modifier = Modifier.fillMaxSize()) {
@@ -124,16 +118,13 @@ fun StretchPullRefreshContainer(
                     close()
                 }
 
-                // 채움
                 drawPath(path, color = fillColor)
-                // 매우 얇은 테두리
                 if (edgeWidthPx > 0f) {
                     drawPath(path, color = edgeColor, style = Stroke(width = edgeWidthPx))
                 }
             }
         }
 
-        // 2) 콘텐츠를 드래그 양에 비례하여 아래로 이동
         Box(
             modifier = Modifier.graphicsLayer {
                 translationY = h * contentOffsetFactor

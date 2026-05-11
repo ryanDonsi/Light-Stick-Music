@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue  // ✅ 필수
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
@@ -36,15 +36,12 @@ class SplashActivity : ComponentActivity() {
     ) { results ->
         val allGranted = results.values.all { it }
 
-        // ✅ 권한 상태 로깅
         PermissionManager.logPermissionStatus(this, "SplashActivity")
 
         if (allGranted) {
-            // ✅ 권한 획득 성공 → ViewModel에 알림 → SDK 초기화 → 앱 초기화 시작
             viewModel.onPermissionAllowed()
             initializeStartApp()
         } else {
-            // 거부된 권한 확인
             val deniedPermissions = results.filter { !it.value }.keys
             Toast.makeText(
                 this,
@@ -57,7 +54,6 @@ class SplashActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // ✅ Splash Screen 설치 (super.onCreate() 전에 호출)
         installSplashScreen()
 
         super.onCreate(savedInstanceState)
@@ -67,9 +63,8 @@ class SplashActivity : ComponentActivity() {
         setContent {
             val splashState by viewModel.splashState.collectAsState()
 
-            // ✅ 권한 안내 다이얼로그에서 백키 누르면 앱 종료
             BackHandler(enabled = splashState is SplashState.ShowPermissionGuide) {
-                finish()  // 앱 종료
+                finish()
             }
 
             LightStickMusicTheme {
@@ -80,16 +75,13 @@ class SplashActivity : ComponentActivity() {
                     SplashScreen(
                         splashState = splashState,
                         onLogoTimeout = {
-                            // 로고 표시 완료 → 권한 체크
                             checkPermissionsAndProceed()
                         },
                         onPermissionGuideConfirmed = {
-                            // 권한 안내 다이얼로그에서 "확인" → 시스템 권한 요청
                             viewModel.onPermissionGuideConfirmed()
                             requestAllPermissions()
                         },
                         onInitializationComplete = {
-                            // 초기화 완료 → MainActivity로 이동
                             viewModel.saveInitializationResult()
                             startMainActivity()
                         }
@@ -120,39 +112,30 @@ class SplashActivity : ComponentActivity() {
      * 필요한 모든 권한 요청
      */
     private fun requestAllPermissions() {
-        // 현재 권한 상태 로깅
         PermissionManager.logPermissionStatus(this, "SplashActivity")
 
-        // 필요한 모든 권한
         val requiredPermissions = PermissionManager.getAllRequiredPermissions()
 
-        // 거부된 권한만 필터링
         val deniedPermissions = PermissionManager.getDeniedPermissions(this, requiredPermissions)
 
         if (deniedPermissions.isEmpty()) {
-            // 모든 권한이 이미 허용됨
             viewModel.onPermissionAllowed()
             initializeStartApp()
         } else {
-            // 거부된 권한 요청
             permissionLauncher.launch(deniedPermissions.toTypedArray())
         }
     }
 
     /**
-     * ✅ SDK 초기화 후 앱 초기화 시작
+     *  SDK 초기화 후 앱 초기화 시작
      */
     private fun initializeStartApp() {
         try {
-            // ✅ 권한 확보 후 SDK 초기화
-//            LSBluetooth.initialize(applicationContext)
-//            Log.d("SplashActivity", "✅ LSBluetooth initialized successfully")
 
-            // 앱 초기화 시작
             viewModel.startInitialization()
 
         } catch (e: Exception) {
-            Log.e("SplashActivity", "❌ Failed to initialize SDK", e)
+            Log.e("SplashActivity", "Failed to initialize SDK", e)
             Toast.makeText(
                 this,
                 "SDK 초기화 실패: ${e.message}",

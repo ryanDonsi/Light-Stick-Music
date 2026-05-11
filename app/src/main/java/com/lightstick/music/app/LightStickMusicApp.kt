@@ -26,7 +26,7 @@ class LightStickMusicApp : Application() {
             initializeSDK()
             initializePreferences()
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Initialization failed: ${e.message}", e)
+            Log.e(TAG, "Initialization failed: ${e.message}", e)
         }
     }
 

@@ -36,18 +36,16 @@ fun EmptyDeviceCard(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(72.dp),  // ✅ Figma: 고정 높이
-        shape = RoundedCornerShape(20.dp),  // ✅ Figma: Corner 20px
-        color = MaterialTheme.customColors.onSurface.copy(alpha = 0.05f)  // ✅ Theme 적용
+            .height(72.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.customColors.onSurface.copy(alpha = 0.05f)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize(),
-//                .padding(horizontal = 24.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 텍스트
             Text(
                 text = when {
                     isScanning && !isConnectedSection -> "기기 검색 중..."
@@ -56,24 +54,19 @@ fun EmptyDeviceCard(
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (isConnectedSection) {
-                    MaterialTheme.customColors.surfaceVariant  // ✅ 연결된 기기: surfaceVariant
+                    MaterialTheme.customColors.surfaceVariant
                 } else {
-                    MaterialTheme.customColors.onSurface  // ✅ 검색된 기기: onSurface
+                    MaterialTheme.customColors.onSurface
                 }
             )
 
-//            Spacer(modifier = Modifier.width(12.dp))
-
-            // 아이콘 (스캔 중 or 재검색 버튼)
             if (isScanning && !isConnectedSection) {
-                // ✅ 스캔 중: 회전 애니메이션
                 CircularProgressIndicator(
-                    color = MaterialTheme.customColors.onSurface,  // ✅ onSurface 색상
+                    color = MaterialTheme.customColors.onSurface,
                     modifier = Modifier.size(14.dp),
                     strokeWidth = 2.dp
                 )
             } else if (!isConnectedSection) {
-                // ✅ 스캔 완료: 재검색 버튼
                 IconButton(
                     onClick = { onRefresh?.invoke() },
                     modifier = Modifier.size(24.dp)
@@ -81,7 +74,7 @@ fun EmptyDeviceCard(
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "재검색",
-                        tint = MaterialTheme.customColors.onSurface,  // ✅ onSurface 색상
+                        tint = MaterialTheme.customColors.onSurface,
                         modifier = Modifier.size(20.dp)
                     )
                 }

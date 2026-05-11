@@ -49,15 +49,12 @@ class StartScanUseCase @Inject constructor() {
         onFound: ((Device) -> Unit)? = null
     ): Result<List<Device>> {
         return try {
-            // 1. Permission 체크
             if (!PermissionManager.hasBluetoothScanPermission(context)) {
                 return Result.failure(SecurityException("BLUETOOTH_SCAN permission required"))
             }
 
-            // 2. 스캔 결과 저장용 Map (MAC 주소로 중복 제거)
             val scannedDevices = mutableMapOf<String, Device>()
 
-            // 3. 스캔 시작
             val durationSec = (durationMs / 1000).toInt().coerceIn(1, 300)
 
             LSBluetooth.startScan(scanTimeSeconds = durationSec) { device ->
@@ -65,19 +62,15 @@ class StartScanUseCase @Inject constructor() {
                     val isNew = !scannedDevices.containsKey(device.mac)
                     scannedDevices[device.mac] = device
 
-                    // 신규 발견 또는 RSSI 갱신 모두 즉시 콜백
                     onFound?.invoke(device)
 
                 }
             }
 
-            // 4. 지정된 시간 동안 대기
             delay(durationMs)
 
-            // 5. 스캔 중지
             LSBluetooth.stopScan()
 
-            // 6. 결과 반환
             Result.success(scannedDevices.values.toList())
 
         } catch (e: SecurityException) {

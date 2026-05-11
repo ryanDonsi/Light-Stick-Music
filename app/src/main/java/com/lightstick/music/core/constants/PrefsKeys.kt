@@ -18,10 +18,6 @@ package com.lightstick.music.core.constants
  */
 object PrefsKeys {
 
-    // ═══════════════════════════════════════════════════════════
-    // Preferences 파일명
-    // ═══════════════════════════════════════════════════════════
-
     /** MusicViewModel.loadCachedMusicOrScan() */
     const val PREFS_APP_STATE = "app_state"
 
@@ -37,27 +33,15 @@ object PrefsKeys {
     /** AutoModePreferences — 수정: "auto_mode_preferences" → "auto_mode_settings" */
     const val PREFS_AUTO_MODE = "auto_mode_settings"
 
-    // ═══════════════════════════════════════════════════════════
-    // App State Keys  (MusicViewModel / SplashViewModel)
-    // ═══════════════════════════════════════════════════════════
-
     const val KEY_IS_INITIALIZED = "is_initialized"
     const val KEY_MUSIC_COUNT    = "music_count"
     const val KEY_EFFECT_COUNT   = "effect_count"
     const val KEY_MATCHED_COUNT  = "matched_count"
     const val KEY_LAST_INIT_TIME = "last_init_time"
 
-    // ═══════════════════════════════════════════════════════════
-    // Effect Directory Keys  (EffectPathPreferences)
-    // ═══════════════════════════════════════════════════════════
-
     const val KEY_DIRECTORY_PATH   = "directory_path"
     const val KEY_DIRECTORY_URI    = "directory_uri"
     const val KEY_AUTO_CONFIGURED  = "auto_configured"
-
-    // ═══════════════════════════════════════════════════════════
-    // Effect Settings Keys  (EffectViewModel)
-    // ═══════════════════════════════════════════════════════════
 
     const val KEY_CUSTOM_EFFECTS  = "custom_effects"
 
@@ -66,10 +50,6 @@ object PrefsKeys {
 
     /** Background 프리셋 색상 key prefix — "bg_preset_$index" 형태로 사용 */
     const val KEY_BG_PRESET_PREFIX = "bg_preset_"
-
-    // ═══════════════════════════════════════════════════════════
-    // Device Event Keys  (DevicePreferences)
-    // ═══════════════════════════════════════════════════════════
 
     /** 전화 수신 이벤트 활성화 key prefix — "call_$mac" 형태 */
     const val KEY_DEVICE_CALL_PREFIX      = "call_"
@@ -83,15 +63,7 @@ object PrefsKeys {
     /** 자동 재연결 활성화 key */
     const val KEY_DEVICE_AUTO_RECONNECT   = "auto_reconnect_enabled"
 
-    // ═══════════════════════════════════════════════════════════
-    // Auto Mode Keys  (AutoModePreferences)
-    // ═══════════════════════════════════════════════════════════
-
     const val KEY_AUTO_MODE_ENABLED = "auto_mode_enabled"
-
-    // ═══════════════════════════════════════════════════════════
-    // Helper Functions
-    // ═══════════════════════════════════════════════════════════
 
     /** Foreground 프리셋 색상 key 생성 */
     fun fgPresetKey(index: Int): String = KEY_FG_PRESET_PREFIX + index

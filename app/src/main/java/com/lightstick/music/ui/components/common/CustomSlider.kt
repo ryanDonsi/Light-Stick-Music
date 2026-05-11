@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 /**
- * ✅ CustomSlider - Material3 Slider 대체 컴포넌트
+ *  CustomSlider - Material3 Slider 대체 컴포넌트
  *
  * ## 목적
  * - Material3 Slider의 패딩 문제 해결
@@ -85,11 +85,9 @@ fun CustomSlider(
     var sliderWidth by remember { mutableIntStateOf(0) }
     var lastHapticValue by remember { mutableIntStateOf(value) }
 
-    // 값을 0~1 범위로 정규화
     val normalizedValue = (value - valueRange.first).toFloat() /
             (valueRange.last - valueRange.first).coerceAtLeast(1)
 
-    // Thumb 위치 계산 (thumb 반지름 고려)
     val thumbRadius = with(density) { thumbSize.toPx() / 2 }
     val availableWidth = (sliderWidth - with(density) { thumbSize.toPx() }).coerceAtLeast(0f)
     val thumbPosition = if (availableWidth > 0f) {
@@ -98,11 +96,9 @@ fun CustomSlider(
         thumbRadius
     }
 
-    // 값 계산 함수
     fun calculateValue(offsetX: Float): Int {
         if (sliderWidth <= 0) return value
 
-        // Thumb 반지름 고려
         val thumbSizePx = with(density) { thumbSize.toPx() }
         val availableWidth = (sliderWidth - thumbSizePx).coerceAtLeast(0f)
 
@@ -114,7 +110,6 @@ fun CustomSlider(
         val rawValue = valueRange.first +
                 (newNormalizedValue * (valueRange.last - valueRange.first))
 
-        // Steps 적용
         return if (steps > 0) {
             val stepSize = (valueRange.last - valueRange.first).toFloat() / (steps + 1)
             val steppedValue = (rawValue / stepSize).roundToInt() * stepSize
@@ -124,7 +119,6 @@ fun CustomSlider(
         }
     }
 
-    // 값 변경 및 햅틱 처리
     fun updateValue(newValue: Int) {
         if (enableHaptic && newValue != lastHapticValue) {
             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -141,14 +135,12 @@ fun CustomSlider(
                 sliderWidth = size.width
             }
             .pointerInput(Unit) {
-                // 탭 처리
                 detectTapGestures { offset ->
                     val newValue = calculateValue(offset.x)
                     updateValue(newValue)
                 }
             }
             .pointerInput(Unit) {
-                // 드래그 처리
                 detectDragGestures { change, _ ->
                     change.consume()
                     val newValue = calculateValue(change.position.x)
@@ -156,7 +148,6 @@ fun CustomSlider(
                 }
             }
     ) {
-        // ===== Track =====
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -172,7 +163,6 @@ fun CustomSlider(
                 )
         )
 
-        // ===== Thumb =====
         Box(
             modifier = Modifier
                 .size(thumbSize)
@@ -191,7 +181,7 @@ fun CustomSlider(
 }
 
 /**
- * ✅ CustomSlider - Float 버전
+ *  CustomSlider - Float 버전
  *
  * Float 값을 사용하는 슬라이더 (정밀한 색상 조절 등에 유용)
  *
@@ -226,11 +216,9 @@ fun CustomSlider(
     var sliderWidth by remember { mutableIntStateOf(0) }
     var lastHapticStep by remember { mutableIntStateOf(-1) }
 
-    // 값을 0~1 범위로 정규화
     val normalizedValue = ((value - valueRange.start) /
             (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
 
-    // Thumb 위치 계산 (thumb 반지름 고려)
     val thumbRadius = with(density) { thumbSize.toPx() / 2 }
     val availableWidth = (sliderWidth - with(density) { thumbSize.toPx() }).coerceAtLeast(0f)
     val thumbPosition = if (availableWidth > 0f) {
@@ -239,11 +227,9 @@ fun CustomSlider(
         thumbRadius
     }
 
-    // 값 계산 함수
     fun calculateValue(offsetX: Float): Float {
         if (sliderWidth <= 0) return value
 
-        // Thumb 반지름 고려
         val thumbSizePx = with(density) { thumbSize.toPx() }
         val availableWidth = (sliderWidth - thumbSizePx).coerceAtLeast(0f)
 
@@ -255,7 +241,6 @@ fun CustomSlider(
         val rawValue = valueRange.start +
                 (newNormalizedValue * (valueRange.endInclusive - valueRange.start))
 
-        // Steps 적용
         return if (steps > 0) {
             val stepSize = (valueRange.endInclusive - valueRange.start) / (steps + 1)
             val steppedValue = (rawValue / stepSize).roundToInt() * stepSize
@@ -265,7 +250,6 @@ fun CustomSlider(
         }
     }
 
-    // 값 변경 및 햅틱 처리
     fun updateValue(newValue: Float) {
         if (enableHaptic && steps > 0) {
             val currentStep = ((newValue - valueRange.start) /
@@ -299,7 +283,6 @@ fun CustomSlider(
                 }
             }
     ) {
-        // Track
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -315,7 +298,6 @@ fun CustomSlider(
                 )
         )
 
-        // Thumb
         Box(
             modifier = Modifier
                 .size(thumbSize)

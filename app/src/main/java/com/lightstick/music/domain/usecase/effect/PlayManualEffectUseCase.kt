@@ -35,11 +35,9 @@ class PlayManualEffectUseCase @Inject constructor() {
         settings: EffectViewModel.EffectSettings
     ): Result<Unit> {
         return try {
-            // ✅ 1. Payload 생성
             val payload = createPayload(effectType, settings)
                 ?: return Result.failure(IllegalArgumentException("Cannot create payload for $effectType"))
 
-            // ✅ 2. EffectEngineController 호출
             val success = EffectEngineController.sendEffect(
                 context = context,
                 payload = payload,
@@ -65,7 +63,6 @@ class PlayManualEffectUseCase @Inject constructor() {
         effectType: EffectViewModel.UiEffectType,
         settings: EffectViewModel.EffectSettings
     ): LSEffectPayload? {
-        // ✅ 공통 파라미터 변환
         val broadcastingValue = if (settings.broadcasting) 1 else 0
         val randomColorValue = if (settings.randomColor) 1 else 0
         val randomDelayValue = settings.randomDelay
@@ -118,7 +115,6 @@ class PlayManualEffectUseCase @Inject constructor() {
                 )
             }
             is EffectViewModel.UiEffectType.Custom -> {
-                // Custom은 baseType에 따라 생성
                 when (effectType.baseType) {
                     EffectViewModel.UiEffectType.BaseEffectType.ON -> {
                         LSEffectPayload.Effects.on(
@@ -169,7 +165,6 @@ class PlayManualEffectUseCase @Inject constructor() {
                 }
             }
             is EffectViewModel.UiEffectType.EffectList -> {
-                // EffectList는 PlayEffectListUseCase에서 처리
                 null
             }
         }

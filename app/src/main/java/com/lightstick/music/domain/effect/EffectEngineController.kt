@@ -29,12 +29,8 @@ object EffectEngineController {
     @Volatile private var cachedTimeline: List<EfxEntry> = emptyList()
     @Volatile private var lastRecordedEffectIndex: Int = -1
 
-    /** ✅ MusicViewModel에서 FFT 차단용으로 사용 */
+    /**  MusicViewModel에서 FFT 차단용으로 사용 */
     fun isTimelineActive(): Boolean = isTimelineLoaded
-
-    // ─────────────────────────────────────────────
-    // Core send
-    // ─────────────────────────────────────────────
 
     fun sendEffect(
         context: Context,
@@ -179,10 +175,6 @@ object EffectEngineController {
         }
     }
 
-    // ─────────────────────────────────────────────
-    // Timeline
-    // ─────────────────────────────────────────────
-
     /** 자동 타임라인(frames) 로드 — 연결된 모든 기기에 전송 */
     @Synchronized
     fun loadTimelineFromFrames(context: Context, frames: List<Pair<Long, ByteArray>>) {
@@ -244,7 +236,6 @@ object EffectEngineController {
 
         try {
             devices.forEach { it.updatePlaybackPosition(currentPositionMs) }
-            // 첫 번째 기기 기준으로 UI 모니터 기록
             recordCurrentTimelineEffect(devices.first().mac, currentPositionMs)
         } catch (e: Exception) {
             Log.e(TAG, "Update playback failed: ${e.message}")
@@ -301,10 +292,6 @@ object EffectEngineController {
 
         sendColor(context, color, transit = 5, source = TransmissionSource.FFT_EFFECT)
     }
-
-    // ─────────────────────────────────────────────
-    // Target
-    // ─────────────────────────────────────────────
 
     /** 타임라인/재생 제어 대상: 연결된 모든 기기 반환 */
     private fun resolveAllDevices(context: Context): List<Device> {

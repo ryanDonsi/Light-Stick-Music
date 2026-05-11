@@ -16,7 +16,6 @@ class FftAudioProcessor(
 
     private var sampleRate: Int = 44100
 
-    // FFT 인스턴스 캐싱: 동일한 사이즈면 재사용
     private var cachedFftSize: Int = -1
     private var cachedFft: FloatFFT_1D? = null
 
@@ -45,24 +44,18 @@ class FftAudioProcessor(
             return
         }
 
-        // PCM → Float 변환
         val floatSamples = FloatArray(n) { samples[it] / 32768f }
 
-        // FFT 복소수 배열 준비 (realForwardFull: [re0, im0, re1, im1, ...])
         val fftInput = FloatArray(n * 2) { 0f }
         for (i in floatSamples.indices) fftInput[i * 2] = floatSamples[i]
 
-        // 캐시된 FFT 인스턴스 재사용 (사이즈 변경 시에만 재생성)
         if (n != cachedFftSize) {
-            cachedFft = null // 이전 인스턴스 GC 허용 후 새 인스턴스 생성
+            cachedFft = null
             cachedFft = FloatFFT_1D(n.toLong())
             cachedFftSize = n
         }
         cachedFft!!.realForwardFull(fftInput)
 
-        // 샘플레이트 기반 주파수 → bin 인덱스 변환
-        // bin k의 중심 주파수 = k * sampleRate / n
-        // fftInput에서 bin k의 위치 = k * 2 (실수부), k * 2 + 1 (허수부)
         fun hzToBinIndex(hz: Float): Int =
             ((hz * n / sampleRate).toInt() * 2).coerceIn(0, fftInput.size - 2)
 
@@ -83,14 +76,12 @@ class FftAudioProcessor(
             return if (count > 0) (sum / count).toFloat() else 0f
         }
 
-        // 청각적으로 의미 있는 주파수 대역 분할
-        val bass   = bandPower(20f,   250f)   // 저음
-        val mid    = bandPower(250f,  4000f)  // 중음
-        val treble = bandPower(4000f, 16000f) // 고음
+        val bass   = bandPower(20f,   250f)
+        val mid    = bandPower(250f,  4000f)
+        val treble = bandPower(4000f, 16000f)
 
         onFftAnalyzed(FrequencyBand(bass, mid, treble))
 
-        // 나머지 PCM 그대로 패스스루 (다음 AudioSink로 넘김)
         val output = replaceOutputBuffer(size)
         output.put(inputBuffer)
         output.flip()

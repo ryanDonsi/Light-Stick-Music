@@ -93,7 +93,6 @@ object KPopBeatDetectorV7 {
         val segmentFrames = max(1, (params.segmentMs / params.hopMs).toInt())
         val segmentCount = (minSize + segmentFrames - 1) / segmentFrames
 
-
         val segResults = ArrayList<SegmentResult>()
         val mergedBeats = ArrayList<Long>()
         val sourceVotes = LinkedHashMap<BeatSource, Int>()
@@ -122,7 +121,6 @@ object KPopBeatDetectorV7 {
                     params = params
                 )
                 trials += trial
-
 
                 if (trial.reason == "ok") {
                     if (best == null || trial.score > best!!.score) {
@@ -154,7 +152,6 @@ object KPopBeatDetectorV7 {
             mergedBeats += absoluteBeats
             sourceVotes[best.source] = (sourceVotes[best.source] ?: 0) + 1
 
-
             segResults += SegmentResult(
                 index = segIndex,
                 startMs = segStartMs,
@@ -182,7 +179,6 @@ object KPopBeatDetectorV7 {
 
         val finalBeatMs = estimateMedianInterval(deduped)
         val finalSource = sourceVotes.maxByOrNull { it.value }?.key
-
 
         return DetectResult(
             beatTimesMs = deduped,

@@ -63,7 +63,7 @@ class AutoTimelineStorage(
     }
 
     /**
-     * ✅ 테스트용: 현재 version(vX)에 해당하는 모든 타임라인 파일 삭제
+     *  테스트용: 현재 version(vX)에 해당하는 모든 타임라인 파일 삭제
      * - 예: version=2면 "*_v2.bin" 파일만 삭제
      */
     fun clearAll(context: Context) {
@@ -71,7 +71,6 @@ class AutoTimelineStorage(
         if (!d.exists()) return
 
         d.listFiles()?.forEach { f ->
-            // timeline_123_v2.bin
             if (f.isFile && f.name.endsWith("_v$version.bin")) {
                 runCatching { f.delete() }
             }
@@ -79,7 +78,7 @@ class AutoTimelineStorage(
     }
 
     /**
-     * ✅ 특정 곡(musicId)만 삭제 (테스트/디버그용)
+     *  특정 곡(musicId)만 삭제 (테스트/디버그용)
      */
     fun clearOne(context: Context, musicId: Int) {
         runCatching { file(context, musicId).delete() }

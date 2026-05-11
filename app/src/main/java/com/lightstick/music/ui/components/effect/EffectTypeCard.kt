@@ -75,7 +75,6 @@ fun EffectTypeCard(
                     text = effect.displayName,
                     style = MaterialTheme.typography.titleLarge,
                     color = titleColor,
-                    // ✅ 요청사항 1: 긴 타이틀 축약
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -90,7 +89,6 @@ fun EffectTypeCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // ✅ 요청사항 2: FG/BG 버튼 로직 함수화 및 재귀 적용
                 ShowColorChipForEffect(
                     effect = effect,
                     chipType = "FG",
@@ -107,7 +105,6 @@ fun EffectTypeCard(
                     isEnabled = isEnabled,
                     onClick = onBackgroundColorClick
                 )
-                // ✅ 수정: Custom Effect일 경우 메뉴를 띄우도록 Box로 감쌈
                 Box {
                     var showCustomMenu by remember { mutableStateOf(false) }
 
@@ -177,7 +174,7 @@ private fun EffectParameters(
     isEnabled: Boolean
 ) {
     val iconTint = when {
-        isSelected -> Color.Unspecified // ParameterItem 내부에서 개별 색상 지정
+        isSelected -> Color.Unspecified
         isEnabled -> MaterialTheme.customColors.surfaceVariant
         else -> MaterialTheme.customColors.disable
     }

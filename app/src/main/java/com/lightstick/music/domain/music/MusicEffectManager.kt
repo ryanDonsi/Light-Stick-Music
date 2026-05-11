@@ -11,7 +11,7 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * ✅ SAF 지원 추가
+ *  SAF 지원 추가
  * - File 기반 초기화 (하위 호환)
  * - SAF 기반 초기화 (권장)
  */
@@ -19,11 +19,10 @@ object MusicEffectManager {
 
     private val TAG = "MusicEffectManager"
 
-    // musicId -> EFX 파일 매핑 (ConcurrentHashMap: 멀티스레드 안전)
     private val effectFileMap = ConcurrentHashMap<Int, File>()
 
     /**
-     * ✅ SAF 기반 초기화 (권장)
+     *  SAF 기반 초기화 (권장)
      */
     fun initializeFromSAF(context: Context) {
         effectFileMap.clear()
@@ -31,32 +30,30 @@ object MusicEffectManager {
         val effectFiles = EffectPathPreferences.listEffectFiles(context)
 
         if (effectFiles.isEmpty()) {
-            Log.w(TAG, "⚠️ No EFX files found in configured directory")
+            Log.w(TAG, "No EFX files found in configured directory")
             return
         }
 
         effectFiles.forEach { docFile ->
             try {
-                // DocumentFile을 임시 File로 복사
                 val tempFile = EffectPathPreferences.copyToTempFile(context, docFile)
                     ?: return@forEach
 
-                // EFX 파일 읽기
                 val efx = Efx.Companion.read(tempFile)
                 val musicId = efx.header.musicId
 
                 effectFileMap[musicId] = tempFile
 
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Failed to read EFX file ${docFile.name}: ${e.message}")
+                Log.e(TAG, "Failed to read EFX file ${docFile.name}: ${e.message}")
             }
         }
 
-        Log.i(TAG, "📦 Initialized with ${effectFileMap.size} EFX files")
+        Log.i(TAG, "Initialized with ${effectFileMap.size} EFX files")
     }
 
     /**
-     * ✅ File 기반 초기화 (하위 호환)
+     *  File 기반 초기화 (하위 호환)
      */
     fun initialize(effectDir: File) {
         if (!effectDir.exists()) {
@@ -83,7 +80,7 @@ object MusicEffectManager {
     }
 
     /**
-     * ✅ SDK 활용: MusicId.fromFile()
+     *  SDK 활용: MusicId.fromFile()
      */
     fun hasEffectFor(musicFile: File): Boolean {
         return try {
@@ -96,7 +93,7 @@ object MusicEffectManager {
     }
 
     /**
-     * ✅ SDK 활용: MusicId.fromUri()
+     *  SDK 활용: MusicId.fromUri()
      */
     fun hasEffectFor(context: Context, musicUri: Uri): Boolean {
         return try {
@@ -109,7 +106,7 @@ object MusicEffectManager {
     }
 
     /**
-     * ✅ SDK 활용: Efx.read()로 파일을 읽어 EfxEntry 리스트 반환
+     *  SDK 활용: Efx.read()로 파일을 읽어 EfxEntry 리스트 반환
      */
     fun loadEffects(musicFile: File): List<EfxEntry>? {
         return try {
@@ -122,7 +119,7 @@ object MusicEffectManager {
     }
 
     /**
-     * ✅ SDK 활용: Efx.read()
+     *  SDK 활용: Efx.read()
      */
     fun loadEffects(context: Context, musicUri: Uri): List<EfxEntry>? {
         return try {
@@ -135,7 +132,7 @@ object MusicEffectManager {
     }
 
     /**
-     * ✅ SDK 활용: Efx.read()로 파싱
+     *  SDK 활용: Efx.read()로 파싱
      */
     fun loadEffectsByMusicId(musicId: Int): List<EfxEntry>? {
         val efxFile = effectFileMap[musicId] ?: return null

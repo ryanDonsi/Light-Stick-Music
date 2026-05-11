@@ -1,6 +1,5 @@
 package com.lightstick.music.core.util
 
-// Compose와 SDK의 Color 클래스 이름이 같으므로, Type Alias를 사용하여 명확히 구분합니다.
 import androidx.compose.ui.graphics.Color as ComposeColor
 import com.lightstick.types.Color as SdkColor
 

@@ -35,7 +35,6 @@ object SafHelper {
             addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
         }
 
-        // 초기 위치 힌트 제공 (Android O+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && initialUri != null) {
             intent.putExtra("android.provider.extra.INITIAL_URI", initialUri)
         }
@@ -68,7 +67,7 @@ object SafHelper {
             context.contentResolver.takePersistableUriPermission(uri, takeFlags)
             true
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to take persistable permission: ${e.message}")
+            Log.e(TAG, "Failed to take persistable permission: ${e.message}")
             false
         }
     }
@@ -131,7 +130,7 @@ object SafHelper {
 
             tempFile
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to copy to temp: ${e.message}")
+            Log.e(TAG, "Failed to copy to temp: ${e.message}")
             null
         }
     }

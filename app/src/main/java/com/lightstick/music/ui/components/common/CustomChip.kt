@@ -42,17 +42,16 @@ fun CustomChip(
         onClick = onClick,
         modifier = modifier
             .width(62.dp)
-            .height(36.dp), // Figma: 30px height
+            .height(36.dp),
         enabled = enabled,
-        shape = RoundedCornerShape(8.dp), // Figma: 8px corner radius
+        shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = containerColor,
             contentColor = contentColor,
-            // Figma 디자인에 명시된 비활성화 스타일이 없으므로 기본 비활성화 스타일을 따름
             disabledContainerColor = containerColor.copy(alpha = 0.5f),
             disabledContentColor = contentColor.copy(alpha = 0.7f)
         ),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp) // Figma: padding
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Text(
             text = text,

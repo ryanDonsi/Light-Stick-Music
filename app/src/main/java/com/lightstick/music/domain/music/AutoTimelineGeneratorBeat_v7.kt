@@ -170,10 +170,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         return frames.sortedBy { it.first }
     }
 
-    // ------------------------------------------------------------
-    // Global beat
-    // ------------------------------------------------------------
-
     private data class GlobalBeatResult(
         val beatMs: Long,
         val confidence: Float
@@ -207,10 +203,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             confidence = periodicity
         )
     }
-
-    // ------------------------------------------------------------
-    // Windows / Section analysis
-    // ------------------------------------------------------------
 
     private fun buildFeatureWindows(
         lowEnv: List<Float>,
@@ -417,10 +409,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         return nonOverlap
     }
 
-    // ------------------------------------------------------------
-    // Section beat detect
-    // ------------------------------------------------------------
-
     private fun detectSectionBeats(
         sections: List<FeatureWindow>,
         lowEnv: List<Float>,
@@ -482,7 +470,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
                 changeStrength = s.changeStrength
             )
 
-
             out += SectionInfo(
                 index = idx,
                 startMs = s.startMs,
@@ -528,10 +515,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             else -> EngineMode.ON_PULSE
         }
     }
-
-    // ------------------------------------------------------------
-    // Timeline
-    // ------------------------------------------------------------
 
     private fun buildTimeline(
         sections: List<SectionInfo>,
@@ -788,10 +771,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         }
     }
 
-    // ------------------------------------------------------------
-    // Logs
-    // ------------------------------------------------------------
-
     private fun logBeat(
         t: Long,
         sectionType: SectionType,
@@ -878,10 +857,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             SectionType.END -> "END -> OFF_TRANSIT"
         }
     }
-
-    // ------------------------------------------------------------
-    // Beat helpers
-    // ------------------------------------------------------------
 
     private fun computeNovelty(
         lowEnv: List<Float>,
@@ -1071,10 +1046,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         return bestOffset.toLong() * hopMs
     }
 
-    // ------------------------------------------------------------
-    // Palette / colors
-    // ------------------------------------------------------------
-
     private fun buildPalette(seed: Int, paletteSize: Int): Palette {
         val rnd = Random(seed)
 
@@ -1165,10 +1136,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         )
     }
 
-    // ------------------------------------------------------------
-    // Period helpers
-    // ------------------------------------------------------------
-
     private fun msToBlinkPeriod(beatMs: Long): Int {
         return (beatMs / 10L).toInt().coerceIn(1, 255)
     }
@@ -1192,10 +1159,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             else -> 9
         }.coerceIn(3, 10)
     }
-
-    // ------------------------------------------------------------
-    // Decode / envelope
-    // ------------------------------------------------------------
 
     private fun decodeEnvelopeInternal(
         musicPath: String,
@@ -1423,10 +1386,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
 
         return out
     }
-
-    // ------------------------------------------------------------
-    // Utils
-    // ------------------------------------------------------------
 
     private fun average(src: List<Float>): Float {
         if (src.isEmpty()) return 0f

@@ -28,12 +28,10 @@ fun PermissionItem(
     Column(
         modifier = modifier.fillMaxWidth()
     ) {
-        // 아이콘 + 타이틀 Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 아이콘 (24dp)
             Icon(
                 painter = painterResource(id = iconRes),
                 contentDescription = title,
@@ -41,10 +39,8 @@ fun PermissionItem(
                 modifier = Modifier.size(24.dp)
             )
 
-            // 아이콘과 타이틀 간격: 8dp
             Spacer(modifier = Modifier.width(8.dp))
 
-            // 권한 이름
             Text(
                 text = title,
                 style = MaterialTheme.customTextStyles.bodyAccent,
@@ -52,16 +48,14 @@ fun PermissionItem(
             )
         }
 
-        // 타이틀과 설명 간격: 4dp
         Spacer(modifier = Modifier.height(4.dp))
 
-        // 설명 (아이콘 너비 + 간격 = 32dp 만큼 시작점 이동, end 16dp)
         Text(
             text = description,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.customColors.onSurfaceVariant,
             lineHeight = MaterialTheme.typography.bodySmall.fontSize * 1.5,
-            modifier = Modifier.padding(start = 32.dp, end = 16.dp) // start: 24dp(icon) + 8dp(spacer), end: 16dp
+            modifier = Modifier.padding(start = 32.dp, end = 16.dp)
         )
     }
 }

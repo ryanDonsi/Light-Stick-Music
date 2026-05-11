@@ -40,8 +40,6 @@ class GameViewModel @Inject constructor(
             (mode.toSdkMode().resultTimeoutMs(difficulty.toSdkLevel()) / 1000L).toInt()
     }
 
-    // ─── UI State ─────────────────────────────────────────────────────────────
-
     private val _selectedMode = MutableStateFlow<GameMode?>(null)
     val selectedMode: StateFlow<GameMode?> = _selectedMode.asStateFlow()
 
@@ -54,12 +52,8 @@ class GameViewModel @Inject constructor(
     val bleConnectionState    = gameBleManager.connectionState
     val isGameModeSupported   = gameBleManager.isGameModeSupported
 
-    // ─── Countdown ────────────────────────────────────────────────────────────
-
     private val _countdownSeconds = MutableStateFlow(0)
     val countdownSeconds: StateFlow<Int> = _countdownSeconds.asStateFlow()
-
-    // ─── Playing Timer ────────────────────────────────────────────────────────
 
     private val _playingElapsedSeconds = MutableStateFlow(0)
     val playingElapsedSeconds: StateFlow<Int> = _playingElapsedSeconds.asStateFlow()
@@ -67,23 +61,15 @@ class GameViewModel @Inject constructor(
     val playingMaxSeconds: StateFlow<Int> = _playingMaxSeconds.asStateFlow()
     private var timerJob: Job? = null
 
-    // ─── Accumulated Results ──────────────────────────────────────────────────
-
     private val collectedResults = mutableListOf<WandResult>()
     private var resultCollectJob: Job? = null
-
-    // ─── Partial Results (Mode 1/2 진행 중 실시간 순위) ───────────────────────
 
     private val _partialResults = MutableStateFlow<List<WandResult>>(emptyList())
     val partialResults: StateFlow<List<WandResult>> = _partialResults.asStateFlow()
 
-    // ─── Init ─────────────────────────────────────────────────────────────────
-
     init {
         observeGameResults()
     }
-
-    // ─── Public Actions ───────────────────────────────────────────────────────
 
     fun selectMode(mode: GameMode) {
         _selectedMode.value = mode
@@ -120,7 +106,6 @@ class GameViewModel @Inject constructor(
 
         _gameState.value = GameState.Ready
 
-        // 응원봉은 READY 수신 후 약 2초 뒤 Auto-START — UI 카운트다운
         viewModelScope.launch {
             for (sec in AUTO_START_DELAY_MS.toInt() / 1000 downTo 1) {
                 _countdownSeconds.value = sec
@@ -151,8 +136,6 @@ class GameViewModel @Inject constructor(
         _gameState.value = GameState.Idle
     }
 
-    // ─── Playing Timer ────────────────────────────────────────────────────────
-
     private fun startPlayingTimer(mode: GameMode, difficulty: GameDifficulty) {
         timerJob?.cancel()
         _playingElapsedSeconds.value = 0
@@ -170,8 +153,6 @@ class GameViewModel @Inject constructor(
         timerJob = null
     }
 
-    // ─── Result Collection ────────────────────────────────────────────────────
-
     private fun observeGameResults() {
         viewModelScope.launch {
             observeGameResultsUseCase().collect { result ->
@@ -188,7 +169,6 @@ class GameViewModel @Inject constructor(
 
     private fun onResultReceived(result: GameResult) {
         if (!result.isWandIdValid) {
-            // wandId=0x0000/0xFFFF: 게임 종료 요약 패킷 → 즉시 결과 확정
             resultCollectJob?.cancel()
             finalizeSummaryPacket(result)
             return
@@ -208,7 +188,6 @@ class GameViewModel @Inject constructor(
             }
         }
 
-        // 슬라이딩 윈도우 — 새 결과가 올 때마다 타이머 리셋
         resultCollectJob?.cancel()
         resultCollectJob = viewModelScope.launch {
             delay(RESULT_COLLECT_WINDOW_MS)
@@ -286,8 +265,6 @@ class GameViewModel @Inject constructor(
 
         _gameState.value = GameState.Finished(summary)
     }
-
-    // ─── Lifecycle ────────────────────────────────────────────────────────────
 
     override fun onCleared() {
         super.onCleared()

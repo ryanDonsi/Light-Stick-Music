@@ -26,7 +26,6 @@ fun LogoScreen(
     modifier: Modifier = Modifier,
     displayDuration: Long = 2000L
 ) {
-    // 자동 전환 타이머
     LaunchedEffect(Unit) {
         delay(displayDuration)
         onTimeout()
@@ -38,7 +37,6 @@ fun LogoScreen(
             .background(MaterialTheme.customColors.background),
         contentAlignment = Alignment.Center
     ) {
-        // GLOWSYNC 로고 이미지
         Image(
             painter = painterResource(id = R.drawable.logo_glowsync),
             contentDescription = "GLOWSYNC Logo",

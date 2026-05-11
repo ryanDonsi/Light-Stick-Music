@@ -41,22 +41,20 @@ fun CustomTopBar(
             .fillMaxWidth()
             .statusBarsPadding()
             .background(backgroundColor)
-            .height(60.dp)  // Figma 스펙: 60px
+            .height(60.dp)
     ) {
-        // 타이틀 (완전 중앙 정렬)
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.customTextStyles.topBarLarge,  // SemiBold 17sp, 125%
+                style = MaterialTheme.customTextStyles.topBarLarge,
                 color = MaterialTheme.customColors.onSurface,
                 textAlign = TextAlign.Center
             )
         }
 
-        // 좌측 버튼 (뒤로가기)
         if (showBackButton) {
             Box(
                 modifier = Modifier
@@ -65,7 +63,7 @@ fun CustomTopBar(
             ) {
                 IconButton(
                     onClick = { onBackClick?.invoke() },
-                    modifier = Modifier.size(36.dp)  // Figma 스펙: 36×36px
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_back),
@@ -77,7 +75,6 @@ fun CustomTopBar(
             }
         }
 
-        // 우측 액션 텍스트
         if (actionText != null) {
             Box(
                 modifier = Modifier
@@ -90,7 +87,7 @@ fun CustomTopBar(
                 ) {
                     Text(
                         text = actionText,
-                        style = MaterialTheme.customTextStyles.topBarSmall,  // SemiBold 14sp, 140%
+                        style = MaterialTheme.customTextStyles.topBarSmall,
                         color = actionTextColor
                     )
                 }

@@ -26,9 +26,7 @@ object BeatDetectorV9 {
     private const val HARMONIC_DOUBLE_RATIO = 0.80f
     private const val HARMONIC_TWO_THIRDS_RATIO = 0.75f
 
-    // localNormalize 슬라이딩 윈도우: 60프레임 = 3초 (hopMs=50ms 기준)
     private const val LOCAL_NORM_WINDOW = 60
-    // 글로벌 BPM 추정용 더 넓은 윈도우: 80프레임 = 4초
     private const val GLOBAL_NORM_WINDOW = 80
 
     enum class BeatSource {
@@ -84,10 +82,6 @@ object BeatDetectorV9 {
         val reason: String
     )
 
-    // =========================================================================
-    // Public entry point
-    // =========================================================================
-
     fun detect(
         lowEnv: List<Float>,
         midEnv: List<Float>,
@@ -104,13 +98,11 @@ object BeatDetectorV9 {
         val full = fullEnv.take(minSize)
         val durationMs = minSize * params.hopMs
 
-        // ① 전곡 글로벌 BPM 추정
         val globalBeatMs = estimateGlobalBpm(low, mid, params)
 
         val effectiveSegmentMs = if (durationMs < 60_000L) durationMs else params.segmentMs
         val segmentFrames = max(1, (effectiveSegmentMs / params.hopMs).toInt())
         val segmentCount = (minSize + segmentFrames - 1) / segmentFrames
-
 
         val segResults = ArrayList<SegmentResult>()
         val mergedBeats = ArrayList<Long>()
@@ -144,7 +136,6 @@ object BeatDetectorV9 {
                 )
                 trials += trial
 
-
                 if (trial.reason == "ok") {
                     val bestNonNull = best
                     val isBetter = when {
@@ -171,7 +162,6 @@ object BeatDetectorV9 {
             mergedBeats += absoluteBeats
             sourceVotes[best.source] = (sourceVotes[best.source] ?: 0) + 1
 
-
             segResults += SegmentResult(segIndex, segStartMs, segEndMs, best.source,
                 absoluteBeats, best.beatMs, best.score, best.reason, trials)
         }
@@ -183,9 +173,6 @@ object BeatDetectorV9 {
         }
 
         val rawBeatMs = estimateMedianInterval(deduped, params.minBeatMs, params.maxBeatMs, params.hopMs)
-        // 전곡 autocorr(globalBeatMs)가 inter-beat mode보다 신뢰도 높을 수 있음:
-        // - 33개처럼 비트가 드문 곡에서 hop 양자화로 450ms 편향이 생길 때
-        // - globalBeatMs가 rawBeatMs보다 작고 17% 이내이면 globalBeatMs 우선
         val finalBeatMs = if (globalBeatMs != null &&
             globalBeatMs < rawBeatMs &&
             rawBeatMs - globalBeatMs < rawBeatMs / 6) {
@@ -195,23 +182,14 @@ object BeatDetectorV9 {
         }
         val finalSource = sourceVotes.maxByOrNull { it.value }?.key
 
-
         return DetectResult(deduped, finalBeatMs, finalSource, "ok", segResults)
     }
-
-    // =========================================================================
-    // ① 글로벌 BPM 추정 (전곡 LOW_MID ODF 기반)
-    // =========================================================================
 
     private fun estimateGlobalBpm(low: List<Float>, mid: List<Float>, params: Params): Long? {
         val combined = mix(low, mid, 0.55f, 0.45f)
         val onset = computeOdf(combined, smoothWindow = 5, normWindow = GLOBAL_NORM_WINDOW)
         return autoCorrelateBeat(onset, params.hopMs, params.minBeatMs, params.maxBeatMs)?.first
     }
-
-    // =========================================================================
-    // Single source detection
-    // =========================================================================
 
     private fun detectSingleSource(
         segmentIndex: Int,
@@ -225,7 +203,6 @@ object BeatDetectorV9 {
             return TrialResult(source, emptyList(), 0L, 0f, 0, 0, 0f, 0f, 0f, 0f, 0f, "env too short")
         }
 
-        // ② localNormalize ODF — 조용한 구간도 onset 밀도 유지
         val onset = computeOdf(env, params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
 
         val mean = meanOf(onset)
@@ -236,10 +213,8 @@ object BeatDetectorV9 {
         val minPeakFrames = max(1, (params.minPeakDistanceMs / params.hopMs).toInt())
         val rawPeaks = findPeaks(onset, threshold, minPeakFrames)
 
-        // 세그먼트 autocorr 우선 시도
         val acResult = autoCorrelateBeat(onset, params.hopMs, params.minBeatMs, params.maxBeatMs)
 
-        // ③ globalBeatMs 폴백: 세그먼트 autocorr 실패 시 전곡 BPM 사용
         val beatMs: Long
         val acPeak: Float
         when {
@@ -252,7 +227,6 @@ object BeatDetectorV9 {
                 acPeak = 0.5f
             }
             else -> {
-                // rawPeak 간격 중앙값 폴백
                 val fallbackMs = rawPeakMedianInterval(rawPeaks, params)
                 if (fallbackMs != null) {
                     val snappedFb = snapPeaksToGrid(rawPeaks, onset, fallbackMs, params.hopMs, params.snapToleranceMs)
@@ -298,25 +272,17 @@ object BeatDetectorV9 {
             rawPeaks.size, chained.size, mean, std, onsetMax, acPeak, snapRatio, "ok")
     }
 
-    // =========================================================================
-    // ODF — localNormalize 기반
-    // =========================================================================
-
     private fun computeOdf(env: List<Float>, smoothWindow: Int, normWindow: Int): List<Float> {
         val smooth = movingAverage(env, smoothWindow)
         val diff = positiveDiff(smooth)
         return localNormalize(diff, normWindow)
     }
 
-    // =========================================================================
-    // ④ Source ordering — LOW/LOW_MID 우선 보너스
-    // =========================================================================
-
     private fun buildSourceOrder(low: List<Float>, mid: List<Float>, full: List<Float>): List<BeatSource> {
         val lowVar = varOf(low)
         val midVar = varOf(mid)
         val fullVar = varOf(full)
-        val BASS_BONUS = 0.003f  // 저음 소스 우선
+        val BASS_BONUS = 0.003f
         val scored = listOf(
             BeatSource.LOW to (lowVar + BASS_BONUS),
             BeatSource.LOW_MID to ((lowVar + midVar) * 0.5f + min(lowVar, midVar) * 0.2f + BASS_BONUS),
@@ -338,10 +304,6 @@ object BeatDetectorV9 {
             BeatSource.LOW_FULL -> mix(low, full, 0.60f, 0.40f)
         }
     }
-
-    // =========================================================================
-    // Autocorrelation + harmonic folding (V8과 동일)
-    // =========================================================================
 
     private fun autoCorrelateBeat(onset: List<Float>, hopMs: Long, minBeatMs: Long, maxBeatMs: Long): Pair<Long, Float>? {
         val minLag = max(1, (minBeatMs / hopMs).toInt())
@@ -366,7 +328,6 @@ object BeatDetectorV9 {
         val confidence = (bestValue - secondValue).coerceAtLeast(0f) + bestValue
         if (confidence < 0.012f) return null
 
-        // harmonic fold /2
         val halfLag = bestLag / 2
         if (halfLag >= minLag) {
             val halfValue = corrArray[halfLag]
@@ -383,7 +344,6 @@ object BeatDetectorV9 {
             }
         }
 
-        // harmonic fold /3
         val thirdLag = bestLag / 3
         if (thirdLag >= minLag) {
             val thirdValue = corrArray[thirdLag]
@@ -392,7 +352,6 @@ object BeatDetectorV9 {
             }
         }
 
-        // harmonic two-thirds ×2/3
         val twoThirdLag = bestLag * 2 / 3
         val twoThirdBeatMs = twoThirdLag * hopMs
         if (twoThirdLag >= minLag && twoThirdBeatMs >= minBeatMs && twoThirdBeatMs <= (maxBeatMs * 0.65f).toLong()) {
@@ -406,7 +365,6 @@ object BeatDetectorV9 {
             }
         }
 
-        // harmonic doubling ×2
         val doubleGuardMs = (maxBeatMs * 0.55f).toLong()
         val doubleLag = bestLag * 2
         val doubleValue: Float = when {
@@ -425,10 +383,6 @@ object BeatDetectorV9 {
 
         return bestLag * hopMs to bestValue.coerceIn(0f, 1f)
     }
-
-    // =========================================================================
-    // Peak snapping & chain
-    // =========================================================================
 
     private fun snapPeaksToGrid(rawPeakFrames: List<Int>, onset: List<Float>, beatMs: Long, hopMs: Long, snapToleranceMs: Long): List<Int> {
         if (rawPeakFrames.isEmpty()) return emptyList()
@@ -474,10 +428,6 @@ object BeatDetectorV9 {
         return sorted[sorted.size / 2]
     }
 
-    // =========================================================================
-    // Utility
-    // =========================================================================
-
     private fun estimateMedianInterval(beats: List<Long>, minBeatMs: Long, maxBeatMs: Long, hopMs: Long = 50L): Long {
         if (beats.size < 2) return 500L
         val diffs = ArrayList<Long>()
@@ -486,8 +436,6 @@ object BeatDetectorV9 {
             if (d in minBeatMs..maxBeatMs) diffs += d
         }
         if (diffs.isEmpty()) return 500L
-        // hop 그리드(50ms)로 올림해 mode를 취함: 양자화 노이즈로 median이
-        // 인접 hop 값(450ms)으로 튀는 현상 방지 (예: TOMBOY 400ms → 450ms 오검출)
         val binned = diffs.map { (it / hopMs) * hopMs }
         val mode = binned.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
         return mode ?: diffs.sorted()[diffs.size / 2]
@@ -519,8 +467,6 @@ object BeatDetectorV9 {
         return peaks
     }
 
-    // ② localNormalize: 슬라이딩 윈도우 지역 정규화
-    // normalize01과 달리 조용한 구간에서도 onset 피크를 살려 autocorr 신뢰도 유지
     private fun localNormalize(src: List<Float>, windowFrames: Int): List<Float> {
         if (src.isEmpty()) return emptyList()
         val out = ArrayList<Float>(src.size)

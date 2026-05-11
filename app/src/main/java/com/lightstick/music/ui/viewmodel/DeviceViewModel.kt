@@ -57,10 +57,6 @@ class DeviceViewModel @Inject constructor(
         private const val TAG = AppConstants.Feature.VM_DEVICE
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // State Flows
-    // ═══════════════════════════════════════════════════════════
-
     private val _devices = MutableStateFlow<List<Device>>(emptyList())
     val devices: StateFlow<List<Device>> = _devices.asStateFlow()
 
@@ -124,19 +120,10 @@ class DeviceViewModel @Inject constructor(
         }
     }
 
-
-    // ═══════════════════════════════════════════════════════════
-    // Initialization
-    // ═══════════════════════════════════════════════════════════
-
     init {
         observeDeviceStateEvents()
         ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Device State Event Observer
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * SDK SharedFlow 기반 디바이스 상태 이벤트 관찰
@@ -156,10 +143,6 @@ class DeviceViewModel @Inject constructor(
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // SDK 이벤트 처리
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * SDK에서 연결 이벤트 감지 시 처리.
      * DeviceViewModel.connect()를 통해 이미 처리된 경우는 skip.
@@ -177,7 +160,6 @@ class DeviceViewModel @Inject constructor(
 
         connectedDevices[mac] = device
 
-        // ✅ _devices에 없는 기기(스캔 외 복원/외부 연결)도 즉시 목록에 추가
         if (_devices.value.none { it.mac == mac }) {
             _devices.value = (_devices.value + device).sortedWith(
                 compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
@@ -208,27 +190,20 @@ class DeviceViewModel @Inject constructor(
         updateConnectionState(mac, false)
         stopBatteryMonitoring(mac)
 
-        // 연결 해제 시 디바이스 상세 상태 초기화
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
             if (existing != null) this[mac] = existing.copy(isConnected = false)
         }
 
-        // OTA 진행 상태 정리
         if (_otaInProgress.value.containsKey(mac)) {
             _otaInProgress.value -= mac
             _otaProgress.value   -= mac
         }
 
-        // 이벤트 규칙 상태 정리
         if (_eventStates.value.containsKey(mac)) {
             _eventStates.value -= mac
         }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // BLE Scan
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * 스캔 결과 단건을 _devices에 즉시 반영 (실시간 업데이트용)
@@ -238,9 +213,9 @@ class DeviceViewModel @Inject constructor(
         val current = _devices.value.toMutableList()
         val idx = current.indexOfFirst { it.mac == device.mac }
         if (idx >= 0) {
-            current[idx] = device  // RSSI 등 정보 갱신
+            current[idx] = device
         } else {
-            current.add(device)    // 신규 디바이스 추가
+            current.add(device)
         }
         _devices.value = current.sortedWith(
             compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
@@ -259,7 +234,6 @@ class DeviceViewModel @Inject constructor(
         if (_isScanning.value) return
 
         _isScanning.value = true
-        // 연결된 기기는 유지, 미연결 기기만 초기화
         _devices.value = _devices.value.filter { _connectionStates.value[it.mac] == true }
 
         scanJob = viewModelScope.launch {
@@ -268,13 +242,11 @@ class DeviceViewModel @Inject constructor(
                     context    = context,
                     durationMs = AppConstants.DEVICE_SCAN_DURATION_MS,
                     filter     = { true },
-                    // ✅ 발견 즉시 _devices 업데이트
                     onFound    = { device -> applyScannedDevice(device) }
                 ).onFailure { error ->
-                    Log.e(TAG, "❌ Scan failed: ${error.message}")
+                    Log.e(TAG, "Scan failed: ${error.message}")
                 }
             } catch (_: Exception) {
-                // scan job cancelled
             } finally {
                 _isScanning.value = false
             }
@@ -297,23 +269,20 @@ class DeviceViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                // 1. 이전 스캔 Job 취소
                 if (scanJob?.isActive == true) {
                     scanJob?.cancel()
                     scanJob = null
                 }
 
-                // 2. BLE 하드웨어 스캔 중지
                 stopScanUseCase(context)
                 _isScanning.value = false
 
             } catch (e: Exception) {
                 _isScanning.value = false
-                Log.e(TAG, "❌ Stop scan error: ${e.message}")
+                Log.e(TAG, "Stop scan error: ${e.message}")
                 return@launch
             }
 
-            // 3. startScan() 재사용 → _isScanning 생명주기는 startScan이 관리
             startScan(context)
         }
     }
@@ -327,14 +296,10 @@ class DeviceViewModel @Inject constructor(
 
         viewModelScope.launch {
             stopScanUseCase(context)
-                .onFailure { Log.e(TAG, "❌ Error stopping scan: ${it.message}") }
+                .onFailure { Log.e(TAG, "Error stopping scan: ${it.message}") }
             _isScanning.value = false
         }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Device Connection
-    // ═══════════════════════════════════════════════════════════
 
     fun toggleConnection(context: Context, device: Device) {
         val isConnected = _connectionStates.value[device.mac] == true
@@ -345,36 +310,34 @@ class DeviceViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 if (!PermissionManager.hasBluetoothConnectPermission(context)) {
-                    Log.w(TAG, "⚠️ BLUETOOTH_CONNECT permission not available"); return@launch
+                    Log.w(TAG, "BLUETOOTH_CONNECT permission not available"); return@launch
                 }
 
                 connectDeviceUseCase(
                     context      = context,
                     device       = device,
                     onConnected  = {
-                        // SDK 이벤트로 onDeviceConnectedFromSdk 호출 전에 먼저 등록
-                        // → 중복 처리 방지
                         connectedDevices[device.mac] = device
                         viewModelScope.launch {
                             sendConnectionEffectUseCase(context, device).onFailure { error ->
-                                Log.e(TAG, "❌ Connection animation failed: ${error.message}")
+                                Log.e(TAG, "Connection animation failed: ${error.message}")
                             }
                         }
                     },
                     onFailed     = { error ->
-                        Log.e(TAG, "❌ Connection failed: ${error.message}")
+                        Log.e(TAG, "Connection failed: ${error.message}")
                         connectedDevices.remove(device.mac)
                     },
                     onDeviceInfo = { info ->
                         updateDeviceInfoFromCallback(device.mac, info)
                     }
                 ).onFailure { error ->
-                    Log.e(TAG, "❌ Connect use case failed: ${error.message}")
+                    Log.e(TAG, "Connect use case failed: ${error.message}")
                     connectedDevices.remove(device.mac)
                 }
 
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Error during connect: ${e.message}", e)
+                Log.e(TAG, "Error during connect: ${e.message}", e)
                 connectedDevices.remove(device.mac)
             }
         }
@@ -384,43 +347,35 @@ class DeviceViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 if (!PermissionManager.hasBluetoothConnectPermission(context)) {
-                    Log.w(TAG, "⚠️ BLUETOOTH_CONNECT permission not available"); return@launch
+                    Log.w(TAG, "BLUETOOTH_CONNECT permission not available"); return@launch
                 }
 
                 disconnectDeviceUseCase(context, device)
-                    .onFailure { error -> Log.e(TAG, "❌ Disconnect failed: ${error.message}") }
+                    .onFailure { error -> Log.e(TAG, "Disconnect failed: ${error.message}") }
 
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Error during disconnect: ${e.message}", e)
+                Log.e(TAG, "Error during disconnect: ${e.message}", e)
             }
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Find Effect
-    // ═══════════════════════════════════════════════════════════
-
     fun sendFindEffect(device: Device) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) {
-            Log.w(TAG, "⚠️ BLUETOOTH_CONNECT 권한 없음"); return
+            Log.w(TAG, "BLUETOOTH_CONNECT 권한 없음"); return
         }
 
         viewModelScope.launch {
             try {
                 if (_connectionStates.value[device.mac] != true) {
-                    Log.w(TAG, "⚠️ Device not connected: ${device.mac}"); return@launch
+                    Log.w(TAG, "Device not connected: ${device.mac}"); return@launch
                 }
                 sendFindEffectUseCase(context = context, deviceMac = device.mac)
-                    .onFailure { error -> Log.e(TAG, "❌ FIND effect failed: ${error.message}") }
+                    .onFailure { error -> Log.e(TAG, "FIND effect failed: ${error.message}") }
             } catch (e: Exception) {
-                Log.e(TAG, "❌ FIND effect error: ${e.message}", e)
+                Log.e(TAG, "FIND effect error: ${e.message}", e)
             }
         }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // OTA
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * 파일 선택 → 버전 비교 → otaVersionCheck StateFlow 업데이트
@@ -440,14 +395,13 @@ class DeviceViewModel @Inject constructor(
                 val firmware = withContext(Dispatchers.IO) {
                     context.contentResolver.openInputStream(firmwareUri)?.use { it.readBytes() }
                 } ?: run {
-                    Log.e(TAG, "❌ OTA: Cannot open firmware file")
+                    Log.e(TAG, "OTA: Cannot open firmware file")
                     return@launch
                 }
 
                 val deviceVersion = _deviceDetails.value[device.mac]
                     ?.deviceInfo?.firmwareRevision.orEmpty()
 
-                // 파일에서 버전 파싱, 실패 시 테스트용 시뮬레이션 버전 사용
                 val fileVersion = FirmwareVersionParser.parseFromBytes(firmware)
                     ?: FirmwareVersionParser.simulateTestVersion(deviceVersion)
 
@@ -457,7 +411,7 @@ class DeviceViewModel @Inject constructor(
                 _otaVersionCheck.value = OtaVersionCheck(fileVersion, deviceVersion, isUpdateAvailable)
 
             } catch (e: Exception) {
-                Log.e(TAG, "❌ OTA version check error: ${e.message}", e)
+                Log.e(TAG, "OTA version check error: ${e.message}", e)
             }
         }
     }
@@ -468,7 +422,7 @@ class DeviceViewModel @Inject constructor(
     @SuppressLint("MissingPermission")
     fun startPendingOta(device: Device) {
         val firmware = pendingOtaFirmware ?: run {
-            Log.e(TAG, "❌ OTA: 대기 중인 펌웨어 없음")
+            Log.e(TAG, "OTA: 대기 중인 펌웨어 없음")
             return
         }
         pendingOtaFirmware = null
@@ -497,28 +451,24 @@ class DeviceViewModel @Inject constructor(
                     onResult   = { result ->
                         _otaInProgress.value += (device.mac to false)
                         result
-                            .onFailure { Log.e(TAG, "❌ OTA failed: ${it.message}") }
+                            .onFailure { Log.e(TAG, "OTA failed: ${it.message}") }
                     }
                 )
                 if (!ok) {
                     _otaInProgress.value += (device.mac to false)
-                    Log.e(TAG, "❌ OTA submit failed: ${device.mac}")
+                    Log.e(TAG, "OTA submit failed: ${device.mac}")
                 }
 
             } catch (e: Exception) {
                 _otaInProgress.value += (device.mac to false)
-                Log.e(TAG, "❌ OTA error: ${e.message}", e)
+                Log.e(TAG, "OTA error: ${e.message}", e)
             }
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Event Rules
-    // ═══════════════════════════════════════════════════════════
-
     private fun registerDeviceEventRules(device: Device) {
         registerEventRulesUseCase(context, device).onFailure { error ->
-            Log.e(TAG, "❌ Failed to register event rules for ${device.mac}: ${error.message}")
+            Log.e(TAG, "Failed to register event rules for ${device.mac}: ${error.message}")
         }
     }
 
@@ -565,10 +515,6 @@ class DeviceViewModel @Inject constructor(
 
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Battery Monitoring
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * 배터리 레벨 모니터링 시작
      *
@@ -579,7 +525,7 @@ class DeviceViewModel @Inject constructor(
      */
     @SuppressLint("MissingPermission")
     private fun startBatteryMonitoring(mac: String) {
-        stopBatteryMonitoring(mac)  // 중복 방지
+        stopBatteryMonitoring(mac)
 
         val device = connectedDevices[mac] ?: Device(mac = mac)
         if (!device.supportsBattery()) {
@@ -587,7 +533,7 @@ class DeviceViewModel @Inject constructor(
         }
 
         batteryMonitoringJobs[mac] = viewModelScope.launch {
-            readBatteryLevel(mac)  // 연결 직후 즉시 1회
+            readBatteryLevel(mac)
 
             while (true) {
                 delay(AppConstants.BATTERY_MONITOR_INTERVAL_MS)
@@ -617,14 +563,10 @@ class DeviceViewModel @Inject constructor(
                     updateBatteryLevel(mac, level)
                 }
                 .onFailure { e ->
-                    Log.w(TAG, "⚠️ Battery read failed: $mac → ${e.message}")
+                    Log.w(TAG, "Battery read failed: $mac → ${e.message}")
                 }
         }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Device Detail Management
-    // ═══════════════════════════════════════════════════════════
 
     private fun initializeDeviceDetail(device: Device) {
         val callEventEnabled = DevicePreferences.getCallEventEnabled(device.mac)
@@ -692,10 +634,6 @@ class DeviceViewModel @Inject constructor(
         broadcasting     = broadcasting
     )
 
-    // ═══════════════════════════════════════════════════════════
-    // State Updates (내부 헬퍼)
-    // ═══════════════════════════════════════════════════════════
-
     private fun updateConnectionState(mac: String, isConnected: Boolean) {
         _connectionStates.value += (mac to isConnected)
         _connectedDeviceCount.value = _connectionStates.value.count { it.value }
@@ -710,10 +648,6 @@ class DeviceViewModel @Inject constructor(
                 .thenByDescending { it.rssi ?: -100 }
         )
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Cleanup
-    // ═══════════════════════════════════════════════════════════
 
     override fun onCleared() {
         super.onCleared()

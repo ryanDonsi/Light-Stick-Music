@@ -22,7 +22,7 @@ class CustomRenderersFactory(
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink {
         return DefaultAudioSink.Builder(context)
-            .setEnableFloatOutput(false) // PCM 처리 강제
+            .setEnableFloatOutput(false)
             .setAudioProcessors(arrayOf(audioProcessor))
             .build()
     }

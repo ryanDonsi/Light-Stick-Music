@@ -24,18 +24,14 @@ fun TextSection(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier.fillMaxWidth()
     ) {
-        // 타이틀 텍스트
         Text(
             text = title,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.customColors.onSurface
         )
 
-        // ✅ ProgressSection과 동일한 spacing 유지
         Spacer(modifier = Modifier.height(8.dp))
 
-        // ✅ LinearProgressIndicator 높이만큼 공간 확보 (4dp)
-        // 이렇게 하면 ProgressSection과 동일한 높이 유지
         Spacer(
             modifier = Modifier
                 .fillMaxWidth()

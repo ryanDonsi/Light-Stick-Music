@@ -58,7 +58,6 @@ fun DeviceListScreen(
     val canShowAddress = hasAllBluetoothPermissions &&
             PermissionManager.hasBluetoothConnectPermission(context)
 
-    // 연결된 기기와 검색된 기기 분리
     val connectedDevices = devices.filter { device ->
         connectionStates[device.mac] == true
     }
@@ -66,19 +65,16 @@ fun DeviceListScreen(
         connectionStates[device.mac] != true
     }
 
-    // ✅ LazyListState 추가 (Pull-to-Refresh용)
     val listState = rememberLazyListState()
     val canScrollUp = { listState.canScrollBackward }
 
-    // ✅ Pull-to-Refresh 색상 설정
     val pullFill = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
     val edgeColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
 
-    // 권한 있을 때만 스캔 시작 (최초 1회)
     var initialScanDone by remember { mutableStateOf(false) }
     LaunchedEffect(hasAllBluetoothPermissions) {
         if (hasAllBluetoothPermissions && !initialScanDone) {
-            viewModel.startScan(context)  // ✅ 최초 1회: startScan (이미 스캔 중 아니므로 안전)
+            viewModel.startScan(context)
             initialScanDone = true
         }
     }
@@ -93,18 +89,12 @@ fun DeviceListScreen(
         containerColor = MaterialTheme.customColors.background
     ) { paddingValues ->
         if (!hasAllBluetoothPermissions) {
-            // ===== 권한 없음 화면 =====
             PermissionBanner(
                 modifier = Modifier.padding(paddingValues)
             )
         } else {
-            // ===== 정상 화면 (Pull-to-Refresh 적용) =====
             StretchPullRefreshContainer(
                 isRefreshing = isScanning,
-                // ✅ [수정] stopScan() + startScan() 분리 호출 → refreshScan() 단일 호출
-                //    문제: stopScan()이 비동기(코루틴)라 startScan()이 먼저 실행되는 Race Condition 발생
-                //          → stopScan 코루틴이 뒤늦게 _isScanning = false 리셋하여 상태 꼬임
-                //    해결: refreshScan()이 하나의 코루틴 안에서 stop → start 순서를 보장
                 onRefresh = {
                     viewModel.refreshScan(context)
                 },
@@ -125,7 +115,6 @@ fun DeviceListScreen(
                 ) {
                     item { Spacer(modifier = Modifier.height(8.dp)) }
 
-                    // ===== 연결된 기기 섹션 =====
                     item {
                         DeviceSectionHeader(title = "연결된 기기")
                     }
@@ -154,7 +143,6 @@ fun DeviceListScreen(
 
                     item { Spacer(modifier = Modifier.height(32.dp)) }
 
-                    // ===== 검색된 기기 섹션 =====
                     item {
                         DeviceSectionHeader(title = "검색된 기기")
                     }
@@ -166,7 +154,6 @@ fun DeviceListScreen(
                             EmptyDeviceCard(
                                 isScanning = isScanning,
                                 isConnectedSection = false,
-                                // ✅ [수정] startScan() → refreshScan() (동일한 Race Condition 방지)
                                 onRefresh = { viewModel.refreshScan(context) }
                             )
                         }

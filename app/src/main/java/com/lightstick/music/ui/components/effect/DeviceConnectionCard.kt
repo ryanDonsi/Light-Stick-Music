@@ -42,12 +42,6 @@ private fun Color.isBlack(): Boolean {
     return this.red < 0.1f && this.green < 0.1f && this.blue < 0.1f
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// [신규] TimelineEffectBadge
-// TIMELINE_EFFECT 수신 시 현재 이펙트 타입을 실시간으로 표시하는 뱃지
-// Connected 상태 statusText 옆에만 노출 — 레이아웃 변경 없음
-// ──────────────────────────────────────────────────────────────────────────────
-
 private fun effectTypeLabel(effectType: EffectType?): String = when (effectType) {
     EffectType.ON     -> "ON"
     EffectType.OFF    -> "OFF"
@@ -96,10 +90,6 @@ fun TimelineEffectBadge(
         )
     }
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// DeviceConnectionCard  (원본 UI 그대로 유지)
-// ──────────────────────────────────────────────────────────────────────────────
 
 /**
  * Device Connection Card
@@ -169,7 +159,6 @@ fun DeviceConnectionCard(
         )
     }
 
-    // 현재 화면에 실제 표시되는 색을 항상 유지
     SideEffect {
         effectColorData?.iconColor?.let { iconColor ->
             currentDisplayedColorRef.value = iconColor
@@ -270,10 +259,6 @@ data class EffectColorData(
     val iconBrush: Brush?,
     val gradientColor: Color?
 )
-
-// ──────────────────────────────────────────────────────────────────────────────
-// ConnectionStateLayout  (원본 구조 유지 + timelineEffectBadge 파라미터만 추가)
-// ──────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ConnectionStateLayout(
@@ -415,10 +400,6 @@ private fun ConnectionStateLayout(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// DescriptionIcon (원본 그대로)
-// ──────────────────────────────────────────────────────────────────────────────
-
 @Composable
 private fun DescriptionIcon(
     icon: ImageVector,
@@ -454,9 +435,6 @@ private fun DescriptionIcon(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// 색상 계산 함수들 (원본 그대로)
-// ──────────────────────────────────────────────────────────────────────────────
 @Composable
 private fun calculateEffectColorFromTransmission(
     transmission: BleTransmissionEvent,
@@ -465,7 +443,6 @@ private fun calculateEffectColorFromTransmission(
     currentDisplayedColorRef: MutableState<Color>
 ): EffectColorData? {
     val lastAnimationKeyRef = remember { mutableStateOf<String?>(null) }
-
 
     fun staticColorData(color: Color): EffectColorData {
         val gradientColor =
@@ -484,7 +461,6 @@ private fun calculateEffectColorFromTransmission(
                     val transit = transmission.transit ?: 10
                     val targetColor = transmission.color?.toComposeColor() ?: Color.White
                     val animKey = "TX_ON_${transit}_${targetColor.toArgb()}"
-
 
                     if (lastAnimationKeyRef.value == animKey &&
                         currentDisplayedColorRef.value == targetColor
@@ -507,7 +483,6 @@ private fun calculateEffectColorFromTransmission(
                 EffectType.OFF -> {
                     val transit = transmission.transit ?: 10
                     val animKey = "TX_OFF_$transit"
-
 
                     if (lastAnimationKeyRef.value == animKey &&
                         currentDisplayedColorRef.value.isBlack()
@@ -533,7 +508,6 @@ private fun calculateEffectColorFromTransmission(
 
                     lastAnimationKeyRef.value = "TX_STROBE_$period"
 
-
                     animatePeriodicEffect(
                         effectName = "STROBE",
                         fgColor = transmission.color?.toComposeColor() ?: Color.White,
@@ -549,7 +523,6 @@ private fun calculateEffectColorFromTransmission(
                     val period = transmission.period ?: 20
 
                     lastAnimationKeyRef.value = "TX_BLINK_$period"
-
 
                     animatePeriodicEffect(
                         effectName = "BLINK",
@@ -567,7 +540,6 @@ private fun calculateEffectColorFromTransmission(
                     val fgColor = transmission.color?.toComposeColor() ?: Color.White
                     val bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black
                     val animKey = "TX_BREATH_${period}_${fgColor.toArgb()}_${bgColor.toArgb()}"
-
 
                     lastAnimationKeyRef.value = animKey
 
@@ -775,10 +747,6 @@ private fun calculateEffectColor(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// 이펙트 애니메이션 헬퍼 (원본 그대로)
-// ──────────────────────────────────────────────────────────────────────────────
-
 @Composable
 private fun rememberRandomHueColor(alpha: Float = 1f): Color {
     val infiniteTransition = rememberInfiniteTransition(label = "hueRotation")
@@ -896,7 +864,6 @@ private fun animatePeriodicEffect(
     val resolvedFg = if (randomColor) rememberRandomHueColor() else fgColor
     val resolvedBg = bgColor
 
-    // 실제 디바이스와 UI 싱크 보정값
     val uiPeriodScale = 103.7f
     val duration = (period * uiPeriodScale).roundToInt().coerceAtLeast(104)
 
@@ -952,7 +919,6 @@ private fun animateBreathEffect(
     val resolvedFg = if (randomColor) rememberRandomHueColor(alpha = 1f) else fgColor
     val resolvedBg = bgColor
 
-    // animationKey가 바뀌면 새 Breath 시작으로 간주
     val isFirstCycle = remember(animationKey) { mutableStateOf(true) }
 
     val uiPeriodScale = 104.5f
@@ -975,7 +941,6 @@ private fun animateBreathEffect(
     LaunchedEffect(animationKey, (progress * 10).toInt()) {
     }
 
-    // 한 사이클 끝나면 이후부터는 일반 반복
     LaunchedEffect(progress) {
         if (progress >= 0.99f && isFirstCycle.value) {
             isFirstCycle.value = false
@@ -983,8 +948,6 @@ private fun animateBreathEffect(
     }
 
     val iconColor: Color = if (isFirstCycle.value) {
-        // 첫 시작:
-        // 현재색 -> FG transit -> FG -> BG transit -> BG
         when {
             progress < 0.35f -> {
                 val p = progress / 0.35f
@@ -1002,8 +965,6 @@ private fun animateBreathEffect(
             }
         }
     } else {
-        // 반복:
-        // BG -> FG transit -> FG -> BG transit -> BG
         when {
             progress < 0.25f -> {
                 val p = progress / 0.25f
@@ -1032,10 +993,6 @@ private fun animateBreathEffect(
     )
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// 색상 보간 헬퍼 (원본)
-// ──────────────────────────────────────────────────────────────────────────────
-
 private fun hsvLerp(start: Color, end: Color, fraction: Float): Color {
     val startHsv = FloatArray(3)
     AndroidColor.colorToHSV(start.toArgb(), startHsv)
@@ -1058,12 +1015,6 @@ private fun buildEffectData(finalColor: Color, backgroundColor: Color = Color.Tr
     val gradientColor = if (finalColor.isBlack()) null else lerp(finalColor, backgroundColor, 0.2f)
     return EffectColorData(iconColor = finalColor, iconBrush = null, gradientColor = gradientColor)
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// LightStick / RoundedIconBox (원본 그대로)
-// ──────────────────────────────────────────────────────────────────────────────
-// LightStick / RoundedIconBox
-// ──────────────────────────────────────────────────────────────────────────────
 
 /**
  * LightStickIcon — 제품 형상 기반 아이콘 (위에서 본 원형 puck)
@@ -1091,7 +1042,6 @@ private fun LightStickIcon(
         remember { mutableFloatStateOf(0.5f) }
     }
 
-    // isDisabled: 아이콘 전체를 회색 dim으로 표현
     val resolvedColor = if (isDisabled) color.copy(alpha = 0.35f) else color
 
     Canvas(modifier = Modifier.size(size)) {
@@ -1100,17 +1050,13 @@ private fun LightStickIcon(
         val cy = w / 2f
         val ct = Offset(cx, cy)
 
-        // ── 비율 정의 ─────────────────────────────────────
-        // 제품 실사: LED 발광부 = 외곽 테두리 ~ 메탈 원판 직전까지 전체 링
-        // 메탈 원판은 중앙 소형 원판만, LED가 나머지 전체를 차지
-        val ledOuterR = w * 0.47f   // LED 링 외곽
-        val metalR    = w * 0.22f   // 메탈 원판 (작고 중앙에만)
-        val ledInnerR = metalR               // LED 내곽 = 메탈판과 딱 붙임 (틈 없음)
-        val knobR     = w * 0.09f   // 중앙 노브 (메탈판 내 작은 버튼)
+        val ledOuterR = w * 0.47f
+        val metalR    = w * 0.22f
+        val ledInnerR = metalR
+        val knobR     = w * 0.09f
         val ledMidR   = (ledOuterR + ledInnerR) / 2f
-        val ledW      = ledOuterR - ledInnerR   // 링 폭 ≈ 0.23w (넓게)
+        val ledW      = ledOuterR - ledInnerR
 
-        // ── 1. 외부 글로우 (radialGradient — 중심→투명 자연스럽게 퍼짐, 링 경계 없음)
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
@@ -1125,33 +1071,22 @@ private fun LightStickIcon(
             center = ct
         )
 
-        // ── 2. LED 발광부 (넓은 링 전체)
-        // [수정1] color 그대로 사용 (ledColor 변수 제거)
-        // [수정2] 외곽 Stroke 링 전부 제거 — 단순 채우기만
-        val maskColor = Color(0xFF909090)  // 메탈판 색상과 동일 — 틈 없이 이어짐
+        val maskColor = Color(0xFF909090)
         if (brush != null) {
             drawCircle(brush = brush, radius = ledOuterR, center = ct)
             drawCircle(color = maskColor, radius = ledInnerR, center = ct)
         } else {
-            // 발광 베이스 채우기 — alpha 항상 1.0f (Black 포함 모든 색상 완전 불투명)
-            // color.copy(alpha<1) 사용 시 배경색이 비쳐 보이므로 강제 불투명 처리
             drawCircle(color = resolvedColor.copy(alpha = 1f), radius = ledOuterR, center = ct)
-            // 메탈판 마스크
             drawCircle(color = maskColor, radius = ledInnerR, center = ct)
         }
 
-        // ── 3. 메탈 원판
-        // isDisabled: 어두운 회색, 활성: 실버
-        // resolvedColor.alpha 가 0.35f(dim)로 낮아진 경우 메탈도 함께 어둡게 표현
         val metalBaseColor = if (isDisabled)
-            Color(0xFF505050)                    // Disable — 어두운 회색
+            Color(0xFF505050)
         else
-            Color(0xFFB0B0B0)                    // 활성 — 실버
+            Color(0xFFB0B0B0)
 
         drawCircle(color = metalBaseColor, radius = metalR, center = ct)
 
-        // 하이라이트 — 발광부와 통일감 있게 약하게만 (alpha 0.20f)
-        // Disable 시 하이라이트 제거로 완전 flat 표현
         if (!isDisabled) {
             drawCircle(
                 brush  = Brush.radialGradient(
@@ -1164,7 +1099,6 @@ private fun LightStickIcon(
             )
         }
 
-        // 테두리 (메탈판 경계 구분) — Disable 시 더 어둡게
         drawCircle(
             color  = Color.Black.copy(alpha = if (isDisabled) 0.30f else 0.15f),
             radius = metalR,
@@ -1188,7 +1122,6 @@ private fun RoundedIconBox(
             .background(color = backgroundColor, shape = RoundedCornerShape(cornerRadius)),
         contentAlignment = Alignment.Center
     ) {
-        // gradient overlay — effectColorData.gradientColor 있을 때만
         if (effectColorData?.gradientColor != null) {
             val localDensity = androidx.compose.ui.platform.LocalDensity.current
             val sizeInPx = with(localDensity) { size.toPx() }
