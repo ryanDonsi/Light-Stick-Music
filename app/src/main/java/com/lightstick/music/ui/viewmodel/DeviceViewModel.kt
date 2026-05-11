@@ -180,6 +180,11 @@ class DeviceViewModel @Inject constructor(
         val deviceInfo = getCachedDeviceInfoUseCase(mac)
         if (deviceInfo != null) {
             updateDeviceInfoFromCallback(mac, deviceInfo)
+        } else {
+            device.fetchDeviceInfo { info ->
+                Log.i(TAG, "fetchDeviceInfo: $mac fw=${info.firmwareRevision}")
+                updateDeviceInfoFromCallback(mac, info)
+            }
         }
 
         registerDeviceEventRules(device)
