@@ -42,7 +42,7 @@ object BleTransmissionCoordinator {
      */
     private var activeSession: TransmissionSource? = null
     private var sessionStartTime: Long = 0
-    private val controllerHistory = mutableListOf<ControllerState>()
+    private val controllerHistory = CopyOnWriteArrayList<ControllerState>()
     private val controlChangeListeners = CopyOnWriteArrayList<(ControllerState?) -> Unit>()
 
     /**
