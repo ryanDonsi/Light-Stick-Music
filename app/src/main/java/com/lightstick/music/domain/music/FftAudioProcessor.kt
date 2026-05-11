@@ -16,9 +16,13 @@ class FftAudioProcessor(
 
     private var sampleRate: Int = 44100
 
-    // FFT 인스턴스 캐싱: 동일한 사이즈면 재사용
     private var cachedFftSize: Int = -1
     private var cachedFft: FloatFFT_1D? = null
+
+    fun clearCache() {
+        cachedFft = null
+        cachedFftSize = -1
+    }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         return if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) {

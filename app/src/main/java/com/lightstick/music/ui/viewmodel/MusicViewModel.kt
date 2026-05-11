@@ -382,10 +382,16 @@ class MusicViewModel @Inject constructor(
         }
     }
 
+    private var playerReleased = false
+
     override fun onCleared() {
         player.removeListener(playerListener)
+        audioProcessor.clearCache()
         MusicPlaybackState.reset()
-        player.release()
+        if (!playerReleased) {
+            playerReleased = true
+            player.release()
+        }
         super.onCleared()
     }
 }
