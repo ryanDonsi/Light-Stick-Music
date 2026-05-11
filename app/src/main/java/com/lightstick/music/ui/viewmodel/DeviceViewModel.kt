@@ -415,9 +415,20 @@ class DeviceViewModel @Inject constructor(
                 val deviceVersion = _deviceDetails.value[device.mac]
                     ?.deviceInfo?.firmwareRevision.orEmpty()
 
-                val fileVersion = FirmwareVersionParser.parseFromBytes(firmware)
-                    ?: FirmwareVersionParser.simulateTestVersion(deviceVersion)
+                // Telink 바이너리는 버전을 파일에서 파싱하지 않음
+                // parseFromBytes가 반환한 버전이 실제로 더 신규인 경우에만 사용하고,
+                // 그렇지 않으면 테스트용 시뮬레이션 버전(minor+1)으로 대체
+                val parsedVersion = FirmwareVersionParser.parseFromBytes(firmware)
+                val fileVersion = if (
+                    parsedVersion != null &&
+                    FirmwareVersionParser.isNewerVersion(parsedVersion, deviceVersion)
+                ) {
+                    parsedVersion
+                } else {
+                    FirmwareVersionParser.simulateTestVersion(deviceVersion)
+                }
 
+                Log.i(TAG, "OTA version check: device=$deviceVersion, file=$fileVersion, parsed=$parsedVersion")
                 val isUpdateAvailable = FirmwareVersionParser.isNewerVersion(fileVersion, deviceVersion)
 
                 pendingOtaFirmware = firmware
