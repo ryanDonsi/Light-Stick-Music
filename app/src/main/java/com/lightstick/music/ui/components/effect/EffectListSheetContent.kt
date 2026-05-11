@@ -32,7 +32,6 @@ fun EffectListSheetContent(
             modifier = Modifier.padding(bottom = 24.dp)
         )
 
-        // 이펙트 리스트
         effectLists.forEach { effect ->
             val isSelected = selectedEffectListNumber == effect.number
             EffectListRow(
@@ -44,7 +43,6 @@ fun EffectListSheetContent(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 설정 해제
         Text(
             text = "설정 해제",
             style = MaterialTheme.typography.bodyLarge.copy(
@@ -92,7 +90,6 @@ private fun EffectListRow(
                 )
             }
         }
-        // ✅ 수정: 요청하신 라디오 아이콘으로 교체
         Icon(
             painter = painterResource(id = if (isSelected) R.drawable.ic_radio_s else R.drawable.ic_radio_n),
             contentDescription = "Selected",

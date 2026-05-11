@@ -12,7 +12,7 @@ import com.lightstick.music.ui.components.common.CustomSwitch
 import com.lightstick.music.ui.theme.customColors
 
 /**
- * ✅ 이펙트 토글 아이템 (아이콘 + 레이블 + Switch)
+ *  이펙트 토글 아이템 (아이콘 + 레이블 + Switch)
  *
  * ## 수정사항
  * - EffectSettingsDialog.kt 내부 private 함수에서 별도 컴포넌트로 분리
@@ -43,7 +43,6 @@ fun EffectToggleItem(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // ========== Left: 아이콘 + 레이블 ==========
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -61,7 +60,6 @@ fun EffectToggleItem(
             )
         }
 
-        // ========== Right: Switch ==========
         CustomSwitch(
             checked = checked,
             onCheckedChange = onCheckedChange

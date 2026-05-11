@@ -17,7 +17,7 @@ import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
 
 /**
- * ✅ ButtonStyle - 버튼 스타일 타입
+ *  ButtonStyle - 버튼 스타일 타입
  */
 enum class ButtonStyle {
     /** Primary 버튼 - 보라색 (#843DFF) */
@@ -31,7 +31,7 @@ enum class ButtonStyle {
 }
 
 /**
- * ✅ ButtonSize - 버튼 크기 타입
+ *  ButtonSize - 버튼 크기 타입
  */
 enum class ButtonSize {
     /** Small - 90 × 44px (Figma 기본) */
@@ -39,7 +39,7 @@ enum class ButtonSize {
 }
 
 /**
- * ✅ BaseButton - 공통 버튼 컴포넌트
+ *  BaseButton - 공통 버튼 컴포넌트
  *
  * ## Figma 스펙
  * - 크기: 90px × 44px (Small)
@@ -128,25 +128,23 @@ fun BaseButton(
 
     Button(
         onClick = onClick,
-        enabled = enabled && !loading,  // Loading 중에는 비활성화
+        enabled = enabled && !loading,
         modifier = modifier
-            .then(buttonSize.modifier),  // 크기 적용
+            .then(buttonSize.modifier),
         colors = buttonColors,
-        shape = RoundedCornerShape(8.dp),  // ✅ Figma: Corner 8px
+        shape = RoundedCornerShape(8.dp),
         contentPadding = PaddingValues(
-            horizontal = 12.dp,  // ✅ Figma: Padding 12px
+            horizontal = 12.dp,
             vertical = 12.dp
         )
     ) {
         if (loading) {
-            // ✅ Loading 상태
             CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
                 color = Color.White,
                 strokeWidth = 2.dp
             )
         } else {
-            // ✅ Normal 상태
             Text(
                 text = text,
                 style = MaterialTheme.customTextStyles.buttonSmall,
@@ -157,7 +155,7 @@ fun BaseButton(
 }
 
 /**
- * ✅ BaseButton with Icon - 아이콘 포함 버튼
+ *  BaseButton with Icon - 아이콘 포함 버튼
  *
  * @param text 버튼 텍스트
  * @param onClick 클릭 이벤트
@@ -201,7 +199,7 @@ fun BaseButton(
             )
         } else {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),  // ✅ Figma: 간격 8px
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 icon()
@@ -216,7 +214,7 @@ fun BaseButton(
 }
 
 /**
- * ✅ 버튼 스타일별 색상 반환
+ *  버튼 스타일별 색상 반환
  */
 @Composable
 private fun getButtonColors(style: ButtonStyle): ButtonColors {
@@ -241,22 +239,22 @@ private fun getButtonColors(style: ButtonStyle): ButtonColors {
 }
 
 /**
- * ✅ 버튼 크기 정보
+ *  버튼 크기 정보
  */
 private data class ButtonSizeInfo(
     val modifier: Modifier
 )
 
 /**
- * ✅ 버튼 크기별 Modifier 반환
+ *  버튼 크기별 Modifier 반환
  */
 private fun getButtonSize(size: ButtonSize): ButtonSizeInfo {
     return when (size) {
         ButtonSize.SMALL -> ButtonSizeInfo(
             modifier = Modifier
-                .width(90.dp)   // ✅ Figma: 90px
-                .heightIn(min = 42.dp, max = 56.dp)  // ✅ Figma: 최소 42px, 최대 56px
-                .height(44.dp)  // ✅ Figma: 기본 44px
+                .width(90.dp)
+                .heightIn(min = 42.dp, max = 56.dp)
+                .height(44.dp)
         )
     }
 }

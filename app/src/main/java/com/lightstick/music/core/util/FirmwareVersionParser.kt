@@ -18,7 +18,6 @@ object FirmwareVersionParser {
 
     private const val TAG = "FirmwareVersionParser"
 
-    // ZIP 파일 매직 바이트 (Nordic DFU 패키지 감지용)
     private val ZIP_MAGIC = byteArrayOf(0x50, 0x4B, 0x03, 0x04)
 
     /**
@@ -78,8 +77,6 @@ object FirmwareVersionParser {
         }
         return 0
     }
-
-    // ── private helpers ──────────────────────────────────────────────────────
 
     private fun isDfuZip(bytes: ByteArray): Boolean =
         bytes[0] == ZIP_MAGIC[0] && bytes[1] == ZIP_MAGIC[1] &&

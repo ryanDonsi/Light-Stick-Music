@@ -9,7 +9,7 @@ import androidx.compose.ui.unit.dp
 /**
  * Effect 이름 변경 다이얼로그
  *
- * ✅ Custom Effect의 이름을 변경할 수 있습니다.
+ *  Custom Effect의 이름을 변경할 수 있습니다.
  *
  * @param currentName 현재 이름
  * @param onNameChange 이름 변경 시 콜백

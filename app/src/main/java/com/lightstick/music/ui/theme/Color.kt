@@ -6,21 +6,14 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-// ═══════════════════════════════════════════════════════════
-// Raw Color Definitions (기본 팔레트)
-// ═══════════════════════════════════════════════════════════
-
-// Primary
 val Primary = Color(0xFFA774FF)
 val OnPrimary = Color(0xFFFCF4FF)
 val PrimaryContainer = Color(0xFF843DFF)
 val OnPrimaryContainer = Color(0xFFFCF9FF)
 
-// Secondary
 val Secondary = Color(0xFFFFD46F)
 val OnSecondary = Color(0xFF21201D)
 
-// Neutral
 val Surface = Color(0xFF111111)
 val OnSurface = Color(0xFFFFFFFF)
 val SurfaceVariant = Color(0xFF6F7074)
@@ -29,39 +22,29 @@ val Outline = Color(0xFF424242)
 val Divider = Color(0xFF323232)
 val Background = Color(0xFF1F1F1F)
 val Error = Color(0xFFFF404E)
-val TextTertiary = Color(0xFF9CA3AF)  // 재생시간, 부가정보 텍스트용
+val TextTertiary = Color(0xFF9CA3AF)
 
-// Effect
 val Dimmed = Color(0x80000000)
 val ToastBg = Color(0xCC81B1B1)
 val Disable = Color(0xFF4A4A4A)
 val OnDisable = Color(0x4DACACAC)
 val Ripple = Color(0x26DDE8FF)
 
-// Shadow
 val ShadowDialog = Color(0x33FFFFFF)
 val ShadowCard = Color(0x33000000)
 
-// Primary Level
 val PrimaryLevel1 = Color(0xBAA774FF)
 val PrimaryLevel2 = Color(0xB8A774FF)
 val PrimaryLevel3 = Color(0x7AA774FF)
 val PrimaryLevel4 = Color(0xBFA774FF)
 
-// OnSurface Level
 val OnSurfaceLevel1 = Color(0x0F111111)
 val OnSurfaceLevel2 = Color(0x24111111)
 val OnSurfaceLevel3 = Color(0x61111111)
 val OnSurfaceLevel4 = Color(0x85111111)
 
-// Gradient (진행바용 - Figma 명세)
-val GradientStart = Color(0xFF9D79BC)  // ✅ 수정: #9D79BC
-val GradientEnd = Color(0xFF8A40C4)    // ✅ 수정: #8A40C4
-
-
-// ═══════════════════════════════════════════════════════════
-// CustomColors (MaterialTheme 확장용)
-// ═══════════════════════════════════════════════════════════
+val GradientStart = Color(0xFF9D79BC)
+val GradientEnd = Color(0xFF8A40C4)
 
 @Immutable
 data class CustomColors(
@@ -81,7 +64,7 @@ data class CustomColors(
     val divider: Color,
     val background: Color,
     val error: Color,
-    val textTertiary: Color,  // ✅ 추가
+    val textTertiary: Color,
 
     val dimmed: Color,
     val toastBg: Color,
@@ -106,10 +89,6 @@ data class CustomColors(
     val gradientEnd: Color
 )
 
-// ═══════════════════════════════════════════════════════════
-// Default CustomColors Instance
-// ═══════════════════════════════════════════════════════════
-
 val DefaultCustomColors = CustomColors(
     primary = Primary,
     onPrimary = OnPrimary,
@@ -127,7 +106,7 @@ val DefaultCustomColors = CustomColors(
     divider = Divider,
     background = Background,
     error = Error,
-    textTertiary = TextTertiary,  // ✅ 추가
+    textTertiary = TextTertiary,
 
     dimmed = Dimmed,
     toastBg = ToastBg,
@@ -152,10 +131,6 @@ val DefaultCustomColors = CustomColors(
     gradientEnd = GradientEnd
 )
 
-// ═══════════════════════════════════════════════════════════
-// CompositionLocal + MaterialTheme Extension
-// ═══════════════════════════════════════════════════════════
-
 internal val LocalCustomColors =
     staticCompositionLocalOf { DefaultCustomColors }
 
@@ -173,10 +148,6 @@ internal val LocalCustomColors =
 val MaterialTheme.customColors: CustomColors
     @Composable
     get() = LocalCustomColors.current
-
-// ═══════════════════════════════════════════════════════════
-// 확장 속성 (자주 사용되는 투명도 변형)
-// ═══════════════════════════════════════════════════════════
 
 /**
  * Glass morphism 카드 배경 (OnSurface 5%)

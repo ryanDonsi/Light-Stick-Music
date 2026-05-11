@@ -26,7 +26,6 @@ class PauseEffectsUseCase @Inject constructor() {
         context: Context
     ): Result<Unit> {
         return try {
-            // ✅ EffectEngineController 호출
             EffectEngineController.pauseEffects(context)
 
             Result.success(Unit)

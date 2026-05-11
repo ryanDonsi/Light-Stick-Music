@@ -3,8 +3,6 @@ package com.lightstick.music.data.model
 import com.lightstick.game.GameLevel as SdkGameLevel
 import com.lightstick.game.GameMode as SdkGameMode
 
-// ─── Game Mode ───────────────────────────────────────────────────────────────
-
 enum class GameMode(
     val subIndex: Int,
     val nameKr: String,
@@ -46,8 +44,6 @@ enum class GameMode(
     }
 }
 
-// ─── Difficulty ───────────────────────────────────────────────────────────────
-
 enum class GameDifficulty(val level: Int, val nameKr: String) {
     EASY(1, "쉬움"),
     NORMAL(2, "보통"),
@@ -59,8 +55,6 @@ enum class GameDifficulty(val level: Int, val nameKr: String) {
         HARD   -> SdkGameLevel.HARD
     }
 }
-
-// ─── Game State ───────────────────────────────────────────────────────────────
 
 sealed class GameState {
     /** 기기 미연결 또는 게임 대기 */
@@ -75,8 +69,6 @@ sealed class GameState {
     data class Error(val message: String) : GameState()
 }
 
-// ─── Game Result Packet (per wand) ───────────────────────────────────────────
-
 data class WandResult(
     /** 응원봉 고유 ID (MAC 하위 2바이트) */
     val wandId: Int,
@@ -87,8 +79,6 @@ data class WandResult(
     /** Notify 수신 시각 */
     val receivedAt: Long = System.currentTimeMillis()
 )
-
-// ─── Aggregated Result Summary ────────────────────────────────────────────────
 
 data class GameResultSummary(
     val mode: GameMode,

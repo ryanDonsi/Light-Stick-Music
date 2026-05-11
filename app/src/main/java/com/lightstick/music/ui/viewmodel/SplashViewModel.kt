@@ -37,11 +37,9 @@ class SplashViewModel @Inject constructor(
 
     private val context = application.applicationContext
 
-    // ✅ Splash 화면 전체 상태 관리 (로고 → 권한 안내 → 권한 요청 → 초기화)
     private val _splashState = MutableStateFlow<SplashState>(SplashState.ShowLogo)
     val splashState: StateFlow<SplashState> = _splashState.asStateFlow()
 
-    // 기존 초기화 상태 (내부적으로만 사용)
     private val _state = MutableStateFlow<InitializationState>(InitializationState.Idle)
     val state: StateFlow<InitializationState> = _state.asStateFlow()
 
@@ -60,8 +58,6 @@ class SplashViewModel @Inject constructor(
      * (시스템 권한 요청은 Activity에서 처리)
      */
     fun onPermissionGuideConfirmed() {
-        // Activity에서 시스템 권한 요청을 수행하도록 신호만 보냄
-        // 실제 권한 요청은 SplashActivity의 requestAllPermissions()에서 처리
     }
 
     /**
@@ -75,7 +71,6 @@ class SplashViewModel @Inject constructor(
      * 권한 거부 → 앱 종료 처리
      */
     fun onPermissionDenied() {
-        // Activity에서 처리
     }
 
     /**
@@ -86,39 +81,31 @@ class SplashViewModel @Inject constructor(
             try {
                 val startTime = System.currentTimeMillis()
 
-                // 0단계: 파일시스템 탐색 → MediaStore 강제 인덱싱
                 triggerMediaStoreScan()
 
-                // 1단계: 음악 파일 스캔 및 Music ID 계산
                 val musicList = scanMusicFiles()
 
-                // 2단계: Effects 폴더 자동 설정
                 _state.value = InitializationState.ConfiguringEffectsDirectory
                 _splashState.value = SplashState.Initializing(InitializationState.ConfiguringEffectsDirectory)
 
                 val configured = EffectPathPreferences.autoConfigureEffectsDirectory(context)
                 if (!configured) {
-                    Log.w("InitVM", "⚠️ Auto-configuration failed, but continuing...")
+                    Log.w("InitVM", "Auto-configuration failed, but continuing...")
                 }
 
-                // 3단계: Effects 스캔
                 val effectCount = scanEffectFiles()
 
-                // 4단계: 매칭
                 val matchedList = matchEffects(musicList)
 
-                // ✅ 5단계: 자동 타임라인 생성(없는 곡만) — UI Progress 표시가 되도록 IO/MAIN 분리
                 val musicFiles = matchedList.map { File(it.filePath) }
                 val total = musicFiles.size
 
-                // ✅ 시작 상태는 MAIN에서 세팅
                 withContext(Dispatchers.Main.immediate) {
                     val st = InitializationState.PrecomputingTimelines(0, total)
                     _state.value = st
                     _splashState.value = SplashState.Initializing(st)
                 }
 
-                // ✅ 무거운 작업은 IO에서 수행 (디코딩/분석이 MAIN을 막으면 ProgressBar가 멈춤)
                 withContext(Dispatchers.IO) {
                     precomputeAutoTimelinesUseCase(
                         context = context,
@@ -135,7 +122,6 @@ class SplashViewModel @Inject constructor(
 
                 val duration = System.currentTimeMillis() - startTime
 
-                // 완료
                 _result.value = InitializationResult(
                     musicList = matchedList,
                     effectCount = effectCount,
@@ -152,10 +138,8 @@ class SplashViewModel @Inject constructor(
                 _state.value = completedState
                 _splashState.value = SplashState.Initializing(completedState)
 
-                Log.d("InitVM", "✅ Initialization completed in ${duration}ms")
-
             } catch (e: Exception) {
-                Log.e("InitVM", "❌ Initialization failed: ${e.message}", e)
+                Log.e("InitVM", "Initialization failed: ${e.message}", e)
                 val errorState = InitializationState.Error(e.message ?: "Unknown error")
                 _state.value = errorState
                 _splashState.value = SplashState.Initializing(errorState)
@@ -184,7 +168,6 @@ class SplashViewModel @Inject constructor(
             }
             .distinct()
 
-        Log.d("InitVM", "MediaStore re-index: ${audioFiles.size} files found")
         if (audioFiles.isEmpty()) return@withContext
 
         suspendCancellableCoroutine { cont ->
@@ -195,7 +178,6 @@ class SplashViewModel @Inject constructor(
                 null
             ) { _, _ ->
                 if (remaining.decrementAndGet() == 0) {
-                    Log.d("InitVM", "MediaStore re-index complete")
                     cont.resumeWith(Result.success(Unit))
                 }
             }
@@ -224,7 +206,6 @@ class SplashViewModel @Inject constructor(
 
         resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
             val total = cursor.count
-            Log.d("InitVM", "📀 Found $total music files")
             _state.value = InitializationState.ScanningMusic(0, total)
             _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(0, total))
 
@@ -281,7 +262,6 @@ class SplashViewModel @Inject constructor(
             }
         }
 
-        Log.d("InitVM", "✅ Scanned ${musicItems.size} music files")
         musicItems
     }
 
@@ -293,7 +273,6 @@ class SplashViewModel @Inject constructor(
         _state.value = scanState
         _splashState.value = SplashState.Initializing(scanState)
 
-        // SAF를 통해 초기화
         MusicEffectManager.initializeFromSAF(context)
         val effectCount = MusicEffectManager.getLoadedEffectCount()
 
@@ -301,7 +280,6 @@ class SplashViewModel @Inject constructor(
         _state.value = completedScanState
         _splashState.value = SplashState.Initializing(completedScanState)
 
-        Log.d("InitVM", "✅ Scanned $effectCount effect files")
         effectCount
     }
 
@@ -330,9 +308,6 @@ class SplashViewModel @Inject constructor(
                 item.copy(hasEffect = hasEffect)
             }
 
-            val matchedCount = matchedList.count { it.hasEffect }
-            Log.d("InitVM", "✅ Matched $matchedCount / ${musicList.size} files")
-
             matchedList
         }
 
@@ -351,6 +326,5 @@ class SplashViewModel @Inject constructor(
             .putLong(PrefsKeys.KEY_LAST_INIT_TIME, System.currentTimeMillis())
             .apply()
 
-        Log.d("InitVM", "💾 Saved initialization result")
     }
 }

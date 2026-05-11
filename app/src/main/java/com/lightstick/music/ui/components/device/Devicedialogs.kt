@@ -123,19 +123,16 @@ fun DeviceInfoDialog(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Model
             InfoRow(
                 label = "Model",
                 value = model
             )
 
-            // Firmware
             InfoRow(
                 label = "Firmware",
                 value = firmware
             )
 
-            // Manufacturer
             InfoRow(
                 label = "Manufacturer",
                 value = manufacturer
@@ -168,7 +165,6 @@ private fun InfoRow(
         )
     }
 }
-
 
 /**
  * 5. FIND 이펙트 전송 확인 다이얼로그

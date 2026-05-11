@@ -54,7 +54,6 @@ fun DeviceCard(
     onNavigateToDetail: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    // 글라스모피즘 카드 스타일
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -74,7 +73,6 @@ fun DeviceCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 좌측: 디바이스 정보 (공통 컴포넌트 사용)
             DeviceInfoHeader(
                 deviceName = device.name ?: "Unknown Device",
                 batteryLevel = if (isConnected) deviceDetail?.batteryLevel else null,
@@ -85,9 +83,7 @@ fun DeviceCard(
                 modifier = Modifier.weight(1f)
             )
 
-            // 우측: 버튼 영역
             if (isConnected) {
-                // 연결된 기기: 화살표 아이콘만
                 IconButton(
                     onClick = onNavigateToDetail,
                     modifier = Modifier.size(36.dp)
@@ -99,7 +95,6 @@ fun DeviceCard(
                     )
                 }
             } else {
-                // 미연결 기기: "연결하기" 버튼
                 CustomChip(
                     text = "연결하기",
                     onClick = onToggleConnection,

@@ -22,7 +22,7 @@ import com.lightstick.music.ui.theme.Secondary
 import com.lightstick.music.ui.viewmodel.MusicViewModel
 
 /**
- * 🎵 Music List Screen (글라스모피즘)
+ *  Music List Screen (글라스모피즘)
  *
  * [수정] latestTransmission collectAsState 추가 → MusicListItemCard 에 전달
  *        → 재생 중인 아이템의 EFX 뱃지 옆 TimelineEffectBadge 표시
@@ -36,7 +36,6 @@ fun MusicListScreen(
     val musicList         by viewModel.musicList.collectAsState()
     val nowPlaying        by viewModel.nowPlaying.collectAsState()
     val isAutoModeEnabled by viewModel.isAutoModeEnabled.collectAsState()
-    // [추가] TimelineEffectBadge 표시용
     val latestTransmission by viewModel.latestTransmission.collectAsState()
 
     val toastState = rememberToastState()
@@ -102,7 +101,6 @@ fun MusicListScreen(
                                     musicItem          = item,
                                     isPlaying          = isPlaying,
                                     onClick            = { viewModel.playMusic(item) },
-                                    // [추가] 재생 중인 아이템에만 전달 (다른 아이템은 null)
                                     latestTransmission = if (isPlaying) latestTransmission else null
                                 )
                             }

@@ -30,8 +30,6 @@ class GameBleManager @Inject constructor() {
 
     private val TAG = AppConstants.Feature.GAME_BLE_MANAGER
 
-    // ─── Connection State ─────────────────────────────────────────────────────
-
     sealed class ConnectionState {
         object Disconnected : ConnectionState()
         object Connecting   : ConnectionState()
@@ -42,16 +40,13 @@ class GameBleManager @Inject constructor() {
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    // ─── Game Result Stream ───────────────────────────────────────────────────
+    private val _isGameModeSupported = MutableStateFlow(false)
+    val isGameModeSupported: StateFlow<Boolean> = _isGameModeSupported.asStateFlow()
 
     private val _gameResultFlow = MutableSharedFlow<GameResult>(extraBufferCapacity = 32)
     val gameResultFlow: SharedFlow<GameResult> = _gameResultFlow.asSharedFlow()
 
-    // ─── Active Device ────────────────────────────────────────────────────────
-
     @Volatile private var activeDevice: Device? = null
-
-    // ─── Public API ───────────────────────────────────────────────────────────
 
     /**
      * SDK가 이미 연결한 기기 중 첫 번째를 게임 기기로 선택한다.
@@ -87,8 +82,8 @@ class GameBleManager @Inject constructor() {
         }
 
         activeDevice = device
+        _isGameModeSupported.value = device.supportsGameMode()
         _connectionState.value = ConnectionState.Connected
-        Log.d(TAG, "Device selected: mac=${device.mac} name=${device.name}")
     }
 
     /** 게임 시작: FF04 Notify 구독 + READY 커맨드 전송을 SDK가 일괄 처리 */
@@ -104,11 +99,7 @@ class GameBleManager @Inject constructor() {
             level  = difficulty.toSdkLevel(),
             option = option
         ) { result ->
-            Log.d(TAG, "게임 결과 수신: mode=${result.mode} red=${result.redScore} blue=${result.blueScore} wandId=0x${result.wandId.toString(16)}")
-            val emitted = _gameResultFlow.tryEmit(result)
-            Log.d(TAG, "tryEmit 결과: $emitted (subscribers=${_gameResultFlow.subscriptionCount.value})")
-        }.also { ok ->
-            Log.d(TAG, "startGame 결과: $ok (mode=$mode difficulty=$difficulty)")
+            _gameResultFlow.tryEmit(result)
         }
     }
 
@@ -119,9 +110,7 @@ class GameBleManager @Inject constructor() {
             Log.e(TAG, "stopGame() — activeDevice null")
             return false
         }
-        return device.stopGame().also { ok ->
-            Log.d(TAG, "stopGame 결과: $ok")
-        }
+        return device.stopGame()
     }
 
     /** 게임 초기화 커맨드 전송 및 FF04 Notify 구독 해제 */
@@ -131,17 +120,15 @@ class GameBleManager @Inject constructor() {
             Log.e(TAG, "clearGame() — activeDevice null")
             return false
         }
-        return device.clearGame().also { ok ->
-            Log.d(TAG, "clearGame 결과: $ok")
-        }
+        return device.clearGame()
     }
 
     /** FF04 Notify 구독 해제 */
     @SuppressLint("MissingPermission")
     fun disconnect() {
-        Log.d(TAG, "disconnect()")
         activeDevice?.unsubscribeGameResults()
         activeDevice = null
+        _isGameModeSupported.value = false
         _connectionState.value = ConnectionState.Disconnected
     }
 }

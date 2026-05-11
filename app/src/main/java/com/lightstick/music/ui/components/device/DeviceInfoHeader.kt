@@ -44,7 +44,6 @@ fun DeviceInfoHeader(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        // 디바이스 이름 + 배터리
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -56,19 +55,16 @@ fun DeviceInfoHeader(
                 color = MaterialTheme.customColors.onSurface
             )
 
-            // 배터리 정보 (연결된 경우만)
             if (showBatteryBadge && batteryLevel != null) {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier.wrapContentSize()
                 ) {
-                    // 배경: 배터리 아이콘
                     Icon(
                         painter = painterResource(id = R.drawable.ic_battery),
                         contentDescription = "배터리",
                         tint = Color(0xFFD9D9D9)
                     )
-                    // 전경: 배터리 퍼센트 텍스트
                     Text(
                         text = "$batteryLevel%",
                         style = MaterialTheme.customTextStyles.badgeSmall,
@@ -78,7 +74,6 @@ fun DeviceInfoHeader(
             }
         }
 
-        // MAC Address (3영역 정렬)
         if (canShowAddress) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -103,7 +98,6 @@ fun DeviceInfoHeader(
             }
         }
 
-        // RSSI (3영역 정렬)
         rssi?.let {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),

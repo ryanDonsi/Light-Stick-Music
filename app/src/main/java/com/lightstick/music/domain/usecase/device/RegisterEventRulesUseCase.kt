@@ -48,18 +48,15 @@ class RegisterEventRulesUseCase @Inject constructor() {
         device: Device
     ): Result<Unit> {
         return try {
-            // ✅ 1. Permission 체크
             if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                 return Result.failure(
                     SecurityException("BLUETOOTH_CONNECT permission required")
                 )
             }
 
-            // ✅ 2. Preferences에서 설정 읽기
             val callEventEnabled = DevicePreferences.getCallEventEnabled(device.mac)
             val smsEventEnabled = DevicePreferences.getSmsEventEnabled(device.mac)
 
-            // ✅ 3. EventRule 목록 구성
             val rules = mutableListOf<EventRule>()
 
             if (callEventEnabled) {
@@ -104,21 +101,15 @@ class RegisterEventRulesUseCase @Inject constructor() {
                 )
             }
 
-            // ✅ 4. 규칙 등록
             device.registerEventRules(rules)
 
-            Log.d(TAG, "✅ Event rules registered for ${device.mac}")
-            Log.d(TAG, "   ├─ CALL: ${if (callEventEnabled) "enabled" else "disabled"}")
-            Log.d(TAG, "   └─ SMS:  ${if (smsEventEnabled) "enabled" else "disabled"}")
-
-            // ✅ 5. 성공 반환
             Result.success(Unit)
 
         } catch (e: SecurityException) {
-            Log.e(TAG, "❌ SecurityException during registerEventRules: ${e.message}")
+            Log.e(TAG, "SecurityException during registerEventRules: ${e.message}")
             Result.failure(e)
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to register event rules: ${e.message}", e)
+            Log.e(TAG, "Failed to register event rules: ${e.message}", e)
             Result.failure(e)
         }
     }

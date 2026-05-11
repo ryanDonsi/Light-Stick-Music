@@ -24,10 +24,6 @@ import android.util.Log as AndroidLog
  */
 object Log {
 
-    // ═══════════════════════════════════════════════════════════
-    // Internal
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * 해당 TAG 의 로그 출력 여부 확인
      * LOG_ENABLED = true 이고 LOG_ENABLED_FEATURES 에 포함된 경우만 허용
@@ -35,10 +31,6 @@ object Log {
     private fun isLoggable(tag: String): Boolean {
         return AppConstants.LOG_ENABLED && tag in AppConstants.LOG_ENABLED_FEATURES
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // VERBOSE
-    // ═══════════════════════════════════════════════════════════
 
     fun v(tag: String, msg: String): Int {
         if (isLoggable(tag) && AppConstants.LOG_VERBOSE_ENABLED) {
@@ -54,10 +46,6 @@ object Log {
         return 0
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // DEBUG
-    // ═══════════════════════════════════════════════════════════
-
     fun d(tag: String, msg: String): Int {
         if (isLoggable(tag)) {
             return AndroidLog.d(tag, msg)
@@ -72,10 +60,6 @@ object Log {
         return 0
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // INFO
-    // ═══════════════════════════════════════════════════════════
-
     fun i(tag: String, msg: String): Int {
         if (isLoggable(tag)) {
             return AndroidLog.i(tag, msg)
@@ -89,10 +73,6 @@ object Log {
         }
         return 0
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // WARNING
-    // ═══════════════════════════════════════════════════════════
 
     fun w(tag: String, msg: String): Int {
         if (isLoggable(tag)) {
@@ -114,10 +94,6 @@ object Log {
         }
         return 0
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // ERROR — 항상 출력
-    // ═══════════════════════════════════════════════════════════
 
     fun e(tag: String, msg: String): Int {
         return AndroidLog.e(tag, msg)

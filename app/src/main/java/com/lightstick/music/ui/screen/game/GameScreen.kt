@@ -69,7 +69,6 @@ import com.lightstick.music.ui.components.common.BaseButton
 import com.lightstick.music.ui.components.common.BaseDialog
 import com.lightstick.music.ui.components.common.ButtonStyle
 import com.lightstick.music.ui.components.common.CommonProgressBar
-import com.lightstick.music.ui.components.common.CustomChip
 import com.lightstick.music.ui.components.common.CustomToast
 import com.lightstick.music.ui.components.common.TopBarCentered
 import com.lightstick.music.ui.components.common.rememberToastState
@@ -79,12 +78,15 @@ import com.lightstick.music.ui.viewmodel.GameViewModel
 
 @Composable
 fun GameScreen(viewModel: GameViewModel) {
-    val selectedMode     by viewModel.selectedMode.collectAsState()
-    val selectedDifficulty by viewModel.selectedDifficulty.collectAsState()
-    val gameState        by viewModel.gameState.collectAsState()
-    val bleState         by viewModel.bleConnectionState.collectAsState()
-    val countdownSeconds by viewModel.countdownSeconds.collectAsState()
-    val partialResults   by viewModel.partialResults.collectAsState()
+    val selectedMode          by viewModel.selectedMode.collectAsState()
+    val selectedDifficulty    by viewModel.selectedDifficulty.collectAsState()
+    val gameState             by viewModel.gameState.collectAsState()
+    val bleState              by viewModel.bleConnectionState.collectAsState()
+    val isGameModeSupported   by viewModel.isGameModeSupported.collectAsState()
+    val countdownSeconds      by viewModel.countdownSeconds.collectAsState()
+    val partialResults        by viewModel.partialResults.collectAsState()
+    val playingElapsedSeconds by viewModel.playingElapsedSeconds.collectAsState()
+    val playingMaxSeconds     by viewModel.playingMaxSeconds.collectAsState()
 
     val toastState = rememberToastState()
     var showStopDialog by remember { mutableStateOf(false) }
@@ -106,9 +108,20 @@ fun GameScreen(viewModel: GameViewModel) {
 
             TopBarCentered(
                 title = "Game Mode",
-                actionText = if (gameState is GameState.Playing) "중지" else null,
+                actionText = null,
                 onActionClick = { showStopDialog = true },
                 actionTextColor = MaterialTheme.colorScheme.error
+            )
+
+            GameStatusBanner(
+                bleState = bleState,
+                gameState = gameState,
+                elapsedSeconds = playingElapsedSeconds,
+                maxSeconds = playingMaxSeconds,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 8.dp, bottom = 4.dp)
             )
 
             AnimatedContent(
@@ -123,10 +136,11 @@ fun GameScreen(viewModel: GameViewModel) {
                     is GameState.Idle, is GameState.Error -> ModeSelectionContent(
                         selectedMode = selectedMode,
                         selectedDifficulty = selectedDifficulty,
-                        bleState = bleState,
                         onModeSelect = viewModel::selectMode,
                         onDifficultySelect = viewModel::selectDifficulty,
-                        onStart = viewModel::startGame
+                        onStart = viewModel::startGame,
+                        bleConnected = bleState is GameBleManager.ConnectionState.Connected,
+                        isGameModeSupported = isGameModeSupported
                     )
                     is GameState.Ready  -> CountdownContent(countdownSeconds = countdownSeconds)
                     is GameState.Playing -> PlayingContent(
@@ -165,13 +179,12 @@ fun GameScreen(viewModel: GameViewModel) {
     }
 }
 
-// ─── Mode Selection ───────────────────────────────────────────────────────────
-
 @Composable
 private fun ModeSelectionContent(
     selectedMode: GameMode?,
     selectedDifficulty: GameDifficulty,
-    bleState: GameBleManager.ConnectionState,
+    bleConnected: Boolean,
+    isGameModeSupported: Boolean,
     onModeSelect: (GameMode) -> Unit,
     onDifficultySelect: (GameDifficulty) -> Unit,
     onStart: () -> Unit
@@ -185,8 +198,6 @@ private fun ModeSelectionContent(
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        BleBanner(bleState = bleState)
-
         Text(
             text = "모드 선택",
             style = MaterialTheme.customTextStyles.bodyAccent,
@@ -194,7 +205,6 @@ private fun ModeSelectionContent(
         )
 
         GameMode.entries.forEach { mode ->
-            // Each mode card + its inline difficulty row are grouped
             Column {
                 GameModeCard(
                     mode = mode,
@@ -226,30 +236,37 @@ private fun ModeSelectionContent(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        BaseButton(
-            text = "게임 시작",
-            onClick = onStart,
-            enabled = selectedMode != null && bleState is GameBleManager.ConnectionState.Connected,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp)
-        )
-
-        if (bleState is GameBleManager.ConnectionState.Error) {
+        if (bleConnected && !isGameModeSupported) {
             Text(
-                text = (bleState as GameBleManager.ConnectionState.Error).message,
+                text = "연결된 응원봉이 게임 모드를 지원하지 않습니다",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
         }
+
+        BaseButton(
+            text = "게임 시작",
+            onClick = onStart,
+            enabled = selectedMode != null && bleConnected && isGameModeSupported,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+        )
     }
 }
 
 @Composable
-private fun BleBanner(bleState: GameBleManager.ConnectionState) {
+private fun GameStatusBanner(
+    bleState: GameBleManager.ConnectionState,
+    gameState: GameState,
+    elapsedSeconds: Int,
+    maxSeconds: Int,
+    modifier: Modifier = Modifier
+) {
     val colors = MaterialTheme.customColors
+    val isPlaying = gameState is GameState.Playing
 
     val bgColor = when (bleState) {
         is GameBleManager.ConnectionState.Connected  -> Color(0xFF1A3A1A)
@@ -259,42 +276,73 @@ private fun BleBanner(bleState: GameBleManager.ConnectionState) {
     }
     val dotColor = when (bleState) {
         is GameBleManager.ConnectionState.Connected  -> Color(0xFF4CAF50)
-        is GameBleManager.ConnectionState.Connecting -> MaterialTheme.customColors.secondary
+        is GameBleManager.ConnectionState.Connecting -> colors.secondary
         else                                         -> colors.surfaceVariant
     }
     val labelText = when (bleState) {
         is GameBleManager.ConnectionState.Connected  -> "응원봉 연결됨"
         is GameBleManager.ConnectionState.Connecting -> "연결 중..."
-        is GameBleManager.ConnectionState.Error      ->
-            (bleState as GameBleManager.ConnectionState.Error).message
-        else -> "응원봉 미연결"
+        is GameBleManager.ConnectionState.Error      -> bleState.message
+        else                                         -> "응원봉 미연결"
     }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
+    val remaining = if (maxSeconds > 0) (maxSeconds - elapsedSeconds).coerceAtLeast(0) else 0
+    val progress = if (maxSeconds > 0) remaining.toFloat() / maxSeconds else 0f
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(500),
+        label = "timer_progress"
+    )
+
+    Column(
+        modifier = modifier
             .clip(RoundedCornerShape(10.dp))
             .background(bgColor)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .size(8.dp)
-                .background(dotColor, CircleShape)
-        )
-        Text(
-            text = labelText,
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.onSurface,
-            modifier = Modifier.weight(1f)
-        )
-        if (bleState is GameBleManager.ConnectionState.Connecting) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
-                strokeWidth = 2.dp,
-                color = colors.primary
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(dotColor, CircleShape)
+            )
+            Text(
+                text = labelText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            if (bleState is GameBleManager.ConnectionState.Connecting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.primary
+                )
+            }
+            if (isPlaying) {
+                val m = remaining / 60
+                val s = remaining % 60
+                val timeText = if (m > 0) "${m}분 ${s}초" else "${s}초"
+                Text(
+                    text = timeText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (remaining <= 10) MaterialTheme.colorScheme.error else colors.primary
+                )
+            }
+        }
+        if (isPlaying && maxSeconds > 0) {
+            CommonProgressBar(
+                progress = animatedProgress,
+                progressColor = colors.primary,
+                trackColor = colors.onSurface.copy(alpha = 0.15f),
+                height = 4.dp,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -378,24 +426,37 @@ private fun DifficultyRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         GameDifficulty.entries.forEach { diff ->
-            val isSelected = diff == selected
-            val chipBg      = if (isSelected) colors.primary.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.05f)
-            val chipContent = if (isSelected) colors.primary else colors.surfaceVariant
+            val isSelected  = diff == selected
+            val bgColor     = if (isSelected) colors.primary.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.05f)
+            val borderColor = if (isSelected) colors.primary else colors.onSurface.copy(alpha = 0.14f)
+            val borderWidth = if (isSelected) 2.dp else 1.dp
+            val textColor   = if (isSelected) colors.onSurface else colors.surfaceVariant
 
-            CustomChip(
-                text = diff.nameKr,
+            Card(
                 onClick = { onSelect(diff) },
-                containerColor = chipBg,
-                contentColor = chipContent,
                 modifier = Modifier
                     .weight(1f)
-                    .height(40.dp)
-            )
+                    .height(40.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = bgColor),
+                border = BorderStroke(borderWidth, borderColor),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = diff.nameKr,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = textColor,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
         }
     }
 }
-
-// ─── Countdown ────────────────────────────────────────────────────────────────
 
 @Composable
 private fun CountdownContent(countdownSeconds: Int) {
@@ -429,8 +490,6 @@ private fun CountdownContent(countdownSeconds: Int) {
         }
     }
 }
-
-// ─── Playing ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun PlayingContent(
@@ -532,8 +591,6 @@ private fun PlayingContent(
     }
 }
 
-// ─── Results ─────────────────────────────────────────────────────────────────
-
 @Composable
 private fun ResultContent(summary: GameResultSummary, onPlayAgain: () -> Unit) {
     Column(
@@ -626,7 +683,6 @@ private fun TeamResultContent(summary: GameResultSummary) {
         TeamWinner.DRAW -> "무승부!"
     }
 
-    // 우승 + 점수 카드
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -705,7 +761,6 @@ private fun TeamResultContent(summary: GameResultSummary) {
         }
     }
 
-    // 참여 응원봉 수 — 상단 카드 바로 아래
     Text(
         text = "참여 응원봉: ${summary.totalWandCount}개",
         style = MaterialTheme.typography.bodySmall,
@@ -714,7 +769,6 @@ private fun TeamResultContent(summary: GameResultSummary) {
         textAlign = TextAlign.End
     )
 
-    // 점수 비교 바 카드
     Column(
         modifier = Modifier
             .fillMaxWidth()

@@ -46,7 +46,6 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import androidx.core.content.edit
 
-// ── JSON 직렬화 공유 설정 (kotlinx.serialization)
 private val json = Json { ignoreUnknownKeys = true }
 
 @Serializable
@@ -84,26 +83,7 @@ class EffectViewModel @Inject constructor(
     private val prefs: SharedPreferences =
         application.getSharedPreferences(PrefsKeys.PREFS_EFFECT_SETTINGS, Context.MODE_PRIVATE)
 
-    // ═══════════════════════════════════════════════════════════
-    // Control Mode
-    // ═══════════════════════════════════════════════════════════
-
     private val controlMode: ControlMode = AppConstants.EFFECT_CONTROL_MODE
-
-    // ═══════════════════════════════════════════════════════════
-    // DeviceConnectionState
-    //
-    // 상태 전환 규칙:
-    //   NoBondedDevice : 페어링된 기기 없음      → "기기 연결하기" 버튼
-    //   Scanning       : 등록 기기 스캔 중        → 스피너
-    //   ScanFailed     : 스캔/연결 실패           → Retry 아이콘
-    //   Disconnected   : Connected 후 연결 해제   → Retry 아이콘 (ScanFailed 동일 UI)
-    //   Connected      : 연결 완료
-    //
-    // ScanFailed vs Disconnected:
-    //   ScanFailed   → 아직 Connected 된 적 없거나 연결 시도 자체 실패
-    //   Disconnected → Connected 상태에서 해제됨 (reason 은 로그로만 확인)
-    // ═══════════════════════════════════════════════════════════
 
     sealed class DeviceConnectionState {
         /** 페어링된 기기가 전혀 없음 → "기기 연결하기" 버튼 표시 */
@@ -121,10 +101,6 @@ class EffectViewModel @Inject constructor(
         /** 연결 완료 */
         data class  Connected(val device: Device) : DeviceConnectionState()
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // State Flows
-    // ═══════════════════════════════════════════════════════════
 
     private val _toastMessage = MutableStateFlow<String?>(null)
     val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
@@ -177,20 +153,12 @@ class EffectViewModel @Inject constructor(
     private var effectListJob: Job? = null
     private var scanJob: Job? = null
 
-    // ═══════════════════════════════════════════════════════════
-    // Init
-    // ═══════════════════════════════════════════════════════════
-
     init {
         loadCustomEffects()
         loadAllSettings()
         observeDeviceStateEvents()
         observeMusicPlaybackState()
     }
-
-    // ═══════════════════════════════════════════════════════════
-// Device State Event Observer
-// ═══════════════════════════════════════════════════════════
 
     /**
      * SDK SharedFlow 기반 디바이스 상태 이벤트 관찰
@@ -212,32 +180,24 @@ class EffectViewModel @Inject constructor(
                                 val device = Device(mac = event.mac, name = null, rssi = null)
                                 _deviceConnectionState.value =
                                     DeviceConnectionState.Connected(device)
-                                Log.d(TAG, "Device state → Connected: ${event.mac}")
                             }
                         }
                         is ConnectionState.Disconnected -> {
-                            Log.d(TAG, "Disconnect: mac=${event.mac} reason=${state.reason}")
                             if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
                                 _deviceConnectionState.value = DeviceConnectionState.Disconnected
-                                Log.d(TAG, "Device state → Disconnected")
                             }
                         }
-                        else -> Unit  // Connecting / Disconnecting → UI 변경 없음
+                        else -> Unit
                     }
                 }
         }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // 음악 재생 상태 관찰 → Effect 잠금 처리
-    // ═══════════════════════════════════════════════════════════
 
     private fun observeMusicPlaybackState() {
         viewModelScope.launch {
             MusicPlaybackState.isPlayingWithAutoMode.collect { playingWithAutoMode ->
                 val blocked = playingWithAutoMode && controlMode == ControlMode.EXCLUSIVE
                 _isEffectBlocked.value = blocked
-                Log.d(TAG, "Effect blocked: $blocked (${controlMode.getDescription()})")
 
                 if (blocked) {
                     effectListJob?.cancel()
@@ -250,10 +210,6 @@ class EffectViewModel @Inject constructor(
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Auto Scan & Connect
-    // ═══════════════════════════════════════════════════════════
-
     fun startAutoScan(context: Context) {
         if (!PermissionManager.hasAllBluetoothPermissions(context)) {
             _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
@@ -263,13 +219,10 @@ class EffectViewModel @Inject constructor(
         scanJob?.cancel()
         scanJob = viewModelScope.launch {
             try {
-                // 1순위: ViewModel 상태 확인
                 if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
-                    Log.d(TAG, "Already connected (state)")
                     return@launch
                 }
 
-                // 2순위: SDK 레벨에서 이미 연결된 기기 확인 (DeviceViewModel이 먼저 연결했을 수 있음)
                 @SuppressLint("MissingPermission")
                 val sdkConnected = try {
                     com.lightstick.LSBluetooth.connectedDevices()
@@ -277,14 +230,12 @@ class EffectViewModel @Inject constructor(
                 if (sdkConnected.isNotEmpty()) {
                     val device = sdkConnected.first()
                     _deviceConnectionState.value = DeviceConnectionState.Connected(device)
-                    Log.d(TAG, "Already connected via SDK: ${device.mac}")
                     return@launch
                 }
 
                 val bondedDevices = getBondedDevicesUseCase(context).getOrNull() ?: emptyList()
                 if (bondedDevices.isEmpty()) {
                     _deviceConnectionState.value = DeviceConnectionState.NoBondedDevice
-                    Log.d(TAG, "No bonded devices → NoBondedDevice")
                     return@launch
                 }
 
@@ -307,50 +258,22 @@ class EffectViewModel @Inject constructor(
 
                 if (bestDevice == null) {
                     _deviceConnectionState.value = DeviceConnectionState.ScanFailed
-                    Log.d(TAG, "No device found → ScanFailed")
                     return@launch
                 }
 
-                // 연결 성공 시 공통 처리 (1차·2차 재시도 공유)
                 val onConnectedCallback: () -> Unit = {
                     _deviceConnectionState.value = DeviceConnectionState.Connected(bestDevice)
-                    Log.d(TAG, "Auto connected: ${bestDevice.mac}")
                     viewModelScope.launch {
                         sendConnectionEffectUseCase(context, bestDevice)
                             .onFailure { Log.e(TAG, "Connection animation failed: ${it.message}") }
                     }
                 }
 
-                // 1차 연결 시도 — onFailed 콜백에서 상태 변경하지 않음 (재시도 후 판단)
                 val connectResult = connectDeviceUseCase(
                     context     = context,
                     device      = bestDevice,
                     onConnected = onConnectedCallback
                 )
-
-//                // Android BLE GATT 첫 연결 실패는 매우 흔한 현상 (GATT 캐시 미정리).
-//                // ScanFailed 노출 없이 500ms 대기 후 자동 재시도.
-//                if (connectResult.isFailure) {
-//                    Log.w(TAG, "1차 연결 실패, 500ms 후 재시도: ${connectResult.exceptionOrNull()?.message}")
-//                    delay(500L)
-//
-//                    // SDK가 500ms 사이에 자체 연결했을 수 있으므로 재확인
-//                    val sdkRecheck = try {
-//                        com.lightstick.LSBluetooth.connectedDevices()
-//                    } catch (e: Exception) { emptyList() }
-//                    if (sdkRecheck.any { it.mac == bestDevice.mac }) {
-//                        _deviceConnectionState.value = DeviceConnectionState.Connected(bestDevice)
-//                        Log.d(TAG, "SDK 자체 연결 감지: ${bestDevice.mac}")
-//                        return@launch
-//                    }
-//
-//                    // 2차 연결 시도
-//                    val connectResult = connectDeviceUseCase(
-//                        context     = context,
-//                        device      = bestDevice,
-//                        onConnected = onConnectedCallback
-//                    )
-//                }
 
                 if (connectResult.isFailure) {
                     _deviceConnectionState.value = DeviceConnectionState.ScanFailed
@@ -367,10 +290,6 @@ class EffectViewModel @Inject constructor(
     fun retryAutoScan(context: Context) {
         startAutoScan(context)
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Effect 재생 / 중지
-    // ═══════════════════════════════════════════════════════════
 
     fun playEffect(context: Context, effectType: UiEffectType) {
         if (!PermissionManager.hasAllBluetoothPermissions(context)) {
@@ -425,10 +344,6 @@ class EffectViewModel @Inject constructor(
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // toggleEffect
-    // ═══════════════════════════════════════════════════════════
-
     fun toggleEffect(context: Context, effect: UiEffectType) {
         if (_isEffectBlocked.value) {
             _toastMessage.value = "음악 자동 재생 중에는 Effect를 선택할 수 없습니다"
@@ -448,10 +363,6 @@ class EffectViewModel @Inject constructor(
         selectEffect(effect)
         playEffect(context, effect)
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Effect 설정
-    // ═══════════════════════════════════════════════════════════
 
     fun selectEffect(effect: UiEffectType) {
         _selectedEffect.value  = effect
@@ -496,10 +407,6 @@ class EffectViewModel @Inject constructor(
     fun getEffectKey(effectType: UiEffectType): String =
         EffectKeys.of(effectType)
 
-    // ═══════════════════════════════════════════════════════════
-    // EffectList 선택
-    // ═══════════════════════════════════════════════════════════
-
     fun selectEffectList(context: Context, effectNumber: Int) {
         if (_isEffectBlocked.value) {
             _toastMessage.value = "음악 자동 재생 중에는 Effect List를 선택할 수 없습니다"
@@ -533,10 +440,6 @@ class EffectViewModel @Inject constructor(
             _toastMessage.value = "리스트 반복 재생을 중지합니다"
         }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Custom Effect CRUD
-    // ═══════════════════════════════════════════════════════════
 
     fun canAddCustomEffect(): Boolean =
         _customEffects.value.size < AppConstants.MAX_CUSTOM_EFFECTS
@@ -590,10 +493,6 @@ class EffectViewModel @Inject constructor(
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Preset Colors
-    // ═══════════════════════════════════════════════════════════
-
     fun selectFgPreset(index: Int) { _selectedFgPreset.value = index }
     fun selectBgPreset(index: Int) { _selectedBgPreset.value = index }
 
@@ -630,10 +529,6 @@ class EffectViewModel @Inject constructor(
             apply()
         }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Utility
-    // ═══════════════════════════════════════════════════════════
 
     fun clearToastMessage() { _toastMessage.value = null }
     fun clearError()         { _errorMessage.value = null }
@@ -675,10 +570,6 @@ class EffectViewModel @Inject constructor(
         effectListJob?.cancel()
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Data Classes
-    // ═══════════════════════════════════════════════════════════
-
     data class EffectSettings(
         val color:           LightStickColor = Colors.WHITE,
         val backgroundColor: LightStickColor = Colors.BLACK,
@@ -700,8 +591,8 @@ class EffectViewModel @Inject constructor(
 
         companion object {
             fun defaultFor(effectType: UiEffectType): EffectSettings = when (effectType) {
-                is UiEffectType.On         -> EffectSettings(period = 0,  transit = 50)   // 50 * 100ms = 5s
-                is UiEffectType.Off        -> EffectSettings(period = 0,  transit = 100)  // 100 * 100ms = 10s
+                is UiEffectType.On         -> EffectSettings(period = 0,  transit = 50)
+                is UiEffectType.Off        -> EffectSettings(period = 0,  transit = 100)
                 is UiEffectType.Strobe     -> EffectSettings(period = 10, transit = 0)
                 is UiEffectType.Blink      -> EffectSettings(period = 30, transit = 0)
                 is UiEffectType.Breath     -> EffectSettings(period = 30, transit = 0)
@@ -722,9 +613,6 @@ class EffectViewModel @Inject constructor(
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // UiEffectType
-    // ═══════════════════════════════════════════════════════════
     sealed class UiEffectType(val displayName: String) {
 
         data object On     : UiEffectType("ON")

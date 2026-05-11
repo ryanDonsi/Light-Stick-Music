@@ -26,7 +26,6 @@ class ResumeEffectsUseCase @Inject constructor() {
         context: Context
     ): Result<Unit> {
         return try {
-            // ✅ EffectEngineController 호출
             EffectEngineController.resumeEffects(context)
 
             Result.success(Unit)

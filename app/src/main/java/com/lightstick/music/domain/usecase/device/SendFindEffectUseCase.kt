@@ -33,14 +33,12 @@ class SendFindEffectUseCase @Inject constructor() {
         deviceMac: String
     ): Result<Unit> {
         return try {
-            // ✅ 1. BLINK payload 생성 (빠른 깜빡임)
             val findPayload = LSEffectPayload.Effects.blink(
                 period = 3,
                 color = Colors.WHITE,
                 randomColor = 1
             )
 
-            // ✅ 2. 특정 디바이스에 전송 (자동 Monitor 기록)
             val success = EffectEngineController.sendEffectToDevice(
                 context = context,
                 deviceMac = deviceMac,
@@ -53,7 +51,6 @@ class SendFindEffectUseCase @Inject constructor() {
                 return Result.failure(Exception("Device not found or not connected"))
             }
 
-            // ✅ 3. 3초 후 자동 OFF
             delay(3000)
 
             val offPayload = LSEffectPayload.Effects.on(Colors.WHITE)

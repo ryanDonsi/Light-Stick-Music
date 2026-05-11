@@ -60,7 +60,6 @@ class MusicEffectService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) return START_NOT_STICKY
 
-        // ✅ API 33+ 호환: IntentCompat로 parcelable 추출 (버전 분기/deprecated 불필요)
         val musicItem: MusicItem = IntentCompat.getParcelableExtra(
             intent,
             "musicItem",
@@ -78,10 +77,6 @@ class MusicEffectService : Service() {
         startForeground(NOTIFICATION_ID, notification)
         return START_STICKY
     }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // Notification
-    // ─────────────────────────────────────────────────────────────────────────────
 
     private fun actionPendingIntent(action: String): PendingIntent {
         val reqCode = when (action) {
@@ -146,7 +141,6 @@ class MusicEffectService : Service() {
     @UnstableApi
     private fun createContentIntent(): PendingIntent {
         val intent = Intent(this, MainActivity::class.java).apply {
-            // Reuse existing activity instance to minimize focus/session jitter
             putExtra("navigateTo", "music")
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -155,10 +149,6 @@ class MusicEffectService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // MediaSession
-    // ─────────────────────────────────────────────────────────────────────────────
 
     private fun updateMetadata(musicItem: MusicItem, duration: Long) {
         val metadata = MediaMetadata.Builder()
@@ -204,10 +194,6 @@ class MusicEffectService : Service() {
         sendBroadcast(intent)
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // Service plumbing
-    // ─────────────────────────────────────────────────────────────────────────────
-
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID, "음악 및 이펙트 재생", NotificationManager.IMPORTANCE_LOW
@@ -224,10 +210,6 @@ class MusicEffectService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // Utils
-    // ─────────────────────────────────────────────────────────────────────────────
 
     @SuppressLint("UseCompatLoadingForDrawables")
     private fun getBitmapFromDrawable(context: Context, drawableId: Int): Bitmap {

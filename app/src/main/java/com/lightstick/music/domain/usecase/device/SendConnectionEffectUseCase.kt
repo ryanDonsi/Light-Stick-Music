@@ -43,23 +43,17 @@ class SendConnectionEffectUseCase @Inject constructor() {
         device: Device
     ): Result<Unit> {
         return try {
-            // ✅ Permission 체크
             if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                 return Result.failure(SecurityException("BLUETOOTH_CONNECT permission required"))
             }
 
-            // ✅ 1. Connection 애니메이션 frames 생성
             val frames = createConnectionAnimationFrames()
 
-            // ✅ 2. Timeline 로드
             if (!device.loadTimeline(frames)) {
-                Log.w(TAG, "⚠️ Failed to load connection animation timeline")
+                Log.w(TAG, "Failed to load connection animation timeline")
                 return Result.failure(Exception("Failed to load timeline"))
             }
 
-            Log.d(TAG, "🎬 Connection animation timeline loaded")
-
-            // ✅ 3. Monitor 기록 (시작)
             val startEvent = BleTransmissionEvent(
                 source = TransmissionSource.PAYLOAD_EFFECT,
                 deviceMac = device.mac,
@@ -71,7 +65,6 @@ class SendConnectionEffectUseCase @Inject constructor() {
             )
             BleTransmissionMonitor.recordTransmission(startEvent)
 
-            // ✅ 4. 재생 위치 업데이트 (1.2초 동안)
             val startTime = System.currentTimeMillis()
             val duration = 1200L
 
@@ -83,13 +76,11 @@ class SendConnectionEffectUseCase @Inject constructor() {
                     break
                 }
                 device.updatePlaybackPosition(elapsed)
-                delay(16)  // 60 FPS
+                delay(16)
             }
 
-            // ✅ 5. Timeline 정지
             device.stopTimeline()
 
-            // ✅ 6. Monitor 기록 (종료)
             val endEvent = BleTransmissionEvent(
                 source = TransmissionSource.PAYLOAD_EFFECT,
                 deviceMac = device.mac,
@@ -101,11 +92,10 @@ class SendConnectionEffectUseCase @Inject constructor() {
             )
             BleTransmissionMonitor.recordTransmission(endEvent)
 
-            Log.d(TAG, "✅ Connection animation completed")
             Result.success(Unit)
 
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Connection animation failed: ${e.message}")
+            Log.e(TAG, "Connection animation failed: ${e.message}")
             Result.failure(e)
         }
     }

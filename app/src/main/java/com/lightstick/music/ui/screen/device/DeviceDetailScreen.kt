@@ -99,7 +99,6 @@ fun DeviceDetailScreen(
             verticalArrangement = Arrangement.Top
         ) {
 
-            // ===== 하나의 큰 카드로 통합 =====
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
@@ -116,7 +115,6 @@ fun DeviceDetailScreen(
                         ),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // 1. 디바이스 정보 헤더
                     DeviceInfoHeader(
                         deviceName = deviceName,
                         batteryLevel = batteryLevel,
@@ -126,7 +124,6 @@ fun DeviceDetailScreen(
                         showBatteryBadge = true
                     )
 
-                    // 2. 연결 해제 버튼
                     BaseButton(
                         text = "해제",
                         onClick = onDisconnectClick,
@@ -142,7 +139,6 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    // 3. 디바이스 정보
                     SettingLabel(
                         label = "디바이스 정보",
                         description = "기기의 정보를 확인",
@@ -155,7 +151,6 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    // 4. CALL Event
                     SettingToggleItem(
                         label = "CALL Event",
                         description = "전화벨이 울릴 때 특정 이팩트를 전달",
@@ -169,7 +164,6 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    // 5. SMS Event
                     SettingToggleItem(
                         label = "SMS Event",
                         description = "SMS 수신 시 특정 이팩트를 전달",
@@ -183,7 +177,6 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    // 6. Broadcasting Mode
                     SettingToggleItem(
                         label = "Broadcasting Mode",
                         description = "연결된 주변 응원봉에 신호를 전파해 함께 동작",
@@ -197,7 +190,6 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    // 7. FIND
                     SettingLabel(
                         label = "FIND",
                         description = "연결한 기기에 특정 이펙트를 전달하여 기기 찾기",
@@ -210,7 +202,6 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    // 8. OTA
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -229,7 +220,6 @@ fun DeviceDetailScreen(
                 }
             }
 
-//            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

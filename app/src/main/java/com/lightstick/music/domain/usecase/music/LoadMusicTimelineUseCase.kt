@@ -29,7 +29,6 @@ class LoadMusicTimelineUseCase @Inject constructor() {
         musicFile: File
     ): Result<Int> {
         return try {
-            // ✅ EffectEngineController 호출
             EffectEngineController.loadEffectsFor(context, musicFile)
 
             Result.success(EffectEngineController.getTimelineEffectCount())

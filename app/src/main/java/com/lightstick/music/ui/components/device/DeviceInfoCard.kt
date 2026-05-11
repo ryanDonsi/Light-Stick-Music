@@ -40,7 +40,6 @@ fun DeviceInfoCard(
     rssi: Int,
     modifier: Modifier = Modifier
 ) {
-    // 글라스모피즘 카드 스타일
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -56,9 +55,8 @@ fun DeviceInfoCard(
                     end = 20.dp,
                     bottom = 12.dp
                 ),
-            verticalArrangement = Arrangement.spacedBy(2.dp)  // ✅ Figma: 2dp
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            // 디바이스 이름 + 배터리
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -70,20 +68,17 @@ fun DeviceInfoCard(
                     color = MaterialTheme.customColors.onSurface
                 )
 
-                // 배터리 배지 (있는 경우)
                 batteryLevel?.let { level ->
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.size(width = 40.dp, height = 20.dp)
                     ) {
-                        // 배경: 배터리 아이콘
                         Icon(
                             painter = painterResource(id = R.drawable.ic_battery),
                             contentDescription = "배터리",
                             modifier = Modifier.fillMaxSize(),
                             tint = MaterialTheme.customColors.primary
                         )
-                        // 전경: 배터리 퍼센트
                         Text(
                             text = "$level%",
                             style = MaterialTheme.typography.labelSmall,
@@ -94,7 +89,6 @@ fun DeviceInfoCard(
                 }
             }
 
-            // MAC Address (3영역 정렬)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -117,7 +111,6 @@ fun DeviceInfoCard(
                 )
             }
 
-            // RSSI (3영역 정렬)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically

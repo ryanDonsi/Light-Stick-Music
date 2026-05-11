@@ -25,17 +25,14 @@ class StopScanUseCase @Inject constructor() {
      */
     operator fun invoke(context: Context): Result<Unit> {
         return try {
-            // ✅ 1. Permission 체크
             if (!PermissionManager.hasBluetoothScanPermission(context)) {
                 return Result.failure(
                     SecurityException("BLUETOOTH_SCAN permission required")
                 )
             }
 
-            // ✅ 2. 스캔 중지
             LSBluetooth.stopScan()
 
-            // ✅ 3. 성공 반환
             Result.success(Unit)
 
         } catch (e: SecurityException) {

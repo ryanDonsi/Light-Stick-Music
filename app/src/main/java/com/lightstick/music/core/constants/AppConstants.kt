@@ -9,13 +9,6 @@ import com.lightstick.music.core.ble.ControlMode
  */
 object AppConstants {
 
-    // ═══════════════════════════════════════════════════════════
-    // App Policy Configuration
-    //
-    // 앱 전체 동작 정책을 정의합니다.
-    // ViewModel 이 아닌 앱 수준에서 초기화되어야 하는 값들입니다.
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * Effect 제어 모드 기본값 (앱 전체 정책)
      *
@@ -31,59 +24,25 @@ object AppConstants {
      */
     val EFFECT_CONTROL_MODE: ControlMode = ControlMode.EXCLUSIVE
 
-
-
-    // ═══════════════════════════════════════════════════════════
-    // BLE Scan Configuration
-    // ═══════════════════════════════════════════════════════════
-
     const val DEVICE_SCAN_DURATION_MS   = 30_000L
     const val EFFECT_SCAN_DURATION_MS   = 3_000L
     const val DEVICE_NAME_FILTER_SUFFIX = "LS"
 
-    // ═══════════════════════════════════════════════════════════
-    // BLE Connection Configuration
-    // ═══════════════════════════════════════════════════════════
-
     const val CONNECTION_TIMEOUT_MS = 10_000L
-
-    // ═══════════════════════════════════════════════════════════
-    // Battery Monitoring Configuration
-    // ═══════════════════════════════════════════════════════════
 
     /** 배터리 모니터링 주기 - 펌웨어 BAS Notification 미지원으로 인한 Polling 방식 (30초) */
     const val BATTERY_MONITOR_INTERVAL_MS = 30_000L
 
-    // ═══════════════════════════════════════════════════════════
-    // Effect Configuration
-    // ═══════════════════════════════════════════════════════════
-
     const val MANUAL_EFFECT_INTERVAL_MS = 1_000L
     const val MAX_CUSTOM_EFFECTS        = 7
 
-    // ═══════════════════════════════════════════════════════════
-    // Music Player Configuration
-    // ═══════════════════════════════════════════════════════════
-
     const val POSITION_MONITOR_INTERVAL_MS = 100L
-
-    // ═══════════════════════════════════════════════════════════
-    // BLE Transmission Monitor Configuration
-    // ═══════════════════════════════════════════════════════════
 
     const val MAX_TRANSMISSION_HISTORY              = 100
     const val TRANSMISSION_MONITOR_UPDATE_INTERVAL_MS = 50L
 
-    // ═══════════════════════════════════════════════════════════
-    // UI Configuration
-    // ═══════════════════════════════════════════════════════════
-
     const val TOAST_DURATION_SHORT_MS = 2_000L
     const val TOAST_DURATION_LONG_MS  = 3_500L
-
-    // ═══════════════════════════════════════════════════════════
-    // File Extensions
-    // ═══════════════════════════════════════════════════════════
 
     const val EFX_FILE_EXTENSION  = "efx"
     const val MP3_FILE_EXTENSION  = "mp3"
@@ -92,35 +51,14 @@ object AppConstants {
 
     val SUPPORTED_AUDIO_EXTENSIONS = setOf("mp3", "wav", "flac", "m4a", "aac", "ogg")
 
-    // ═══════════════════════════════════════════════════════════
-    // Feature Log TAG 정의
-    //
-    // 기존 raw string TAG 와의 매핑:
-    //   "LightStickApp"            → Feature.APP
-    //   "MainActivity"             → Feature.ACTIVITY_MAIN
-    //   "DeviceVM"                 → Feature.VM_DEVICE
-    //   "EffectViewModel"          → Feature.VM_EFFECT
-    //   "MusicPlayerVM"            → Feature.VM_MUSIC
-    //   "BleCoordinator"           → Feature.BLE_COORDINATOR
-    //   "BleTransmissionMonitor"   → Feature.BLE_MONITOR
-    //   "ObserveDeviceStatesUseCase" → Feature.UC_OBSERVE_DEVICE
-    //   "SendConnectionEffectUseCase" → Feature.UC_CONNECTION_EFFECT
-    //   "FileHelper"               → Feature.UTIL_FILE
-    //   "SafHelper"                → Feature.UTIL_SAF
-    //   "EffectDirManager"         → Feature.STORAGE_EFFECT_PATH
-    // ═══════════════════════════════════════════════════════════
-
     object Feature {
 
-        // ── Application ───────────────────────────────────────
         /** LightStickMusicApp.kt */
         const val APP                   = "App"
 
-        // ── Activity ──────────────────────────────────────────
         /** MainActivity.kt */
         const val ACTIVITY_MAIN         = "MainActivity"
 
-        // ── ViewModel ─────────────────────────────────────────
         /** DeviceViewModel.kt */
         const val VM_DEVICE             = "DeviceVM"
         /** EffectViewModel.kt */
@@ -128,13 +66,11 @@ object AppConstants {
         /** MusicViewModel.kt */
         const val VM_MUSIC              = "MusicVM"
 
-        // ── BLE Core ──────────────────────────────────────────
         /** BleTransmissionCoordinator.kt */
         const val BLE_COORDINATOR       = "BleCoordinator"
         /** BleTransmissionMonitor.kt */
         const val BLE_MONITOR           = "BleMonitor"
 
-        // ── UseCase - Device ──────────────────────────────────
         /** ObserveDeviceStatesUseCase.kt */
         const val UC_OBSERVE_DEVICE     = "UC_ObserveDevice"
         /** StartScanUseCase.kt */
@@ -154,8 +90,6 @@ object AppConstants {
         /** RegisterEventRulesUseCase.kt */
         const val UC_REGIST_EVENTRULES  = "UC_RegisterEventRules"
 
-
-        // ── UseCase - Effect ──────────────────────────────────
         /** PlayManualEffectUseCase.kt */
         const val UC_PLAY_MANUAL        = "UC_PlayManual"
         /** PlayEffectListUseCase.kt */
@@ -163,7 +97,6 @@ object AppConstants {
         /** StopEffectUseCase.kt */
         const val UC_STOP_EFFECT        = "UC_StopEffect"
 
-        // ── UseCase - Music ───────────────────────────────────
         /** LoadMusicTimelineUseCase.kt */
         const val UC_LOAD_TIMELINE      = "UC_LoadTimeline"
         /** UpdatePlaybackPositionUseCase.kt */
@@ -173,13 +106,11 @@ object AppConstants {
         /** ProcessFFTUseCase.kt */
         const val UC_PROCESS_FFT        = "UC_ProcessFFT"
 
-        // ── Game Mode ─────────────────────────────────────────
         /** GameViewModel.kt */
         const val VM_GAME               = "GameVM"
         /** GameBleManager.kt */
         const val GAME_BLE_MANAGER      = "GameBleManager"
 
-        // ── Domain ────────────────────────────────────────────
         /** EffectEngineController.kt */
         const val EFFECT_ENGINE         = "EffectEngine"
         /** MusicEffectManager.kt */
@@ -188,7 +119,6 @@ object AppConstants {
         const val FFT_PROCESSOR         = "FftProcessor"
         const val AUTO_TIMELINE         = "AutoTimeline"
 
-        // ── Data / Storage ────────────────────────────────────
         /** EffectPathPreferences.kt */
         const val STORAGE_EFFECT_PATH   = "EffectDirMgr"
         /** DevicePreferences.kt */
@@ -196,7 +126,6 @@ object AppConstants {
         /** AutoModePreferences.kt */
         const val PREFS_AUTO_MODE       = "AutoModePrefs"
 
-        // ── Core / Util ───────────────────────────────────────
         /** FileHelper.kt */
         const val UTIL_FILE             = "FileHelper"
         /** SafHelper.kt */
@@ -208,10 +137,6 @@ object AppConstants {
         /** ServiceController.kt */
         const val SERVICE_CONTROLLER    = "ServiceCtrl"
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Log Configuration
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * 전체 로그 출력 여부
@@ -241,20 +166,16 @@ object AppConstants {
      */
     val LOG_ENABLED_FEATURES: Set<String> = setOf(
 
-        // ── Application / Activity ────────────────────────────
         Feature.APP,
         Feature.ACTIVITY_MAIN,
 
-        // ── ViewModel ─────────────────────────────────────────
         Feature.VM_DEVICE,
         Feature.VM_EFFECT,
         Feature.VM_MUSIC,
 
-        // ── BLE Core ──────────────────────────────────────────
         Feature.BLE_COORDINATOR,
         Feature.BLE_MONITOR,
 
-        // ── UseCase - Device ──────────────────────────────────
         Feature.UC_OBSERVE_DEVICE,
         Feature.UC_START_SCAN,
         Feature.UC_STOP_SCAN,
@@ -265,36 +186,30 @@ object AppConstants {
         Feature.UC_CONNECTION_EFFECT,
         Feature.UC_REGIST_EVENTRULES,
 
-        // ── UseCase - Effect ──────────────────────────────────
         Feature.UC_PLAY_MANUAL,
         Feature.UC_PLAY_EFFECT_LIST,
         Feature.UC_STOP_EFFECT,
 
-        // ── UseCase - Music ───────────────────────────────────
         Feature.UC_LOAD_TIMELINE,
         Feature.UC_UPDATE_POSITION,
         Feature.UC_HANDLE_SEEK,
         Feature.UC_PROCESS_FFT,
 
-        // ── Domain ────────────────────────────────────────────
         Feature.EFFECT_ENGINE,
         Feature.MUSIC_EFFECT_MANAGER,
         Feature.FFT_PROCESSOR,
         Feature.AUTO_TIMELINE,
 
-        // ── Data / Storage ────────────────────────────────────
         Feature.STORAGE_EFFECT_PATH,
         Feature.PREFS_DEVICE,
         Feature.PREFS_AUTO_MODE,
 
-        // ── Core / Util ───────────────────────────────────────
         Feature.UTIL_FILE,
         Feature.UTIL_SAF,
         Feature.PERMISSION_MANAGER,
         Feature.COMMAND_BUS,
         Feature.SERVICE_CONTROLLER,
 
-        // ── Game ──────────────────────────────────────────────
         Feature.GAME_BLE_MANAGER,
         Feature.VM_GAME,
     )

@@ -45,14 +45,12 @@ fun CommonProgressBar(
     val fillBrush = progressBrush ?: SolidColor(progressColor)
 
     Box(modifier = modifier.height(height)) {
-        // 배경 트랙
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(shape)
                 .background(trackColor)
         )
-        // 채움 (fill)
         Box(
             modifier = Modifier
                 .fillMaxWidth(progress.coerceIn(0f, 1f))

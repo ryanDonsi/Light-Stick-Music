@@ -29,7 +29,6 @@ class ProcessFFTUseCase @Inject constructor() {
         band: FrequencyBand
     ): Result<Unit> {
         return try {
-            // ✅ EffectEngineController 호출
             EffectEngineController.processFFT(context, band)
 
             Result.success(Unit)

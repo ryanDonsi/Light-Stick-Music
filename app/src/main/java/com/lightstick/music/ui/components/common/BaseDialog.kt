@@ -29,7 +29,6 @@ fun BaseDialog(
     scrollable: Boolean = true,
     confirmEnabled: Boolean = true,
     dismissible: Boolean = true,
-    // ✅ [수정] content를 nullable로 변경하여 조건부 렌더링을 구현합니다.
     content: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     Dialog(
@@ -115,7 +114,6 @@ fun BaseDialog(
                         }
                     }
 
-                    // ✅ [수정] content가 null이 아닐 때만 콘텐츠 영역을 렌더링합니다.
                     if (content != null) {
                         Column(
                             modifier = if (scrollable) {
@@ -168,7 +166,6 @@ fun BaseDialog(
     confirmText: String = "확인",
     scrollable: Boolean = true,
     dismissible: Boolean = true,
-    // ✅ [수정] content를 nullable로 변경하여 조건부 렌더링을 구현합니다.
     content: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     Dialog(
@@ -257,7 +254,6 @@ fun BaseDialog(
                         }
                     }
 
-                    // ✅ [수정] content가 null이 아닐 때만 콘텐츠 영역을 렌더링합니다.
                     if (content != null) {
                         Column(
                             modifier = if (scrollable) {

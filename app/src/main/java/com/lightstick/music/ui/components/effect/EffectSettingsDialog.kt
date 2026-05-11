@@ -17,7 +17,7 @@ import com.lightstick.music.ui.components.common.BaseDialog
 import com.lightstick.music.ui.viewmodel.EffectViewModel
 
 /**
- * ✅ (수정됨) 상태를 직접 소유하지 않으며, Custom Effect 설정을 지원하는 Stateless 다이얼로그
+ *  (수정됨) 상태를 직접 소유하지 않으며, Custom Effect 설정을 지원하는 Stateless 다이얼로그
  */
 @Composable
 fun EffectSettingsDialog(
@@ -29,7 +29,7 @@ fun EffectSettingsDialog(
     BaseDialog(
         title = "효과 상세 설정",
         onDismiss = onDismiss,
-        onConfirm = onDismiss, // 확인 버튼은 닫기 역할만 함
+        onConfirm = onDismiss,
         confirmText = "확인",
         dismissText = "취소",
         scrollable = true
@@ -46,9 +46,7 @@ fun EffectSettingsDialog(
             is EffectViewModel.UiEffectType.Breath -> {
                 PeriodicEffectSettingsContent(settings, onSettingsChange)
             }
-            // ✅ 추가: Custom 타입 처리
             is EffectViewModel.UiEffectType.Custom -> {
-                // 기반 타입에 맞는 설정 UI를 표시
                 when (effect.baseType) {
                     EffectViewModel.UiEffectType.BaseEffectType.ON -> OnEffectSettingsContent(settings, onSettingsChange)
                     EffectViewModel.UiEffectType.BaseEffectType.OFF -> OffEffectSettingsContent(settings, onSettingsChange)
@@ -65,7 +63,6 @@ fun EffectSettingsDialog(
                 )
             }
         }
-        // space
         Spacer(modifier = Modifier.height(16.dp))
     }
 }

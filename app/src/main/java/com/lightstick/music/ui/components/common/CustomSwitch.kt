@@ -41,7 +41,7 @@ fun CustomSwitch(
         thumbContent = {
             Box(
                 modifier = Modifier
-                    .size(16.dp) // 트랙 높이(22dp)에 맞는 작은 크기
+                    .size(16.dp)
                     .background(
                         color = MaterialTheme.customColors.onSurface,
                         shape = CircleShape

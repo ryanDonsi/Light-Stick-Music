@@ -35,7 +35,6 @@ object SafHelper {
             addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
         }
 
-        // 초기 위치 힌트 제공 (Android O+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && initialUri != null) {
             intent.putExtra("android.provider.extra.INITIAL_URI", initialUri)
         }
@@ -66,10 +65,9 @@ object SafHelper {
                     Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 
             context.contentResolver.takePersistableUriPermission(uri, takeFlags)
-            Log.d(TAG, "✅ Persistable permission granted: $uri")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to take persistable permission: ${e.message}")
+            Log.e(TAG, "Failed to take persistable permission: ${e.message}")
             false
         }
     }
@@ -86,7 +84,6 @@ object SafHelper {
                     Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 
             context.contentResolver.releasePersistableUriPermission(uri, releaseFlags)
-            Log.d(TAG, "🔓 Persistable permission released: $uri")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to release persistable permission: ${e.message}")
         }
@@ -131,10 +128,9 @@ object SafHelper {
                 }
             }
 
-            Log.d(TAG, "✅ Copied to temp: ${tempFile.absolutePath}")
             tempFile
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to copy to temp: ${e.message}")
+            Log.e(TAG, "Failed to copy to temp: ${e.message}")
             null
         }
     }

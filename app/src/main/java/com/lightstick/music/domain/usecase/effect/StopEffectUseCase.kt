@@ -32,10 +32,8 @@ class StopEffectUseCase @Inject constructor() {
         effectListJob: Job?
     ): Result<Unit> {
         return try {
-            // ✅ 1. EffectList Job 취소
             effectListJob?.cancel()
 
-            // ✅ 2. OFF 전송 (자동 Monitor 기록)
             val offPayload = LSEffectPayload.Effects.off()
 
             EffectEngineController.sendEffect(

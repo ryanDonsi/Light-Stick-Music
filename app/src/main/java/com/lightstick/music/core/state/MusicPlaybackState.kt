@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 object MusicPlaybackState {
 
-    // ── 음악 재생 중 + AUTO 모드 동시 활성화 여부 ──────────────────────
     private val _isPlayingWithAutoMode = MutableStateFlow(false)
     val isPlayingWithAutoMode: StateFlow<Boolean> = _isPlayingWithAutoMode.asStateFlow()
 
@@ -27,7 +26,6 @@ object MusicPlaybackState {
         _isPlayingWithAutoMode.value = isPlaying && isAutoMode
     }
 
-    // 앱 종료 / 테스트 등에서 명시적 초기화용
     internal fun reset() {
         _isPlayingWithAutoMode.value = false
     }

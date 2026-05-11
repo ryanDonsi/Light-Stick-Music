@@ -29,12 +29,8 @@ object EffectEngineController {
     @Volatile private var cachedTimeline: List<EfxEntry> = emptyList()
     @Volatile private var lastRecordedEffectIndex: Int = -1
 
-    /** ✅ MusicViewModel에서 FFT 차단용으로 사용 */
+    /**  MusicViewModel에서 FFT 차단용으로 사용 */
     fun isTimelineActive(): Boolean = isTimelineLoaded
-
-    // ─────────────────────────────────────────────
-    // Core send
-    // ─────────────────────────────────────────────
 
     fun sendEffect(
         context: Context,
@@ -50,7 +46,6 @@ object EffectEngineController {
         return try {
             val devices = LSBluetooth.connectedDevices()
             if (devices.isEmpty()) {
-                Log.d(TAG, "No connected devices")
                 return false
             }
 
@@ -180,10 +175,6 @@ object EffectEngineController {
         }
     }
 
-    // ─────────────────────────────────────────────
-    // Timeline
-    // ─────────────────────────────────────────────
-
     /** 자동 타임라인(frames) 로드 — 연결된 모든 기기에 전송 */
     @Synchronized
     fun loadTimelineFromFrames(context: Context, frames: List<Pair<Long, ByteArray>>) {
@@ -205,7 +196,6 @@ object EffectEngineController {
                 }
             }.sortedBy { it.timestampMs }
 
-            Log.d(TAG, "✅ Precomputed timeline loaded to ${devices.size} device(s): ${frames.size} frames")
         } catch (e: Exception) {
             isTimelineLoaded = false
             Log.e(TAG, "Precomputed timeline load failed: ${e.message}")
@@ -222,7 +212,6 @@ object EffectEngineController {
         try {
             val loadedEffects = MusicEffectManager.loadEffects(musicFile)
             if (loadedEffects.isNullOrEmpty()) {
-                Log.d(TAG, "No EFX file found for: ${musicFile.name}")
                 isTimelineLoaded = false
                 return
             }
@@ -234,7 +223,6 @@ object EffectEngineController {
             devices.forEach { it.loadTimeline(frames) }
 
             isTimelineLoaded = true
-            Log.d(TAG, "✅ EFX timeline loaded to ${devices.size} device(s): ${frames.size} effects")
         } catch (e: Exception) {
             isTimelineLoaded = false
             Log.e(TAG, "Timeline load failed: ${e.message}")
@@ -248,7 +236,6 @@ object EffectEngineController {
 
         try {
             devices.forEach { it.updatePlaybackPosition(currentPositionMs) }
-            // 첫 번째 기기 기준으로 UI 모니터 기록
             recordCurrentTimelineEffect(devices.first().mac, currentPositionMs)
         } catch (e: Exception) {
             Log.e(TAG, "Update playback failed: ${e.message}")
@@ -263,7 +250,6 @@ object EffectEngineController {
         try {
             lastRecordedEffectIndex = -1
             devices.forEach { it.updatePlaybackPosition(newPositionMs) }
-            Log.d(TAG, "✅ Seek handled on ${devices.size} device(s): ${newPositionMs}ms")
         } catch (e: Exception) {
             Log.e(TAG, "Seek failed: ${e.message}")
         }
@@ -274,7 +260,6 @@ object EffectEngineController {
         resolveAllDevices(context).forEach {
             try { it.pauseEffects() } catch (e: Exception) { Log.e(TAG, "Pause failed ${it.mac}: ${e.message}") }
         }
-        Log.d(TAG, "⏸ Timeline paused")
     }
 
     fun resumeEffects(context: Context) {
@@ -282,7 +267,6 @@ object EffectEngineController {
         resolveAllDevices(context).forEach {
             try { it.resumeEffects() } catch (e: Exception) { Log.e(TAG, "Resume failed ${it.mac}: ${e.message}") }
         }
-        Log.d(TAG, "▶️ Timeline resumed")
     }
 
     @Synchronized
@@ -292,7 +276,6 @@ object EffectEngineController {
         lastRecordedEffectIndex = -1
         try { LSBluetooth.connectedDevices().forEach { it.stopTimeline() } } catch (_: Exception) {}
         targetDevice = null
-        Log.d(TAG, "♻️ Controller reset")
     }
 
     /** FFT는 Timeline이 없을 때만 전송 */
@@ -309,10 +292,6 @@ object EffectEngineController {
 
         sendColor(context, color, transit = 5, source = TransmissionSource.FFT_EFFECT)
     }
-
-    // ─────────────────────────────────────────────
-    // Target
-    // ─────────────────────────────────────────────
 
     /** 타임라인/재생 제어 대상: 연결된 모든 기기 반환 */
     private fun resolveAllDevices(context: Context): List<Device> {

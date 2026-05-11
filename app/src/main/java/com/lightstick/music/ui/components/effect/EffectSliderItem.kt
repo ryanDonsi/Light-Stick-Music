@@ -14,7 +14,7 @@ import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
 
 /**
- * ✅ 이펙트 슬라이더 아이템
+ *  이펙트 슬라이더 아이템
  *
  * ## 수정사항
  * - EffectSettingsDialog.kt 내부 private 함수에서 별도 컴포넌트로 분리
@@ -42,14 +42,13 @@ fun EffectSliderItem(
     onValueChange: (Int) -> Unit,
     valueRange: IntRange = 0..100,
     steps: Int = 99,
-    labels: List<String> = emptyList(), // ✅ 추가: 하단 라벨
+    labels: List<String> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // ========== Header: 아이콘 + 레이블 ==========
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -67,7 +66,6 @@ fun EffectSliderItem(
             )
         }
 
-        // ========== CustomSlider (common 패키지 사용) ==========
         CustomSlider(
             value = value,
             onValueChange = onValueChange,
@@ -75,12 +73,11 @@ fun EffectSliderItem(
             steps = steps,
             enableHaptic = true,
             trackColor = Color(0xFFD9D9D9),
-            thumbColor = MaterialTheme.customColors.onSurface, // ✅ theme color 사용
+            thumbColor = MaterialTheme.customColors.onSurface,
             trackHeight = 8.dp,
             thumbSize = 24.dp
         )
 
-        // ========== 하단 타임라인 라벨 (추가 부분) ==========
         if (labels.isNotEmpty()) {
             Row(
                 modifier = Modifier

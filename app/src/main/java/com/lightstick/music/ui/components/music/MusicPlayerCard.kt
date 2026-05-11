@@ -32,9 +32,9 @@ import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
 
 /**
- * 🎵 Music Player Card (글라스모피즘 + Figma 디자인)
+ *  Music Player Card (글라스모피즘 + Figma 디자인)
  *
- * ✅ 수정 사항: **색상만 theme로 교체, UI는 그대로 유지**
+ *  수정 사항: **색상만 theme로 교체, UI는 그대로 유지**
  *
  * [추가] latestTransmission 파라미터
  *   → TIMELINE_EFFECT 수신 시 앨범 이미지 우측 하단에 오버레이 뱃지 표시
@@ -87,7 +87,6 @@ fun MusicPlayerCard(
                 modifier            = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // ── 앨범 아트 + 이펙트 뱃지 오버레이 ──────────────────────
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -96,7 +95,6 @@ fun MusicPlayerCard(
                         .clip(RoundedCornerShape(20.dp))
                         .background(MaterialTheme.colorScheme.background)
                 ) {
-                    // 앨범 아트 (Coil 비동기 로딩 — 메인 스레드 블로킹 없음)
                     AsyncImage(
                         model              = musicItem.albumArtPath,
                         contentDescription = "Album Art",
@@ -108,7 +106,6 @@ fun MusicPlayerCard(
                             .clip(RoundedCornerShape(20.dp))
                     )
 
-                    // [추가] 이펙트 뱃지 — TIMELINE_EFFECT 수신 시 우측 하단 오버레이
                     val isTimeline = latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT
                     if (isTimeline) {
                         EffectOverlayBadge(
@@ -122,7 +119,6 @@ fun MusicPlayerCard(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 곡 제목 + EFX 뱃지 (원본 그대로)
                 Row(
                     modifier              = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
@@ -163,7 +159,6 @@ fun MusicPlayerCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // 아티스트명
                 Text(
                     text      = musicItem.artist,
                     style     = MaterialTheme.typography.bodyLarge,
@@ -173,7 +168,6 @@ fun MusicPlayerCard(
                     overflow  = TextOverflow.Ellipsis
                 )
 
-                // 시간 표시 + 진행바
                 MusicSeekBar(
                     currentPosition = currentPosition,
                     duration        = duration,
@@ -182,7 +176,6 @@ fun MusicPlayerCard(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 플레이어 컨트롤
                 Row(
                     modifier = Modifier
                         .height(64.dp)
@@ -221,10 +214,6 @@ fun MusicPlayerCard(
         }
     }
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// EmptyMusicCard / PressableIconButton (원본 그대로)
-// ──────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun EmptyMusicCard(modifier: Modifier = Modifier) {

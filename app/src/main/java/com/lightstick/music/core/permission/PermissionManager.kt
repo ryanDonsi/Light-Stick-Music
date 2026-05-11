@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import com.lightstick.music.core.util.Log
 import androidx.core.content.ContextCompat
 
 object PermissionManager {
@@ -22,10 +21,6 @@ object PermissionManager {
     fun hasAllPermissions(context: Context, permissions: Array<String>): Boolean {
         return permissions.all { hasPermission(context, it) }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // 블루투스 권한
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * 블루투스 스캔 권한 확인
@@ -61,10 +56,6 @@ object PermissionManager {
         return permissions.toTypedArray()
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 저장소 권한
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * 저장소 읽기 권한 확인
      */
@@ -87,10 +78,6 @@ object PermissionManager {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 알림 권한
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * 알림 권한 확인 (Android 13+)
      */
@@ -98,13 +85,9 @@ object PermissionManager {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             hasPermission(context, Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            true // Android 12 이하는 권한 불필요
+            true
         }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // 통합 권한 체크
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * 앱에 필요한 모든 권한 확인
@@ -121,13 +104,10 @@ object PermissionManager {
     fun getAllRequiredPermissions(): Array<String> {
         val permissions = mutableListOf<String>()
 
-        // 블루투스 권한
         permissions.addAll(getRequiredBluetoothPermissions())
 
-        // 저장소 권한
         permissions.addAll(getRequiredStoragePermissions())
 
-        // 알림 권한
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -146,16 +126,5 @@ object PermissionManager {
      * 디버깅: 모든 권한 상태 로깅
      */
     fun logPermissionStatus(context: Context, tag: String = "PermissionUtils") {
-        Log.d(tag, "═══════════════════════════════════════")
-        Log.d(tag, "Permission Status:")
-        Log.d(tag, "  Bluetooth:")
-        Log.d(tag, "    ├─ SCAN: ${hasBluetoothScanPermission(context)}")
-        Log.d(tag, "    └─ CONNECT: ${hasBluetoothConnectPermission(context)}")
-        Log.d(tag, "  Storage:")
-        Log.d(tag, "    └─ ${hasStoragePermission(context)}")
-        Log.d(tag, "  Notification:")
-        Log.d(tag, "    └─ ${hasNotificationPermission(context)}")
-        Log.d(tag, "  All Required: ${hasAllRequiredPermissions(context)}")
-        Log.d(tag, "═══════════════════════════════════════")
     }
 }

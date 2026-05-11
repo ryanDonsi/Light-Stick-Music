@@ -31,7 +31,7 @@ import com.lightstick.music.ui.theme.customTextStyles
 /**
  * Music List 아이템 카드 (글라스모피즘)
  *
- * ✅ 수정 사항: **색상만 theme로 교체, UI는 그대로 유지**
+ *  수정 사항: **색상만 theme로 교체, UI는 그대로 유지**
  *
  * [추가] latestTransmission 파라미터
  *   → TIMELINE_EFFECT 수신 시 앨범 이미지 우측 하단에 오버레이 뱃지 표시
@@ -73,15 +73,12 @@ fun MusicListItemCard(
             modifier          = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // ── 앨범아트 + 이펙트 뱃지 오버레이 ──────────────────────────
             Box(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                // 앨범아트 (Coil 비동기 로딩 — 메인 스레드 블로킹 없음)
-                // SubcomposeAsyncImage: error/fallback에 Composable 슬롯 지원
                 SubcomposeAsyncImage(
                     model              = musicItem.albumArtPath,
                     contentDescription = "앨범아트",
@@ -101,7 +98,6 @@ fun MusicListItemCard(
                     }
                 }
 
-                // [추가] 이펙트 뱃지 — TIMELINE_EFFECT 수신 시 우측 하단 오버레이 (원형만)
                 val isTimeline = latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT
                 if (isTimeline) {
                     EffectOverlayBadge(
@@ -129,7 +125,6 @@ fun MusicListItemCard(
                         maxLines   = 1,
                         overflow   = TextOverflow.Ellipsis
                     )
-                    // EFX 배지 (원본 그대로)
                     if (musicItem.hasEffect) {
                         Surface(
                             shape    = RoundedCornerShape(4.dp),

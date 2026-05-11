@@ -53,7 +53,6 @@ fun MusicSeekBar(
     )
 
     Column(modifier = modifier.fillMaxWidth()) {
-        // 현재 재생 시간 / 전체 시간
         Row(
             modifier              = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -72,7 +71,6 @@ fun MusicSeekBar(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // 16dp 터치 영역 (시각적 바는 4dp로 중앙 정렬)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -88,7 +86,6 @@ fun MusicSeekBar(
                             dragProgress = (change.position.x / size.width).coerceIn(0f, 1f)
                         }
 
-                        // 포인터 업 — seek 확정
                         if (duration > 0) {
                             onSeekTo((duration * (dragProgress ?: startPercent)).toLong())
                         }

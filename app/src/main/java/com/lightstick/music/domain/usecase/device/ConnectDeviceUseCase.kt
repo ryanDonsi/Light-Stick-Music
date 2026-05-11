@@ -40,14 +40,12 @@ class ConnectDeviceUseCase @Inject constructor() {
         onDeviceInfo: (DeviceInfo) -> Unit = {}
     ): Result<Unit> {
         return try {
-            // ✅ 1. Permission 체크
             if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                 return Result.failure(
                     SecurityException("BLUETOOTH_CONNECT permission required")
                 )
             }
 
-            // ✅ 2. 비동기 연결을 동기적으로 대기
             val completionDeferred = CompletableDeferred<Result<Unit>>()
 
             device.connect(
@@ -59,12 +57,9 @@ class ConnectDeviceUseCase @Inject constructor() {
                     onFailed(error)
                     completionDeferred.complete(Result.failure(error))
                 },
-                onDeviceInfo = { info ->
-                    onDeviceInfo(info)
-                }
+                onDeviceInfo = { info -> onDeviceInfo(info) }
             )
 
-            // ✅ 3. 연결 완료 대기
             completionDeferred.await()
 
         } catch (e: SecurityException) {

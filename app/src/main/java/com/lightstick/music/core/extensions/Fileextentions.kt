@@ -160,7 +160,6 @@ fun File.moveTo(destinationDir: File, newName: String? = null): File? {
     return if (renameTo(targetFile)) {
         targetFile
     } else {
-        // renameTo 실패 시 복사 후 삭제
         try {
             copyTo(targetFile, overwrite = true)
             if (delete()) targetFile else null

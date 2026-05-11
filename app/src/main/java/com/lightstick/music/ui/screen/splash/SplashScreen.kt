@@ -63,11 +63,6 @@ fun SplashScreen(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// [신규] AnimatedDotsLabel
-// - text: 기본 라벨 텍스트 ("파일명 이펙트 생성 중" 등)
-// - dots가 . → .. → ... → . 순서로 500ms마다 순환
-// ──────────────────────────────────────────────────────────────────────────────
 @Composable
 private fun AnimatedDotsLabel(
     text: String,
@@ -82,7 +77,6 @@ private fun AnimatedDotsLabel(
         }
     }
 
-    // dots를 고정폭 Box에 분리 → 텍스트 좌우 흔들림 방지
     val dots = when (dotStep) {
         0 -> "."
         1 -> ".."
@@ -101,7 +95,6 @@ private fun AnimatedDotsLabel(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        // 고정폭 Box: "..." 3글자 너비를 항상 확보
         Box(modifier = Modifier.width(14.dp)) {
             Text(
                 text = dots,
@@ -113,9 +106,6 @@ private fun AnimatedDotsLabel(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// InitializationScreen
-// ──────────────────────────────────────────────────────────────────────────────
 @Composable
 private fun InitializationScreen(
     initState: InitializationState,
@@ -205,16 +195,12 @@ private fun InitializationScreen(
                     )
                 }
 
-                // [수정] PrecomputingTimelines: 파일명을 타이틀 자리에 직접 표시
-                // - 파일명 있음: "[파일명] 이펙트 생성 중..." 애니메이션 dots
-                // - 파일명 없음(초기): "자동 타임라인 생성 중..." 애니메이션 dots
                 is InitializationState.PrecomputingTimelines -> {
                     val labelText = if (initState.currentFileName.isNotEmpty())
                         "${initState.currentFileName} 이펙트 생성 중"
                     else
                         "자동 타임라인 생성 중"
 
-                    // AnimatedDotsLabel이 타이틀 역할 수행 (ProgressSection 고정 텍스트 대체)
                     AnimatedDotsLabel(
                         text = labelText,
                         modifier = Modifier
@@ -223,7 +209,7 @@ private fun InitializationScreen(
                     )
 
                     ProgressSection(
-                        title = "",   // 타이틀 없음 — AnimatedDotsLabel이 대신함
+                        title = "",
                         current = initState.processed,
                         total = initState.total
                     )

@@ -90,8 +90,6 @@ class MusicViewModel @Inject constructor(
     private val _duration = MutableStateFlow(0)
     val duration: StateFlow<Int> = _duration.asStateFlow()
 
-    // [추가] BleTransmissionMonitor.latestTransmission 직접 노출
-    // MusicControlScreen / MusicListScreen 에서 TimelineEffectBadge 표시에 사용
     val latestTransmission: StateFlow<BleTransmissionEvent?> =
         BleTransmissionMonitor.latestTransmission
 
@@ -139,8 +137,6 @@ class MusicViewModel @Inject constructor(
     private fun initializeEffects() {
         if (EffectPathPreferences.isDirectoryConfigured(context)) {
             MusicEffectManager.initializeFromSAF(context)
-            val count = MusicEffectManager.getLoadedEffectCount()
-            Log.d(TAG, "Initialized $count effects")
         } else {
             Log.w(TAG, "Effects directory not configured")
         }
@@ -148,9 +144,6 @@ class MusicViewModel @Inject constructor(
 
     private fun loadCachedMusicOrScan() {
         viewModelScope.launch {
-            val prefs       = context.getSharedPreferences("app_state", Context.MODE_PRIVATE)
-            val initialized = prefs.getBoolean("is_initialized", false)
-            Log.d(TAG, if (initialized) "Loading from initialized state" else "First launch, scanning music...")
             loadMusic()
         }
     }
@@ -232,8 +225,6 @@ class MusicViewModel @Inject constructor(
             }
 
             _musicList.value = musicItems
-            Log.d(TAG, "Loaded ${musicItems.size} music files, " +
-                    "${musicItems.count { it.hasEffect }} with effects")
         }
     }
 
@@ -260,17 +251,13 @@ class MusicViewModel @Inject constructor(
 
             if (MusicEffectManager.hasEffectFor(musicFile)) {
                 loadMusicTimelineUseCase(context, musicFile)
-                Log.d(TAG, "EFX 재생")
             } else {
                 val musicId = com.lightstick.efx.MusicId.fromFile(musicFile)
                 val ver     = AutoTimelineConfig.VERSION
                 val storage = AutoTimelineStorage(version = ver)
                 val frames  = storage.load(context, musicId)
 
-                Log.d(TAG, "AutoTimeline load v=$ver musicId=$musicId frames=${frames?.size ?: 0}")
-
                 if (!frames.isNullOrEmpty()) {
-                    Log.d(TAG, "자동 타임라인 재생 (v=$ver)")
                     EffectEngineController.loadTimelineFromFrames(context, frames)
                 } else {
                     Log.w(TAG, "자동 타임라인 없음 (v=$ver) → FFT 폴백")
@@ -278,7 +265,6 @@ class MusicViewModel @Inject constructor(
             }
         } else {
             EffectEngineController.reset()
-            Log.d(TAG, "AUTO OFF - EFX not loaded")
         }
 
         ServiceController.startMusicEffectService(
@@ -296,7 +282,6 @@ class MusicViewModel @Inject constructor(
         if (_isAutoModeEnabled.value) {
             try {
                 updatePlaybackPositionUseCase(context, 0L)
-                Log.d(TAG, "Initial position synced at 0ms")
             } catch (e: Exception) {
                 Log.e(TAG, "Initial sync failed: ${e.message}")
             }
@@ -324,7 +309,6 @@ class MusicViewModel @Inject constructor(
 
         if (!newState) {
             EffectEngineController.reset()
-            Log.d(TAG, "AUTO OFF - timeline reset, FFT enabled")
         } else {
             val currentMusic = _nowPlaying.value
             if (currentMusic != null) {

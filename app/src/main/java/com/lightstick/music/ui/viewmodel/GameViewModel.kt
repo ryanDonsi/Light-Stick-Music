@@ -5,7 +5,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lightstick.game.GameMode as SdkGameMode
 import com.lightstick.game.GameResult
-import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.model.GameDifficulty
 import com.lightstick.music.data.model.GameMode
 import com.lightstick.music.data.model.GameResultSummary
@@ -36,9 +35,10 @@ class GameViewModel @Inject constructor(
         private const val TAG = AppConstants.Feature.VM_GAME
         private const val RESULT_COLLECT_WINDOW_MS = 4_000L
         private const val AUTO_START_DELAY_MS = 2_000L
-    }
 
-    // ─── UI State ─────────────────────────────────────────────────────────────
+        private fun maxPlaySeconds(mode: GameMode, difficulty: GameDifficulty): Int =
+            (mode.toSdkMode().resultTimeoutMs(difficulty.toSdkLevel()) / 1000L).toInt()
+    }
 
     private val _selectedMode = MutableStateFlow<GameMode?>(null)
     val selectedMode: StateFlow<GameMode?> = _selectedMode.asStateFlow()
@@ -49,30 +49,27 @@ class GameViewModel @Inject constructor(
     private val _gameState = MutableStateFlow<GameState>(GameState.Idle)
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
-    val bleConnectionState = gameBleManager.connectionState
-
-    // ─── Countdown ────────────────────────────────────────────────────────────
+    val bleConnectionState    = gameBleManager.connectionState
+    val isGameModeSupported   = gameBleManager.isGameModeSupported
 
     private val _countdownSeconds = MutableStateFlow(0)
     val countdownSeconds: StateFlow<Int> = _countdownSeconds.asStateFlow()
 
-    // ─── Accumulated Results ──────────────────────────────────────────────────
+    private val _playingElapsedSeconds = MutableStateFlow(0)
+    val playingElapsedSeconds: StateFlow<Int> = _playingElapsedSeconds.asStateFlow()
+    private val _playingMaxSeconds = MutableStateFlow(0)
+    val playingMaxSeconds: StateFlow<Int> = _playingMaxSeconds.asStateFlow()
+    private var timerJob: Job? = null
 
     private val collectedResults = mutableListOf<WandResult>()
     private var resultCollectJob: Job? = null
 
-    // ─── Partial Results (Mode 1/2 진행 중 실시간 순위) ───────────────────────
-
     private val _partialResults = MutableStateFlow<List<WandResult>>(emptyList())
     val partialResults: StateFlow<List<WandResult>> = _partialResults.asStateFlow()
-
-    // ─── Init ─────────────────────────────────────────────────────────────────
 
     init {
         observeGameResults()
     }
-
-    // ─── Public Actions ───────────────────────────────────────────────────────
 
     fun selectMode(mode: GameMode) {
         _selectedMode.value = mode
@@ -108,9 +105,7 @@ class GameViewModel @Inject constructor(
         }
 
         _gameState.value = GameState.Ready
-        Log.d(TAG, "READY sent: mode=$mode difficulty=$difficulty")
 
-        // 응원봉은 READY 수신 후 약 2초 뒤 Auto-START — UI 카운트다운
         viewModelScope.launch {
             for (sec in AUTO_START_DELAY_MS.toInt() / 1000 downTo 1) {
                 _countdownSeconds.value = sec
@@ -118,6 +113,7 @@ class GameViewModel @Inject constructor(
             }
             _countdownSeconds.value = 0
             _gameState.value = GameState.Playing
+            startPlayingTimer(mode, difficulty)
         }
     }
 
@@ -125,9 +121,9 @@ class GameViewModel @Inject constructor(
     fun stopGame() {
         sendGameCommandUseCase.sendStop()
         resultCollectJob?.cancel()
+        cancelTimer()
         _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
-        Log.d(TAG, "STOP sent")
     }
 
     /** 결과 화면 → 다시 모드 선택으로 */
@@ -135,17 +131,31 @@ class GameViewModel @Inject constructor(
         sendGameCommandUseCase.sendClear()
         collectedResults.clear()
         resultCollectJob?.cancel()
+        cancelTimer()
         _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
-        Log.d(TAG, "CLEAR sent, back to Idle")
     }
 
-    // ─── Result Collection ────────────────────────────────────────────────────
+    private fun startPlayingTimer(mode: GameMode, difficulty: GameDifficulty) {
+        timerJob?.cancel()
+        _playingElapsedSeconds.value = 0
+        _playingMaxSeconds.value = maxPlaySeconds(mode, difficulty)
+        timerJob = viewModelScope.launch {
+            while (true) {
+                delay(1_000L)
+                _playingElapsedSeconds.value++
+            }
+        }
+    }
+
+    private fun cancelTimer() {
+        timerJob?.cancel()
+        timerJob = null
+    }
 
     private fun observeGameResults() {
         viewModelScope.launch {
             observeGameResultsUseCase().collect { result ->
-                Log.d(TAG, "Flow 수신: wandId=0x${result.wandId.toString(16)} state=${_gameState.value::class.simpleName}")
                 val state = _gameState.value
                 when {
                     state is GameState.Playing || state is GameState.Ready ->
@@ -159,8 +169,6 @@ class GameViewModel @Inject constructor(
 
     private fun onResultReceived(result: GameResult) {
         if (!result.isWandIdValid) {
-            // wandId=0x0000/0xFFFF: 게임 종료 요약 패킷 → 즉시 결과 확정
-            Log.d(TAG, "Summary packet received: red=${result.redScore} blue=${result.blueScore} total=${result.totalCount}")
             resultCollectJob?.cancel()
             finalizeSummaryPacket(result)
             return
@@ -180,9 +188,6 @@ class GameViewModel @Inject constructor(
             }
         }
 
-        Log.d(TAG, "Result collected: wand=0x${wandResult.wandId.toString(16)} red=${wandResult.redScore} total=${collectedResults.size}")
-
-        // 슬라이딩 윈도우 — 새 결과가 올 때마다 타이머 리셋
         resultCollectJob?.cancel()
         resultCollectJob = viewModelScope.launch {
             delay(RESULT_COLLECT_WINDOW_MS)
@@ -209,10 +214,10 @@ class GameViewModel @Inject constructor(
                 totalBlueScore = updated.sumOf { it.blueScore }
             )
         )
-        Log.d(TAG, "Late result added: wand=0x${wandResult.wandId.toString(16)} total=${updated.size}")
     }
 
     private fun finalizeSummaryPacket(result: GameResult) {
+        cancelTimer()
         val mode = GameMode.fromSdkMode(result.mode) ?: _selectedMode.value ?: return
         val accumulated = collectedResults.toList()
 
@@ -235,10 +240,10 @@ class GameViewModel @Inject constructor(
         }
 
         _gameState.value = GameState.Finished(summary)
-        Log.d(TAG, "Game finalized by summary: mode=$mode red=${summary.totalRedScore} blue=${summary.totalBlueScore} count=${summary.totalWandCount}")
     }
 
     private fun finalizeResults(sdkMode: SdkGameMode) {
+        cancelTimer()
         val mode = GameMode.fromSdkMode(sdkMode) ?: _selectedMode.value ?: return
 
         val results = collectedResults.toList()
@@ -259,10 +264,7 @@ class GameViewModel @Inject constructor(
         )
 
         _gameState.value = GameState.Finished(summary)
-        Log.d(TAG, "Game finished: mode=$mode red=$totalRed blue=$totalBlue count=${results.size}")
     }
-
-    // ─── Lifecycle ────────────────────────────────────────────────────────────
 
     override fun onCleared() {
         super.onCleared()

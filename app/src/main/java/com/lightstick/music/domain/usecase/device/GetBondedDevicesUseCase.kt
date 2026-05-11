@@ -28,17 +28,14 @@ class GetBondedDevicesUseCase @Inject constructor() {
      */
     operator fun invoke(context: Context): Result<List<Device>> {
         return try {
-            // ✅ 1. Permission 체크
             if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                 return Result.failure(
                     SecurityException("BLUETOOTH_CONNECT permission required")
                 )
             }
 
-            // ✅ 2. Bonded 디바이스 조회
             val bondedDevices = LSBluetooth.bondedDevices()
 
-            // ✅ 3. 성공 반환
             Result.success(bondedDevices)
 
         } catch (e: SecurityException) {

@@ -132,11 +132,10 @@ object FileHelper {
      * @return 안전한 파일명
      */
     fun sanitizeFileName(fileName: String): String {
-        // 파일 시스템에서 허용되지 않는 문자 제거
         return fileName
             .replace(Regex("[\\\\/:*?\"<>|]"), "_")
             .trim()
-            .take(255) // 파일명 최대 길이 제한
+            .take(255)
     }
 
     /**
@@ -165,7 +164,7 @@ object FileHelper {
      */
     fun clearOldCacheFiles(
         context: Context,
-        maxAgeMillis: Long = 7 * 24 * 60 * 60 * 1000L // 7일
+        maxAgeMillis: Long = 7 * 24 * 60 * 60 * 1000L
     ) {
         try {
             val currentTime = System.currentTimeMillis()
@@ -182,7 +181,6 @@ object FileHelper {
             } ?: 0
 
             if (deletedCount > 0) {
-                Log.d(TAG, "Cleared $deletedCount old cache files")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear old cache files: ${e.message}")
