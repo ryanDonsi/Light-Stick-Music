@@ -182,9 +182,10 @@ class DeviceViewModel @Inject constructor(
         }
 
         val deviceInfo = getCachedDeviceInfoUseCase(mac)
-        Log.d(TAG, "getCachedDeviceInfo: $mac result=${if (deviceInfo != null) "hit fw=${deviceInfo.firmwareRevision}" else "miss"}")
-        if (deviceInfo != null) {
-            updateDeviceInfoFromCallback(mac, deviceInfo)
+        val hasValidInfo = deviceInfo?.firmwareRevision?.isNotBlank() == true
+        Log.d(TAG, "getCachedDeviceInfo: $mac result=${if (deviceInfo != null) "hit fw=${deviceInfo.firmwareRevision}" else "miss"} hasValidInfo=$hasValidInfo")
+        if (hasValidInfo) {
+            updateDeviceInfoFromCallback(mac, deviceInfo!!)
         } else {
             device.fetchDeviceInfo { info ->
                 Log.i(TAG, "fetchDeviceInfo: $mac fw=${info.firmwareRevision} model=${info.modelNumber}")
