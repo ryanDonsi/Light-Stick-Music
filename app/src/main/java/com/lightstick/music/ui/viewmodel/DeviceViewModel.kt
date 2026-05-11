@@ -173,16 +173,21 @@ class DeviceViewModel @Inject constructor(
 
         updateConnectionState(mac, true)
 
-        if (!_deviceDetails.value.containsKey(mac)) {
+        val hadDetail = _deviceDetails.value.containsKey(mac)
+        val existingFw = _deviceDetails.value[mac]?.deviceInfo?.firmwareRevision
+        Log.d(TAG, "onDeviceConnectedFromSdk: $mac hadDetail=$hadDetail existingFw=$existingFw")
+
+        if (!hadDetail) {
             initializeDeviceDetail(device)
         }
 
         val deviceInfo = getCachedDeviceInfoUseCase(mac)
+        Log.d(TAG, "getCachedDeviceInfo: $mac result=${if (deviceInfo != null) "hit fw=${deviceInfo.firmwareRevision}" else "miss"}")
         if (deviceInfo != null) {
             updateDeviceInfoFromCallback(mac, deviceInfo)
         } else {
             device.fetchDeviceInfo { info ->
-                Log.i(TAG, "fetchDeviceInfo: $mac fw=${info.firmwareRevision}")
+                Log.i(TAG, "fetchDeviceInfo: $mac fw=${info.firmwareRevision} model=${info.modelNumber}")
                 updateDeviceInfoFromCallback(mac, info)
             }
         }
@@ -195,6 +200,8 @@ class DeviceViewModel @Inject constructor(
      * SDK에서 연결 해제 이벤트 감지 시 처리.
      */
     private fun onDeviceDisconnectedFromSdk(mac: String) {
+        val fwAtDisconnect = _deviceDetails.value[mac]?.deviceInfo?.firmwareRevision
+        Log.d(TAG, "onDeviceDisconnectedFromSdk: $mac fwAtDisconnect=$fwAtDisconnect")
         connectedDevices.remove(mac)
         updateConnectionState(mac, false)
         stopBatteryMonitoring(mac)
@@ -346,7 +353,7 @@ class DeviceViewModel @Inject constructor(
                         updateConnectionState(device.mac, false)
                     },
                     onDeviceInfo = { info ->
-                        Log.i(TAG, "onDeviceInfo: ${device.mac} fw=${info.firmwareRevision}")
+                        Log.i(TAG, "onDeviceInfo [connect path]: ${device.mac} fw=${info.firmwareRevision} model=${info.modelNumber}")
                         updateDeviceInfoFromCallback(device.mac, info)
                     }
                 ).onFailure { error ->
@@ -625,6 +632,7 @@ class DeviceViewModel @Inject constructor(
     }
 
     private fun updateDeviceInfoFromCallback(mac: String, deviceInfo: DeviceInfo) {
+        Log.d(TAG, "updateDeviceInfo: $mac fw=${deviceInfo.firmwareRevision} model=${deviceInfo.modelNumber} mfr=${deviceInfo.manufacturer}")
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
             this[mac] = existing?.copy(deviceInfo = deviceInfo, batteryLevel = deviceInfo.batteryLevel)
@@ -637,6 +645,7 @@ class DeviceViewModel @Inject constructor(
                     batteryLevel = deviceInfo.batteryLevel
                 )
         }
+        Log.d(TAG, "updateDeviceInfo done: $mac fw=${_deviceDetails.value[mac]?.deviceInfo?.firmwareRevision}")
     }
 
     private fun updateBatteryLevel(mac: String, level: Int) {
