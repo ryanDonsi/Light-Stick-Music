@@ -16,7 +16,6 @@ import com.lightstick.music.ui.components.common.ButtonStyle
 import com.lightstick.music.ui.components.common.CustomChip
 import com.lightstick.music.ui.components.common.CustomTopBar
 import com.lightstick.music.ui.components.device.DeviceInfoHeader
-import com.lightstick.music.ui.components.device.OtaProgressSection
 import com.lightstick.music.ui.components.device.SettingLabel
 import com.lightstick.music.ui.components.device.SettingToggleItem
 import com.lightstick.music.ui.theme.customColors
@@ -168,13 +167,10 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    if (isOtaInProgress) {
-                        OtaProgressSection(
-                            progress = otaProgress,
-                            onAbort = onAbortOta,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -182,12 +178,31 @@ fun DeviceDetailScreen(
                         ) {
                             SettingLabel(
                                 label = "OTA",
-                                description = "펌웨어 업데이트를 진행"
+                                description = if (isOtaInProgress)
+                                    "펌웨어 업데이트 중 ($otaProgress%)"
+                                else
+                                    "펌웨어 업데이트를 진행",
+                                modifier = Modifier.weight(1f)
                             )
-
                             CustomChip(
-                                text = "업데이트",
-                                onClick = onOtaUpdateClick
+                                text = if (isOtaInProgress) "OTA중지" else "업데이트",
+                                onClick = if (isOtaInProgress) onAbortOta else onOtaUpdateClick,
+                                containerColor = if (isOtaInProgress)
+                                    MaterialTheme.colorScheme.error
+                                else
+                                    MaterialTheme.customColors.primaryContainer,
+                                contentColor = if (isOtaInProgress)
+                                    MaterialTheme.colorScheme.onError
+                                else
+                                    MaterialTheme.customColors.onSurface
+                            )
+                        }
+                        if (isOtaInProgress) {
+                            LinearProgressIndicator(
+                                progress = { otaProgress / 100f },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.customColors.divider
                             )
                         }
                     }
