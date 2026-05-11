@@ -413,20 +413,12 @@ class DeviceViewModel @Inject constructor(
                 }
 
                 val deviceVersion = _deviceDetails.value[device.mac]
-                    ?.deviceInfo?.firmwareRevision.orEmpty()
+                    ?.deviceInfo?.firmwareRevision.orEmpty().trim()
 
-                // Telink 바이너리는 버전을 파일에서 파싱하지 않음
-                // parseFromBytes가 반환한 버전이 실제로 더 신규인 경우에만 사용하고,
-                // 그렇지 않으면 테스트용 시뮬레이션 버전(minor+1)으로 대체
+                // Telink 바이너리는 버전 정보가 신뢰할 수 없으므로 항상 시뮬레이션 버전(minor+1) 사용
                 val parsedVersion = FirmwareVersionParser.parseFromBytes(firmware)
-                val fileVersion = if (
-                    parsedVersion != null &&
-                    FirmwareVersionParser.isNewerVersion(parsedVersion, deviceVersion)
-                ) {
-                    parsedVersion
-                } else {
-                    FirmwareVersionParser.simulateTestVersion(deviceVersion)
-                }
+                val baseVersion = deviceVersion.ifEmpty { "0.0.0" }
+                val fileVersion = FirmwareVersionParser.simulateTestVersion(baseVersion)
 
                 Log.i(TAG, "OTA version check: device=$deviceVersion, file=$fileVersion, parsed=$parsedVersion")
                 val isUpdateAvailable = FirmwareVersionParser.isNewerVersion(fileVersion, deviceVersion)
@@ -453,10 +445,9 @@ class DeviceViewModel @Inject constructor(
         startOtaFromBytes(device, firmware)
     }
 
-    /** 버전 체크 결과 및 대기 펌웨어 초기화 */
+    /** 버전 체크 결과 초기화 (pendingOtaFirmware는 startPendingOta/abortOta에서만 해제) */
     fun clearOtaVersionCheck() {
         _otaVersionCheck.value = null
-        pendingOtaFirmware = null
     }
 
     /** 펌웨어 ByteArray로 OTA 진행 */
