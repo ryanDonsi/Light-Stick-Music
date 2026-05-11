@@ -443,14 +443,17 @@ class DeviceViewModel @Inject constructor(
                 _otaInProgress.value += (device.mac to true)
                 _otaProgress.value   += (device.mac to 0)
 
+                Log.i(TAG, "OTA start: ${device.mac}, size=${firmware.size}B")
                 val ok = device.startOta(
                     firmware   = firmware,
                     onProgress = { percent ->
                         _otaProgress.value += (device.mac to percent)
+                        if (percent % 10 == 0) Log.i(TAG, "OTA progress: $percent% [${device.mac}]")
                     },
                     onResult   = { result ->
                         _otaInProgress.value += (device.mac to false)
                         result
+                            .onSuccess { Log.i(TAG, "OTA success: ${device.mac}") }
                             .onFailure { Log.e(TAG, "OTA failed: ${it.message}") }
                     }
                 )
@@ -464,6 +467,13 @@ class DeviceViewModel @Inject constructor(
                 Log.e(TAG, "OTA error: ${e.message}", e)
             }
         }
+    }
+
+    fun abortOta(device: Device) {
+        device.abortOta()
+        _otaInProgress.value -= device.mac
+        _otaProgress.value   -= device.mac
+        Log.i(TAG, "OTA aborted: ${device.mac}")
     }
 
     private fun registerDeviceEventRules(device: Device) {

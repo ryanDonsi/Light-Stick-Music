@@ -389,6 +389,11 @@ fun AppNavigation(
             val broadcastingEnabled = deviceDetail?.broadcasting
                 ?: DevicePreferences.getBroadcasting(deviceMac)
 
+            val otaInProgressMap by deviceViewModel.otaInProgress.collectAsState()
+            val otaProgressMap   by deviceViewModel.otaProgress.collectAsState()
+            val isOtaInProgress  = otaInProgressMap[deviceMac] == true
+            val otaProgress      = otaProgressMap[deviceMac] ?: 0
+
             DeviceDetailScreen(
                 deviceName = device.name ?: "Unknown Device",
                 macAddress = device.mac,
@@ -398,6 +403,8 @@ fun AppNavigation(
                 callEventEnabled = callEventEnabled,
                 smsEventEnabled = smsEventEnabled,
                 broadcastingEnabled = broadcastingEnabled,
+                isOtaInProgress = isOtaInProgress,
+                otaProgress = otaProgress,
                 onBackClick = {
                     navController.popBackStack()
                 },
@@ -421,6 +428,9 @@ fun AppNavigation(
                 },
                 onOtaUpdateClick = {
                     otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
+                },
+                onAbortOta = {
+                    deviceViewModel.abortOta(device)
                 }
             )
 

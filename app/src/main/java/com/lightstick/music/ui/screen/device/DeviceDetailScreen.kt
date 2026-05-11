@@ -16,49 +16,12 @@ import com.lightstick.music.ui.components.common.ButtonStyle
 import com.lightstick.music.ui.components.common.CustomChip
 import com.lightstick.music.ui.components.common.CustomTopBar
 import com.lightstick.music.ui.components.device.DeviceInfoHeader
+import com.lightstick.music.ui.components.device.OtaProgressSection
 import com.lightstick.music.ui.components.device.SettingLabel
 import com.lightstick.music.ui.components.device.SettingToggleItem
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.surfaceGlass
 
-/**
- * 디바이스 상세 정보 화면 (하나의 카드로 통합)
- *
- * ## 화면 구성:
- * 1. TopBar (뒤로가기 + "연결된 기기")
- * 2. 하나의 큰 카드:
- *    - DeviceInfoHeader (이름, MAC, RSSI, 배터리)
- *    - 연결 해제 버튼
- *    - Divider
- *    - 디바이스 정보 라벨
- *    - Divider
- *    - CALL Event 토글
- *    - Divider
- *    - SMS Event 토글
- *    - Divider
- *    - Broadcasting Mode 토글
- *    - Divider
- *    - FIND 라벨
- *    - Divider
- *    - OTA 섹션 (라벨 + 업데이트 버튼)
- *
- * @param deviceName 디바이스 이름
- * @param macAddress MAC 주소
- * @param rssi RSSI 값
- * @param batteryLevel 배터리 레벨 (nullable)
- * @param deviceInfo 디바이스 정보 (nullable)
- * @param callEventEnabled CALL Event 활성화 여부
- * @param smsEventEnabled SMS Event 활성화 여부
- * @param broadcastingEnabled Broadcasting 활성화 여부
- * @param onBackClick 뒤로가기 클릭
- * @param onDisconnectClick 연결 해제 클릭
- * @param onDeviceInfoClick 디바이스 정보 클릭
- * @param onCallEventToggle CALL Event 토글
- * @param onSmsEventToggle SMS Event 토글
- * @param onBroadcastingToggle Broadcasting 토글
- * @param onFindClick FIND 버튼 클릭
- * @param onOtaUpdateClick OTA 업데이트 버튼 클릭
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceDetailScreen(
@@ -70,6 +33,8 @@ fun DeviceDetailScreen(
     callEventEnabled: Boolean,
     smsEventEnabled: Boolean,
     broadcastingEnabled: Boolean,
+    isOtaInProgress: Boolean,
+    otaProgress: Int,
     onBackClick: () -> Unit,
     onDisconnectClick: () -> Unit,
     onDeviceInfoClick: () -> Unit,
@@ -78,6 +43,7 @@ fun DeviceDetailScreen(
     onBroadcastingToggle: (Boolean) -> Unit,
     onFindClick: () -> Unit,
     onOtaUpdateClick: () -> Unit,
+    onAbortOta: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -202,20 +168,28 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        SettingLabel(
-                            label = "OTA",
-                            description = "펌웨어 업데이트를 진행"
+                    if (isOtaInProgress) {
+                        OtaProgressSection(
+                            progress = otaProgress,
+                            onAbort = onAbortOta,
+                            modifier = Modifier.fillMaxWidth()
                         )
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            SettingLabel(
+                                label = "OTA",
+                                description = "펌웨어 업데이트를 진행"
+                            )
 
-                        CustomChip(
-                            text = "업데이트",
-                            onClick = onOtaUpdateClick
-                        )
+                            CustomChip(
+                                text = "업데이트",
+                                onClick = onOtaUpdateClick
+                            )
+                        }
                     }
                 }
             }
