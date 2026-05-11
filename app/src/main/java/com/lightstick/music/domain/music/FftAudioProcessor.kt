@@ -56,13 +56,18 @@ class FftAudioProcessor(
         val fftInput = FloatArray(n * 2) { 0f }
         for (i in floatSamples.indices) fftInput[i * 2] = floatSamples[i]
 
-        // 캐시된 FFT 인스턴스 재사용 (사이즈 변경 시에만 재생성)
-        if (n != cachedFftSize) {
-            cachedFft = null // 이전 인스턴스 GC 허용 후 새 인스턴스 생성
-            cachedFft = FloatFFT_1D(n.toLong())
-            cachedFftSize = n
+        val fft = if (n != cachedFftSize) {
+            FloatFFT_1D(n.toLong()).also {
+                cachedFft = it
+                cachedFftSize = n
+            }
+        } else {
+            cachedFft ?: FloatFFT_1D(n.toLong()).also {
+                cachedFft = it
+                cachedFftSize = n
+            }
         }
-        cachedFft!!.realForwardFull(fftInput)
+        fft.realForwardFull(fftInput)
 
         // 샘플레이트 기반 주파수 → bin 인덱스 변환
         // bin k의 중심 주파수 = k * sampleRate / n
