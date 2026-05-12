@@ -351,6 +351,13 @@ fun AppNavigation(
                 return@composable
             }
 
+            val isConnected = connectionStates[deviceMac] == true
+            LaunchedEffect(isConnected) {
+                if (!isConnected) {
+                    navController.popBackStack()
+                }
+            }
+
             val otaVersionCheck by deviceViewModel.otaVersionCheck.collectAsState()
 
             // TODO: 최종 구현 시 서버 API로 최신 버전 조회 + 다운로드 URL 수신으로 대체
@@ -389,6 +396,11 @@ fun AppNavigation(
             val broadcastingEnabled = deviceDetail?.broadcasting
                 ?: DevicePreferences.getBroadcasting(deviceMac)
 
+            val otaInProgressMap by deviceViewModel.otaInProgress.collectAsState()
+            val otaProgressMap   by deviceViewModel.otaProgress.collectAsState()
+            val isOtaInProgress  = otaInProgressMap[deviceMac] == true
+            val otaProgress      = otaProgressMap[deviceMac] ?: 0
+
             DeviceDetailScreen(
                 deviceName = device.name ?: "Unknown Device",
                 macAddress = device.mac,
@@ -398,6 +410,8 @@ fun AppNavigation(
                 callEventEnabled = callEventEnabled,
                 smsEventEnabled = smsEventEnabled,
                 broadcastingEnabled = broadcastingEnabled,
+                isOtaInProgress = isOtaInProgress,
+                otaProgress = otaProgress,
                 onBackClick = {
                     navController.popBackStack()
                 },
@@ -421,6 +435,9 @@ fun AppNavigation(
                 },
                 onOtaUpdateClick = {
                     otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
+                },
+                onAbortOta = {
+                    deviceViewModel.abortOta(device)
                 }
             )
 
@@ -439,6 +456,7 @@ fun AppNavigation(
 
             if (showDeviceInfoDialog) {
                 DeviceInfoDialog(
+                    name = deviceDetail?.deviceInfo?.modelName ?: "Unknown",
                     model = deviceDetail?.deviceInfo?.modelNumber ?: "Unknown",
                     firmware = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
                     manufacturer = deviceDetail?.deviceInfo?.manufacturer ?: "Unknown",

@@ -2,6 +2,7 @@ package com.lightstick.music.domain.usecase.device
 
 import com.lightstick.LSBluetooth
 import com.lightstick.device.DeviceInfo
+import com.lightstick.device.DeviceInfoResult
 import javax.inject.Inject
 
 /**
@@ -20,9 +21,13 @@ class GetCachedDeviceInfoUseCase @Inject constructor() {
      * 캐시된 디바이스 정보 조회
      *
      * @param mac 디바이스 MAC 주소
-     * @return DeviceInfo? 캐시 있으면 반환, 없으면 null
+     * @return DeviceInfo? Available이면 반환, Error(NOT_CONNECTED/INFO_NOT_READY)면 null
      */
     operator fun invoke(mac: String): DeviceInfo? {
-        return LSBluetooth.getCachedDeviceInfo(mac)
+        return when (val result = LSBluetooth.getCachedDeviceInfo(mac)) {
+            is DeviceInfoResult.Available -> result.info
+            is DeviceInfoResult.Error     -> null
+            else                          -> null
+        }
     }
 }

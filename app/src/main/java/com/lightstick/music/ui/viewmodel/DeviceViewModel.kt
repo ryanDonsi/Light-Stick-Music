@@ -21,7 +21,6 @@ import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.DisconnectDeviceUseCase
-import com.lightstick.music.domain.usecase.device.GetCachedDeviceInfoUseCase
 import com.lightstick.music.domain.usecase.device.RegisterEventRulesUseCase
 import com.lightstick.music.domain.usecase.device.SendFindEffectUseCase
 import com.lightstick.music.domain.usecase.device.SendConnectionEffectUseCase
@@ -48,7 +47,6 @@ class DeviceViewModel @Inject constructor(
     private val disconnectDeviceUseCase:     DisconnectDeviceUseCase,
     private val registerEventRulesUseCase:   RegisterEventRulesUseCase,
     private val sendConnectionEffectUseCase: SendConnectionEffectUseCase,
-    private val getCachedDeviceInfoUseCase:  GetCachedDeviceInfoUseCase,
     private val startScanUseCase:            StartScanUseCase,
     private val stopScanUseCase:             StopScanUseCase
 ) : ViewModel() {
@@ -122,6 +120,7 @@ class DeviceViewModel @Inject constructor(
 
     init {
         observeDeviceStateEvents()
+        observeDeviceInfoUpdates()
         ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
     }
 
@@ -144,6 +143,24 @@ class DeviceViewModel @Inject constructor(
     }
 
     /**
+     * SDK DeviceState StateFlow 구독 — DIS 읽기 완료 시 deviceInfo 자동 업데이트
+     * connect() / onDeviceConnectedFromSdk() 두 경로 모두 커버
+     */
+    private fun observeDeviceInfoUpdates() {
+        viewModelScope.launch {
+            LSBluetooth.observeDeviceStates()
+                .collect { stateMap ->
+                    stateMap.forEach { (mac, state) ->
+                        val info = state.deviceInfo ?: return@forEach
+                        if (info.firmwareRevision?.isNotBlank() == true) {
+                            updateDeviceInfoFromCallback(mac, info)
+                        }
+                    }
+                }
+        }
+    }
+
+    /**
      * SDK에서 연결 이벤트 감지 시 처리.
      * DeviceViewModel.connect()를 통해 이미 처리된 경우는 skip.
      *
@@ -152,7 +169,11 @@ class DeviceViewModel @Inject constructor(
      */
     @SuppressLint("MissingPermission")
     private fun onDeviceConnectedFromSdk(mac: String) {
-        if (connectedDevices.containsKey(mac)) return
+        if (connectedDevices.containsKey(mac)) {
+            Log.d(TAG, "onDeviceConnectedFromSdk: skip (already handled by connect()) $mac")
+            return
+        }
+        Log.i(TAG, "onDeviceConnectedFromSdk: $mac")
 
         val sdkDevice = LSBluetooth.connectedDevices().find { it.mac == mac }
         val device = _devices.value.find { it.mac == mac }
@@ -173,11 +194,6 @@ class DeviceViewModel @Inject constructor(
             initializeDeviceDetail(device)
         }
 
-        val deviceInfo = getCachedDeviceInfoUseCase(mac)
-        if (deviceInfo != null) {
-            updateDeviceInfoFromCallback(mac, deviceInfo)
-        }
-
         registerDeviceEventRules(device)
         startBatteryMonitoring(mac)
     }
@@ -186,6 +202,8 @@ class DeviceViewModel @Inject constructor(
      * SDK에서 연결 해제 이벤트 감지 시 처리.
      */
     private fun onDeviceDisconnectedFromSdk(mac: String) {
+        val fwAtDisconnect = _deviceDetails.value[mac]?.deviceInfo?.firmwareRevision
+        Log.d(TAG, "onDeviceDisconnectedFromSdk: $mac fwAtDisconnect=$fwAtDisconnect")
         connectedDevices.remove(mac)
         updateConnectionState(mac, false)
         stopBatteryMonitoring(mac)
@@ -317,7 +335,14 @@ class DeviceViewModel @Inject constructor(
                     context      = context,
                     device       = device,
                     onConnected  = {
+                        Log.i(TAG, "onConnected: ${device.mac}")
                         connectedDevices[device.mac] = device
+                        updateConnectionState(device.mac, true)
+                        if (!_deviceDetails.value.containsKey(device.mac)) {
+                            initializeDeviceDetail(device)
+                        }
+                        registerDeviceEventRules(device)
+                        startBatteryMonitoring(device.mac)
                         viewModelScope.launch {
                             sendConnectionEffectUseCase(context, device).onFailure { error ->
                                 Log.e(TAG, "Connection animation failed: ${error.message}")
@@ -327,9 +352,10 @@ class DeviceViewModel @Inject constructor(
                     onFailed     = { error ->
                         Log.e(TAG, "Connection failed: ${error.message}")
                         connectedDevices.remove(device.mac)
+                        updateConnectionState(device.mac, false)
                     },
                     onDeviceInfo = { info ->
-                        updateDeviceInfoFromCallback(device.mac, info)
+                        Log.d(TAG, "onDeviceInfo [connect path]: ${device.mac} fw=${info.firmwareRevision}")
                     }
                 ).onFailure { error ->
                     Log.e(TAG, "Connect use case failed: ${error.message}")
@@ -400,11 +426,14 @@ class DeviceViewModel @Inject constructor(
                 }
 
                 val deviceVersion = _deviceDetails.value[device.mac]
-                    ?.deviceInfo?.firmwareRevision.orEmpty()
+                    ?.deviceInfo?.firmwareRevision.orEmpty().trim()
 
-                val fileVersion = FirmwareVersionParser.parseFromBytes(firmware)
-                    ?: FirmwareVersionParser.simulateTestVersion(deviceVersion)
+                // Telink 바이너리는 버전 정보가 신뢰할 수 없으므로 항상 시뮬레이션 버전(minor+1) 사용
+                val parsedVersion = FirmwareVersionParser.parseFromBytes(firmware)
+                val baseVersion = deviceVersion.ifEmpty { "0.0.0" }
+                val fileVersion = FirmwareVersionParser.simulateTestVersion(baseVersion)
 
+                Log.i(TAG, "OTA version check: device=$deviceVersion, file=$fileVersion, parsed=$parsedVersion")
                 val isUpdateAvailable = FirmwareVersionParser.isNewerVersion(fileVersion, deviceVersion)
 
                 pendingOtaFirmware = firmware
@@ -429,10 +458,9 @@ class DeviceViewModel @Inject constructor(
         startOtaFromBytes(device, firmware)
     }
 
-    /** 버전 체크 결과 및 대기 펌웨어 초기화 */
+    /** 버전 체크 결과 초기화 (pendingOtaFirmware는 startPendingOta/abortOta에서만 해제) */
     fun clearOtaVersionCheck() {
         _otaVersionCheck.value = null
-        pendingOtaFirmware = null
     }
 
     /** 펌웨어 ByteArray로 OTA 진행 */
@@ -443,14 +471,17 @@ class DeviceViewModel @Inject constructor(
                 _otaInProgress.value += (device.mac to true)
                 _otaProgress.value   += (device.mac to 0)
 
+                Log.i(TAG, "OTA start: ${device.mac}, size=${firmware.size}B")
                 val ok = device.startOta(
                     firmware   = firmware,
                     onProgress = { percent ->
                         _otaProgress.value += (device.mac to percent)
+                        if (percent % 10 == 0) Log.i(TAG, "OTA progress: $percent% [${device.mac}]")
                     },
                     onResult   = { result ->
                         _otaInProgress.value += (device.mac to false)
                         result
+                            .onSuccess { Log.i(TAG, "OTA success: ${device.mac}") }
                             .onFailure { Log.e(TAG, "OTA failed: ${it.message}") }
                     }
                 )
@@ -464,6 +495,14 @@ class DeviceViewModel @Inject constructor(
                 Log.e(TAG, "OTA error: ${e.message}", e)
             }
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun abortOta(device: Device) {
+        device.abortOta()
+        _otaInProgress.value -= device.mac
+        _otaProgress.value   -= device.mac
+        Log.i(TAG, "OTA aborted: ${device.mac}")
     }
 
     private fun registerDeviceEventRules(device: Device) {
@@ -594,6 +633,7 @@ class DeviceViewModel @Inject constructor(
     }
 
     private fun updateDeviceInfoFromCallback(mac: String, deviceInfo: DeviceInfo) {
+        Log.d(TAG, "updateDeviceInfo: $mac btName=${deviceInfo.deviceName} modelName=${deviceInfo.modelName} model=${deviceInfo.modelNumber} fw=${deviceInfo.firmwareRevision} mfr=${deviceInfo.manufacturer}")
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
             this[mac] = existing?.copy(deviceInfo = deviceInfo, batteryLevel = deviceInfo.batteryLevel)
@@ -606,6 +646,7 @@ class DeviceViewModel @Inject constructor(
                     batteryLevel = deviceInfo.batteryLevel
                 )
         }
+        Log.d(TAG, "updateDeviceInfo done: $mac fw=${_deviceDetails.value[mac]?.deviceInfo?.firmwareRevision}")
     }
 
     private fun updateBatteryLevel(mac: String, level: Int) {

@@ -107,6 +107,7 @@ fun DisconnectConfirmDialog(
  */
 @Composable
 fun DeviceInfoDialog(
+    name: String,
     model: String,
     firmware: String,
     manufacturer: String,
@@ -123,6 +124,11 @@ fun DeviceInfoDialog(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            InfoRow(
+                label = "Name",
+                value = name
+            )
+
             InfoRow(
                 label = "Model",
                 value = model

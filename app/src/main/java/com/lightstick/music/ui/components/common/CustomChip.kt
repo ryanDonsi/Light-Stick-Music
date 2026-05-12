@@ -2,7 +2,7 @@ package com.lightstick.music.ui.components.common
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,7 +41,7 @@ fun CustomChip(
     Button(
         onClick = onClick,
         modifier = modifier
-            .width(62.dp)
+            .widthIn(min = 62.dp)
             .height(36.dp),
         enabled = enabled,
         shape = RoundedCornerShape(8.dp),
