@@ -28,9 +28,6 @@ fun DeviceDetailSection(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         deviceDetail.deviceInfo?.let { info ->
-            info.modelNumber?.let {
-                DetailRow("모델", it)
-            }
             info.firmwareRevision?.let {
                 DetailRow("펌웨어", it)
             }

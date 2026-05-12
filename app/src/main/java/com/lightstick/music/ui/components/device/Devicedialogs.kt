@@ -125,7 +125,7 @@ fun DeviceInfoDialog(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             InfoRow(
-                label = "Name",
+                label = "BT Name",
                 value = name
             )
 

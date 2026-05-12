@@ -633,7 +633,7 @@ class DeviceViewModel @Inject constructor(
     }
 
     private fun updateDeviceInfoFromCallback(mac: String, deviceInfo: DeviceInfo) {
-        Log.d(TAG, "updateDeviceInfo: $mac fw=${deviceInfo.firmwareRevision} model=${deviceInfo.modelNumber} mfr=${deviceInfo.manufacturer}")
+        Log.d(TAG, "updateDeviceInfo: $mac btName=${deviceInfo.deviceName} model=${deviceInfo.modelNumber} fw=${deviceInfo.firmwareRevision} mfr=${deviceInfo.manufacturer}")
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
             this[mac] = existing?.copy(deviceInfo = deviceInfo, batteryLevel = deviceInfo.batteryLevel)
