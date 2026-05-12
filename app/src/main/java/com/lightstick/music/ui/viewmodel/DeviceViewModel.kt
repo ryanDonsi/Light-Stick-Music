@@ -21,7 +21,6 @@ import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.DisconnectDeviceUseCase
-import com.lightstick.music.domain.usecase.device.GetCachedDeviceInfoUseCase
 import com.lightstick.music.domain.usecase.device.RegisterEventRulesUseCase
 import com.lightstick.music.domain.usecase.device.SendFindEffectUseCase
 import com.lightstick.music.domain.usecase.device.SendConnectionEffectUseCase
@@ -48,7 +47,6 @@ class DeviceViewModel @Inject constructor(
     private val disconnectDeviceUseCase:     DisconnectDeviceUseCase,
     private val registerEventRulesUseCase:   RegisterEventRulesUseCase,
     private val sendConnectionEffectUseCase: SendConnectionEffectUseCase,
-    private val getCachedDeviceInfoUseCase:  GetCachedDeviceInfoUseCase,
     private val startScanUseCase:            StartScanUseCase,
     private val stopScanUseCase:             StopScanUseCase
 ) : ViewModel() {
@@ -122,6 +120,7 @@ class DeviceViewModel @Inject constructor(
 
     init {
         observeDeviceStateEvents()
+        observeDeviceInfoUpdates()
         ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
     }
 
@@ -138,6 +137,24 @@ class DeviceViewModel @Inject constructor(
                         is ConnectionState.Connected    -> onDeviceConnectedFromSdk(event.mac)
                         is ConnectionState.Disconnected -> onDeviceDisconnectedFromSdk(event.mac)
                         else -> Unit
+                    }
+                }
+        }
+    }
+
+    /**
+     * SDK DeviceState StateFlow 구독 — DIS 읽기 완료 시 deviceInfo 자동 업데이트
+     * connect() / onDeviceConnectedFromSdk() 두 경로 모두 커버
+     */
+    private fun observeDeviceInfoUpdates() {
+        viewModelScope.launch {
+            LSBluetooth.observeDeviceStates()
+                .collect { stateMap ->
+                    stateMap.forEach { (mac, state) ->
+                        val info = state.deviceInfo ?: return@forEach
+                        if (info.firmwareRevision?.isNotBlank() == true) {
+                            updateDeviceInfoFromCallback(mac, info)
+                        }
                     }
                 }
         }
@@ -173,24 +190,8 @@ class DeviceViewModel @Inject constructor(
 
         updateConnectionState(mac, true)
 
-        val hadDetail = _deviceDetails.value.containsKey(mac)
-        val existingFw = _deviceDetails.value[mac]?.deviceInfo?.firmwareRevision
-        Log.d(TAG, "onDeviceConnectedFromSdk: $mac hadDetail=$hadDetail existingFw=$existingFw")
-
-        if (!hadDetail) {
+        if (!_deviceDetails.value.containsKey(mac)) {
             initializeDeviceDetail(device)
-        }
-
-        val deviceInfo = getCachedDeviceInfoUseCase(mac)
-        val hasValidInfo = deviceInfo?.firmwareRevision?.isNotBlank() == true
-        Log.d(TAG, "getCachedDeviceInfo: $mac result=${if (deviceInfo != null) "hit fw=${deviceInfo.firmwareRevision}" else "miss"} hasValidInfo=$hasValidInfo")
-        if (hasValidInfo) {
-            updateDeviceInfoFromCallback(mac, deviceInfo!!)
-        } else {
-            device.fetchDeviceInfo { info ->
-                Log.i(TAG, "fetchDeviceInfo: $mac fw=${info.firmwareRevision} model=${info.modelNumber}")
-                updateDeviceInfoFromCallback(mac, info)
-            }
         }
 
         registerDeviceEventRules(device)
@@ -354,8 +355,7 @@ class DeviceViewModel @Inject constructor(
                         updateConnectionState(device.mac, false)
                     },
                     onDeviceInfo = { info ->
-                        Log.i(TAG, "onDeviceInfo [connect path]: ${device.mac} fw=${info.firmwareRevision} model=${info.modelNumber}")
-                        updateDeviceInfoFromCallback(device.mac, info)
+                        Log.d(TAG, "onDeviceInfo [connect path]: ${device.mac} fw=${info.firmwareRevision}")
                     }
                 ).onFailure { error ->
                     Log.e(TAG, "Connect use case failed: ${error.message}")
