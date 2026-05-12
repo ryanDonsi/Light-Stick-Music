@@ -15,6 +15,7 @@ import com.lightstick.music.ui.components.common.BaseButton
 import com.lightstick.music.ui.components.common.ButtonStyle
 import com.lightstick.music.ui.components.common.CustomChip
 import com.lightstick.music.ui.components.common.CustomTopBar
+import com.lightstick.music.ui.components.common.CommonProgressBar
 import com.lightstick.music.ui.components.device.DeviceInfoHeader
 import com.lightstick.music.ui.components.device.SettingLabel
 import com.lightstick.music.ui.components.device.SettingToggleItem
@@ -198,11 +199,10 @@ fun DeviceDetailScreen(
                             )
                         }
                         if (isOtaInProgress) {
-                            LinearProgressIndicator(
-                                progress = { otaProgress / 100f },
+                            CommonProgressBar(
+                                progress = otaProgress / 100f,
                                 modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.customColors.divider
+                                height = 2.dp
                             )
                         }
                     }
