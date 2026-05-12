@@ -456,6 +456,7 @@ fun AppNavigation(
 
             if (showDeviceInfoDialog) {
                 DeviceInfoDialog(
+                    name = deviceDetail?.deviceInfo?.deviceName ?: "Unknown",
                     model = deviceDetail?.deviceInfo?.modelNumber ?: "Unknown",
                     firmware = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
                     manufacturer = deviceDetail?.deviceInfo?.manufacturer ?: "Unknown",
