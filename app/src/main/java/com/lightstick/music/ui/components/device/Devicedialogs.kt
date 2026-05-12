@@ -108,6 +108,7 @@ fun DisconnectConfirmDialog(
 @Composable
 fun DeviceInfoDialog(
     name: String,
+    modelName: String,
     model: String,
     firmware: String,
     manufacturer: String,
@@ -127,6 +128,11 @@ fun DeviceInfoDialog(
             InfoRow(
                 label = "BT Name",
                 value = name
+            )
+
+            InfoRow(
+                label = "Model Name",
+                value = modelName
             )
 
             InfoRow(
