@@ -450,29 +450,31 @@ private fun SpeedReactionTutorial(onReplay: () -> Unit) {
                     textAlign = TextAlign.Center
                 )
             }
-            AnimatedVisibility(
-                visible = finished,
-                enter = fadeIn(tween(350)),
-                exit = fadeOut(tween(200)),
-                modifier = Modifier.matchParentSize()
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(OverlayBackground, RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center
+            Column(modifier = Modifier.matchParentSize()) {
+                AnimatedVisibility(
+                    visible = finished,
+                    enter = fadeIn(tween(350)),
+                    exit = fadeOut(tween(200)),
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(OverlayBackground, RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = winnerText,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = colors.onSurface,
-                            textAlign = TextAlign.Center
-                        )
-                        ReplayButton(onReplay)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Text(
+                                text = winnerText,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = colors.onSurface,
+                                textAlign = TextAlign.Center
+                            )
+                            ReplayButton(onReplay)
+                        }
                     }
                 }
             }
@@ -576,29 +578,31 @@ private fun TempoTutorial(onReplay: () -> Unit) {
                     textAlign = TextAlign.Center
                 )
             }
-            AnimatedVisibility(
-                visible = finished,
-                enter = fadeIn(tween(350)),
-                exit = fadeOut(tween(200)),
-                modifier = Modifier.matchParentSize()
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(OverlayBackground, RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center
+            Column(modifier = Modifier.matchParentSize()) {
+                AnimatedVisibility(
+                    visible = finished,
+                    enter = fadeIn(tween(350)),
+                    exit = fadeOut(tween(200)),
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(OverlayBackground, RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "5연속 성공! 🎉",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = colors.onSurface,
-                            textAlign = TextAlign.Center
-                        )
-                        ReplayButton(onReplay)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Text(
+                                text = "5연속 성공! 🎉",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = colors.onSurface,
+                                textAlign = TextAlign.Center
+                            )
+                            ReplayButton(onReplay)
+                        }
                     }
                 }
             }
@@ -801,29 +805,31 @@ private fun TeamBattleTutorial(onReplay: () -> Unit) {
                     textAlign = TextAlign.Center
                 )
             }
-            AnimatedVisibility(
-                visible = finished,
-                enter = fadeIn(tween(350)),
-                exit = fadeOut(tween(200)),
-                modifier = Modifier.matchParentSize()
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(OverlayBackground, RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center
+            Column(modifier = Modifier.matchParentSize()) {
+                AnimatedVisibility(
+                    visible = finished,
+                    enter = fadeIn(tween(350)),
+                    exit = fadeOut(tween(200)),
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(OverlayBackground, RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = winnerText,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = colors.onSurface,
-                            textAlign = TextAlign.Center
-                        )
-                        ReplayButton(onReplay)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Text(
+                                text = winnerText,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = colors.onSurface,
+                                textAlign = TextAlign.Center
+                            )
+                            ReplayButton(onReplay)
+                        }
                     }
                 }
             }
