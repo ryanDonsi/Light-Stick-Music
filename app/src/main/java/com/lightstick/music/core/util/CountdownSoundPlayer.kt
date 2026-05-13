@@ -11,11 +11,11 @@ class CountdownSoundPlayer {
 
     private val sampleRate = 44100
 
-    // 짧은 비프 ("띠!")
-    fun playShortBeep() = playTone(900f, 160)
+    // 짧은 비프 ("삐!") — 방송 표준 1kHz 순음
+    fun playShortBeep() = playTone(1000f, 100)
 
-    // 단일 롱 비프 ("띠~~~~!")
-    fun playLongBeep() = playTone(2000f, 700)
+    // 롱 비프 ("삐~~~") — 동일 피치, 길이로 구분
+    fun playLongBeep() = playTone(1000f, 600)
 
     private fun playTone(hz: Float, durationMs: Int) {
         Thread {
