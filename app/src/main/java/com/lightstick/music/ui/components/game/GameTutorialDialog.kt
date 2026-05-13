@@ -366,27 +366,27 @@ private fun SpeedReactionTutorial(onReplay: () -> Unit) {
     var finished   by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        delay(500)
+        delay(715)
         val sc = mutableListOf(0, 0, 0)
         while (true) {
             step = 0
             headColors[0] = WandOff; headColors[1] = WandOff; headColors[2] = WandOff
             message = "대기 중..."; subMsg = ""
-            delay(650 + Random.nextLong(950))
+            delay(930 + Random.nextLong(1360))
 
             step = 1
             headColors[0] = WandWhite; headColors[1] = WandWhite; headColors[2] = WandWhite
             message = "LED ON — 흔드세요!"; subMsg = ""
             val wi = Random.nextInt(3)
-            delay(300 + Random.nextLong(500))
+            delay(430 + Random.nextLong(715))
 
             step = 2
             launch {
                 listOf(-8f, 8f, -6f, 6f, -3f, 3f, 0f).forEach { r ->
-                    rotations[wi] = r; delay(55)
+                    rotations[wi] = r; delay(80)
                 }
             }
-            delay(380)
+            delay(545)
 
             step = 3
             sc[wi]++; scores[wi] = sc[wi]; headColors[wi] = WandGreen
@@ -398,7 +398,7 @@ private fun SpeedReactionTutorial(onReplay: () -> Unit) {
                 message = winnerText; subMsg = "5회 먼저 달성!"
                 finished = true; break
             }
-            delay(1100)
+            delay(1575)
         }
     }
 
@@ -453,8 +453,8 @@ private fun SpeedReactionTutorial(onReplay: () -> Unit) {
             Column(modifier = Modifier.matchParentSize()) {
                 AnimatedVisibility(
                     visible = finished,
-                    enter = fadeIn(tween(350)),
-                    exit = fadeOut(tween(200)),
+                    enter = fadeIn(tween(500)),
+                    exit = fadeOut(tween(285)),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Box(
@@ -505,20 +505,20 @@ private fun TempoTutorial(onReplay: () -> Unit) {
     var finished   by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        delay(500)
+        delay(715)
         var stk = 0
         while (true) {
             step = 0; headColor = WandWhite; message = "LED ON — 흔드세요!"
-            delay(680)
+            delay(970)
 
             val hit = Random.nextFloat() > 0.22f
             step = 1
             launch {
                 listOf(-8f, 8f, -6f, 6f, -3f, 3f, 0f).forEach { r ->
-                    rotation = r; delay(55)
+                    rotation = r; delay(80)
                 }
             }
-            delay(320)
+            delay(455)
 
             if (hit) {
                 stk++; streak = stk; headColor = WandGreen
@@ -527,14 +527,14 @@ private fun TempoTutorial(onReplay: () -> Unit) {
                     finished = true; break
                 }
                 step = 3; message = "성공! ($stk/5)"
-                delay(500)
+                delay(715)
                 step = 2; headColor = WandOff; message = "LED OFF"
-                delay(700)
+                delay(1000)
             } else {
                 stk = 0; streak = 0; headColor = WandRed; message = "MISS — 연속 초기화!"
-                delay(680)
+                delay(970)
                 step = 2; headColor = WandOff
-                delay(700)
+                delay(1000)
             }
         }
     }
@@ -581,8 +581,8 @@ private fun TempoTutorial(onReplay: () -> Unit) {
             Column(modifier = Modifier.matchParentSize()) {
                 AnimatedVisibility(
                     visible = finished,
-                    enter = fadeIn(tween(350)),
-                    exit = fadeOut(tween(200)),
+                    enter = fadeIn(tween(500)),
+                    exit = fadeOut(tween(285)),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Box(
@@ -639,19 +639,19 @@ private fun TeamBattleTutorial(onReplay: () -> Unit) {
     var finished     by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        delay(500)
+        delay(715)
         step = 0
         redColors[0] = WandRed;  redColors[1] = WandRed
         blueColors[0] = WandBlue; blueColors[1] = WandBlue
         message = "팀 배정 완료!"
-        delay(1100)
+        delay(1575)
 
         var rs = 0; var bs = 0
         for (rnd in 1..5) {
             step = 1; subMsg = "라운드 $rnd / 5"
             redColors[0] = WandOff; redColors[1] = WandOff
             blueColors[0] = WandOff; blueColors[1] = WandOff
-            delay(800)
+            delay(1145)
 
             val sigRed = Random.nextBoolean()
             if (sigRed) {
@@ -661,17 +661,17 @@ private fun TeamBattleTutorial(onReplay: () -> Unit) {
                 blueColors[0] = WandBlue; blueColors[1] = WandBlue
                 message = "청팀 신호!"
             }
-            delay(750)
+            delay(1070)
 
             step = 2
             val hit = Random.nextFloat() > 0.15f
             if (sigRed) {
                 launch {
                     listOf(-8f, 8f, -6f, 6f, -3f, 3f, 0f).forEach { r ->
-                        redRots[0] = r; redRots[1] = r; delay(55)
+                        redRots[0] = r; redRots[1] = r; delay(80)
                     }
                 }
-                delay(450)
+                delay(645)
                 if (hit) {
                     rs++; redScore = rs
                     redColors[0] = WandGreen; redColors[1] = WandGreen
@@ -684,10 +684,10 @@ private fun TeamBattleTutorial(onReplay: () -> Unit) {
             } else {
                 launch {
                     listOf(-8f, 8f, -6f, 6f, -3f, 3f, 0f).forEach { r ->
-                        blueRots[0] = r; blueRots[1] = r; delay(55)
+                        blueRots[0] = r; blueRots[1] = r; delay(80)
                     }
                 }
-                delay(450)
+                delay(645)
                 if (hit) {
                     bs++; blueScore = bs
                     blueColors[0] = WandGreen; blueColors[1] = WandGreen
@@ -699,7 +699,7 @@ private fun TeamBattleTutorial(onReplay: () -> Unit) {
                 redColors[0] = WandOff; redColors[1] = WandOff
             }
             step = 3
-            delay(900)
+            delay(1285)
         }
 
         step = 4
@@ -808,8 +808,8 @@ private fun TeamBattleTutorial(onReplay: () -> Unit) {
             Column(modifier = Modifier.matchParentSize()) {
                 AnimatedVisibility(
                     visible = finished,
-                    enter = fadeIn(tween(350)),
-                    exit = fadeOut(tween(200)),
+                    enter = fadeIn(tween(500)),
+                    exit = fadeOut(tween(285)),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Box(
