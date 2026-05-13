@@ -13,6 +13,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,6 +74,7 @@ import com.lightstick.music.ui.components.common.CommonProgressBar
 import com.lightstick.music.ui.components.common.CustomToast
 import com.lightstick.music.ui.components.common.TopBarCentered
 import com.lightstick.music.ui.components.common.rememberToastState
+import com.lightstick.music.ui.components.game.GameTutorialDialog
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
 import com.lightstick.music.ui.viewmodel.GameViewModel
@@ -90,6 +93,7 @@ fun GameScreen(viewModel: GameViewModel) {
 
     val toastState = rememberToastState()
     var showStopDialog by remember { mutableStateOf(false) }
+    var tutorialMode by remember { mutableStateOf<GameMode?>(null) }
 
     LaunchedEffect(Unit) { viewModel.connectIfNeeded() }
 
@@ -139,6 +143,7 @@ fun GameScreen(viewModel: GameViewModel) {
                         onModeSelect = viewModel::selectMode,
                         onDifficultySelect = viewModel::selectDifficulty,
                         onStart = viewModel::startGame,
+                        onTutorialClick = { mode -> tutorialMode = mode },
                         bleConnected = bleState is GameBleManager.ConnectionState.Connected,
                         isGameModeSupported = isGameModeSupported
                     )
@@ -170,6 +175,13 @@ fun GameScreen(viewModel: GameViewModel) {
             )
         }
 
+        tutorialMode?.let { mode ->
+            GameTutorialDialog(
+                mode = mode,
+                onDismiss = { tutorialMode = null }
+            )
+        }
+
         CustomToast(
             message = toastState.message,
             isVisible = toastState.isVisible,
@@ -187,6 +199,7 @@ private fun ModeSelectionContent(
     isGameModeSupported: Boolean,
     onModeSelect: (GameMode) -> Unit,
     onDifficultySelect: (GameDifficulty) -> Unit,
+    onTutorialClick: (GameMode) -> Unit,
     onStart: () -> Unit
 ) {
     val colors = MaterialTheme.customColors
@@ -209,7 +222,8 @@ private fun ModeSelectionContent(
                 GameModeCard(
                     mode = mode,
                     selected = selectedMode == mode,
-                    onClick = { onModeSelect(mode) }
+                    onClick = { onModeSelect(mode) },
+                    onTutorialClick = { onTutorialClick(mode) }
                 )
                 AnimatedVisibility(
                     visible = selectedMode == mode,
@@ -352,7 +366,8 @@ private fun GameStatusBanner(
 private fun GameModeCard(
     mode: GameMode,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onTutorialClick: () -> Unit
 ) {
     val colors = MaterialTheme.customColors
     val bgColor = if (selected) colors.primary.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.05f)
@@ -408,6 +423,26 @@ private fun GameModeCard(
                     text = mode.winConditionKr,
                     style = MaterialTheme.customTextStyles.badgeMedium,
                     color = if (selected) colors.onSurface.copy(alpha = 0.7f) else colors.textTertiary
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .background(
+                        color = colors.onSurface.copy(alpha = if (selected) 0.15f else 0.08f),
+                        shape = CircleShape
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onTutorialClick
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "?",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (selected) colors.onSurface else colors.surfaceVariant
                 )
             }
         }
