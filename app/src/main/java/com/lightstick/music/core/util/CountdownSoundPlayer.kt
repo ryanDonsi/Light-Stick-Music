@@ -10,13 +10,12 @@ import kotlin.math.sin
 class CountdownSoundPlayer {
 
     private val sampleRate = 44100
-    private val frequency = 1500f  // 하이톤 주파수 (Hz)
 
     // 짧은 비프 ("띠!")
-    fun playShortBeep() = playTone(frequency, 160)
+    fun playShortBeep() = playTone(900f, 160)
 
     // 단일 롱 비프 ("띠~~~~!")
-    fun playLongBeep() = playTone(frequency, 700)
+    fun playLongBeep() = playTone(2000f, 700)
 
     private fun playTone(hz: Float, durationMs: Int) {
         Thread {
