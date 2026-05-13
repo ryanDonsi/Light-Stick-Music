@@ -12,6 +12,7 @@ import com.lightstick.music.data.model.GameState
 import com.lightstick.music.data.model.WandResult
 import com.lightstick.music.domain.game.GameBleManager
 import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.music.core.util.CountdownSoundPlayer
 import com.lightstick.music.domain.usecase.game.ObserveGameResultsUseCase
 import com.lightstick.music.domain.usecase.game.SendGameCommandUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -67,6 +68,8 @@ class GameViewModel @Inject constructor(
     private val _partialResults = MutableStateFlow<List<WandResult>>(emptyList())
     val partialResults: StateFlow<List<WandResult>> = _partialResults.asStateFlow()
 
+    private val countdownSoundPlayer = CountdownSoundPlayer()
+
     init {
         observeGameResults()
     }
@@ -109,9 +112,11 @@ class GameViewModel @Inject constructor(
         viewModelScope.launch {
             for (sec in AUTO_START_DELAY_MS.toInt() / 1000 downTo 1) {
                 _countdownSeconds.value = sec
+                countdownSoundPlayer.playShortBeep()
                 delay(1_000L)
             }
             _countdownSeconds.value = 0
+            countdownSoundPlayer.playLongBeep()
             _gameState.value = GameState.Playing
             startPlayingTimer(mode, difficulty)
         }
@@ -268,6 +273,7 @@ class GameViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        countdownSoundPlayer.release()
         gameBleManager.disconnect()
     }
 }
