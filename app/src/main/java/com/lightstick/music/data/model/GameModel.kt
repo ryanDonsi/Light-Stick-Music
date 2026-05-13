@@ -21,7 +21,7 @@ enum class GameMode(
         subIndex = 2,
         nameKr = "Tempo",
         descKr = "LED 리듬에 맞춰 흔드세요",
-        winConditionKr = "20초 내 5회 연속 성공",
+        winConditionKr = "리듬에 맞춰 5회 연속 성공",
         defaultDifficulty = GameDifficulty.NORMAL
     ),
     TEAM_BATTLE(
