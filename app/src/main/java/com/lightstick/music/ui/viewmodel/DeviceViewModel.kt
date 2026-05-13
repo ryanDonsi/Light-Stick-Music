@@ -287,10 +287,12 @@ class DeviceViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                if (scanJob?.isActive == true) {
-                    scanJob?.cancel()
-                    scanJob = null
+                val previousJob = scanJob
+                if (previousJob?.isActive == true) {
+                    previousJob.cancel()
+                    previousJob.join()
                 }
+                scanJob = null
 
                 stopScanUseCase(context)
                 _isScanning.value = false

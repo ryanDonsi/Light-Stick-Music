@@ -42,55 +42,6 @@ private fun Color.isBlack(): Boolean {
     return this.red < 0.1f && this.green < 0.1f && this.blue < 0.1f
 }
 
-private fun effectTypeLabel(effectType: EffectType?): String = when (effectType) {
-    EffectType.ON     -> "ON"
-    EffectType.OFF    -> "OFF"
-    EffectType.BLINK  -> "BLINK"
-    EffectType.STROBE -> "STROBE"
-    EffectType.BREATH -> "BREATH"
-    null              -> "–"
-}
-
-@Composable
-private fun effectTypeBadgeColor(effectType: EffectType?): Color = when (effectType) {
-    EffectType.STROBE -> MaterialTheme.customColors.primary.copy(alpha = 0.25f)
-    EffectType.BLINK  -> MaterialTheme.customColors.secondary.copy(alpha = 0.25f)
-    EffectType.BREATH -> MaterialTheme.customColors.primaryLevel2.copy(alpha = 0.35f)
-    EffectType.ON     -> Color.White.copy(alpha = 0.15f)
-    EffectType.OFF    -> Color.White.copy(alpha = 0.06f)
-    null              -> Color.White.copy(alpha = 0.08f)
-}
-
-/**
- * 타임라인 이펙트 뱃지 — 재사용 가능한 독립 컴포넌트
- */
-@Composable
-fun TimelineEffectBadge(
-    effectType: EffectType?,
-    fgColor: Color,
-    modifier: Modifier = Modifier
-) {
-    val bgColor  = effectTypeBadgeColor(effectType)
-    val dotColor = if (fgColor.isBlack()) Color.White.copy(alpha = 0.4f) else fgColor
-
-    Row(
-        modifier = modifier
-            .background(bgColor, RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Canvas(modifier = Modifier.size(6.dp)) {
-            drawCircle(color = dotColor, radius = size.minDimension / 2f)
-        }
-        Text(
-            text = effectTypeLabel(effectType),
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.85f)
-        )
-    }
-}
-
 /**
  * Device Connection Card
  *
