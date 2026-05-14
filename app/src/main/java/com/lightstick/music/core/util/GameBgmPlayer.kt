@@ -137,7 +137,7 @@ class GameBgmPlayer {
     }
 
     private fun baseBpm(mode: GameMode) = when (mode) {
-        GameMode.SPEED_REACTION -> 140f
+        GameMode.SPEED_REACTION -> 120f   // quick-march tempo
         GameMode.TEMPO          -> 120f
         GameMode.TEAM_BATTLE    -> 130f
     }
@@ -152,30 +152,32 @@ class GameBgmPlayer {
         GameMode.TEAM_BATTLE    -> teamBattlePattern()
     }
 
-    // 6 bars × 8 steps @ 140 BPM ≈ 10.3s — ascending lead phrase over 6 bars
+    // 5 bars × 8 steps @ 120 BPM = 10.0s — march: kick 1&3, snare 2&4, oom-pah bass, trumpet melody
     private fun speedReactionPattern(): List<List<Sound>> {
-        fun k(a: Float = 0.9f) = Sound(KICK, amp = a)
-        fun s() = Sound(SNARE, amp = 0.8f)
-        fun h(a: Float = 0.5f) = Sound(HIHAT, amp = a)
-        fun l(hz: Float, a: Float = 0.48f) = Sound(LEAD, hz, a)
+        fun k(a: Float = 0.95f) = Sound(KICK, amp = a)
+        fun s(a: Float = 0.85f) = Sound(SNARE, amp = a)
+        fun b(hz: Float, a: Float = 0.55f) = Sound(BASS, hz, a)
+        fun l(hz: Float, a: Float = 0.52f) = Sound(LEAD, hz, a)
 
-        fun bar(n0: Float, n2: Float, n4: Float, n6: Float): List<List<Sound>> = listOf(
-            listOf(k(),        h(),      l(n0)),
-            listOf(           h(0.35f)         ),
-            listOf(s(),        h(),      l(n2, 0.4f)),
-            listOf(           h(0.3f)          ),
-            listOf(k(),        h(),      l(n4)),
-            listOf(           h(0.35f)         ),
-            listOf(s(),        h(),      l(n6, 0.4f)),
-            listOf(           h(0.3f)          )
+        // beat 1: kick+melody+oom  beat 2: snare+melody+pah  beat 3: kick+melody+oom  beat 4: snare+melody+pah
+        fun bar(m0: Float, m2: Float, m4: Float, m6: Float,
+                bOom: Float, bPah: Float): List<List<Sound>> = listOf(
+            listOf(k(),       l(m0),        b(bOom, 0.65f)),
+            listOf(),
+            listOf(s(),       l(m2, 0.45f), b(bPah, 0.40f)),
+            listOf(),
+            listOf(k(0.80f),  l(m4),        b(bOom, 0.55f)),
+            listOf(),
+            listOf(s(0.82f),  l(m6, 0.45f), b(bPah, 0.35f)),
+            listOf()
         )
 
-        return bar(392f, 587f, 392f, 659f) +   // Bar 1  G4 D5 G4 E5
-               bar(440f, 659f, 440f, 784f) +   // Bar 2  A4 E5 A4 G5
-               bar(392f, 494f, 587f, 494f) +   // Bar 3  G4 B4 D5 B4
-               bar(659f, 784f, 659f, 587f) +   // Bar 4  E5 G5 E5 D5
-               bar(392f, 587f, 440f, 659f) +   // Bar 5  G4 D5 A4 E5
-               bar(392f, 659f, 784f, 440f)     // Bar 6  G4 E5 G5 A4
+        //              m0     m2     m4     m6     oom    pah
+        return bar(523f,  659f,  784f, 1047f, 131f, 196f) + // Bar 1  C5 E5 G5 C6 | C major
+               bar(988f,  784f,  659f,  523f, 196f, 294f) + // Bar 2  B5 G5 E5 C5 | G bass
+               bar(659f,  784f,  880f,  784f, 220f, 330f) + // Bar 3  E5 G5 A5 G5 | A minor
+               bar(698f,  659f,  587f,  659f, 175f, 262f) + // Bar 4  F5 E5 D5 E5 | F major
+               bar(523f,  784f,  659f,  523f, 131f, 196f)   // Bar 5  C5 G5 E5 C5 | C resolution
     }
 
     // 5 bars × 8 steps @ 120 BPM = 10.0s — groovy syncopated bass line
