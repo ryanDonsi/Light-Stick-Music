@@ -137,7 +137,7 @@ class GameBgmPlayer {
     }
 
     private fun baseBpm(mode: GameMode) = when (mode) {
-        GameMode.SPEED_REACTION -> 120f   // quick-march tempo
+        GameMode.SPEED_REACTION -> 150f   // fast cyber-march
         GameMode.TEMPO          -> 120f
         GameMode.TEAM_BATTLE    -> 130f
     }
@@ -152,24 +152,24 @@ class GameBgmPlayer {
         GameMode.TEAM_BATTLE    -> teamBattlePattern()
     }
 
-    // 5 bars × 16 steps @ 120 BPM = 10.0s — D minor quick-march (Rákóczi spirit)
-    // 16th-note grid lets us write the dotted-8th + 16th lilt that defines march character
+    // 5 bars × 16 steps @ 150 BPM = 8.0s — E Phrygian cyber quick-march
+    // Square-wave lead + sawtooth bass for hard electronic timbre
+    // E Phrygian (E F G A B C D): ♭2 = F gives the dark, industrial colour
     private fun speedReactionPattern(): List<List<Sound>> {
         fun k(a: Float = 0.95f) = Sound(KICK, amp = a)
         fun s(a: Float = 0.85f) = Sound(SNARE, amp = a)
-        fun b(hz: Float, a: Float = 0.60f, n: Int = 4) = Sound(BASS, hz, a, n)
-        fun l(hz: Float, n: Int = 3, a: Float = 0.55f) = Sound(LEAD, hz, a, n)
+        fun cb(hz: Float, a: Float = 0.62f, n: Int = 4) = Sound(CBASS, hz, a, n)
+        fun c(hz: Float, n: Int = 3, a: Float = 0.58f) = Sound(CYBER, hz, a, n)
 
-        val D3 = 147f; val A3 = 220f   // D3 oom (root), A3 pah (dominant 5th)
+        val E3 = 165f; val B3 = 247f   // E3 oom (root), B3 pah (5th)
 
-        // Percussion + bass backbone fixed per bar; melody injected via vararg slots
         fun bar(vararg melody: Pair<Int, Sound>): List<List<Sound>> {
             val grid: Array<MutableList<Sound>> = Array(16) { i ->
                 when (i) {
-                    0  -> mutableListOf(k(),      b(D3, 0.65f))
-                    4  -> mutableListOf(s(),      b(A3, 0.45f, 3))
-                    8  -> mutableListOf(k(0.80f), b(D3, 0.55f))
-                    12 -> mutableListOf(s(0.80f), b(A3, 0.40f, 3))
+                    0  -> mutableListOf(k(),      cb(E3, 0.65f))
+                    4  -> mutableListOf(s(),      cb(B3, 0.45f, 3))
+                    8  -> mutableListOf(k(0.80f), cb(E3, 0.55f))
+                    12 -> mutableListOf(s(0.80f), cb(B3, 0.40f, 3))
                     else -> mutableListOf()
                 }
             }
@@ -177,59 +177,60 @@ class GameBgmPlayer {
             return grid.map { it.toList() }
         }
 
-        // Melody in D minor — dotted-8th(n=3) + 16th(n=1) = classic march lilt
-        // Bar 1: D5·D5 F5·A5 D6·C6 A5 G5  (ascending fanfare motif)
+        // Bar 1: E5·E5 G5·B5 E6·D6 B5 A5  (ascending Phrygian fanfare)
         val bar1 = bar(
-            0  to l(587f,  3),   // D5 dotted-8th
-            3  to l(587f,  1),   // D5 16th
-            4  to l(698f,  3),   // F5 dotted-8th
-            7  to l(880f,  1),   // A5 16th
-            8  to l(1175f, 3),   // D6 dotted-8th  (peak)
-            11 to l(1047f, 1),   // C6 16th
-            12 to l(880f,  2),   // A5 8th
-            14 to l(784f,  2)    // G5 8th
+            0  to c(659f,  3),   // E5 dotted-8th
+            3  to c(659f,  1),   // E5 16th
+            4  to c(784f,  3),   // G5 dotted-8th
+            7  to c(988f,  1),   // B5 16th
+            8  to c(1319f, 3),   // E6 dotted-8th  (peak)
+            11 to c(1175f, 1),   // D6 16th
+            12 to c(988f,  2),   // B5 8th
+            14 to c(880f,  2)    // A5 8th
         )
-        // Bar 2: F5·F5 A5·C6 A5 G5 F5 E5  (repeat motif a 3rd higher, then descend)
+        // Bar 2: G5 F5 E5 D5 G5 F5 E5 D5  (Phrygian descent — F5=♭2 is the cyber signature)
         val bar2 = bar(
-            0  to l(698f,  3),   // F5 dotted-8th
-            3  to l(698f,  1),   // F5 16th
-            4  to l(880f,  3),   // A5 dotted-8th
-            7  to l(1047f, 1),   // C6 16th
-            8  to l(880f,  2),   // A5 8th
-            10 to l(784f,  2),   // G5 8th
-            12 to l(698f,  2),   // F5 8th
-            14 to l(659f,  2)    // E5 8th
+            0  to c(784f,  2),   // G5 8th
+            2  to c(698f,  2),   // F5 8th  (Phrygian ♭2)
+            4  to c(659f,  2),   // E5 8th
+            6  to c(587f,  2),   // D5 8th
+            8  to c(784f,  2),   // G5 8th
+            10 to c(698f,  2),   // F5 8th  (Phrygian ♭2)
+            12 to c(659f,  2),   // E5 8th
+            14 to c(587f,  2)    // D5 8th
         )
-        // Bar 3: G5 A5 Bb5·A5 G5 F5 E5 D5  (chromatic tension on Bb5, then fall)
+        // Bar 3: B4 C5 D5 E5 | G5·F5 E5 D5 C5 B4  (chromatic run → angular descent)
         val bar3 = bar(
-            0  to l(784f,  2),   // G5 8th
-            2  to l(880f,  2),   // A5 8th
-            4  to l(932f,  3),   // Bb5 dotted-8th  (ominous chromatic colour)
-            7  to l(880f,  1),   // A5 16th
-            8  to l(784f,  2),   // G5 8th
-            10 to l(698f,  2),   // F5 8th
-            12 to l(659f,  2),   // E5 8th
-            14 to l(587f,  2)    // D5 8th
+            0  to c(494f,  1),   // B4 16th \
+            1  to c(523f,  1),   // C5 16th  | chromatic run
+            2  to c(587f,  1),   // D5 16th  |
+            3  to c(659f,  1),   // E5 16th /
+            4  to c(784f,  3),   // G5 dotted-8th
+            7  to c(698f,  1),   // F5 16th  (Phrygian ♭2)
+            8  to c(659f,  2),   // E5 8th
+            10 to c(587f,  2),   // D5 8th
+            12 to c(523f,  2),   // C5 8th
+            14 to c(494f,  2)    // B4 8th
         )
-        // Bar 4: D5 F5 A5 C6 | D6(quarter) A5(quarter) D5(quarter)  (rising run → held drama)
+        // Bar 4: E5·E5 B5·B5 | E6(quarter) B5 G5  (driving power-fifth → held peak)
         val bar4 = bar(
-            0  to l(587f,  1),   // D5 16th \
-            1  to l(698f,  1),   // F5 16th  |  fast ascending run
-            2  to l(880f,  1),   // A5 16th  |
-            3  to l(1047f, 1),   // C6 16th /
-            4  to l(1175f, 4),   // D6 quarter  (peak held)
-            8  to l(880f,  4),   // A5 quarter
-            12 to l(587f,  4)    // D5 quarter  (root held, resolve into bar 5)
+            0  to c(659f,  3),   // E5 dotted-8th
+            3  to c(659f,  1),   // E5 16th
+            4  to c(988f,  3),   // B5 dotted-8th
+            7  to c(988f,  1),   // B5 16th
+            8  to c(1319f, 4),   // E6 quarter  (held peak)
+            12 to c(988f,  2),   // B5 8th
+            14 to c(784f,  2)    // G5 8th
         )
-        // Bar 5 (climax): D5·D5 A5·D6 | D6(quarter) C6 A5  (soaring, powerful finish)
+        // Bar 5 (climax): E5·E5 E6·E6 | E6(quarter) D6 B5  (octave leap + peak hold)
         val bar5 = bar(
-            0  to l(587f,  3),   // D5 dotted-8th
-            3  to l(587f,  1),   // D5 16th
-            4  to l(880f,  3),   // A5 dotted-8th
-            7  to l(1175f, 1),   // D6 16th  (peak flash)
-            8  to l(1175f, 4),   // D6 quarter  (held climax)
-            12 to l(1047f, 2),   // C6 8th
-            14 to l(880f,  2)    // A5 8th  (descend into loop seam)
+            0  to c(659f,  3),   // E5 dotted-8th
+            3  to c(659f,  1),   // E5 16th
+            4  to c(1319f, 3),   // E6 dotted-8th  (climax leap)
+            7  to c(1319f, 1),   // E6 16th
+            8  to c(1319f, 4),   // E6 quarter  (PEAK HOLD)
+            12 to c(1175f, 2),   // D6 8th
+            14 to c(988f,  2)    // B5 8th  (resolve into loop seam)
         )
 
         return bar1 + bar2 + bar3 + bar4 + bar5
@@ -322,12 +323,14 @@ class GameBgmPlayer {
     }
 
     private fun renderSound(s: Sound, stepSamples: Int): FloatArray = when (s.type) {
-        KICK  -> kick(stepSamples, s.amp)
-        SNARE -> snare(stepSamples, s.amp)
-        HIHAT -> hihat(stepSamples, s.amp)
-        BASS  -> bass(s.hz, stepSamples * s.len, s.amp)
-        LEAD  -> lead(s.hz, stepSamples * s.len, s.amp)
-        else  -> FloatArray(0)
+        KICK   -> kick(stepSamples, s.amp)
+        SNARE  -> snare(stepSamples, s.amp)
+        HIHAT  -> hihat(stepSamples, s.amp)
+        BASS   -> bass(s.hz, stepSamples * s.len, s.amp)
+        LEAD   -> lead(s.hz, stepSamples * s.len, s.amp)
+        CYBER  -> cyberLead(s.hz, stepSamples * s.len, s.amp)
+        CBASS  -> cyberBass(s.hz, stepSamples * s.len, s.amp)
+        else   -> FloatArray(0)
     }
 
     // ── Synthesis ────────────────────────────────────────────────────────────
@@ -408,6 +411,46 @@ class GameBgmPlayer {
         }
     }
 
+    // Odd harmonics (1,3,5,7) = square-wave approximation → hard, electronic lead
+    private fun cyberLead(hz: Float, stepSamples: Int, amp: Float): FloatArray {
+        val dur = (stepSamples * 0.88f).toInt().coerceAtMost(stepSamples)
+        val fadeStart = (dur - minOf(300, dur / 5)).coerceAtLeast(0)
+        return FloatArray(stepSamples) { i ->
+            if (i >= dur) 0f
+            else {
+                val t = i.toDouble() / sampleRate
+                val s = sin(2.0 * PI * hz * t)     * 0.40 +
+                        sin(2.0 * PI * hz * 3 * t) * 0.28 +
+                        sin(2.0 * PI * hz * 5 * t) * 0.18 +
+                        sin(2.0 * PI * hz * 7 * t) * 0.14
+                // 3ms sharp attack then slow sustain decay
+                val env = if (t < 0.003) t / 0.003 else exp(-1.8 * (t - 0.003))
+                val tail = if (i >= fadeStart) (dur - i).toDouble() / (dur - fadeStart) else 1.0
+                (s * amp * env * tail).toFloat()
+            }
+        }
+    }
+
+    // All harmonics (sawtooth) → buzzy, driving electronic bass
+    private fun cyberBass(hz: Float, stepSamples: Int, amp: Float): FloatArray {
+        val dur = (stepSamples * 0.85f).toInt().coerceAtMost(stepSamples)
+        val fadeStart = (dur - minOf(400, dur / 5)).coerceAtLeast(0)
+        return FloatArray(stepSamples) { i ->
+            if (i >= dur) 0f
+            else {
+                val t = i.toDouble() / sampleRate
+                val s = sin(2.0 * PI * hz * t)     * 0.35 +
+                        sin(2.0 * PI * hz * 2 * t) * 0.25 +
+                        sin(2.0 * PI * hz * 3 * t) * 0.18 +
+                        sin(2.0 * PI * hz * 4 * t) * 0.12 +
+                        sin(2.0 * PI * hz * 5 * t) * 0.10
+                val env = exp(-4.0 * t)
+                val tail = if (i >= fadeStart) (dur - i).toDouble() / (dur - fadeStart) else 1.0
+                (s * amp * env * tail).toFloat()
+            }
+        }
+    }
+
     // ── Fanfare ──────────────────────────────────────────────────────────────
 
     // FM(주파수 변조) 브라스 합성
@@ -481,5 +524,7 @@ class GameBgmPlayer {
         private const val HIHAT = 2
         private const val BASS  = 3
         private const val LEAD  = 4
+        private const val CYBER = 5   // square-wave lead (odd harmonics)
+        private const val CBASS = 6   // sawtooth bass (all harmonics)
     }
 }
