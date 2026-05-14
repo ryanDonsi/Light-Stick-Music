@@ -4,6 +4,7 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import com.lightstick.music.data.model.GameMode
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.*
 
 class GameBgmPlayer {
@@ -58,32 +59,76 @@ class GameBgmPlayer {
 
     fun release() = stop()
 
-    // ── BGM Loop ─────────────────────────────────────────────────────────────
+    // ── BGM Loop (double-buffered) ────────────────────────────────────────────
+    //
+    // While the audio thread writes buffer N to AudioTrack, a background render
+    // thread pre-computes buffer N+1.  When buffer N finishes, buffer N+1 is
+    // already ready → no gap between loops.
 
     private fun bgmLoop(mode: GameMode) {
         val minBuf = AudioTrack.getMinBufferSize(
             sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
+        // 1-second internal AudioTrack buffer absorbs the few ms it takes to swap buffers
         val track = AudioTrack(
             AudioManager.STREAM_MUSIC, sampleRate,
             AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
-            maxOf(minBuf, 4096), AudioTrack.MODE_STREAM
+            maxOf(minBuf, sampleRate * 2), AudioTrack.MODE_STREAM
         )
         track.play()
+
+        val baseBpm = baseBpm(mode)
+        val preNext  = AtomicReference<ShortArray?>(null)   // pre-rendered buffer slot
+        var prerenderThread: Thread? = null
+
+        // Launch a background render of the next loop buffer
+        fun prerender(mult: Float, fadeIn: Boolean) {
+            prerenderThread?.interrupt()
+            preNext.set(null)
+            prerenderThread = Thread {
+                val buf = renderLoop(mode, baseBpm * mult, fadeIn = fadeIn)
+                if (!Thread.currentThread().isInterrupted) preNext.set(buf)
+            }.also { it.isDaemon = true; it.start() }
+        }
+
         try {
-            val baseBpm = baseBpm(mode)
+            var mult = bpmMultiplier
+            bpmChanged = false
+            // Render first buffer synchronously, then immediately kick off the next
+            var buf = renderLoop(mode, baseBpm * mult, fadeIn = false)
+            prerender(mult, false)
+
             while (isPlaying && !Thread.currentThread().isInterrupted) {
-                val needsFadeIn = bpmChanged.also { bpmChanged = false }
-                val buf = renderLoop(mode, baseBpm * bpmMultiplier, fadeIn = needsFadeIn)
+                // Feed current buffer to AudioTrack
                 var pos = 0
                 while (pos < buf.size && isPlaying) {
                     val chunk = minOf(2048, buf.size - pos)
                     if (track.write(buf, pos, chunk) < 0) break
                     pos += chunk
                 }
+                if (!isPlaying) break
+
+                val changed = bpmChanged.also { bpmChanged = false }
+                val newMult = bpmMultiplier
+
+                buf = if (!changed && newMult == mult) {
+                    // Normal loop: pre-render should already be done (had ~10s to compute)
+                    prerenderThread?.join(1000)
+                    val pre = preNext.getAndSet(null)
+                        ?: renderLoop(mode, baseBpm * mult, fadeIn = false) // rare fallback
+                    prerender(mult, false)
+                    pre
+                } else {
+                    // BPM changed: abort stale pre-render, render new tempo immediately
+                    mult = newMult
+                    prerender(mult, false)          // pre-render next at new tempo
+                    renderLoop(mode, baseBpm * mult, fadeIn = true)
+                }
             }
         } catch (_: Exception) {
         } finally {
+            prerenderThread?.interrupt()
+            try { prerenderThread?.join(200) } catch (_: InterruptedException) {}
             runCatching { track.stop() }
             track.release()
         }
