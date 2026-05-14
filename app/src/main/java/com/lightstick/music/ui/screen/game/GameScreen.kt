@@ -664,6 +664,8 @@ private fun SoloResultContent(summary: GameResultSummary) {
             wandId = "응원봉 ${winner.wandId.toString(16).uppercase().padStart(4, '0')}",
             score = "${winner.redScore}점"
         )
+    } else {
+        NoWinnerBanner()
     }
 
     Text(
@@ -680,30 +682,46 @@ private fun SoloResultContent(summary: GameResultSummary) {
         color = colors.surfaceVariant
     )
 
-    val displayedResults = if (showAllResults) summary.rankedResults
-                           else summary.rankedResults.take(3)
-    displayedResults.forEachIndexed { index, result ->
-        RankRow(rank = index + 1, result = result)
-    }
-
-    if (!showAllResults && summary.rankedResults.size > 3) {
-        TextButton(
-            onClick = { showAllResults = true },
-            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp)
+    if (summary.rankedResults.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 20.dp),
+            contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "모든 결과 보기",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = colors.onSurface
+                text = "점수 데이터가 없습니다  (0점)",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.surfaceVariant,
+                textAlign = TextAlign.Center
             )
-            Spacer(modifier = Modifier.width(4.dp))
-            Icon(
-                imageVector = Icons.Filled.ChevronRight,
-                contentDescription = null,
-                tint = colors.onSurface,
-                modifier = Modifier.size(20.dp)
-            )
+        }
+    } else {
+        val displayedResults = if (showAllResults) summary.rankedResults
+                               else summary.rankedResults.take(3)
+        displayedResults.forEachIndexed { index, result ->
+            RankRow(rank = index + 1, result = result)
+        }
+
+        if (!showAllResults && summary.rankedResults.size > 3) {
+            TextButton(
+                onClick = { showAllResults = true },
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = "모든 결과 보기",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = colors.onSurface,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
@@ -816,6 +834,37 @@ private fun TeamResultContent(summary: GameResultSummary) {
             redScore = summary.totalRedScore,
             blueScore = summary.totalBlueScore
         )
+    }
+}
+
+@Composable
+private fun NoWinnerBanner() {
+    val colors = MaterialTheme.customColors
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(colors.onSurface.copy(alpha = 0.08f))
+            .padding(vertical = 24.dp, horizontal = 20.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(text = "⏱", fontSize = 36.sp)
+            Text(
+                text = "시간 종료",
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.surfaceVariant
+            )
+            Text(
+                text = "우승자 없음",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = colors.onSurface
+            )
+        }
     }
 }
 

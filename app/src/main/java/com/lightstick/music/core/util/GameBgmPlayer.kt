@@ -6,6 +6,7 @@ import android.media.AudioTrack
 import com.lightstick.music.data.model.GameMode
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.*
+import kotlin.random.Random
 
 class GameBgmPlayer {
 
@@ -15,6 +16,9 @@ class GameBgmPlayer {
     @Volatile private var bpmMultiplier = 1.0f
     @Volatile private var bpmChanged = false
     private var playerThread: Thread? = null
+
+    @Volatile private var celebrationActive = false
+    private var celebrationThread: Thread? = null
 
     fun start(mode: GameMode) {
         stop()
@@ -50,6 +54,28 @@ class GameBgmPlayer {
         }.also { it.isDaemon = true; it.start() }
     }
 
+    // 팡파레 이후 delayMs 뒤에 축포 팝 사운드를 결과 화면 머무는 동안 반복 재생
+    fun playCelebration(delayMs: Long = 1300L) {
+        stopCelebration()
+        celebrationActive = true
+        celebrationThread = Thread {
+            try {
+                Thread.sleep(delayMs)
+                while (celebrationActive && !Thread.currentThread().isInterrupted) {
+                    firePop()
+                    Thread.sleep(500L + Random.nextLong(900L))
+                }
+            } catch (_: InterruptedException) {}
+        }.also { it.isDaemon = true; it.start() }
+    }
+
+    fun stopCelebration() {
+        celebrationActive = false
+        celebrationThread?.interrupt()
+        try { celebrationThread?.join(200) } catch (_: InterruptedException) {}
+        celebrationThread = null
+    }
+
     fun stop() {
         isPlaying = false
         playerThread?.interrupt()
@@ -57,7 +83,10 @@ class GameBgmPlayer {
         playerThread = null
     }
 
-    fun release() = stop()
+    fun release() {
+        stop()
+        stopCelebration()
+    }
 
     // ── BGM Loop (double-buffered) ────────────────────────────────────────────
     //
@@ -345,6 +374,46 @@ class GameBgmPlayer {
                 (s * amp * exp(-7.0 * t) * tail).toFloat()
             }
         }
+    }
+
+    // ── Celebration pops ─────────────────────────────────────────────────────
+
+    private fun firePop() {
+        val buf = renderPop()
+        try {
+            val minBuf = AudioTrack.getMinBufferSize(
+                sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
+            )
+            val track = AudioTrack(
+                AudioManager.STREAM_MUSIC, sampleRate,
+                AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                maxOf(minBuf, buf.size * 2), AudioTrack.MODE_STATIC
+            )
+            track.write(buf, 0, buf.size)
+            track.play()
+            Thread.sleep(buf.size.toLong() * 1000 / sampleRate + 50)
+            track.stop()
+            track.release()
+        } catch (_: Exception) {}
+    }
+
+    // Short pitched pop: 70–130ms noise burst with fast exponential decay
+    private fun renderPop(): ShortArray {
+        val hz    = 350.0 + Random.nextDouble() * 500.0   // 350–850 Hz (random pitch)
+        val durMs = 70 + Random.nextInt(60)
+        val n     = durMs * sampleRate / 1000
+        val raw   = FloatArray(n) { i ->
+            val t       = i.toDouble() / sampleRate
+            val body    = sin(2.0 * PI * hz * t)
+            val crackle = sin(i * 7.9) * 0.30 + sin(i * 13.1) * 0.20 + sin(i * 23.7) * 0.15
+            val env     = exp(-35.0 * t)
+            val gate    = if (i < 20) i / 20.0 else 1.0
+            ((body * 0.55 + crackle * 0.45) * 0.85 * env * gate).toFloat()
+        }
+        var maxAbs = 0.01f
+        for (v in raw) { val a = abs(v); if (a > maxAbs) maxAbs = a }
+        val scale = if (maxAbs > 0.9f) 0.9f / maxAbs else 1.0f
+        return ShortArray(n) { i -> (raw[i] * scale * Short.MAX_VALUE).toInt().toShort() }
     }
 
     // ── Fanfare ──────────────────────────────────────────────────────────────

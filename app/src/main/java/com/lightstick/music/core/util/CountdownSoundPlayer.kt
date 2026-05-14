@@ -3,60 +3,73 @@ package com.lightstick.music.core.util
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import java.util.concurrent.LinkedBlockingQueue
 import kotlin.math.PI
-import kotlin.math.min
 import kotlin.math.sin
 
+/**
+ * 카운트다운 비프음 플레이어.
+ * 단일 영구 스레드와 warm AudioTrack을 유지해 스레드 시작/AudioTrack 초기화 지연 없이
+ * 즉시 재생한다. 이전 구현에서 첫 비프음이 잘려 들리던 문제를 해결한다.
+ */
 class CountdownSoundPlayer {
 
     private val sampleRate = 44100
 
-    // 짧은 비프 ("삐!") — 방송 표준 1kHz 순음
-    fun playShortBeep() = playTone(1000f, 100)
+    // 미리 생성해 두어 호출 시 즉시 큐에 삽입
+    private val shortBeepSamples = buildSamples(hz = 1000f, durationMs = 100)
+    private val longBeepSamples  = buildSamples(hz = 1000f, durationMs = 600)
 
-    // 롱 비프 ("삐~~~") — 동일 피치, 길이로 구분
-    fun playLongBeep() = playTone(1000f, 600)
+    private val queue  = LinkedBlockingQueue<ShortArray>(8)
+    private val worker: Thread
 
-    private fun playTone(hz: Float, durationMs: Int) {
-        Thread {
+    init {
+        worker = Thread {
+            val minBuf = AudioTrack.getMinBufferSize(
+                sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
+            )
+            val track = AudioTrack(
+                AudioManager.STREAM_MUSIC, sampleRate,
+                AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                minBuf, AudioTrack.MODE_STREAM
+            )
+            track.play()   // warm — AudioTrack is always in play state
             try {
-                val numSamples = sampleRate * durationMs / 1000
-                val fadeInSamples = (sampleRate * 0.005).toInt()   // 5ms fade-in
-                val fadeOutSamples = (sampleRate * 0.02).toInt()   // 20ms fade-out
-
-                val samples = ShortArray(numSamples) { i ->
-                    val envelope = when {
-                        i < fadeInSamples -> i.toDouble() / fadeInSamples
-                        i > numSamples - fadeOutSamples ->
-                            (numSamples - i).toDouble() / fadeOutSamples
-                        else -> 1.0
-                    }
-                    (sin(2.0 * PI * hz * i / sampleRate) * Short.MAX_VALUE * 0.75 * envelope)
-                        .toInt().toShort()
+                while (!Thread.currentThread().isInterrupted) {
+                    val samples = queue.take()   // blocks until a beep is requested
+                    track.write(samples, 0, samples.size)
                 }
-
-                val minBuf = AudioTrack.getMinBufferSize(
-                    sampleRate,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT
-                )
-                val track = AudioTrack(
-                    AudioManager.STREAM_MUSIC,
-                    sampleRate,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    maxOf(minBuf, numSamples * 2),
-                    AudioTrack.MODE_STATIC
-                )
-                track.write(samples, 0, numSamples)
-                track.play()
-                Thread.sleep(durationMs.toLong() + 50)
-                track.stop()
+            } catch (_: InterruptedException) {
+            } finally {
+                runCatching { track.stop() }
                 track.release()
-            } catch (_: Exception) {
             }
-        }.start()
+        }
+        worker.isDaemon = true
+        worker.start()
     }
 
-    fun release() {}
+    // Non-blocking: just enqueues the pre-generated samples
+    fun playShortBeep() { queue.offer(shortBeepSamples) }
+    fun playLongBeep()  { queue.offer(longBeepSamples)  }
+
+    fun release() {
+        worker.interrupt()
+        try { worker.join(300) } catch (_: InterruptedException) {}
+    }
+
+    private fun buildSamples(hz: Float, durationMs: Int): ShortArray {
+        val n       = sampleRate * durationMs / 1000
+        val fadeIn  = (sampleRate * 0.005).toInt()  // 5ms
+        val fadeOut = (sampleRate * 0.020).toInt()  // 20ms
+        return ShortArray(n) { i ->
+            val env = when {
+                i < fadeIn      -> i.toDouble() / fadeIn
+                i > n - fadeOut -> (n - i).toDouble() / fadeOut
+                else            -> 1.0
+            }
+            (sin(2.0 * PI * hz * i / sampleRate) * Short.MAX_VALUE * 0.75 * env)
+                .toInt().toShort()
+        }
+    }
 }
