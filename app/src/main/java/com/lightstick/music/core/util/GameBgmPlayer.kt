@@ -413,7 +413,7 @@ class GameBgmPlayer {
             nState = nState * 6364136223846793005L + 1442695040888963407L
             return (nState ushr 33).toInt().toDouble() / 2147483648.0
         }
-        var aState = nState xor 0x9E3779B97F4A7C15L
+        var aState = nState xor -7046029254386353131L   // 0x9E3779B97F4A7C15 signed
         fun randD(): Double {
             aState = aState * 2862933555777941757L + 3037000493L
             return (aState ushr 33).toInt().toDouble() / 2147483648.0
