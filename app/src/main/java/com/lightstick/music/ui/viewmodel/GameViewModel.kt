@@ -133,7 +133,6 @@ class GameViewModel @Inject constructor(
         resultCollectJob?.cancel()
         cancelTimer()
         gameBgmPlayer.stop()
-        gameBgmPlayer.stopCelebration()
         _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
     }
@@ -145,7 +144,6 @@ class GameViewModel @Inject constructor(
         resultCollectJob?.cancel()
         cancelTimer()
         gameBgmPlayer.stop()
-        gameBgmPlayer.stopCelebration()
         _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
     }
@@ -181,7 +179,6 @@ class GameViewModel @Inject constructor(
         cancelTimer()
         gameBgmPlayer.stop()
         gameBgmPlayer.playFanfare()
-        gameBgmPlayer.playCelebration()
 
         val mode = _selectedMode.value ?: return
         val results = collectedResults.toList()
@@ -267,7 +264,6 @@ class GameViewModel @Inject constructor(
         cancelTimer()
         gameBgmPlayer.stop()
         gameBgmPlayer.playFanfare()
-        gameBgmPlayer.playCelebration()
         val mode = GameMode.fromSdkMode(result.mode) ?: _selectedMode.value ?: return
         val accumulated = collectedResults.toList()
 
@@ -296,7 +292,6 @@ class GameViewModel @Inject constructor(
         cancelTimer()
         gameBgmPlayer.stop()
         gameBgmPlayer.playFanfare()
-        gameBgmPlayer.playCelebration()
         val mode = GameMode.fromSdkMode(sdkMode) ?: _selectedMode.value ?: return
 
         val results = collectedResults.toList()
