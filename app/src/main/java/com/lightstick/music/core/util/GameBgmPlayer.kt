@@ -66,9 +66,10 @@ class GameBgmPlayer {
                     repeat(burstCount) { idx ->
                         if (!celebrationActive || Thread.currentThread().isInterrupted) return@repeat
                         firePop()
-                        if (idx < burstCount - 1) Thread.sleep(130L + Random.nextLong(180L))
+                        // Short gap between pops in a burst — pop is already ~500ms long
+                        if (idx < burstCount - 1) Thread.sleep(60L + Random.nextLong(100L))
                     }
-                    Thread.sleep(900L + Random.nextLong(1100L))
+                    Thread.sleep(700L + Random.nextLong(900L))
                 }
             } catch (_: InterruptedException) {}
         }.also { it.isDaemon = true; it.start() }
@@ -404,44 +405,57 @@ class GameBgmPlayer {
 
     // 불꽃놀이: 팡(bang) → 촤라라락(crackle shimmer)
     private fun renderPop(): ShortArray {
-        val pitchMult = 0.7 + Random.nextDouble() * 0.6   // variety across pops
+        val pitchMult = 0.85 + Random.nextDouble() * 0.30  // narrower range → consistent bass
 
-        // Phase 1 — 팡: sharp transient burst (40ms)
-        val bangN = 40 * sampleRate / 1000
+        // Phase 1 — 초기 폭발 snap (15ms): immediate hard transient
+        val snapN = 15 * sampleRate / 1000
 
-        // Phase 2 — 촤라라락: crackle shimmer (240–380ms)
-        val crackleN = (240 + Random.nextInt(140)) * sampleRate / 1000
+        // Phase 2 — 저음 boom (120–160ms): deep body of the explosion
+        val boomN = (120 + Random.nextInt(40)) * sampleRate / 1000
 
-        val total = bangN + crackleN
+        // Phase 3 — 촤라라락 crackle (280–460ms): high-freq shimmer trail
+        val crackleN = (280 + Random.nextInt(180)) * sampleRate / 1000
+
+        val total = snapN + boomN + crackleN
         val raw   = FloatArray(total)
 
-        // LCG white-noise generator (avoids Nyquist aliasing from sin(i*k))
+        // LCG white-noise generator
         var nState = System.nanoTime() xor Random.nextLong()
         fun noise(): Double {
             nState = nState * 6364136223846793005L + 1442695040888963407L
             return (nState ushr 33).toInt().toDouble() / 2147483648.0
         }
 
-        // Bang: 2ms attack → fast exponential decay, white noise + low thump
-        val attackSamples = (sampleRate * 0.002).toInt()
-        val thumpHz = 55.0 * pitchMult
-        for (i in 0 until bangN) {
-            val t      = i.toDouble() / sampleRate
-            val tAfter = maxOf(0.0, t - 0.002)
-            val env    = if (i < attackSamples) i.toDouble() / attackSamples else exp(-45.0 * tAfter)
-            val thump  = sin(2.0 * PI * thumpHz * t)
-            raw[i]     = ((noise() * 0.70 + thump * 0.30) * 0.95 * env).toFloat()
+        // Phase 1 — Snap: pure white noise, 3-sample attack, full amplitude for 15ms
+        for (i in 0 until snapN) {
+            val env = if (i < 3) i / 3.0 else 1.0
+            raw[i]  = (noise() * 0.95 * env).toFloat()
         }
 
-        // Crackle shimmer: first-order high-pass filter over white noise → crisp sparkle
+        // Phase 2 — Boom: layered bass frequencies + noise for heavy explosive body
+        // Three octaves of bass so it translates on both phone speakers and headphones
+        val f1 = 38.0 * pitchMult    // sub-bass
+        val f2 = 76.0 * pitchMult    // bass
+        val f3 = 130.0 * pitchMult   // upper bass (phone speakers hear this best)
+        for (i in 0 until boomN) {
+            val t    = i.toDouble() / sampleRate
+            val n    = noise()
+            val boom = sin(2.0 * PI * f1 * t) * 0.45 +
+                       sin(2.0 * PI * f2 * t) * 0.35 +
+                       sin(2.0 * PI * f3 * t) * 0.20
+            val env  = exp(-9.0 * t)   // slow enough to give a real "thud" feeling
+            raw[snapN + i] = ((n * 0.50 + boom * 0.50) * 0.95 * env).toFloat()
+        }
+
+        // Phase 3 — Crackle shimmer: IIR high-pass over white noise → crisp sparkle
         var prev = 0.0
         for (i in 0 until crackleN) {
             val t    = i.toDouble() / sampleRate
             val n    = noise()
-            val hp   = n - 0.94 * prev   // IIR high-pass; emphasises transients
+            val hp   = n - 0.95 * prev   // strong high-pass → airy sparkle
             prev     = n
-            val env  = exp(-9.0 * t)
-            raw[bangN + i] = (hp * 0.88 * env).toFloat()
+            val env  = exp(-7.0 * t)
+            raw[snapN + boomN + i] = (hp * 0.82 * env).toFloat()
         }
 
         var maxAbs = 0.01f
