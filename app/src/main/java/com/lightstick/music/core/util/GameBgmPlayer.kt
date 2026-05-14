@@ -62,8 +62,13 @@ class GameBgmPlayer {
             try {
                 Thread.sleep(delayMs)
                 while (celebrationActive && !Thread.currentThread().isInterrupted) {
-                    firePop()
-                    Thread.sleep(500L + Random.nextLong(900L))
+                    val burstCount = 2 + Random.nextInt(2)   // 2 or 3 pops per burst
+                    repeat(burstCount) { idx ->
+                        if (!celebrationActive || Thread.currentThread().isInterrupted) return@repeat
+                        firePop()
+                        if (idx < burstCount - 1) Thread.sleep(130L + Random.nextLong(180L))
+                    }
+                    Thread.sleep(900L + Random.nextLong(1100L))
                 }
             } catch (_: InterruptedException) {}
         }.also { it.isDaemon = true; it.start() }
@@ -397,70 +402,111 @@ class GameBgmPlayer {
         } catch (_: Exception) {}
     }
 
-    // Short pitched pop: 70–130ms noise burst with fast exponential decay
+    // 불꽃놀이: 팡(bang) → 촤라라락(crackle shimmer)
     private fun renderPop(): ShortArray {
-        val hz    = 350.0 + Random.nextDouble() * 500.0   // 350–850 Hz (random pitch)
-        val durMs = 70 + Random.nextInt(60)
-        val n     = durMs * sampleRate / 1000
-        val raw   = FloatArray(n) { i ->
-            val t       = i.toDouble() / sampleRate
-            val body    = sin(2.0 * PI * hz * t)
-            val crackle = sin(i * 7.9) * 0.30 + sin(i * 13.1) * 0.20 + sin(i * 23.7) * 0.15
-            val env     = exp(-35.0 * t)
-            val gate    = if (i < 20) i / 20.0 else 1.0
-            ((body * 0.55 + crackle * 0.45) * 0.85 * env * gate).toFloat()
+        val pitchMult = 0.7 + Random.nextDouble() * 0.6   // variety across pops
+
+        // Phase 1 — 팡: sharp transient burst (40ms)
+        val bangN = 40 * sampleRate / 1000
+
+        // Phase 2 — 촤라라락: crackle shimmer (240–380ms)
+        val crackleN = (240 + Random.nextInt(140)) * sampleRate / 1000
+
+        val total = bangN + crackleN
+        val raw   = FloatArray(total)
+
+        // LCG white-noise generator (avoids Nyquist aliasing from sin(i*k))
+        var nState = System.nanoTime() xor Random.nextLong()
+        fun noise(): Double {
+            nState = nState * 6364136223846793005L + 1442695040888963407L
+            return (nState ushr 33).toInt().toDouble() / 2147483648.0
         }
+
+        // Bang: 2ms attack → fast exponential decay, white noise + low thump
+        val attackSamples = (sampleRate * 0.002).toInt()
+        val thumpHz = 55.0 * pitchMult
+        for (i in 0 until bangN) {
+            val t      = i.toDouble() / sampleRate
+            val tAfter = maxOf(0.0, t - 0.002)
+            val env    = if (i < attackSamples) i.toDouble() / attackSamples else exp(-45.0 * tAfter)
+            val thump  = sin(2.0 * PI * thumpHz * t)
+            raw[i]     = ((noise() * 0.70 + thump * 0.30) * 0.95 * env).toFloat()
+        }
+
+        // Crackle shimmer: first-order high-pass filter over white noise → crisp sparkle
+        var prev = 0.0
+        for (i in 0 until crackleN) {
+            val t    = i.toDouble() / sampleRate
+            val n    = noise()
+            val hp   = n - 0.94 * prev   // IIR high-pass; emphasises transients
+            prev     = n
+            val env  = exp(-9.0 * t)
+            raw[bangN + i] = (hp * 0.88 * env).toFloat()
+        }
+
         var maxAbs = 0.01f
         for (v in raw) { val a = abs(v); if (a > maxAbs) maxAbs = a }
         val scale = if (maxAbs > 0.9f) 0.9f / maxAbs else 1.0f
-        return ShortArray(n) { i -> (raw[i] * scale * Short.MAX_VALUE).toInt().toShort() }
+        return ShortArray(total) { i -> (raw[i] * scale * Short.MAX_VALUE).toInt().toShort() }
     }
 
     // ── Fanfare ──────────────────────────────────────────────────────────────
 
-    // G4→C5→E5→G5 quick ascent + C5+E5+G5+C6 sustained chord ≈ 1.2s
+    // Brass waveform: sawtooth-like harmonic series (1/n amplitudes) + vibrato on chord
+    // Run: G4→C5→E5→G5 punchy ascent; chord: G4+C5+E5+G5+C6 grand finish ≈ 1.3s
     private fun renderFanfare(): ShortArray {
         data class FNote(val hz: Float, val ms: Int)
 
-        val ascent = listOf(FNote(392f, 90), FNote(523f, 90), FNote(659f, 90), FNote(784f, 120))
-        val chordHz = listOf(523f, 659f, 784f, 1047f)   // C5 E5 G5 C6
-        val chordMs = 800
-        val chordFadeMs = 300
+        // Short punchy run then longer final note before chord
+        val run = listOf(FNote(392f, 100), FNote(523f, 100), FNote(659f, 100), FNote(784f, 150))
+        val chordNotes = listOf(392f, 523f, 659f, 784f, 1047f)  // G4 C5 E5 G5 C6
+        val chordMs    = 750
+        val chordFadeMs = 280
 
-        val totalSamples = (ascent.sumOf { it.ms } + chordMs) * sampleRate / 1000
+        // Sawtooth-like harmonic weights (brass character)
+        val hWeights = doubleArrayOf(0.40, 0.26, 0.17, 0.10, 0.04, 0.03)
+
+        fun brass(hz: Double, t: Double, vibDepth: Double = 0.0, vibPhase: Double = 0.0): Double {
+            var s = 0.0
+            for (n in 1..6) {
+                val fv = hz * n * (1.0 + vibDepth * sin(vibPhase))
+                s += sin(2.0 * PI * fv * t) * hWeights[n - 1]
+            }
+            return s
+        }
+
+        val totalSamples = (run.sumOf { it.ms } + chordMs) * sampleRate / 1000
         val buf = FloatArray(totalSamples)
 
-        // Ascending run
+        // Run: punchy 5ms attack, gentle sustain decay, hard cut at end (clipped by gate)
+        val attackSamples = (sampleRate * 0.005).toInt()
         var offset = 0
-        for (note in ascent) {
+        for (note in run) {
             val dur = note.ms * sampleRate / 1000
             for (i in 0 until dur) {
                 if (offset + i >= totalSamples) break
-                val t = i.toDouble() / sampleRate
-                val s = sin(2.0 * PI * note.hz * t) * 0.5 +
-                        sin(2.0 * PI * note.hz * 2 * t) * 0.3 +
-                        sin(2.0 * PI * note.hz * 3 * t) * 0.2
-                val fadeIn  = if (i < 80) i / 80.0 else 1.0
-                val fadeOut = if (i > dur - 80) (dur - i) / 80.0 else 1.0
-                buf[offset + i] += (s * 0.7 * exp(-2.0 * t) * fadeIn * fadeOut).toFloat()
+                val t       = i.toDouble() / sampleRate
+                val attack  = if (i < attackSamples) i.toDouble() / attackSamples else 1.0
+                val gate    = if (i > dur - 40) (dur - i) / 40.0 else 1.0
+                buf[offset + i] += (brass(note.hz.toDouble(), t) * 0.75 * exp(-0.7 * t) * attack * gate).toFloat()
             }
             offset += dur
         }
 
-        // Sustained chord with slow decay and fade-out at end
+        // Grand chord: 8ms attack, very gentle decay, vibrato after 80ms, fade out at end
         val chordDur  = chordMs * sampleRate / 1000
         val fadeDur   = chordFadeMs * sampleRate / 1000
         val fadeStart = (chordDur - fadeDur).coerceAtLeast(0)
-        for (hz in chordHz) {
+        val chordAttack = (sampleRate * 0.008).toInt()
+        val vibRate = 2.0 * PI * 5.5   // 5.5 Hz vibrato
+        for (hz in chordNotes) {
             for (i in 0 until chordDur) {
                 if (offset + i >= totalSamples) break
-                val t = i.toDouble() / sampleRate
-                val s = sin(2.0 * PI * hz * t) * 0.45 +
-                        sin(2.0 * PI * hz * 2 * t) * 0.35 +
-                        sin(2.0 * PI * hz * 3 * t) * 0.20
-                val fadeIn  = if (i < 150) i / 150.0 else 1.0
+                val t       = i.toDouble() / sampleRate
+                val vibDepth = if (t > 0.08) 0.007 else 0.0
+                val attack  = if (i < chordAttack) i.toDouble() / chordAttack else 1.0
                 val fadeOut = if (i >= fadeStart) (chordDur - i).toDouble() / fadeDur else 1.0
-                buf[offset + i] += (s * 0.5 * exp(-1.5 * t) * fadeIn * fadeOut).toFloat()
+                buf[offset + i] += (brass(hz.toDouble(), t, vibDepth, vibRate * t) * 0.55 * exp(-0.6 * t) * attack * fadeOut).toFloat()
             }
         }
 
