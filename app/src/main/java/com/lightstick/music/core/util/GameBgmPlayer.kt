@@ -62,13 +62,13 @@ class GameBgmPlayer {
             try {
                 Thread.sleep(delayMs)
                 while (celebrationActive && !Thread.currentThread().isInterrupted) {
-                    val burstCount = 1 + Random.nextInt(2)   // 1–2 pops (pop 자체가 ~1s)
+                    val burstCount = 1 + Random.nextInt(3)   // 1–3발 (각 팝 ~1.5s)
                     repeat(burstCount) { idx ->
                         if (!celebrationActive || Thread.currentThread().isInterrupted) return@repeat
                         firePop()
-                        if (idx < burstCount - 1) Thread.sleep(80L + Random.nextLong(120L))
+                        if (idx < burstCount - 1) Thread.sleep(200L + Random.nextLong(300L))
                     }
-                    Thread.sleep(800L + Random.nextLong(1200L))
+                    Thread.sleep(1000L + Random.nextLong(1500L))
                 }
             } catch (_: InterruptedException) {}
         }.also { it.isDaemon = true; it.start() }
@@ -402,13 +402,11 @@ class GameBgmPlayer {
         } catch (_: Exception) {}
     }
 
-    // ASMR 폭죽: 쉬익(whistle) → 팡(bang) → 촤라라락(discrete tick crackle)
-    // 참조: ASMR 폭죽소리 효과음 (youtube AXzgckCsUv8)
-    // 연속 노이즈가 아닌 짧은 tick 이벤트가 간격을 두고 반복 → ASMR 특유의 끊기는 크래클
+    // 실제 불꽃놀이 폭죽 모델링: boom(폭발) + Poisson-process crackle(크래클)
+    // 휘파람 없음 — 터지는 소리 그 자체에 집중
     private fun renderPop(): ShortArray {
         val pitchScale = 0.88 + Random.nextDouble() * 0.24
 
-        // 두 LCG 스트림: 신호용(nState) + 제어용(aState)
         var nState = System.nanoTime() xor Random.nextLong()
         fun noise(): Double {
             nState = nState * 6364136223846793005L + 1442695040888963407L
@@ -424,79 +422,66 @@ class GameBgmPlayer {
             return ((aState ushr 33).toInt() and 0x7FFFFFFF) % n
         }
 
-        // 각 단계 길이
-        val whistleMs = 180 + randI(60)            // 쉬익: 180–240ms
-        val bangN     = 18  * sampleRate / 1000    // 팡:   18ms
-        val bloomN    = 45  * sampleRate / 1000    // 팡 잔향: 45ms
-        val crackleMs = 580 + randI(280)           // 촤라라락: 580–860ms
-
-        val whistleN  = whistleMs * sampleRate / 1000
+        val boomMs    = 200 + randI(60)       // 200–260ms 폭발
+        val crackleMs = 900 + randI(500)      // 900–1400ms 크래클
+        val boomN     = boomMs    * sampleRate / 1000
         val crackleN  = crackleMs * sampleRate / 1000
-        val total     = whistleN + bangN + bloomN + crackleN
+        val total     = boomN + crackleN
         val raw       = FloatArray(total)
 
-        // ── 쉬익 (whistle): 상승하는 주파수 스윕 ──────────────────────────────
-        // 위상 누적으로 800→6500Hz 부드럽게 상승, 진폭도 0→0.6 상승
-        var whistlePhase = 0.0
-        for (i in 0 until whistleN) {
-            val progress = i.toDouble() / whistleN          // 0→1
-            val freq     = 800.0 + 5700.0 * progress * progress  // 가속 상승
-            whistlePhase += 2.0 * PI * freq / sampleRate
-            val amp = progress * 0.60
-            // 사인 + 약간의 노이즈 → 순수한 휘파람 + 실제감
-            raw[i] = ((sin(whistlePhase) * 0.82 + noise() * 0.18) * amp).toFloat()
-        }
+        // ── BOOM ─────────────────────────────────────────────────────────
+        // 3-sample 어택 → 5ms 풀 트랜지언트 → 이후 고주파 성분 급감쇠
+        // + 저주파 3단 공명(65/130/200Hz): 고주파일수록 빨리 사라짐
+        //   → 실제 폭발이 처음엔 밝고 이후 울림만 남는 현상 재현
+        val fLow  = 65.0  * pitchScale
+        val fMid  = 130.0 * pitchScale
+        val fHigh = 200.0 * pitchScale
+        var phLow = 0.0; var phMid = 0.0; var phHigh = 0.0
+        val snapEnd = sampleRate * 5 / 1000
 
-        // ── 팡 (bang): 순간 최대 진폭 백색 노이즈 ────────────────────────────
-        for (i in 0 until bangN) {
-            val gate = if (i < 3) i / 3.0 else 1.0
-            raw[whistleN + i] = (noise() * gate).toFloat()
-        }
-
-        // ── 팡 잔향 (bloom): 짧은 감쇠 ──────────────────────────────────────
-        for (i in 0 until bloomN) {
+        for (i in 0 until boomN) {
             val t = i.toDouble() / sampleRate
-            raw[whistleN + bangN + i] = (noise() * exp(-28.0 * t)).toFloat()
+            val crack = when {
+                i < 3       -> noise() * (i / 3.0)
+                i < snapEnd -> noise()
+                else        -> noise() * exp(-38.0 * (t - 0.005))
+            }
+            phLow  += 2.0 * PI * fLow  / sampleRate
+            phMid  += 2.0 * PI * fMid  / sampleRate
+            phHigh += 2.0 * PI * fHigh / sampleRate
+            val body = sin(phLow)  * exp(-6.5  * t) * 0.50 +
+                       sin(phMid)  * exp(-10.0 * t) * 0.35 +
+                       sin(phHigh) * exp(-15.0 * t) * 0.15
+            raw[i] = (crack * 0.60 + body * 0.40).toFloat()
         }
 
-        // ── 촤라라락 (crackle): ASMR 스타일 개별 tick 이벤트 ─────────────────
-        // tick(2–5ms 노이즈 버스트) + gap(8–30ms 무음) 반복
-        // gap 길이는 시간이 지날수록 점점 길어짐 → 자연스럽게 소멸
-        var crackPrev   = 0.0
-        var inBurst     = false
-        var burstLeft   = 0
-        var gapLeft     = randI(220) + 132    // 초기 갭: 3–8ms
-        var tickAmp     = 1.0
+        // ── CRACKLE: 포아송 과정 개별 틱 ────────────────────────────────
+        // 발생률: 100Hz(초기) → 8Hz(종료) 지수 감소 → 자연스럽게 희소해짐
+        // 틱마다 독립 IIR 하이패스 → 각각 "탁" 소리가 개별적으로 들림
+        var tPos = 0
+        while (tPos < crackleN) {
+            val progress = tPos.toDouble() / crackleN
+            val rateHz   = 100.0 * exp(-3.5 * progress) + 8.0
+            val gap      = (sampleRate / rateHz * (0.4 + randD() * 1.2)).toInt().coerceAtLeast(1)
+            tPos += gap
+            if (tPos >= crackleN) break
 
-        val base0 = whistleN + bangN + bloomN
+            val tickLen  = (sampleRate * (1.0 + randD() * 3.0) / 1000.0).toInt()  // 1–4ms
+            val tickAmp  = (0.05 + randD() * 0.40).toFloat()
+            var tickPrev = 0.0
+
+            for (j in 0 until minOf(tickLen, crackleN - tPos)) {
+                val tTick = j.toDouble() / sampleRate
+                val n     = noise()
+                val hp    = n - 0.96 * tickPrev   // 틱마다 새 필터 상태 → 깔끔하게 분리
+                tickPrev  = n
+                raw[boomN + tPos + j] += (hp * tickAmp * exp(-300.0 * tTick)).toFloat()
+            }
+        }
+
+        // 크래클 전체 감쇠 (exp(-2.5t): 1s 후 약 8%)
         for (i in 0 until crackleN) {
-            val t        = i.toDouble() / sampleRate
-            val progress = t / (crackleMs / 1000.0)
-
-            if (inBurst) {
-                if (--burstLeft <= 0) {
-                    inBurst = false
-                    // 진행될수록 갭이 길어짐 (5ms → 30ms)
-                    val baseGap = (220 + (progress * 1100).toInt())
-                    gapLeft = randI(baseGap) + 220
-                }
-            } else {
-                if (--gapLeft <= 0) {
-                    inBurst  = true
-                    burstLeft = randI(132) + 88     // 2–5ms 버스트
-                    tickAmp   = 0.30 + randD() * 0.70
-                }
-            }
-
-            val n  = noise()
-            val hp = n - 0.96 * crackPrev   // 강한 하이패스 → 선명한 고음 크래클
-            crackPrev = n
-
-            if (inBurst) {
-                // 전체 감쇠 + 각 tick별 랜덤 진폭
-                raw[base0 + i] = (hp * tickAmp * exp(-4.8 * t)).toFloat()
-            }
-            // 갭 구간: raw 은 이미 0f 이므로 별도 처리 불필요
+            raw[boomN + i] *= (exp(-2.5 * i.toDouble() / sampleRate) * 0.80).toFloat()
         }
 
         var maxAbs = 0.01f
