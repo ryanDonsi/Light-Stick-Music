@@ -12,17 +12,41 @@ class GameBgmPlayer {
 
     @Volatile private var isPlaying = false
     @Volatile private var bpmMultiplier = 1.0f
+    @Volatile private var bpmChanged = false
     private var playerThread: Thread? = null
 
     fun start(mode: GameMode) {
         stop()
         bpmMultiplier = 1.0f
+        bpmChanged = false
         isPlaying = true
         playerThread = Thread { bgmLoop(mode) }.also { it.isDaemon = true; it.start() }
     }
 
     fun setBpmMultiplier(multiplier: Float) {
         bpmMultiplier = multiplier
+        bpmChanged = true
+    }
+
+    fun playFanfare() {
+        Thread {
+            try {
+                val buf = renderFanfare()
+                val minBuf = AudioTrack.getMinBufferSize(
+                    sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
+                )
+                val track = AudioTrack(
+                    AudioManager.STREAM_MUSIC, sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                    maxOf(minBuf, buf.size * 2), AudioTrack.MODE_STATIC
+                )
+                track.write(buf, 0, buf.size)
+                track.play()
+                Thread.sleep(buf.size.toLong() * 1000 / sampleRate + 300)
+                track.stop()
+                track.release()
+            } catch (_: Exception) {}
+        }.also { it.isDaemon = true; it.start() }
     }
 
     fun stop() {
@@ -34,7 +58,7 @@ class GameBgmPlayer {
 
     fun release() = stop()
 
-    // ── Audio loop ───────────────────────────────────────────────────────────
+    // ── BGM Loop ─────────────────────────────────────────────────────────────
 
     private fun bgmLoop(mode: GameMode) {
         val minBuf = AudioTrack.getMinBufferSize(
@@ -49,7 +73,8 @@ class GameBgmPlayer {
         try {
             val baseBpm = baseBpm(mode)
             while (isPlaying && !Thread.currentThread().isInterrupted) {
-                val buf = renderMeasure(mode, baseBpm * bpmMultiplier)
+                val needsFadeIn = bpmChanged.also { bpmChanged = false }
+                val buf = renderLoop(mode, baseBpm * bpmMultiplier, fadeIn = needsFadeIn)
                 var pos = 0
                 while (pos < buf.size && isPlaying) {
                     val chunk = minOf(2048, buf.size - pos)
@@ -70,7 +95,7 @@ class GameBgmPlayer {
         GameMode.TEAM_BATTLE    -> 130f
     }
 
-    // ── Pattern definitions ──────────────────────────────────────────────────
+    // ── Patterns (8th-note steps) ────────────────────────────────────────────
 
     private data class Sound(val type: Int, val hz: Float = 0f, val amp: Float = 0.7f)
 
@@ -80,45 +105,87 @@ class GameBgmPlayer {
         GameMode.TEAM_BATTLE    -> teamBattlePattern()
     }
 
-    // 8 steps = 1 bar (8th notes). Driving, fast, ascending lead melody.
-    private fun speedReactionPattern(): List<List<Sound>> = listOf(
-        listOf(Sound(KICK, amp = 0.9f),  Sound(HIHAT, amp = 0.5f), Sound(LEAD, 392f, 0.5f)),
-        listOf(Sound(HIHAT, amp = 0.4f), Sound(LEAD, 494f, 0.35f)),
-        listOf(Sound(SNARE, amp = 0.8f), Sound(HIHAT, amp = 0.5f), Sound(LEAD, 587f, 0.4f)),
-        listOf(Sound(HIHAT, amp = 0.3f)),
-        listOf(Sound(KICK, amp = 0.85f), Sound(HIHAT, amp = 0.5f), Sound(LEAD, 784f, 0.5f)),
-        listOf(Sound(HIHAT, amp = 0.4f), Sound(LEAD, 587f, 0.35f)),
-        listOf(Sound(SNARE, amp = 0.8f), Sound(HIHAT, amp = 0.5f), Sound(LEAD, 494f, 0.4f)),
-        listOf(Sound(HIHAT, amp = 0.3f), Sound(LEAD, 392f, 0.3f))
-    )
+    // 6 bars × 8 steps @ 140 BPM ≈ 10.3s — ascending lead phrase over 6 bars
+    private fun speedReactionPattern(): List<List<Sound>> {
+        fun k(a: Float = 0.9f) = Sound(KICK, amp = a)
+        fun s() = Sound(SNARE, amp = 0.8f)
+        fun h(a: Float = 0.5f) = Sound(HIHAT, amp = a)
+        fun l(hz: Float, a: Float = 0.48f) = Sound(LEAD, hz, a)
 
-    // Rhythmical/groovy: syncopated kick on steps 3 & 7, strong bass line.
-    private fun tempoPattern(): List<List<Sound>> = listOf(
-        listOf(Sound(KICK, amp = 0.9f),  Sound(BASS, 131f, 0.6f), Sound(HIHAT, amp = 0.5f)),
-        listOf(Sound(HIHAT, amp = 0.3f)),
-        listOf(Sound(SNARE, amp = 0.8f), Sound(HIHAT, amp = 0.5f), Sound(BASS, 165f, 0.45f)),
-        listOf(Sound(KICK, amp = 0.5f),  Sound(BASS, 196f, 0.5f), Sound(HIHAT, amp = 0.35f)),
-        listOf(Sound(KICK, amp = 0.9f),  Sound(BASS, 220f, 0.6f), Sound(HIHAT, amp = 0.5f)),
-        listOf(Sound(HIHAT, amp = 0.3f)),
-        listOf(Sound(SNARE, amp = 0.8f), Sound(HIHAT, amp = 0.5f), Sound(BASS, 196f, 0.45f)),
-        listOf(Sound(KICK, amp = 0.45f), Sound(HIHAT, amp = 0.4f), Sound(BASS, 131f, 0.5f))
-    )
+        fun bar(n0: Float, n2: Float, n4: Float, n6: Float): List<List<Sound>> = listOf(
+            listOf(k(),        h(),      l(n0)),
+            listOf(           h(0.35f)         ),
+            listOf(s(),        h(),      l(n2, 0.4f)),
+            listOf(           h(0.3f)          ),
+            listOf(k(),        h(),      l(n4)),
+            listOf(           h(0.35f)         ),
+            listOf(s(),        h(),      l(n6, 0.4f)),
+            listOf(           h(0.3f)          )
+        )
 
-    // Call-response: first half ascends (red), second half responds (blue).
-    private fun teamBattlePattern(): List<List<Sound>> = listOf(
-        listOf(Sound(KICK, amp = 0.9f),  Sound(LEAD, 523f, 0.55f), Sound(HIHAT, amp = 0.5f)),
-        listOf(Sound(HIHAT, amp = 0.4f), Sound(LEAD, 659f, 0.4f)),
-        listOf(Sound(SNARE, amp = 0.8f), Sound(HIHAT, amp = 0.5f)),
-        listOf(Sound(LEAD, 784f, 0.5f),  Sound(HIHAT, amp = 0.3f)),
-        listOf(Sound(KICK, amp = 0.85f), Sound(LEAD, 392f, 0.5f), Sound(HIHAT, amp = 0.5f)),
-        listOf(Sound(HIHAT, amp = 0.4f), Sound(LEAD, 440f, 0.4f)),
-        listOf(Sound(SNARE, amp = 0.8f), Sound(LEAD, 523f, 0.45f), Sound(HIHAT, amp = 0.5f)),
-        listOf(Sound(HIHAT, amp = 0.3f))
-    )
+        return bar(392f, 587f, 392f, 659f) +   // Bar 1  G4 D5 G4 E5
+               bar(440f, 659f, 440f, 784f) +   // Bar 2  A4 E5 A4 G5
+               bar(392f, 494f, 587f, 494f) +   // Bar 3  G4 B4 D5 B4
+               bar(659f, 784f, 659f, 587f) +   // Bar 4  E5 G5 E5 D5
+               bar(392f, 587f, 440f, 659f) +   // Bar 5  G4 D5 A4 E5
+               bar(392f, 659f, 784f, 440f)     // Bar 6  G4 E5 G5 A4
+    }
+
+    // 5 bars × 8 steps @ 120 BPM = 10.0s — groovy syncopated bass line
+    private fun tempoPattern(): List<List<Sound>> {
+        fun k(a: Float = 0.9f) = Sound(KICK, amp = a)
+        fun s() = Sound(SNARE, amp = 0.8f)
+        fun h(a: Float = 0.5f) = Sound(HIHAT, amp = a)
+        fun b(hz: Float, a: Float = 0.55f) = Sound(BASS, hz, a)
+
+        // Kick on 0,3,4,7 (off-beat on 3&7 = syncopation). Snare on 2,6.
+        fun bar(b0: Float, b2: Float, b3: Float, b4: Float, b6: Float, b7: Float): List<List<Sound>> = listOf(
+            listOf(k(),       h(),      b(b0, 0.6f)),
+            listOf(          h(0.3f)              ),
+            listOf(s(),       h(),      b(b2, 0.45f)),
+            listOf(k(0.5f),  h(0.3f),  b(b3, 0.5f)),  // synco kick
+            listOf(k(),       h(),      b(b4, 0.6f)),
+            listOf(          h(0.3f)              ),
+            listOf(s(),       h(),      b(b6, 0.45f)),
+            listOf(k(0.5f),  h(0.3f),  b(b7, 0.5f))   // synco kick
+        )
+
+        return bar(131f, 165f, 196f, 196f, 165f, 131f) + // Bar 1  C3 E3 G3 G3 E3 C3
+               bar(175f, 220f, 262f, 262f, 220f, 175f) + // Bar 2  F3 A3 C4 C4 A3 F3
+               bar(131f, 165f, 196f, 196f, 165f, 131f) + // Bar 3  repeat bar 1
+               bar(196f, 247f, 294f, 294f, 247f, 196f) + // Bar 4  G3 B3 D4 D4 B3 G3
+               bar(131f, 165f, 262f, 196f, 165f, 131f)   // Bar 5  C3 E3 C4 G3 E3 C3
+    }
+
+    // 5 bars × 8 steps @ 130 BPM ≈ 9.2s — call (bars 1-2) → response (3-4) → climax (5)
+    private fun teamBattlePattern(): List<List<Sound>> {
+        fun k(a: Float = 0.9f) = Sound(KICK, amp = a)
+        fun s() = Sound(SNARE, amp = 0.8f)
+        fun h(a: Float = 0.5f) = Sound(HIHAT, amp = a)
+        fun l(hz: Float, a: Float = 0.48f) = Sound(LEAD, hz, a)
+
+        // Lead at steps 0,1,3,4,5,6 for a continuous melodic feel
+        fun bar(l0: Float, l1: Float, l3: Float, l4: Float, l5: Float, l6: Float): List<List<Sound>> = listOf(
+            listOf(k(),        h(),      l(l0)),
+            listOf(           h(0.35f),  l(l1, 0.4f)),
+            listOf(s(),        h()               ),
+            listOf(           h(0.3f),   l(l3, 0.43f)),
+            listOf(k(0.8f),   h(),      l(l4)),
+            listOf(           h(0.35f),  l(l5, 0.4f)),
+            listOf(s(),        h(),      l(l6, 0.43f)),
+            listOf(           h(0.3f)            )
+        )
+
+        return bar(523f, 659f, 784f, 523f, 659f, 784f) + // Bar 1  C5 E5 G5 C5 E5 G5  (call up)
+               bar(784f, 659f, 523f, 659f, 523f, 392f) + // Bar 2  G5 E5 C5 E5 C5 G4  (call down)
+               bar(392f, 440f, 523f, 392f, 440f, 523f) + // Bar 3  G4 A4 C5 G4 A4 C5  (response up)
+               bar(523f, 440f, 392f, 440f, 523f, 659f) + // Bar 4  C5 A4 G4 A4 C5 E5  (response rise)
+               bar(523f, 659f, 784f, 659f, 784f, 1047f)  // Bar 5  C5 E5 G5 E5 G5 C6  (climax)
+    }
 
     // ── Rendering ────────────────────────────────────────────────────────────
 
-    private fun renderMeasure(mode: GameMode, bpm: Float): ShortArray {
+    private fun renderLoop(mode: GameMode, bpm: Float, fadeIn: Boolean): ShortArray {
         val stepSamples = (sampleRate * 60f / (bpm * 2)).toInt()
         val steps = pattern(mode)
         val total = steps.size * stepSamples
@@ -135,15 +202,12 @@ class GameBgmPlayer {
             }
         }
 
-        // 10ms crossfade at boundaries for smooth measure looping
-        val fadeLen = minOf((sampleRate * 0.01f).toInt(), total / 4)
-        for (i in 0 until fadeLen) {
-            val t = i.toFloat() / fadeLen
-            buf[i] *= t
-            buf[total - 1 - i] *= t
+        // Short fade-in only when BPM changes, to prevent click at tempo switch
+        if (fadeIn) {
+            val fadeLen = minOf((sampleRate * 0.03f).toInt(), total)
+            for (i in 0 until fadeLen) buf[i] *= i.toFloat() / fadeLen
         }
 
-        // Normalize peak to 0.9 and convert to shorts
         var maxAbs = 0.01f
         for (v in buf) { val a = abs(v); if (a > maxAbs) maxAbs = a }
         val scale = if (maxAbs > 0.9f) 0.9f / maxAbs else 1.0f
@@ -162,9 +226,9 @@ class GameBgmPlayer {
 
     // ── Synthesis ────────────────────────────────────────────────────────────
 
-    // Pitch-swept sine: 160 → 40 Hz with fast decay
+    // Pitch-swept sine 160→40 Hz; decays and ends well within its step for clean looping
     private fun kick(stepSamples: Int, amp: Float): FloatArray {
-        val dur = (stepSamples * 0.4f).toInt().coerceAtMost(stepSamples)
+        val dur = (stepSamples * 0.35f).toInt().coerceAtMost(stepSamples)
         var phase = 0.0
         return FloatArray(stepSamples) { i ->
             if (i >= dur) 0f
@@ -177,23 +241,24 @@ class GameBgmPlayer {
         }
     }
 
-    // Body tone at 200 Hz + inharmonic buzz for snappy texture
+    // 200 Hz body + inharmonic buzz
     private fun snare(stepSamples: Int, amp: Float): FloatArray {
-        val dur = (stepSamples * 0.5f).toInt().coerceAtMost(stepSamples)
+        val dur = (stepSamples * 0.45f).toInt().coerceAtMost(stepSamples)
         return FloatArray(stepSamples) { i ->
             if (i >= dur) 0f
             else {
                 val t = i.toDouble() / sampleRate
                 val body  = sin(2.0 * PI * 200.0 * t) * 0.3
                 val buzz  = (sin(i * 2.3) + sin(i * 4.7) + sin(i * 7.9)) / 3.0 * 0.7
-                ((body + buzz) * amp * exp(-10.0 * t)).toFloat()
+                val fade  = if (i > dur - 100) (dur - i) / 100.0 else 1.0
+                ((body + buzz) * amp * exp(-12.0 * t) * fade).toFloat()
             }
         }
     }
 
-    // Inharmonic high-frequency series for metallic click
+    // Inharmonic high-freq partials → metallic click
     private fun hihat(stepSamples: Int, amp: Float): FloatArray {
-        val dur = (stepSamples * 0.2f).toInt().coerceAtMost(stepSamples)
+        val dur = (stepSamples * 0.18f).toInt().coerceAtMost(stepSamples)
         return FloatArray(stepSamples) { i ->
             if (i >= dur) 0f
             else {
@@ -205,23 +270,25 @@ class GameBgmPlayer {
         }
     }
 
-    // Warm bass: fundamental + 2nd harmonic
+    // Warm fundamental + 2nd harmonic; fast decay + tail fade for seamless loop boundary
     private fun bass(hz: Float, stepSamples: Int, amp: Float): FloatArray {
-        val dur = (stepSamples * 0.85f).toInt().coerceAtMost(stepSamples)
+        val dur = (stepSamples * 0.80f).toInt().coerceAtMost(stepSamples)
+        val fadeStart = (dur - minOf(300, dur / 4)).coerceAtLeast(0)
         return FloatArray(stepSamples) { i ->
             if (i >= dur) 0f
             else {
                 val t = i.toDouble() / sampleRate
-                val s = sin(2.0 * PI * hz * t) * 0.65 +
-                        sin(2.0 * PI * hz * 2 * t) * 0.35
-                (s * amp * exp(-4.0 * t)).toFloat()
+                val s = sin(2.0 * PI * hz * t) * 0.65 + sin(2.0 * PI * hz * 2 * t) * 0.35
+                val tail = if (i >= fadeStart) (dur - i).toDouble() / (dur - fadeStart) else 1.0
+                (s * amp * exp(-8.0 * t) * tail).toFloat()
             }
         }
     }
 
-    // Bright lead: 3 harmonics for richness
+    // 3-harmonic lead; fast decay + tail fade for seamless loop boundary
     private fun lead(hz: Float, stepSamples: Int, amp: Float): FloatArray {
-        val dur = (stepSamples * 0.75f).toInt().coerceAtMost(stepSamples)
+        val dur = (stepSamples * 0.72f).toInt().coerceAtMost(stepSamples)
+        val fadeStart = (dur - minOf(200, dur / 4)).coerceAtLeast(0)
         return FloatArray(stepSamples) { i ->
             if (i >= dur) 0f
             else {
@@ -229,9 +296,64 @@ class GameBgmPlayer {
                 val s = sin(2.0 * PI * hz * t) * 0.5 +
                         sin(2.0 * PI * hz * 2 * t) * 0.3 +
                         sin(2.0 * PI * hz * 3 * t) * 0.2
-                (s * amp * exp(-5.0 * t)).toFloat()
+                val tail = if (i >= fadeStart) (dur - i).toDouble() / (dur - fadeStart) else 1.0
+                (s * amp * exp(-7.0 * t) * tail).toFloat()
             }
         }
+    }
+
+    // ── Fanfare ──────────────────────────────────────────────────────────────
+
+    // G4→C5→E5→G5 quick ascent + C5+E5+G5+C6 sustained chord ≈ 1.2s
+    private fun renderFanfare(): ShortArray {
+        data class FNote(val hz: Float, val ms: Int)
+
+        val ascent = listOf(FNote(392f, 90), FNote(523f, 90), FNote(659f, 90), FNote(784f, 120))
+        val chordHz = listOf(523f, 659f, 784f, 1047f)   // C5 E5 G5 C6
+        val chordMs = 800
+        val chordFadeMs = 300
+
+        val totalSamples = (ascent.sumOf { it.ms } + chordMs) * sampleRate / 1000
+        val buf = FloatArray(totalSamples)
+
+        // Ascending run
+        var offset = 0
+        for (note in ascent) {
+            val dur = note.ms * sampleRate / 1000
+            for (i in 0 until dur) {
+                if (offset + i >= totalSamples) break
+                val t = i.toDouble() / sampleRate
+                val s = sin(2.0 * PI * note.hz * t) * 0.5 +
+                        sin(2.0 * PI * note.hz * 2 * t) * 0.3 +
+                        sin(2.0 * PI * note.hz * 3 * t) * 0.2
+                val fadeIn  = if (i < 80) i / 80.0 else 1.0
+                val fadeOut = if (i > dur - 80) (dur - i) / 80.0 else 1.0
+                buf[offset + i] += (s * 0.7 * exp(-2.0 * t) * fadeIn * fadeOut).toFloat()
+            }
+            offset += dur
+        }
+
+        // Sustained chord with slow decay and fade-out at end
+        val chordDur  = chordMs * sampleRate / 1000
+        val fadeDur   = chordFadeMs * sampleRate / 1000
+        val fadeStart = (chordDur - fadeDur).coerceAtLeast(0)
+        for (hz in chordHz) {
+            for (i in 0 until chordDur) {
+                if (offset + i >= totalSamples) break
+                val t = i.toDouble() / sampleRate
+                val s = sin(2.0 * PI * hz * t) * 0.45 +
+                        sin(2.0 * PI * hz * 2 * t) * 0.35 +
+                        sin(2.0 * PI * hz * 3 * t) * 0.20
+                val fadeIn  = if (i < 150) i / 150.0 else 1.0
+                val fadeOut = if (i >= fadeStart) (chordDur - i).toDouble() / fadeDur else 1.0
+                buf[offset + i] += (s * 0.5 * exp(-1.5 * t) * fadeIn * fadeOut).toFloat()
+            }
+        }
+
+        var maxAbs = 0.01f
+        for (v in buf) { val a = abs(v); if (a > maxAbs) maxAbs = a }
+        val scale = if (maxAbs > 0.9f) 0.9f / maxAbs else 1.0f
+        return ShortArray(totalSamples) { i -> (buf[i] * scale * Short.MAX_VALUE).toInt().toShort() }
     }
 
     companion object {

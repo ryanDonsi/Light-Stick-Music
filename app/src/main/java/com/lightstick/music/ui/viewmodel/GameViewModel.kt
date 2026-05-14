@@ -71,7 +71,7 @@ class GameViewModel @Inject constructor(
 
     private val countdownSoundPlayer = CountdownSoundPlayer()
     private val gameBgmPlayer = GameBgmPlayer()
-    private var bgmSpeedBoosted = false
+    private var bgmSpeedLevel = 0   // 0=normal  1=×1.3(≤60%)  2=×1.5(≤30%)
 
     init {
         observeGameResults()
@@ -103,7 +103,7 @@ class GameViewModel @Inject constructor(
         collectedResults.clear()
         resultCollectJob?.cancel()
         _partialResults.value = emptyList()
-        bgmSpeedBoosted = false
+        bgmSpeedLevel = 0
 
         val ok = sendGameCommandUseCase.sendReady(mode, difficulty)
         if (!ok) {
@@ -158,11 +158,11 @@ class GameViewModel @Inject constructor(
                 delay(1_000L)
                 val elapsed = _playingElapsedSeconds.value + 1
                 _playingElapsedSeconds.value = elapsed
-                if (!bgmSpeedBoosted && maxSecs > 0) {
-                    val remainingRatio = (maxSecs - elapsed).toFloat() / maxSecs
-                    if (remainingRatio <= 0.4f) {
-                        bgmSpeedBoosted = true
-                        gameBgmPlayer.setBpmMultiplier(1.3f)
+                if (bgmSpeedLevel < 2 && maxSecs > 0) {
+                    val remaining = (maxSecs - elapsed).toFloat() / maxSecs
+                    when {
+                        remaining <= 0.3f -> { bgmSpeedLevel = 2; gameBgmPlayer.setBpmMultiplier(1.5f) }
+                        remaining <= 0.6f && bgmSpeedLevel < 1 -> { bgmSpeedLevel = 1; gameBgmPlayer.setBpmMultiplier(1.3f) }
                     }
                 }
             }
@@ -240,6 +240,7 @@ class GameViewModel @Inject constructor(
     private fun finalizeSummaryPacket(result: GameResult) {
         cancelTimer()
         gameBgmPlayer.stop()
+        gameBgmPlayer.playFanfare()
         val mode = GameMode.fromSdkMode(result.mode) ?: _selectedMode.value ?: return
         val accumulated = collectedResults.toList()
 
@@ -267,6 +268,7 @@ class GameViewModel @Inject constructor(
     private fun finalizeResults(sdkMode: SdkGameMode) {
         cancelTimer()
         gameBgmPlayer.stop()
+        gameBgmPlayer.playFanfare()
         val mode = GameMode.fromSdkMode(sdkMode) ?: _selectedMode.value ?: return
 
         val results = collectedResults.toList()
