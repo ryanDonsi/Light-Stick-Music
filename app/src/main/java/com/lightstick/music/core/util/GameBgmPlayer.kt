@@ -152,24 +152,23 @@ class GameBgmPlayer {
         GameMode.TEAM_BATTLE    -> teamBattlePattern()
     }
 
-    // 5 bars × 16 steps @ 150 BPM = 8.0s — E Phrygian cyber quick-march
-    // Square-wave lead + sawtooth bass for hard electronic timbre
-    // E Phrygian (E F G A B C D): ♭2 = F gives the dark, industrial colour
+    // 5 bars × 16 steps @ 150 BPM = 8.0s — C major cyber quick-march (bright, cheerful)
+    // Same square-wave/sawtooth engine; major key gives the upbeat bounce
     private fun speedReactionPattern(): List<List<Sound>> {
         fun k(a: Float = 0.95f) = Sound(KICK, amp = a)
         fun s(a: Float = 0.85f) = Sound(SNARE, amp = a)
         fun cb(hz: Float, a: Float = 0.62f, n: Int = 4) = Sound(CBASS, hz, a, n)
         fun c(hz: Float, n: Int = 3, a: Float = 0.58f) = Sound(CYBER, hz, a, n)
 
-        val E3 = 165f; val B3 = 247f   // E3 oom (root), B3 pah (5th)
+        val C3 = 131f; val G3 = 196f   // C3 oom (root), G3 pah (5th)
 
         fun bar(vararg melody: Pair<Int, Sound>): List<List<Sound>> {
             val grid: Array<MutableList<Sound>> = Array(16) { i ->
                 when (i) {
-                    0  -> mutableListOf(k(),      cb(E3, 0.65f))
-                    4  -> mutableListOf(s(),      cb(B3, 0.45f, 3))
-                    8  -> mutableListOf(k(0.80f), cb(E3, 0.55f))
-                    12 -> mutableListOf(s(0.80f), cb(B3, 0.40f, 3))
+                    0  -> mutableListOf(k(),      cb(C3, 0.65f))
+                    4  -> mutableListOf(s(),      cb(G3, 0.45f, 3))
+                    8  -> mutableListOf(k(0.80f), cb(C3, 0.55f))
+                    12 -> mutableListOf(s(0.80f), cb(G3, 0.40f, 3))
                     else -> mutableListOf()
                 }
             }
@@ -177,60 +176,61 @@ class GameBgmPlayer {
             return grid.map { it.toList() }
         }
 
-        // Bar 1: E5·E5 G5·B5 E6·D6 B5 A5  (ascending Phrygian fanfare)
+        // C major: bright, energetic — major thirds and leaping fifths give the cheerful bounce
+        // Bar 1: C5·C5 E5·G5 C6·B5 G5 E5  (major arpeggio fanfare)
         val bar1 = bar(
-            0  to c(659f,  3),   // E5 dotted-8th
-            3  to c(659f,  1),   // E5 16th
-            4  to c(784f,  3),   // G5 dotted-8th
-            7  to c(988f,  1),   // B5 16th
-            8  to c(1319f, 3),   // E6 dotted-8th  (peak)
-            11 to c(1175f, 1),   // D6 16th
-            12 to c(988f,  2),   // B5 8th
-            14 to c(880f,  2)    // A5 8th
+            0  to c(523f,  3),   // C5 dotted-8th
+            3  to c(523f,  1),   // C5 16th
+            4  to c(659f,  3),   // E5 dotted-8th
+            7  to c(784f,  1),   // G5 16th
+            8  to c(1047f, 3),   // C6 dotted-8th  (peak)
+            11 to c(988f,  1),   // B5 16th
+            12 to c(784f,  2),   // G5 8th
+            14 to c(659f,  2)    // E5 8th
         )
-        // Bar 2: G5 F5 E5 D5 G5 F5 E5 D5  (Phrygian descent — F5=♭2 is the cyber signature)
+        // Bar 2: G5·A5 B5·C6 A5·G5 E5 G5  (stepwise bounce up then playful tail)
         val bar2 = bar(
-            0  to c(784f,  2),   // G5 8th
-            2  to c(698f,  2),   // F5 8th  (Phrygian ♭2)
-            4  to c(659f,  2),   // E5 8th
-            6  to c(587f,  2),   // D5 8th
-            8  to c(784f,  2),   // G5 8th
-            10 to c(698f,  2),   // F5 8th  (Phrygian ♭2)
-            12 to c(659f,  2),   // E5 8th
-            14 to c(587f,  2)    // D5 8th
-        )
-        // Bar 3: B4 C5 D5 E5 | G5·F5 E5 D5 C5 B4  (chromatic run → angular descent)
-        val bar3 = bar(
-            0  to c(494f,  1),   // B4 16th \
-            1  to c(523f,  1),   // C5 16th  | chromatic run
-            2  to c(587f,  1),   // D5 16th  |
-            3  to c(659f,  1),   // E5 16th /
-            4  to c(784f,  3),   // G5 dotted-8th
-            7  to c(698f,  1),   // F5 16th  (Phrygian ♭2)
-            8  to c(659f,  2),   // E5 8th
-            10 to c(587f,  2),   // D5 8th
-            12 to c(523f,  2),   // C5 8th
-            14 to c(494f,  2)    // B4 8th
-        )
-        // Bar 4: E5·E5 B5·B5 | E6(quarter) B5 G5  (driving power-fifth → held peak)
-        val bar4 = bar(
-            0  to c(659f,  3),   // E5 dotted-8th
-            3  to c(659f,  1),   // E5 16th
+            0  to c(784f,  3),   // G5 dotted-8th
+            3  to c(880f,  1),   // A5 16th
             4  to c(988f,  3),   // B5 dotted-8th
-            7  to c(988f,  1),   // B5 16th
-            8  to c(1319f, 4),   // E6 quarter  (held peak)
-            12 to c(988f,  2),   // B5 8th
+            7  to c(1047f, 1),   // C6 16th
+            8  to c(880f,  3),   // A5 dotted-8th
+            11 to c(784f,  1),   // G5 16th
+            12 to c(659f,  2),   // E5 8th
             14 to c(784f,  2)    // G5 8th
         )
-        // Bar 5 (climax): E5·E5 E6·E6 | E6(quarter) D6 B5  (octave leap + peak hold)
+        // Bar 3: G5 A5 B5 C6 | E6·D6 C6 B5 A5  (major scale run → bright peak descent)
+        val bar3 = bar(
+            0  to c(784f,  1),   // G5 16th \
+            1  to c(880f,  1),   // A5 16th  | fast major scale run
+            2  to c(988f,  1),   // B5 16th  |
+            3  to c(1047f, 1),   // C6 16th /
+            4  to c(1319f, 3),   // E6 dotted-8th  (bright peak)
+            7  to c(1175f, 1),   // D6 16th
+            8  to c(1047f, 2),   // C6 8th
+            10 to c(988f,  2),   // B5 8th
+            12 to c(880f,  2),   // A5 8th
+            14 to c(784f,  2)    // G5 8th
+        )
+        // Bar 4: C5·C5 G5·C6 | C6(quarter) G5 E5  (power march feel)
+        val bar4 = bar(
+            0  to c(523f,  3),   // C5 dotted-8th
+            3  to c(523f,  1),   // C5 16th
+            4  to c(784f,  3),   // G5 dotted-8th
+            7  to c(1047f, 1),   // C6 16th
+            8  to c(1047f, 4),   // C6 quarter  (held)
+            12 to c(784f,  2),   // G5 8th
+            14 to c(659f,  2)    // E5 8th
+        )
+        // Bar 5 (climax): C5·C5 C6·E6 | E6(quarter) D6 C6  (octave leap → soaring peak hold)
         val bar5 = bar(
-            0  to c(659f,  3),   // E5 dotted-8th
-            3  to c(659f,  1),   // E5 16th
-            4  to c(1319f, 3),   // E6 dotted-8th  (climax leap)
-            7  to c(1319f, 1),   // E6 16th
-            8  to c(1319f, 4),   // E6 quarter  (PEAK HOLD)
+            0  to c(523f,  3),   // C5 dotted-8th
+            3  to c(523f,  1),   // C5 16th
+            4  to c(1047f, 3),   // C6 dotted-8th
+            7  to c(1319f, 1),   // E6 16th  (peak flash)
+            8  to c(1319f, 4),   // E6 quarter  (CLIMAX HOLD)
             12 to c(1175f, 2),   // D6 8th
-            14 to c(988f,  2)    // B5 8th  (resolve into loop seam)
+            14 to c(1047f, 2)    // C6 8th  (resolve into loop seam)
         )
 
         return bar1 + bar2 + bar3 + bar4 + bar5
