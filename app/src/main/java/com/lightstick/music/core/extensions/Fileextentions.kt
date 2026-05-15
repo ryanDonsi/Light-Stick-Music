@@ -1,7 +1,10 @@
+@file:Suppress("unused")
+
 package com.lightstick.music.core.extensions
 
 import com.lightstick.music.core.constants.AppConstants
 import java.io.File
+import java.util.Locale
 
 /**
  * File 확장 함수
@@ -55,15 +58,6 @@ fun File.isFlacFile(): Boolean {
 }
 
 /**
- * 확장자를 제외한 파일명 가져오기
- *
- * @return 확장자를 제외한 파일명
- */
-fun File.nameWithoutExtension(): String {
-    return nameWithoutExtension
-}
-
-/**
  * 파일 크기를 읽기 쉬운 형식으로 변환
  *
  * @return 형식화된 문자열 (예: "1.5 MB", "345 KB")
@@ -72,9 +66,9 @@ fun File.getReadableSize(): String {
     val bytes = length()
     return when {
         bytes < 1024 -> "$bytes B"
-        bytes < 1024 * 1024 -> String.format("%.1f KB", bytes / 1024.0)
-        bytes < 1024 * 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
-        else -> String.format("%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0))
+        bytes < 1024 * 1024 -> String.format(Locale.US, "%.1f KB", bytes / 1024.0)
+        bytes < 1024 * 1024 * 1024 -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
+        else -> String.format(Locale.US, "%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0))
     }
 }
 
@@ -163,7 +157,7 @@ fun File.moveTo(destinationDir: File, newName: String? = null): File? {
         try {
             copyTo(targetFile, overwrite = true)
             if (delete()) targetFile else null
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
