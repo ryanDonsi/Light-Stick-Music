@@ -33,7 +33,7 @@ import javax.inject.Inject
  */
 class RegisterEventRulesUseCase @Inject constructor() {
 
-    private val TAG = AppConstants.Feature.UC_REGIST_EVENTRULES
+    private val TAG = AppConstants.Feature.UC_REGISTER_EVENT_RULES
 
     /**
      * 이벤트 규칙 등록
