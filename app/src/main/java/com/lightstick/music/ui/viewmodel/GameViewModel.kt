@@ -13,6 +13,7 @@ import com.lightstick.music.data.model.WandResult
 import com.lightstick.music.domain.game.GameBleManager
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.CountdownSoundPlayer
+import com.lightstick.music.core.util.GameBgmPlayer
 import com.lightstick.music.domain.usecase.game.ObserveGameResultsUseCase
 import com.lightstick.music.domain.usecase.game.SendGameCommandUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -69,6 +70,8 @@ class GameViewModel @Inject constructor(
     val partialResults: StateFlow<List<WandResult>> = _partialResults.asStateFlow()
 
     private val countdownSoundPlayer = CountdownSoundPlayer()
+    private val gameBgmPlayer = GameBgmPlayer()
+    private var bgmSpeedLevel = 0   // 0=normal  1=×1.3(≤60%)  2=×1.5(≤30%)
 
     init {
         observeGameResults()
@@ -100,6 +103,7 @@ class GameViewModel @Inject constructor(
         collectedResults.clear()
         resultCollectJob?.cancel()
         _partialResults.value = emptyList()
+        bgmSpeedLevel = 0
 
         val ok = sendGameCommandUseCase.sendReady(mode, difficulty)
         if (!ok) {
@@ -118,6 +122,7 @@ class GameViewModel @Inject constructor(
             _countdownSeconds.value = 0
             countdownSoundPlayer.playLongBeep()
             _gameState.value = GameState.Playing
+            gameBgmPlayer.start(mode)
             startPlayingTimer(mode, difficulty)
         }
     }
@@ -127,6 +132,7 @@ class GameViewModel @Inject constructor(
         sendGameCommandUseCase.sendStop()
         resultCollectJob?.cancel()
         cancelTimer()
+        gameBgmPlayer.stop()
         _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
     }
@@ -137,6 +143,7 @@ class GameViewModel @Inject constructor(
         collectedResults.clear()
         resultCollectJob?.cancel()
         cancelTimer()
+        gameBgmPlayer.stop()
         _partialResults.value = emptyList()
         _gameState.value = GameState.Idle
     }
@@ -144,13 +151,45 @@ class GameViewModel @Inject constructor(
     private fun startPlayingTimer(mode: GameMode, difficulty: GameDifficulty) {
         timerJob?.cancel()
         _playingElapsedSeconds.value = 0
-        _playingMaxSeconds.value = maxPlaySeconds(mode, difficulty)
+        val maxSecs = maxPlaySeconds(mode, difficulty)
+        _playingMaxSeconds.value = maxSecs
         timerJob = viewModelScope.launch {
             while (true) {
                 delay(1_000L)
-                _playingElapsedSeconds.value++
+                val elapsed = _playingElapsedSeconds.value + 1
+                _playingElapsedSeconds.value = elapsed
+                if (maxSecs > 0) {
+                    val remaining = (maxSecs - elapsed).toFloat() / maxSecs
+                    when {
+                        bgmSpeedLevel < 2 && remaining <= 0.3f -> { bgmSpeedLevel = 2; gameBgmPlayer.setBpmMultiplier(1.5f) }
+                        bgmSpeedLevel < 1 && remaining <= 0.6f -> { bgmSpeedLevel = 1; gameBgmPlayer.setBpmMultiplier(1.3f) }
+                    }
+                }
+
+                // 시간 초과 → 현재까지 수집된 결과로 자동 종료
+                if (maxSecs > 0 && elapsed >= maxSecs && _gameState.value is GameState.Playing) {
+                    finalizeTimeout()
+                    break
+                }
             }
         }
+    }
+
+    private fun finalizeTimeout() {
+        cancelTimer()
+        gameBgmPlayer.stop()
+        gameBgmPlayer.playFanfare()
+
+        val mode = _selectedMode.value ?: return
+        val results = collectedResults.toList()
+        val summary = GameResultSummary(
+            mode           = mode,
+            wandResults    = results,
+            totalWandCount = results.size,
+            totalRedScore  = results.sumOf { it.redScore },
+            totalBlueScore = results.sumOf { it.blueScore }
+        )
+        _gameState.value = GameState.Finished(summary)
     }
 
     private fun cancelTimer() {
@@ -223,6 +262,8 @@ class GameViewModel @Inject constructor(
 
     private fun finalizeSummaryPacket(result: GameResult) {
         cancelTimer()
+        gameBgmPlayer.stop()
+        gameBgmPlayer.playFanfare()
         val mode = GameMode.fromSdkMode(result.mode) ?: _selectedMode.value ?: return
         val accumulated = collectedResults.toList()
 
@@ -249,6 +290,8 @@ class GameViewModel @Inject constructor(
 
     private fun finalizeResults(sdkMode: SdkGameMode) {
         cancelTimer()
+        gameBgmPlayer.stop()
+        gameBgmPlayer.playFanfare()
         val mode = GameMode.fromSdkMode(sdkMode) ?: _selectedMode.value ?: return
 
         val results = collectedResults.toList()
@@ -274,6 +317,7 @@ class GameViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         countdownSoundPlayer.release()
+        gameBgmPlayer.release()
         gameBleManager.disconnect()
     }
 }
