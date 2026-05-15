@@ -1,12 +1,13 @@
 package com.lightstick.music.core.util
 
+import android.media.AudioAttributes
 import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioTrack
 import com.lightstick.music.data.model.GameMode
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.*
 
+@Suppress("SpellCheckingInspection")
 class GameBgmPlayer {
 
     private val sampleRate = 44100
@@ -36,11 +37,23 @@ class GameBgmPlayer {
                 val minBuf = AudioTrack.getMinBufferSize(
                     sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
                 )
-                val track = AudioTrack(
-                    AudioManager.STREAM_MUSIC, sampleRate,
-                    AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
-                    maxOf(minBuf, buf.size * 2), AudioTrack.MODE_STATIC
-                )
+                val track = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_GAME)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(maxOf(minBuf, buf.size * 2))
+                    .setTransferMode(AudioTrack.MODE_STATIC)
+                    .build()
                 track.write(buf, 0, buf.size)
                 track.play()
                 Thread.sleep(buf.size.toLong() * 1000 / sampleRate + 300)
@@ -72,11 +85,23 @@ class GameBgmPlayer {
             sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
         // 1-second internal AudioTrack buffer absorbs the few ms it takes to swap buffers
-        val track = AudioTrack(
-            AudioManager.STREAM_MUSIC, sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
-            maxOf(minBuf, sampleRate * 2), AudioTrack.MODE_STREAM
-        )
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(sampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+            )
+            .setBufferSizeInBytes(maxOf(minBuf, sampleRate * 2))
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
         track.play()
 
         val baseBpm = baseBpm(mode)
@@ -160,15 +185,15 @@ class GameBgmPlayer {
         fun cb(hz: Float, a: Float = 0.62f, n: Int = 4) = Sound(CBASS, hz, a, n)
         fun c(hz: Float, n: Int = 3, a: Float = 0.58f) = Sound(CYBER, hz, a, n)
 
-        val C3 = 131f; val G3 = 196f   // C3 oom (root), G3 pah (5th)
+        val c3 = 131f; val g3 = 196f   // C3 oom (root), G3 pah (5th)
 
         fun bar(vararg melody: Pair<Int, Sound>): List<List<Sound>> {
             val grid: Array<MutableList<Sound>> = Array(16) { i ->
                 when (i) {
-                    0  -> mutableListOf(k(),      cb(C3, 0.65f))
-                    4  -> mutableListOf(s(),      cb(G3, 0.45f, 3))
-                    8  -> mutableListOf(k(0.80f), cb(C3, 0.55f))
-                    12 -> mutableListOf(s(0.80f), cb(G3, 0.40f, 3))
+                    0  -> mutableListOf(k(),      cb(c3, 0.65f))
+                    4  -> mutableListOf(s(),      cb(g3, 0.45f, 3))
+                    8  -> mutableListOf(k(0.80f), cb(c3, 0.55f))
+                    12 -> mutableListOf(s(0.80f), cb(g3, 0.40f, 3))
                     else -> mutableListOf()
                 }
             }
