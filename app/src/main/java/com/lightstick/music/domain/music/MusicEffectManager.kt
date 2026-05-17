@@ -22,31 +22,32 @@ object MusicEffectManager {
     private val effectFileMap = ConcurrentHashMap<Int, File>()
 
     /**
-     *  SAF 기반 초기화 (권장)
+     *  SAF 기반 초기화 (권장). SAF URI가 없으면 저장된 파일 경로로 폴백.
      */
     fun initializeFromSAF(context: Context) {
         effectFileMap.clear()
 
         val effectFiles = EffectPathPreferences.listEffectFiles(context)
 
-        if (effectFiles.isEmpty()) {
-            Log.w(TAG, "No EFX files found in configured directory")
-            return
-        }
+        if (effectFiles.isNotEmpty()) {
+            effectFiles.forEach { docFile ->
+                try {
+                    val tempFile = EffectPathPreferences.copyToTempFile(context, docFile)
+                        ?: return@forEach
 
-        effectFiles.forEach { docFile ->
-            try {
-                val tempFile = EffectPathPreferences.copyToTempFile(context, docFile)
-                    ?: return@forEach
-
-                val efx = Efx.Companion.read(tempFile)
-                val musicId = efx.header.musicId
-
-                effectFileMap[musicId] = tempFile
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to read EFX file ${docFile.name}: ${e.message}")
+                    val efx = Efx.Companion.read(tempFile)
+                    effectFileMap[efx.header.musicId] = tempFile
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to read EFX file ${docFile.name}: ${e.message}")
+                }
             }
+        } else {
+            val savedPath = EffectPathPreferences.getSavedDirectoryPath(context)
+            if (savedPath != null) {
+                initialize(File(savedPath))
+                return
+            }
+            Log.w(TAG, "No EFX files found in configured directory")
         }
 
         Log.i(TAG, "Initialized with ${effectFileMap.size} EFX files")

@@ -149,8 +149,7 @@ class MainActivity : ComponentActivity() {
                         deviceViewModel = deviceViewModel,
                         musicViewModel = musicViewModel,
                         effectViewModel = effectViewModel,
-                        gameViewModel = gameViewModel,
-                        onRequestEffectsDirectory = { requestEffectsDirectory() }
+                        gameViewModel = gameViewModel
                     )
                 }
             }
@@ -217,8 +216,7 @@ fun AppNavigation(
     deviceViewModel: DeviceViewModel,
     musicViewModel: MusicViewModel,
     effectViewModel: EffectViewModel,
-    gameViewModel: GameViewModel,
-    onRequestEffectsDirectory: () -> Unit
+    gameViewModel: GameViewModel
 ) {
     val context = LocalContext.current
 
@@ -232,8 +230,7 @@ fun AppNavigation(
                 viewModel = musicViewModel,
                 onNavigateToMusicList = {
                     navController.navigate("musicList")
-                },
-                onRequestEffectsDirectory = onRequestEffectsDirectory
+                }
             )
         }
 
