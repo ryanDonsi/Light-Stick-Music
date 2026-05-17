@@ -24,25 +24,18 @@ object AppConstants {
      */
     val EFFECT_CONTROL_MODE: ControlMode = ControlMode.EXCLUSIVE
 
-    const val DEVICE_SCAN_DURATION_MS   = 30_000L
-    const val EFFECT_SCAN_DURATION_MS   = 3_000L
-    const val DEVICE_NAME_FILTER_SUFFIX = "LS"
-
-    const val CONNECTION_TIMEOUT_MS = 10_000L
+    const val DEVICE_SCAN_DURATION_MS = 30_000L
+    const val EFFECT_SCAN_DURATION_MS = 3_000L
 
     /** 배터리 모니터링 주기 - 펌웨어 BAS Notification 미지원으로 인한 Polling 방식 (30초) */
     const val BATTERY_MONITOR_INTERVAL_MS = 30_000L
 
-    const val MANUAL_EFFECT_INTERVAL_MS = 1_000L
-    const val MAX_CUSTOM_EFFECTS        = 7
+    const val MAX_CUSTOM_EFFECTS = 7
 
     const val POSITION_MONITOR_INTERVAL_MS = 100L
 
     const val MAX_TRANSMISSION_HISTORY              = 100
     const val TRANSMISSION_MONITOR_UPDATE_INTERVAL_MS = 50L
-
-    const val TOAST_DURATION_SHORT_MS = 2_000L
-    const val TOAST_DURATION_LONG_MS  = 3_500L
 
     const val EFX_FILE_EXTENSION  = "efx"
     const val MP3_FILE_EXTENSION  = "mp3"
@@ -88,7 +81,7 @@ object AppConstants {
         /** SendConnectionEffectUseCase.kt */
         const val UC_CONNECTION_EFFECT  = "UC_ConnectionEffect"
         /** RegisterEventRulesUseCase.kt */
-        const val UC_REGIST_EVENTRULES  = "UC_RegisterEventRules"
+        const val UC_REGISTER_EVENT_RULES = "UC_RegisterEventRules"
 
         /** PlayManualEffectUseCase.kt */
         const val UC_PLAY_MANUAL        = "UC_PlayManual"
@@ -184,7 +177,7 @@ object AppConstants {
         Feature.UC_GET_BONDED,
         Feature.UC_FIND_EFFECT,
         Feature.UC_CONNECTION_EFFECT,
-        Feature.UC_REGIST_EVENTRULES,
+        Feature.UC_REGISTER_EVENT_RULES,
 
         Feature.UC_PLAY_MANUAL,
         Feature.UC_PLAY_EFFECT_LIST,
