@@ -51,6 +51,23 @@ object AppConstants {
 
     val SUPPORTED_AUDIO_EXTENSIONS = setOf("mp3", "wav", "flac", "m4a", "aac", "ogg")
 
+    /** 이 값 미만의 파일은 음악 목록에서 제외 (통화녹음·메모 등 단편 파일 차단) */
+    const val MIN_MUSIC_DURATION_MS = 60_000L
+
+    /**
+     * 음악 스캔에서 제외할 폴더 이름 목록 (대소문자 무시).
+     * 경로에 이 이름의 폴더가 포함되면 해당 파일은 목록에 표시하지 않습니다.
+     */
+    val EXCLUDED_AUDIO_FOLDERS = setOf(
+        "Recordings", "Recording",
+        "CallRecord", "CallRecords",
+        "PhoneRecord",
+        "SoundRecorder",
+        "VoiceRecorder",
+        "VoiceMemo", "VoiceMemos",
+        "call_rec"
+    )
+
     object Feature {
 
         /** LightStickMusicApp.kt */

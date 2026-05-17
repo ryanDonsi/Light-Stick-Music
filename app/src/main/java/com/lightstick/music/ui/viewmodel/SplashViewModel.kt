@@ -8,6 +8,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.constants.PrefsKeys
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.local.storage.EffectPathPreferences
@@ -162,7 +163,13 @@ class SplashViewModel @Inject constructor(
         val audioFiles = scanDirs
             .flatMap { dir ->
                 dir.walkTopDown()
-                    .filter { it.isFile && it.extension.lowercase() in audioExtensions }
+                    .filter { file ->
+                        file.isFile &&
+                        file.extension.lowercase() in audioExtensions &&
+                        AppConstants.EXCLUDED_AUDIO_FOLDERS.none { folder ->
+                            file.absolutePath.contains("/$folder/", ignoreCase = true)
+                        }
+                    }
                     .map { it.absolutePath }
                     .toList()
             }
@@ -197,9 +204,10 @@ class SplashViewModel @Inject constructor(
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.DATA
+            MediaStore.Audio.Media.DATA,
+            MediaStore.Audio.Media.DURATION
         )
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} >= ${AppConstants.MIN_MUSIC_DURATION_MS}"
         val sort = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
         val musicItems = mutableListOf<MusicItem>()
@@ -209,20 +217,27 @@ class SplashViewModel @Inject constructor(
             _state.value = InitializationState.ScanningMusic(0, total)
             _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(0, total))
 
-            val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
-            val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-            val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+            val titleCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+            val nameCol     = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+            val artistCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+            val dataCol     = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+            val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
 
             var index = 0
             val retriever = MediaMetadataRetriever()
             try {
                 while (cursor.moveToNext()) {
-                    val path      = cursor.getString(dataCol)
+                    val path = cursor.getString(dataCol)
+
+                    if (AppConstants.EXCLUDED_AUDIO_FOLDERS.any { folder ->
+                            path.contains("/$folder/", ignoreCase = true)
+                        }) continue
+
                     val metaTitle = cursor.getString(titleCol)
                     val fileName  = cursor.getString(nameCol) ?: "Unknown"
                     val title     = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
                     val artist    = cursor.getString(artistCol) ?: "Unknown"
+                    val duration  = cursor.getLong(durationCol)
 
                     index++
                     val calcState = InitializationState.CalculatingMusicIds(index, total)
@@ -230,8 +245,6 @@ class SplashViewModel @Inject constructor(
                     _splashState.value = SplashState.Initializing(calcState)
 
                     var art: String? = null
-                    var duration: Long = 0L
-
                     try {
                         retriever.setDataSource(path)
                         art = retriever.embeddedPicture?.let {
@@ -239,8 +252,6 @@ class SplashViewModel @Inject constructor(
                             file.writeBytes(it)
                             file.absolutePath
                         }
-                        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                        duration = durationStr?.toLongOrNull() ?: 0L
                     } catch (e: Exception) {
                         Log.e("InitVM", "Failed to extract metadata: ${e.message}")
                     }
@@ -255,7 +266,6 @@ class SplashViewModel @Inject constructor(
                             duration     = duration
                         )
                     )
-
                 }
             } finally {
                 retriever.release()

@@ -161,25 +161,33 @@ class MusicViewModel @Inject constructor(
                     MediaStore.Audio.Media.TITLE,
                     MediaStore.Audio.Media.DISPLAY_NAME,
                     MediaStore.Audio.Media.ARTIST,
-                    MediaStore.Audio.Media.DATA
+                    MediaStore.Audio.Media.DATA,
+                    MediaStore.Audio.Media.DURATION
                 )
-                val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+                val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} >= ${AppConstants.MIN_MUSIC_DURATION_MS}"
                 val sort      = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
                 val items = mutableListOf<MusicItem>()
                 resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
-                    val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                    val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
-                    val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                    val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                    val titleCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                    val nameCol     = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                    val artistCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                    val dataCol     = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                    val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
 
                     while (cursor.moveToNext()) {
-                        val path      = cursor.getString(dataCol)
+                        val path = cursor.getString(dataCol)
+
+                        if (AppConstants.EXCLUDED_AUDIO_FOLDERS.any { folder ->
+                                path.contains("/$folder/", ignoreCase = true)
+                            }) continue
+
                         val metaTitle = cursor.getString(titleCol)
                         val fileName  = cursor.getString(nameCol)
                         val title     = if (!metaTitle.isNullOrBlank()) metaTitle
-                        else fileName.substringBeforeLast(".")
+                                        else fileName.substringBeforeLast(".")
                         val artist    = cursor.getString(artistCol) ?: "Unknown"
+                        val duration  = cursor.getLong(durationCol)
 
                         val musicFile = File(path)
                         val hasEffect = try {
@@ -191,7 +199,6 @@ class MusicViewModel @Inject constructor(
 
                         val retriever = MediaMetadataRetriever()
                         var art: String? = null
-                        var duration: Long = 0L
                         try {
                             retriever.setDataSource(path)
                             art = retriever.embeddedPicture?.let { bytes ->
@@ -199,10 +206,6 @@ class MusicViewModel @Inject constructor(
                                 file.writeBytes(bytes)
                                 file.absolutePath
                             }
-                            val durationStr = retriever.extractMetadata(
-                                MediaMetadataRetriever.METADATA_KEY_DURATION
-                            )
-                            duration = durationStr?.toLongOrNull() ?: 0L
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to extract metadata: ${e.message}")
                         } finally {
