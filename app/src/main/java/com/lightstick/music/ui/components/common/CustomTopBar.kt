@@ -23,6 +23,7 @@ import com.lightstick.music.ui.theme.customTextStyles
  * @param actionText 우측 액션 텍스트 (선택적)
  * @param onActionClick 액션 텍스트 클릭 리스너
  * @param actionTextColor 액션 텍스트 색상 (기본값: Secondary from theme)
+ * @param actionContent 우측 커스텀 컴포저블 슬롯 (아이콘 버튼 등, actionText와 택일)
  * @param backgroundColor 배경 색상 (기본값: Surface from theme)
  */
 @Composable
@@ -34,6 +35,7 @@ fun CustomTopBar(
     actionText: String? = null,
     onActionClick: (() -> Unit)? = null,
     actionTextColor: Color = MaterialTheme.customColors.secondary,
+    actionContent: (@Composable () -> Unit)? = null,
     backgroundColor: Color = MaterialTheme.customColors.surface
 ) {
     Box(
@@ -75,13 +77,14 @@ fun CustomTopBar(
             }
         }
 
-        if (actionText != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 8.dp)
-            ) {
-                TextButton(
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 8.dp)
+        ) {
+            when {
+                actionContent != null -> actionContent()
+                actionText != null -> TextButton(
                     onClick = { onActionClick?.invoke() },
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {

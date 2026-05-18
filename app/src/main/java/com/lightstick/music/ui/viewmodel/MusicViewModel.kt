@@ -15,7 +15,6 @@ import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.core.service.ServiceController
 import com.lightstick.music.core.state.MusicPlaybackState
-import android.os.Environment
 import com.lightstick.music.core.util.FileHelper
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.local.preferences.AutoModePreferences
@@ -168,12 +167,7 @@ class MusicViewModel @Inject constructor(
                 val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
                 val sort      = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
-                val audioExtensions = setOf("mp3", "m4a", "flac", "aac", "ogg", "wav", "wma", "opus")
-                val allowedDirs = listOf(
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS),
-                ).mapNotNull { if (it != null && it.exists()) it.canonicalPath else null }
+                val allowedDirs = FileHelper.allowedMusicDirs()
 
                 val items = mutableListOf<MusicItem>()
                 resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
@@ -185,9 +179,9 @@ class MusicViewModel @Inject constructor(
                     while (cursor.moveToNext()) {
                         val path      = cursor.getString(dataCol) ?: continue
                         val file      = File(path)
-                        if (file.extension.lowercase() !in audioExtensions) continue
+                        if (file.extension.lowercase() !in AppConstants.SUPPORTED_AUDIO_EXTENSIONS) continue
                         if (allowedDirs.none { path.startsWith(it) }) continue
-                        if (FileHelper.isCallRecordingPath(path)) continue
+                        if (FileHelper.isRecordingsPath(path)) continue
 
                         val metaTitle = cursor.getString(titleCol)
                         val fileName  = cursor.getString(nameCol)
