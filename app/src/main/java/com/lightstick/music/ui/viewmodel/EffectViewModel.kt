@@ -185,6 +185,7 @@ class EffectViewModel @Inject constructor(
                         is ConnectionState.Disconnected -> {
                             if (_deviceConnectionState.value is DeviceConnectionState.Connected) {
                                 _deviceConnectionState.value = DeviceConnectionState.Disconnected
+                                _selectedEffect.value = null
                             }
                         }
                         else -> Unit
