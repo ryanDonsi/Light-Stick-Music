@@ -5,13 +5,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.documentfile.provider.DocumentFile
+import com.lightstick.music.data.local.storage.EffectPathPreferences
 import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.ui.components.common.BaseButton
+import com.lightstick.music.ui.components.common.BaseDialog
 import com.lightstick.music.ui.components.common.ButtonStyle
 import com.lightstick.music.ui.components.common.CustomChip
 import com.lightstick.music.ui.components.common.CustomTopBar
@@ -20,6 +28,7 @@ import com.lightstick.music.ui.components.device.DeviceInfoHeader
 import com.lightstick.music.ui.components.device.SettingLabel
 import com.lightstick.music.ui.components.device.SettingToggleItem
 import com.lightstick.music.ui.theme.customColors
+import com.lightstick.music.ui.theme.customTextStyles
 import com.lightstick.music.ui.theme.surfaceGlass
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,14 +53,52 @@ fun DeviceDetailScreen(
     onFindClick: () -> Unit,
     onOtaUpdateClick: () -> Unit,
     onAbortOta: () -> Unit,
+    onRequestEffectsDirectory: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    var showMenu by remember { mutableStateOf(false) }
+    var showEffectFolderDialog by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             CustomTopBar(
                 title = "연결된 기기",
                 showBackButton = true,
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
+                actionContent = {
+                    Box {
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "더보기",
+                                tint = MaterialTheme.customColors.onSurface
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                            containerColor = MaterialTheme.customColors.surface
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "이펙트 파일 폴더 설정",
+                                        style = MaterialTheme.customTextStyles.topBarSmall,
+                                        color = MaterialTheme.customColors.onSurface
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    showEffectFolderDialog = true
+                                }
+                            )
+                        }
+                    }
+                }
             )
         },
         containerColor = MaterialTheme.customColors.background
@@ -209,6 +256,47 @@ fun DeviceDetailScreen(
                 }
             }
 
+        }
+    }
+
+    if (showEffectFolderDialog) {
+        val dirUri = EffectPathPreferences.getSavedDirectoryUri(context)
+        val dirName = dirUri?.let { DocumentFile.fromTreeUri(context, it)?.name } ?: "미설정"
+
+        BaseDialog(
+            title = "이펙트 파일 폴더",
+            onDismiss = { showEffectFolderDialog = false },
+            onConfirm = {
+                showEffectFolderDialog = false
+                onRequestEffectsDirectory()
+            },
+            confirmText = "변경",
+            dismissText = "닫기",
+            scrollable = false
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.customColors.surfaceGlass,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "현재 폴더",
+                        style = MaterialTheme.customTextStyles.topBarSmall,
+                        color = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f)
+                    )
+                    Text(
+                        text = dirName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.customColors.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }

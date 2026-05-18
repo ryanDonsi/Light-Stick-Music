@@ -232,8 +232,7 @@ fun AppNavigation(
                 viewModel = musicViewModel,
                 onNavigateToMusicList = {
                     navController.navigate("musicList")
-                },
-                onRequestEffectsDirectory = onRequestEffectsDirectory
+                }
             )
         }
 
@@ -438,7 +437,8 @@ fun AppNavigation(
                 },
                 onAbortOta = {
                     deviceViewModel.abortOta(device)
-                }
+                },
+                onRequestEffectsDirectory = { requestEffectsDirectory() }
             )
 
             if (showDisconnectDialog) {
