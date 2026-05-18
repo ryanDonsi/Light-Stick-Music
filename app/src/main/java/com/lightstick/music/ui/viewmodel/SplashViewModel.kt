@@ -204,66 +204,81 @@ class SplashViewModel @Inject constructor(
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
         val sort = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
-        val musicItems = mutableListOf<MusicItem>()
+        val audioExtensions = setOf("mp3", "m4a", "flac", "aac", "ogg", "wav", "wma", "opus")
+        val allowedDirs = listOf(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS),
+        ).mapNotNull { if (it != null && it.exists()) it.canonicalPath else null }
 
-        resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
-            val total = cursor.count
-            _state.value = InitializationState.ScanningMusic(0, total)
-            _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(0, total))
+        // 1단계: 필터를 적용해 유효한 경로만 수집 → 정확한 total 확보
+        data class RawEntry(val path: String, val title: String, val artist: String)
 
+        val dataOnlyProjection = arrayOf(
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.DISPLAY_NAME,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.DATA
+        )
+        val validEntries = mutableListOf<RawEntry>()
+        resolver.query(uri, dataOnlyProjection, selection, null, sort)?.use { cursor ->
             val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
             val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
-
-            var index = 0
-            val retriever = MediaMetadataRetriever()
-            try {
-                while (cursor.moveToNext()) {
-                    val path      = cursor.getString(dataCol)
-                    if (path != null && FileHelper.isCallRecordingPath(path)) continue
-
-                    val metaTitle = cursor.getString(titleCol)
-                    val fileName  = cursor.getString(nameCol) ?: "Unknown"
-                    val title     = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
-                    val artist    = cursor.getString(artistCol) ?: "Unknown"
-
-                    index++
-                    val calcState = InitializationState.CalculatingMusicIds(index, total)
-                    _state.value = calcState
-                    _splashState.value = SplashState.Initializing(calcState)
-
-                    var art: String? = null
-                    var duration: Long = 0L
-
-                    try {
-                        retriever.setDataSource(path)
-                        art = retriever.embeddedPicture?.let {
-                            val file = File(context.cacheDir, "${title.hashCode()}.jpg")
-                            file.writeBytes(it)
-                            file.absolutePath
-                        }
-                        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                        duration = durationStr?.toLongOrNull() ?: 0L
-                    } catch (e: Exception) {
-                        Log.e("InitVM", "Failed to extract metadata: ${e.message}")
-                    }
-
-                    musicItems.add(
-                        MusicItem(
-                            title        = title,
-                            artist       = artist,
-                            filePath     = path,
-                            albumArtPath = art,
-                            hasEffect    = false,
-                            duration     = duration
-                        )
-                    )
-
-                }
-            } finally {
-                retriever.release()
+            while (cursor.moveToNext()) {
+                val path = cursor.getString(dataCol) ?: continue
+                if (File(path).extension.lowercase() !in audioExtensions) continue
+                if (allowedDirs.none { path.startsWith(it) }) continue
+                if (FileHelper.isCallRecordingPath(path)) continue
+                val metaTitle = cursor.getString(titleCol)
+                val fileName  = cursor.getString(nameCol) ?: "Unknown"
+                val title     = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
+                validEntries.add(RawEntry(path, title, cursor.getString(artistCol) ?: "Unknown"))
             }
+        }
+
+        val total = validEntries.size
+        _state.value = InitializationState.ScanningMusic(total, total)
+        _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(total, total))
+
+        // 2단계: 필터된 파일만 메타데이터 추출
+        val musicItems = mutableListOf<MusicItem>()
+        val retriever = MediaMetadataRetriever()
+        try {
+            validEntries.forEachIndexed { index, entry ->
+                val calcState = InitializationState.CalculatingMusicIds(index + 1, total)
+                _state.value = calcState
+                _splashState.value = SplashState.Initializing(calcState)
+
+                var art: String? = null
+                var duration: Long = 0L
+                try {
+                    retriever.setDataSource(entry.path)
+                    art = retriever.embeddedPicture?.let {
+                        val file = File(context.cacheDir, "${entry.title.hashCode()}.jpg")
+                        file.writeBytes(it)
+                        file.absolutePath
+                    }
+                    val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    duration = durationStr?.toLongOrNull() ?: 0L
+                } catch (e: Exception) {
+                    Log.e("InitVM", "Failed to extract metadata: ${e.message}")
+                }
+
+                musicItems.add(
+                    MusicItem(
+                        title        = entry.title,
+                        artist       = entry.artist,
+                        filePath     = entry.path,
+                        albumArtPath = art,
+                        hasEffect    = false,
+                        duration     = duration
+                    )
+                )
+            }
+        } finally {
+            retriever.release()
         }
 
         musicItems
