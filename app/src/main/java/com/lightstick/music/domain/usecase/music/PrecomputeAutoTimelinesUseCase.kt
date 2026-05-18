@@ -75,16 +75,30 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
             else -> throw IllegalArgumentException("Unsupported version: $version")
         }
 
-        val total    = musicFiles.size
+        // 이미 생성된 파일은 제외한 실제 처리 대상만 추려 정확한 total 확보
+        val filesToProcess = if (TEST_FORCE_REGENERATE) {
+            musicFiles
+        } else {
+            musicFiles.filter { file ->
+                val musicId = runCatching { MusicId.fromFile(file) }.getOrNull()
+                    ?: return@filter true  // musicId 실패 시 처리 목록에 포함(→ failed 처리)
+                !storage.exists(context, musicId)
+            }
+        }
+
+        val total     = filesToProcess.size
+        onProgress(0, total, "")  // 정확한 total을 UI에 즉시 전달
+
+        if (filesToProcess.isEmpty()) return
+
         val processed = AtomicInteger(0)
         val created   = AtomicInteger(0)
-        val skipped   = AtomicInteger(0)
         val failed    = AtomicInteger(0)
 
         val semaphore = Semaphore(PARALLEL_COUNT)
 
         coroutineScope {
-            musicFiles.map { file ->
+            filesToProcess.map { file ->
                 async {
                     semaphore.withPermit {
                         val p = processed.incrementAndGet()
@@ -93,11 +107,6 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                         val musicId = runCatching { MusicId.fromFile(file) }.getOrNull()
                         if (musicId == null) {
                             failed.incrementAndGet()
-                            return@withPermit
-                        }
-
-                        if (!TEST_FORCE_REGENERATE && storage.exists(context, musicId)) {
-                            skipped.incrementAndGet()
                             return@withPermit
                         }
 

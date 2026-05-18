@@ -99,10 +99,9 @@ class SplashViewModel @Inject constructor(
                 val matchedList = matchEffects(musicList)
 
                 val musicFiles = matchedList.map { File(it.filePath) }
-                val total = musicFiles.size
 
                 withContext(Dispatchers.Main.immediate) {
-                    val st = InitializationState.PrecomputingTimelines(0, total)
+                    val st = InitializationState.PrecomputingTimelines(0, 0)
                     _state.value = st
                     _splashState.value = SplashState.Initializing(st)
                 }
