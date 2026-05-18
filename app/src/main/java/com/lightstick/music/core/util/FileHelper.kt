@@ -207,6 +207,16 @@ object FileHelper {
     }
 
     /**
+     * 음악 스캔 허용 디렉토리 목록 (canonical path).
+     * MediaStore 쿼리 결과와 파일시스템 탐색 양쪽에서 동일하게 사용한다.
+     */
+    fun allowedMusicDirs(): List<String> = listOf(
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS),
+    ).mapNotNull { runCatching { if (it.exists()) it.canonicalPath else null }.getOrNull() }
+
+    /**
      * 경로가 Recordings 디렉토리에 속하는지 확인.
      * 통화 녹음 앱들은 공통적으로 Environment.DIRECTORY_RECORDINGS 하위에 저장하므로
      * 해당 디렉토리 전체를 음악 스캔 대상에서 제외한다.

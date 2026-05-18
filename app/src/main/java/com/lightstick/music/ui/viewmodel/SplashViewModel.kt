@@ -4,10 +4,10 @@ import android.app.Application
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
-import android.os.Environment
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.constants.PrefsKeys
 import com.lightstick.music.core.util.FileHelper
 import com.lightstick.music.core.util.Log
@@ -152,18 +152,13 @@ class SplashViewModel @Inject constructor(
      * - MediaStore 자동 스캔이 누락한 파일을 초기화 시점에 한 번 등록
      */
     private suspend fun triggerMediaStoreScan() = withContext(Dispatchers.IO) {
-        val audioExtensions = setOf("mp3", "m4a", "flac", "aac", "ogg", "wav", "wma", "opus")
-        val scanDirs = listOf(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS),
-        ).filter { it != null && it.exists() }
+        val scanDirs = FileHelper.allowedMusicDirs().map { File(it) }.filter { it.exists() }
 
         val audioFiles = scanDirs
             .flatMap { dir ->
                 dir.walkTopDown()
                     .onEnter { !FileHelper.isRecordingsPath(it.absolutePath) }
-                    .filter { it.isFile && it.extension.lowercase() in audioExtensions }
+                    .filter { it.isFile && it.extension.lowercase() in AppConstants.SUPPORTED_AUDIO_EXTENSIONS }
                     .map { it.absolutePath }
                     .toList()
             }
@@ -203,12 +198,7 @@ class SplashViewModel @Inject constructor(
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
         val sort = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
-        val audioExtensions = setOf("mp3", "m4a", "flac", "aac", "ogg", "wav", "wma", "opus")
-        val allowedDirs = listOf(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS),
-        ).mapNotNull { if (it != null && it.exists()) it.canonicalPath else null }
+        val allowedDirs = FileHelper.allowedMusicDirs()
 
         // 1단계: 필터를 적용해 유효한 경로만 수집 → 정확한 total 확보
         data class RawEntry(val path: String, val title: String, val artist: String)
@@ -227,7 +217,7 @@ class SplashViewModel @Inject constructor(
             val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
             while (cursor.moveToNext()) {
                 val path = cursor.getString(dataCol) ?: continue
-                if (File(path).extension.lowercase() !in audioExtensions) continue
+                if (File(path).extension.lowercase() !in AppConstants.SUPPORTED_AUDIO_EXTENSIONS) continue
                 if (allowedDirs.none { path.startsWith(it) }) continue
                 if (FileHelper.isRecordingsPath(path)) continue
                 val metaTitle = cursor.getString(titleCol)
