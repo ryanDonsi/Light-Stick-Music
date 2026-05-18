@@ -148,6 +148,20 @@ class SplashViewModel @Inject constructor(
     }
 
     /**
+     * 통화 녹음 폴더로 간주되는 디렉토리 이름 패턴 (대소문자 무시)
+     */
+    private val callRecordingDirPatterns = listOf(
+        "call recording", "call recordings", "callrecording", "callrecordings",
+        "call_recording", "call_recordings", "phonerecord", "phone record",
+        "record/call", "call rec", "call_rec", "통화 녹음", "통화녹음"
+    )
+
+    private fun isCallRecordingPath(path: String): Boolean {
+        val lower = path.lowercase()
+        return callRecordingDirPatterns.any { lower.contains(it) }
+    }
+
+    /**
      * 0단계: 파일시스템 직접 탐색 후 MediaStore 강제 인덱싱
      * - MediaStore 자동 스캔이 누락한 파일을 초기화 시점에 한 번 등록
      */
@@ -162,6 +176,7 @@ class SplashViewModel @Inject constructor(
         val audioFiles = scanDirs
             .flatMap { dir ->
                 dir.walkTopDown()
+                    .onEnter { !isCallRecordingPath(it.absolutePath) }
                     .filter { it.isFile && it.extension.lowercase() in audioExtensions }
                     .map { it.absolutePath }
                     .toList()
@@ -219,6 +234,8 @@ class SplashViewModel @Inject constructor(
             try {
                 while (cursor.moveToNext()) {
                     val path      = cursor.getString(dataCol)
+                    if (path != null && isCallRecordingPath(path)) continue
+
                     val metaTitle = cursor.getString(titleCol)
                     val fileName  = cursor.getString(nameCol) ?: "Unknown"
                     val title     = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
