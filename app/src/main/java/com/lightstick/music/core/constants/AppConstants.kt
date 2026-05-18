@@ -42,7 +42,7 @@ object AppConstants {
     const val WAV_FILE_EXTENSION  = "wav"
     const val FLAC_FILE_EXTENSION = "flac"
 
-    val SUPPORTED_AUDIO_EXTENSIONS = setOf("mp3", "m4a", "flac", "aac", "ogg", "wav", "wma", "opus")
+    val SUPPORTED_AUDIO_EXTENSIONS = setOf("mp3", "m4a", "flac", "aac", "ogg")
 
     object Feature {
 
