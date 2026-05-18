@@ -270,6 +270,7 @@ fun AppNavigation(
                 onNavigateToDetail = { device ->
                     navController.navigate("deviceDetail/${device.mac}")
                 },
+                onRequestEffectsDirectory = onRequestEffectsDirectory,
                 onDeviceSelected = { device: Device ->
                     if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                         Toast.makeText(context, "BLUETOOTH_CONNECT 권한 없음", Toast.LENGTH_LONG).show()
@@ -437,8 +438,7 @@ fun AppNavigation(
                 },
                 onAbortOta = {
                     deviceViewModel.abortOta(device)
-                },
-                onRequestEffectsDirectory = onRequestEffectsDirectory
+                }
             )
 
             if (showDisconnectDialog) {

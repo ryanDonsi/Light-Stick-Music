@@ -4,17 +4,25 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.NavController
 import com.lightstick.music.core.permission.PermissionManager
+import com.lightstick.music.data.local.storage.EffectPathPreferences
+import com.lightstick.music.ui.components.common.BaseDialog
 import com.lightstick.music.ui.components.common.CustomTopBar
 import com.lightstick.music.ui.components.common.StretchPullRefreshContainer
 import com.lightstick.music.ui.components.device.*
 import com.lightstick.music.ui.theme.customColors
+import com.lightstick.music.ui.theme.customTextStyles
 import com.lightstick.music.ui.viewmodel.DeviceViewModel
 import com.lightstick.device.Device
 
@@ -46,9 +54,12 @@ fun DeviceListScreen(
     viewModel: DeviceViewModel,
     navController: NavController,
     onNavigateToDetail: (Device) -> Unit = {},
-    onDeviceSelected: (Device) -> Unit
+    onDeviceSelected: (Device) -> Unit,
+    onRequestEffectsDirectory: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    var showMenu by remember { mutableStateOf(false) }
+    var showEffectFolderDialog by remember { mutableStateOf(false) }
     val devices by viewModel.devices.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
     val connectionStates by viewModel.connectionStates.collectAsState()
@@ -83,7 +94,40 @@ fun DeviceListScreen(
         topBar = {
             CustomTopBar(
                 title = "Device Setting",
-                showBackButton = false
+                showBackButton = false,
+                actionContent = {
+                    Box {
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "더보기",
+                                tint = MaterialTheme.customColors.onSurface
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                            containerColor = MaterialTheme.customColors.surface
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "이펙트 파일 폴더 설정",
+                                        style = MaterialTheme.customTextStyles.topBarSmall,
+                                        color = MaterialTheme.customColors.onSurface
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    showEffectFolderDialog = true
+                                }
+                            )
+                        }
+                    }
+                }
             )
         },
         containerColor = MaterialTheme.customColors.background
@@ -176,6 +220,52 @@ fun DeviceListScreen(
                             DeviceInfoFooter()
                         }
                     }
+                }
+            }
+        }
+    }
+
+    if (showEffectFolderDialog) {
+        val dirUri = EffectPathPreferences.getSavedDirectoryUri(context)
+        // SAF tree URI에서 "primary:Music/Effects" 형태의 상대 경로 추출
+        val dirName = dirUri?.let { uri ->
+            val decoded = android.net.Uri.decode(uri.toString())
+            val after = decoded.substringAfter("primary:", "")
+            if (after.isNotEmpty()) after else DocumentFile.fromTreeUri(context, uri)?.name
+        } ?: "미설정"
+
+        BaseDialog(
+            title = "이펙트 파일 폴더",
+            onDismiss = { showEffectFolderDialog = false },
+            onConfirm = {
+                showEffectFolderDialog = false
+                onRequestEffectsDirectory()
+            },
+            confirmText = "변경",
+            dismissText = "닫기",
+            scrollable = false
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.customColors.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "현재 폴더",
+                        style = MaterialTheme.customTextStyles.topBarSmall,
+                        color = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f)
+                    )
+                    Text(
+                        text = dirName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.customColors.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
