@@ -438,7 +438,7 @@ fun AppNavigation(
                 onAbortOta = {
                     deviceViewModel.abortOta(device)
                 },
-                onRequestEffectsDirectory = { requestEffectsDirectory() }
+                onRequestEffectsDirectory = onRequestEffectsDirectory
             )
 
             if (showDisconnectDialog) {
