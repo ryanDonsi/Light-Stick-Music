@@ -17,6 +17,9 @@ class SendGameCommandUseCase @Inject constructor(
     fun sendReady(mode: GameMode, difficulty: GameDifficulty): Boolean =
         gameBleManager.startGame(mode, difficulty)
 
+    fun sendWinner(mode: GameMode, winnerWandId: Int): Boolean =
+        gameBleManager.sendWinner(mode, winnerWandId)
+
     fun sendStop(): Boolean =
         gameBleManager.stopGame()
 
