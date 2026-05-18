@@ -162,7 +162,7 @@ class SplashViewModel @Inject constructor(
         val audioFiles = scanDirs
             .flatMap { dir ->
                 dir.walkTopDown()
-                    .onEnter { !FileHelper.isCallRecordingPath(it.absolutePath) }
+                    .onEnter { !FileHelper.isRecordingsPath(it.absolutePath) }
                     .filter { it.isFile && it.extension.lowercase() in audioExtensions }
                     .map { it.absolutePath }
                     .toList()
@@ -229,7 +229,7 @@ class SplashViewModel @Inject constructor(
                 val path = cursor.getString(dataCol) ?: continue
                 if (File(path).extension.lowercase() !in audioExtensions) continue
                 if (allowedDirs.none { path.startsWith(it) }) continue
-                if (FileHelper.isCallRecordingPath(path)) continue
+                if (FileHelper.isRecordingsPath(path)) continue
                 val metaTitle = cursor.getString(titleCol)
                 val fileName  = cursor.getString(nameCol) ?: "Unknown"
                 val title     = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")

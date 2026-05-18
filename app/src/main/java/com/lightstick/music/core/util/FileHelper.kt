@@ -2,6 +2,8 @@ package com.lightstick.music.core.util
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.provider.OpenableColumns
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.core.constants.AppConstants
@@ -205,14 +207,17 @@ object FileHelper {
     }
 
     /**
-     * 경로가 통화 녹음 폴더에 속하는지 확인
-     *
-     * MediaStore는 앱 외부(시스템, 전화 앱 등)에서도 갱신되므로,
-     * 쿼리 결과를 소비하는 모든 지점에서 이 필터를 적용해야 한다.
+     * 경로가 Recordings 디렉토리에 속하는지 확인.
+     * 통화 녹음 앱들은 공통적으로 Environment.DIRECTORY_RECORDINGS 하위에 저장하므로
+     * 해당 디렉토리 전체를 음악 스캔 대상에서 제외한다.
      */
-    fun isCallRecordingPath(path: String): Boolean {
-        val lower = path.lowercase()
-        return AppConstants.CALL_RECORDING_PATH_PATTERNS.any { lower.contains(it) }
+    fun isRecordingsPath(path: String): Boolean {
+        val recordingsDir = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_RECORDINGS)
+        } else {
+            File(Environment.getExternalStorageDirectory(), "Recordings")
+        }
+        return path.startsWith(recordingsDir.canonicalPath)
     }
 
     /**

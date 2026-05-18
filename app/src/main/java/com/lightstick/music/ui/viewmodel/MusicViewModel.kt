@@ -187,7 +187,7 @@ class MusicViewModel @Inject constructor(
                         val file      = File(path)
                         if (file.extension.lowercase() !in audioExtensions) continue
                         if (allowedDirs.none { path.startsWith(it) }) continue
-                        if (FileHelper.isCallRecordingPath(path)) continue
+                        if (FileHelper.isRecordingsPath(path)) continue
 
                         val metaTitle = cursor.getString(titleCol)
                         val fileName  = cursor.getString(nameCol)
