@@ -48,7 +48,8 @@ object AppConstants {
     val CALL_RECORDING_PATH_PATTERNS = listOf(
         "call recording", "call recordings", "callrecording", "callrecordings",
         "call_recording", "call_recordings", "phonerecord", "phone record",
-        "record/call", "call rec", "call_rec", "통화 녹음", "통화녹음"
+        "record/call", "call rec", "call_rec", "통화 녹음", "통화녹음",
+        "tphonecallrecords"
     )
 
     object Feature {
