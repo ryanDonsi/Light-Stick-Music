@@ -15,6 +15,7 @@ import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.core.service.ServiceController
 import com.lightstick.music.core.state.MusicPlaybackState
+import com.lightstick.music.core.util.FileHelper
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.local.preferences.AutoModePreferences
 import com.lightstick.music.data.local.storage.EffectPathPreferences
@@ -175,6 +176,8 @@ class MusicViewModel @Inject constructor(
 
                     while (cursor.moveToNext()) {
                         val path      = cursor.getString(dataCol)
+                        if (path != null && FileHelper.isCallRecordingPath(path)) continue
+
                         val metaTitle = cursor.getString(titleCol)
                         val fileName  = cursor.getString(nameCol)
                         val title     = if (!metaTitle.isNullOrBlank()) metaTitle

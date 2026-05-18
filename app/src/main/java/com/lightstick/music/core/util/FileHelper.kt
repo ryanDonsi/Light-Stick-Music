@@ -205,6 +205,17 @@ object FileHelper {
     }
 
     /**
+     * 경로가 통화 녹음 폴더에 속하는지 확인
+     *
+     * MediaStore는 앱 외부(시스템, 전화 앱 등)에서도 갱신되므로,
+     * 쿼리 결과를 소비하는 모든 지점에서 이 필터를 적용해야 한다.
+     */
+    fun isCallRecordingPath(path: String): Boolean {
+        val lower = path.lowercase()
+        return AppConstants.CALL_RECORDING_PATH_PATTERNS.any { lower.contains(it) }
+    }
+
+    /**
      * 파일 존재 여부 확인 (안전)
      *
      * @param filePath 파일 경로

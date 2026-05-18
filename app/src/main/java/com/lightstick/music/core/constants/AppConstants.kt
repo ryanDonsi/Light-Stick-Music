@@ -44,6 +44,13 @@ object AppConstants {
 
     val SUPPORTED_AUDIO_EXTENSIONS = setOf("mp3", "wav", "flac", "m4a", "aac", "ogg")
 
+    /** 통화 녹음으로 간주되는 디렉토리 경로 패턴 (대소문자 무시) */
+    val CALL_RECORDING_PATH_PATTERNS = listOf(
+        "call recording", "call recordings", "callrecording", "callrecordings",
+        "call_recording", "call_recordings", "phonerecord", "phone record",
+        "record/call", "call rec", "call_rec", "통화 녹음", "통화녹음"
+    )
+
     object Feature {
 
         /** LightStickMusicApp.kt */
