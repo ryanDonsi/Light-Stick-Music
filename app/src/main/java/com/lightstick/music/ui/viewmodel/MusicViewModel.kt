@@ -136,11 +136,7 @@ class MusicViewModel @Inject constructor(
     }
 
     private fun initializeEffects() {
-        if (EffectPathPreferences.isDirectoryConfigured(context)) {
-            MusicEffectManager.initializeFromSAF(context)
-        } else {
-            Log.w(TAG, "Effects directory not configured")
-        }
+        MusicEffectManager.initializeFromSAF(context)
     }
 
     private fun loadCachedMusicOrScan() {
@@ -232,6 +228,15 @@ class MusicViewModel @Inject constructor(
             }
 
             _musicList.value = musicItems
+
+            // 재생 중인 곡의 hasEffect도 함께 갱신
+            val playing = _nowPlaying.value
+            if (playing != null) {
+                val refreshed = musicItems.find { it.filePath == playing.filePath }
+                if (refreshed != null && refreshed.hasEffect != playing.hasEffect) {
+                    _nowPlaying.value = refreshed
+                }
+            }
         }
     }
 
