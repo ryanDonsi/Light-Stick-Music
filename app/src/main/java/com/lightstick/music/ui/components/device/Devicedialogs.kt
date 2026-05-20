@@ -247,3 +247,33 @@ fun OtaUpdateConfirmDialog(
         content = null
     )
 }
+
+/**
+ * 이펙트 폴더 미설정 안내 다이얼로그
+ *
+ * 앱 최초 실행 또는 SAF 폴더 미설정 상태일 때 표시
+ * - 확인: 폴더 선택 피커 실행
+ * - 취소: 다음에 설정 (FFT 모드로 동작)
+ */
+@Composable
+fun EffectFolderGuideDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    BaseDialog(
+        title = "이펙트 폴더 설정",
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
+        confirmText = "폴더 설정",
+        dismissText = "나중에",
+        scrollable = false
+    ) {
+        Text(
+            text = "EFX 파일이 저장된 폴더를 지정하면\n음악 재생 시 EFX 이펙트가 연동됩니다.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.customColors.onSurface,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}

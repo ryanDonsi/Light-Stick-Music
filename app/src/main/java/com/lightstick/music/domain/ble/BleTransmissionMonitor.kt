@@ -57,7 +57,7 @@ object BleTransmissionMonitor {
      * BLE 전송 이벤트 기록
      *
      * **우선순위 규칙**:
-     * - MANUAL_EFFECT > TIMELINE_EFFECT > FFT_EFFECT
+     * - MANUAL_EFFECT > EFX_EFFECT = TIMELINE_EFFECT > FFT_EFFECT
      * - 마지막 전달된 이펙트가 항상 화면에 연출됨
      *
      * @param event 전송 이벤트
@@ -99,6 +99,7 @@ object BleTransmissionMonitor {
     private fun getSourcePriority(source: TransmissionSource): Int {
         return when (source) {
             TransmissionSource.PAYLOAD_EFFECT -> 100
+            TransmissionSource.EFX_EFFECT -> 60
             TransmissionSource.TIMELINE_EFFECT -> 60
             TransmissionSource.FFT_EFFECT -> 40
         }

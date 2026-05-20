@@ -10,6 +10,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
@@ -46,6 +50,7 @@ import com.lightstick.music.ui.components.common.CustomNavigationBar
 import com.lightstick.music.ui.components.device.ConnectConfirmDialog
 import com.lightstick.music.ui.components.device.DeviceInfoDialog
 import com.lightstick.music.ui.components.device.DisconnectConfirmDialog
+import com.lightstick.music.ui.components.device.EffectFolderGuideDialog
 import com.lightstick.music.ui.components.device.FindEffectConfirmDialog
 import com.lightstick.music.ui.components.device.OtaUpdateConfirmDialog
 import com.lightstick.music.ui.components.device.OtaVersionInfoDialog
@@ -71,15 +76,19 @@ class MainActivity : ComponentActivity() {
             result.data?.data?.let { uri ->
                 EffectPathPreferences.saveDirectoryUri(this, uri)
 
-                MusicEffectManager.initializeFromSAF(this)
+                lifecycleScope.launch {
+                    withContext(Dispatchers.IO) {
+                        MusicEffectManager.initializeFromSAF(this@MainActivity)
+                    }
 
-                Toast.makeText(
-                    this,
-                    "Effects 폴더 설정 완료 (${MusicEffectManager.getLoadedEffectCount()}개 파일)",
-                    Toast.LENGTH_SHORT
-                ).show()
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Effects 폴더 설정 완료 (${MusicEffectManager.getLoadedEffectCount()}개 파일)",
+                        Toast.LENGTH_SHORT
+                    ).show()
 
-                musicViewModel.loadMusic()
+                    musicViewModel.loadMusic()
+                }
             }
         }
     }
@@ -111,6 +120,23 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route ?: "effect"
+
+                var showEffectFolderGuide by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    if (EffectPathPreferences.getSavedDirectoryUri(this@MainActivity) == null) {
+                        showEffectFolderGuide = true
+                    }
+                }
+
+                if (showEffectFolderGuide) {
+                    EffectFolderGuideDialog(
+                        onDismiss = { showEffectFolderGuide = false },
+                        onConfirm = {
+                            showEffectFolderGuide = false
+                            requestEffectsDirectory()
+                        }
+                    )
+                }
 
                 val navigateTo = intent?.getStringExtra("navigateTo")
 

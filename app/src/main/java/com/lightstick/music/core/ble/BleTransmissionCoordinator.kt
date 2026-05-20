@@ -158,6 +158,7 @@ object BleTransmissionCoordinator {
 
     private fun isCompatible(source1: TransmissionSource, source2: TransmissionSource): Boolean {
         val compatiblePairs = setOf(
+            setOf(TransmissionSource.EFX_EFFECT, TransmissionSource.FFT_EFFECT),
             setOf(TransmissionSource.TIMELINE_EFFECT, TransmissionSource.FFT_EFFECT)
         )
         return compatiblePairs.any { it.contains(source1) && it.contains(source2) }

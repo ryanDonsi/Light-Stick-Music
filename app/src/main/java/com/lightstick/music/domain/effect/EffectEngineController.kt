@@ -25,6 +25,7 @@ object EffectEngineController {
     @Volatile private var targetDevice: Device? = null
     @Volatile private var targetAddress: String? = null
     @Volatile private var isTimelineLoaded: Boolean = false
+    @Volatile private var loadedEffectSource: TransmissionSource? = null
 
     @Volatile private var cachedTimeline: List<EfxEntry> = emptyList()
     @Volatile private var lastRecordedEffectIndex: Int = -1
@@ -180,11 +181,12 @@ object EffectEngineController {
     fun loadTimelineFromFrames(context: Context, frames: List<Pair<Long, ByteArray>>) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
         val devices = resolveAllDevices(context)
-        if (devices.isEmpty()) { Log.w(TAG, "No connected devices for timeline"); return }
+        if (devices.isEmpty()) { Log.w(TAG, "No connected devices for auto timeline"); return }
 
         try {
             devices.forEach { it.loadTimeline(frames) }
             isTimelineLoaded = true
+            loadedEffectSource = TransmissionSource.TIMELINE_EFFECT
             lastRecordedEffectIndex = -1
 
             cachedTimeline = frames.mapNotNull { (timestampMs, bytes) ->
@@ -198,21 +200,23 @@ object EffectEngineController {
 
         } catch (e: Exception) {
             isTimelineLoaded = false
-            Log.e(TAG, "Precomputed timeline load failed: ${e.message}")
+            loadedEffectSource = null
+            Log.e(TAG, "Auto timeline load failed: ${e.message}")
         }
     }
 
-    /** EFX 기반 타임라인 로드 — 연결된 모든 기기에 전송 */
+    /** EFX 파일 기반 이펙트 로드 — 연결된 모든 기기에 전송 */
     @Synchronized
     fun loadEffectsFor(context: Context, musicFile: File) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
         val devices = resolveAllDevices(context)
-        if (devices.isEmpty()) { Log.w(TAG, "No connected devices for EFX timeline"); return }
+        if (devices.isEmpty()) { Log.w(TAG, "No connected devices for EFX"); return }
 
         try {
             val loadedEffects = MusicEffectManager.loadEffects(musicFile)
             if (loadedEffects.isNullOrEmpty()) {
                 isTimelineLoaded = false
+                loadedEffectSource = null
                 return
             }
 
@@ -223,9 +227,11 @@ object EffectEngineController {
             devices.forEach { it.loadTimeline(frames) }
 
             isTimelineLoaded = true
+            loadedEffectSource = TransmissionSource.EFX_EFFECT
         } catch (e: Exception) {
             isTimelineLoaded = false
-            Log.e(TAG, "Timeline load failed: ${e.message}")
+            loadedEffectSource = null
+            Log.e(TAG, "EFX load failed: ${e.message}")
         }
     }
 
@@ -272,6 +278,7 @@ object EffectEngineController {
     @Synchronized
     fun reset() {
         isTimelineLoaded = false
+        loadedEffectSource = null
         cachedTimeline = emptyList()
         lastRecordedEffectIndex = -1
         try { LSBluetooth.connectedDevices().forEach { it.stopTimeline() } } catch (_: Exception) {}
@@ -311,7 +318,7 @@ object EffectEngineController {
 
     fun getTargetAddress(): String? = targetAddress
 
-    fun getTimelineEffectCount(): Int = cachedTimeline?.size ?: 0
+    fun getLoadedEffectCount(): Int = cachedTimeline.size
 
     private fun resolveTarget(context: Context): Device? {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return null
@@ -358,8 +365,9 @@ object EffectEngineController {
             lastRecordedEffectIndex = currentEffectIndex
             val currentEffect = cachedTimeline[currentEffectIndex]
 
+            val source = loadedEffectSource ?: TransmissionSource.TIMELINE_EFFECT
             val transmissionEvent = BleTransmissionEvent(
-                source = TransmissionSource.TIMELINE_EFFECT,
+                source = source,
                 deviceMac = deviceMac,
                 effectType = currentEffect.payload.effectType,
                 payload = currentEffect.payload,
@@ -368,7 +376,7 @@ object EffectEngineController {
                 transit = if (currentEffect.payload.effectType == EffectType.ON || currentEffect.payload.effectType == EffectType.OFF) currentEffect.payload.period else null,
                 period = if (currentEffect.payload.effectType != EffectType.ON && currentEffect.payload.effectType != EffectType.OFF) currentEffect.payload.period else null,
                 metadata = mapOf(
-                    "type" to "timeline_effect",
+                    "type" to if (source == TransmissionSource.EFX_EFFECT) "efx_effect" else "timeline_effect",
                     "timestamp" to currentEffect.timestampMs,
                     "effectIndex" to currentEffectIndex
                 )
@@ -377,7 +385,7 @@ object EffectEngineController {
             BleTransmissionMonitor.recordTransmission(transmissionEvent)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to record timeline effect: ${e.message}")
+            Log.e(TAG, "Failed to record effect: ${e.message}")
         }
     }
 }
