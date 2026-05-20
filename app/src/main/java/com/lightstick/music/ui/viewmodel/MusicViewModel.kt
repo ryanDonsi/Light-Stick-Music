@@ -136,7 +136,9 @@ class MusicViewModel @Inject constructor(
     }
 
     private fun initializeEffects() {
+        Log.d(TAG, "initializeEffects: start (thread=${Thread.currentThread().name})")
         MusicEffectManager.initializeFromSAF(context)
+        Log.d(TAG, "initializeEffects: done — ${MusicEffectManager.getLoadedEffectCount()} EFX loaded")
     }
 
     private fun loadCachedMusicOrScan() {
@@ -228,6 +230,7 @@ class MusicViewModel @Inject constructor(
             }
 
             _musicList.value = musicItems
+            Log.d(TAG, "loadMusic: done — ${musicItems.count { it.hasEffect }}/${musicItems.size} songs have EFX")
 
             // 재생 중인 곡의 hasEffect도 함께 갱신
             val playing = _nowPlaying.value
