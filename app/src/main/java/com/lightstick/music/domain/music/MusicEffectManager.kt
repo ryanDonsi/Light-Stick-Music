@@ -23,8 +23,21 @@ object MusicEffectManager {
 
     /**
      *  SAF 기반 초기화 (권장)
+     *  SAF URI가 없는 경우(자동 설정된 파일 경로) File 기반으로 폴백
      */
     fun initializeFromSAF(context: Context) {
+        val dirUri = EffectPathPreferences.getSavedDirectoryUri(context)
+        if (dirUri == null) {
+            val path = EffectPathPreferences.getSavedDirectoryPath(context)
+            if (path != null) {
+                initialize(File(path))
+            } else {
+                effectFileMap.clear()
+                Log.w(TAG, "No effects directory configured")
+            }
+            return
+        }
+
         effectFileMap.clear()
 
         val effectFiles = EffectPathPreferences.listEffectFiles(context)
