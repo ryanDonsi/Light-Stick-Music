@@ -12,6 +12,7 @@ import com.lightstick.music.data.model.GameState
 import com.lightstick.music.data.model.WandResult
 import com.lightstick.music.domain.game.GameBleManager
 import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.music.core.util.Log
 import com.lightstick.music.core.util.CountdownSoundPlayer
 import com.lightstick.music.core.util.GameBgmPlayer
 import com.lightstick.music.domain.usecase.game.ObserveGameResultsUseCase
@@ -189,6 +190,7 @@ class GameViewModel @Inject constructor(
             totalRedScore  = results.sumOf { it.redScore },
             totalBlueScore = results.sumOf { it.blueScore }
         )
+        sendWinnerIfApplicable(mode, summary)
         _gameState.value = GameState.Finished(summary)
     }
 
@@ -285,6 +287,7 @@ class GameViewModel @Inject constructor(
             )
         }
 
+        sendWinnerIfApplicable(mode, summary)
         _gameState.value = GameState.Finished(summary)
     }
 
@@ -300,18 +303,23 @@ class GameViewModel @Inject constructor(
             return
         }
 
-        val totalRed = results.sumOf { it.redScore }
-        val totalBlue = results.sumOf { it.blueScore }
-
         val summary = GameResultSummary(
             mode = mode,
             wandResults = results,
             totalWandCount = results.size,
-            totalRedScore = totalRed,
-            totalBlueScore = totalBlue
+            totalRedScore = results.sumOf { it.redScore },
+            totalBlueScore = results.sumOf { it.blueScore }
         )
 
+        sendWinnerIfApplicable(mode, summary)
         _gameState.value = GameState.Finished(summary)
+    }
+
+    private fun sendWinnerIfApplicable(mode: GameMode, summary: GameResultSummary) {
+        if (mode == GameMode.TEAM_BATTLE) return
+        val winner = summary.soloWinner ?: return
+        val sent = sendGameCommandUseCase.sendWinner(mode, winner.wandId)
+        if (!sent) Log.w(TAG, "sendWinner skipped: mode=$mode, wandId=${winner.wandId}")
     }
 
     override fun onCleared() {

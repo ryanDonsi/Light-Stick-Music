@@ -103,6 +103,16 @@ class GameBleManager @Inject constructor() {
         }
     }
 
+    /** WINNER 커맨드 전송 (Mode 1·2 전용) */
+    @SuppressLint("MissingPermission")
+    fun sendWinner(mode: GameMode, winnerWandId: Int): Boolean {
+        val device = activeDevice ?: run {
+            Log.e(TAG, "sendWinner() — activeDevice null")
+            return false
+        }
+        return device.sendWinner(mode.toSdkMode(), winnerWandId)
+    }
+
     /** 게임 중지 커맨드 전송 */
     @SuppressLint("MissingPermission")
     fun stopGame(): Boolean {
