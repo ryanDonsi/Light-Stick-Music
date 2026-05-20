@@ -90,8 +90,8 @@ object AppConstants {
         /** StopEffectUseCase.kt */
         const val UC_STOP_EFFECT        = "UC_StopEffect"
 
-        /** LoadMusicTimelineUseCase.kt */
-        const val UC_LOAD_TIMELINE      = "UC_LoadTimeline"
+        /** LoadEfxUseCase.kt */
+        const val UC_LOAD_TIMELINE      = "UC_LoadEfx"
         /** UpdatePlaybackPositionUseCase.kt */
         const val UC_UPDATE_POSITION    = "UC_UpdatePosition"
         /** HandleSeekUseCase.kt */

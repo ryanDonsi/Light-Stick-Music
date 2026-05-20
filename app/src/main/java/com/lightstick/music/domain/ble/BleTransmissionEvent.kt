@@ -47,7 +47,8 @@ data class BleTransmissionEvent(
     fun getSourceDisplayName(): String {
         return when (source) {
             TransmissionSource.PAYLOAD_EFFECT -> "일반 효과"
-            TransmissionSource.TIMELINE_EFFECT -> "타임라인 효과"
+            TransmissionSource.EFX_EFFECT -> "EFX 효과"
+            TransmissionSource.TIMELINE_EFFECT -> "자동 타임라인 효과"
             TransmissionSource.FFT_EFFECT -> "FFT 효과"
         }
     }
@@ -99,7 +100,10 @@ enum class TransmissionSource {
     /** Effect 탭에서 수동으로 실행하는 효과 */
     PAYLOAD_EFFECT,
 
-    /** Music 재생 중 타임라인 동기화 효과 */
+    /** Music 재생 중 EFX 파일 기반 동기화 효과 */
+    EFX_EFFECT,
+
+    /** Music 재생 중 자동 생성 타임라인 동기화 효과 */
     TIMELINE_EFFECT,
 
     /** Music 재생 중 주파수 분석 효과 */

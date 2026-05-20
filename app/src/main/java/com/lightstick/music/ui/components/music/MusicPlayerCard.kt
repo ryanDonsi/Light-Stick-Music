@@ -106,8 +106,9 @@ fun MusicPlayerCard(
                             .clip(RoundedCornerShape(20.dp))
                     )
 
-                    val isTimeline = latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT
-                    if (isTimeline) {
+                    val isEffectActive = latestTransmission?.source == TransmissionSource.EFX_EFFECT
+                            || latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT
+                    if (isEffectActive) {
                         EffectOverlayBadge(
                             transmission = latestTransmission,
                             modifier     = Modifier

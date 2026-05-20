@@ -6,19 +6,19 @@ import java.io.File
 import javax.inject.Inject
 
 /**
- * 음악 타임라인 로드 UseCase
+ * EFX 파일 기반 이펙트 로드 UseCase
  *
  * 책임:
  * - EffectEngineController.loadEffectsFor() 호출
  * - 로드된 이펙트 개수 반환
  *
  * 사용:
- * - MusicViewModel.loadMusicFile()
+ * - MusicViewModel.playMusic()
  */
-class LoadMusicTimelineUseCase @Inject constructor() {
+class LoadEfxUseCase @Inject constructor() {
 
     /**
-     * 음악 타임라인 로드
+     * EFX 이펙트 로드
      *
      * @param context Android Context
      * @param musicFile 음악 파일
@@ -31,7 +31,7 @@ class LoadMusicTimelineUseCase @Inject constructor() {
         return try {
             EffectEngineController.loadEffectsFor(context, musicFile)
 
-            Result.success(EffectEngineController.getTimelineEffectCount())
+            Result.success(EffectEngineController.getLoadedEffectCount())
 
         } catch (e: Exception) {
             Result.failure(e)

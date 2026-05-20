@@ -29,7 +29,7 @@ import com.lightstick.music.domain.music.FftAudioProcessor
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.domain.music.createFftPlayer
 import com.lightstick.music.domain.usecase.music.HandleSeekUseCase
-import com.lightstick.music.domain.usecase.music.LoadMusicTimelineUseCase
+import com.lightstick.music.domain.usecase.music.LoadEfxUseCase
 import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
 import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -48,7 +48,7 @@ import java.io.File
 @UnstableApi
 class MusicViewModel @Inject constructor(
     application: Application,
-    private val loadMusicTimelineUseCase:      LoadMusicTimelineUseCase,
+    private val loadEfxUseCase:                LoadEfxUseCase,
     private val updatePlaybackPositionUseCase: UpdatePlaybackPositionUseCase,
     private val handleSeekUseCase:             HandleSeekUseCase,
     private val processFFTUseCase:             ProcessFFTUseCase
@@ -257,7 +257,7 @@ class MusicViewModel @Inject constructor(
             EffectEngineController.reset()
 
             if (MusicEffectManager.hasEffectFor(musicFile)) {
-                loadMusicTimelineUseCase(context, musicFile)
+                loadEfxUseCase(context, musicFile)
             } else {
                 val musicId = com.lightstick.efx.MusicId.fromFile(musicFile)
                 val ver     = AutoTimelineConfig.VERSION
@@ -323,7 +323,7 @@ class MusicViewModel @Inject constructor(
                 EffectEngineController.reset()
 
                 if (MusicEffectManager.hasEffectFor(musicFile)) {
-                    loadMusicTimelineUseCase(context, musicFile)
+                    loadEfxUseCase(context, musicFile)
                 } else {
                     val musicId = com.lightstick.efx.MusicId.fromFile(musicFile)
                     val ver     = AutoTimelineConfig.VERSION
