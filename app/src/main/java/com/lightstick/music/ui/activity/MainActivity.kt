@@ -10,6 +10,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
@@ -71,15 +75,19 @@ class MainActivity : ComponentActivity() {
             result.data?.data?.let { uri ->
                 EffectPathPreferences.saveDirectoryUri(this, uri)
 
-                MusicEffectManager.initializeFromSAF(this)
+                lifecycleScope.launch {
+                    withContext(Dispatchers.IO) {
+                        MusicEffectManager.initializeFromSAF(this@MainActivity)
+                    }
 
-                Toast.makeText(
-                    this,
-                    "Effects 폴더 설정 완료 (${MusicEffectManager.getLoadedEffectCount()}개 파일)",
-                    Toast.LENGTH_SHORT
-                ).show()
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Effects 폴더 설정 완료 (${MusicEffectManager.getLoadedEffectCount()}개 파일)",
+                        Toast.LENGTH_SHORT
+                    ).show()
 
-                musicViewModel.loadMusic()
+                    musicViewModel.loadMusic()
+                }
             }
         }
     }
