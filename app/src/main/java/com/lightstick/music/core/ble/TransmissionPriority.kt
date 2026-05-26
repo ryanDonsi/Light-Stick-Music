@@ -14,6 +14,9 @@ object TransmissionPriority {
     /** 연결 확인 효과 */
     const val CONNECTION_EFFECT = 100
 
+    /** 전화/SMS/캘린더 이벤트 효과 */
+    const val EVENT_EFFECT = 90
+
     /** 수동 효과 (Effect 탭) */
     const val MANUAL_EFFECT = 80
 

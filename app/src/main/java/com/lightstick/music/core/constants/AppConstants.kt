@@ -80,8 +80,6 @@ object AppConstants {
         const val UC_FIND_EFFECT        = "UC_FindEffect"
         /** SendConnectionEffectUseCase.kt */
         const val UC_CONNECTION_EFFECT  = "UC_ConnectionEffect"
-        /** RegisterEventRulesUseCase.kt */
-        const val UC_REGISTER_EVENT_RULES = "UC_RegisterEventRules"
 
         /** PlayManualEffectUseCase.kt */
         const val UC_PLAY_MANUAL        = "UC_PlayManual"
@@ -98,6 +96,11 @@ object AppConstants {
         const val UC_HANDLE_SEEK        = "UC_HandleSeek"
         /** ProcessFFTUseCase.kt */
         const val UC_PROCESS_FFT        = "UC_ProcessFFT"
+
+        /** DeviceEventEffectSender.kt */
+        const val DEVICE_EVENT_SENDER      = "DeviceEventSender"
+        /** EventNotificationListenerService.kt */
+        const val NOTIFICATION_LISTENER    = "EventNotifListener"
 
         /** GameViewModel.kt */
         const val VM_GAME               = "GameVM"
@@ -177,7 +180,6 @@ object AppConstants {
         Feature.UC_GET_BONDED,
         Feature.UC_FIND_EFFECT,
         Feature.UC_CONNECTION_EFFECT,
-        Feature.UC_REGISTER_EVENT_RULES,
 
         Feature.UC_PLAY_MANUAL,
         Feature.UC_PLAY_EFFECT_LIST,
@@ -205,5 +207,8 @@ object AppConstants {
 
         Feature.GAME_BLE_MANAGER,
         Feature.VM_GAME,
+
+        Feature.DEVICE_EVENT_SENDER,
+        Feature.NOTIFICATION_LISTENER,
     )
 }

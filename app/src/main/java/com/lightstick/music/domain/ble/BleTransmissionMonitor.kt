@@ -99,6 +99,7 @@ object BleTransmissionMonitor {
     private fun getSourcePriority(source: TransmissionSource): Int {
         return when (source) {
             TransmissionSource.PAYLOAD_EFFECT -> 100
+            TransmissionSource.EVENT_EFFECT -> 90
             TransmissionSource.EFX_EFFECT -> 60
             TransmissionSource.TIMELINE_EFFECT -> 60
             TransmissionSource.FFT_EFFECT -> 40

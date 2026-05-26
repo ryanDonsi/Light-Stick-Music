@@ -82,6 +82,18 @@
                 <action android:name="ACTION_PREV" />
             </intent-filter>
         </receiver>
+
+        <!-- Event Notification Listener (전화/메시지 감지 — READ_PHONE_STATE/RECEIVE_SMS 대체) -->
+        <!-- 설정 > 앱 > 특별 앱 접근 > 알림 접근에서 사용자가 허용 -->
+        <service
+            android:name=".core.service.EventNotificationListenerService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>

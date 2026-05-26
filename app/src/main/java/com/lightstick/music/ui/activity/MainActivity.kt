@@ -1,8 +1,10 @@
 package com.lightstick.music.ui.activity
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import android.annotation.SuppressLint
 import androidx.activity.ComponentActivity
@@ -10,6 +12,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -20,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.*
 import androidx.core.view.WindowCompat
@@ -28,6 +33,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.runtime.SideEffect
+import com.lightstick.music.core.manager.DeviceStatusNotificationManager
+import com.lightstick.music.ui.components.splash.NotificationListenerGuideDialog
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.ui.screen.effect.EffectScreen
 import com.lightstick.music.ui.screen.device.DeviceListScreen
@@ -105,6 +112,7 @@ class MainActivity : ComponentActivity() {
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
+        DeviceStatusNotificationManager.start(this)
         PermissionManager.logPermissionStatus(this, "MainActivity")
 
         deviceViewModel
@@ -134,6 +142,29 @@ class MainActivity : ComponentActivity() {
                         onConfirm = {
                             showEffectFolderGuide = false
                             requestEffectsDirectory()
+                        }
+                    )
+                }
+
+                var showNotificationListenerGuide by remember { mutableStateOf(false) }
+                val lifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            showNotificationListenerGuide =
+                                !PermissionManager.hasNotificationListenerPermission(this@MainActivity)
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
+
+                if (showNotificationListenerGuide) {
+                    NotificationListenerGuideDialog(
+                        onDismiss = { showNotificationListenerGuide = false },
+                        onGoToSettings = {
+                            showNotificationListenerGuide = false
+                            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                         }
                     )
                 }
@@ -445,6 +476,7 @@ fun AppNavigation(
                     showDisconnectDialog = true
                 },
                 onDeviceInfoClick = {
+                    deviceViewModel.refreshDeviceInfo(deviceMac)
                     showDeviceInfoDialog = true
                 },
                 onCallEventToggle = { enabled ->

@@ -2,8 +2,8 @@ package com.lightstick.music.ui.activity
 
 import android.content.Intent
 import android.os.Bundle
-import com.lightstick.music.core.util.Log
 import android.widget.Toast
+import com.lightstick.music.core.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -34,18 +34,23 @@ class SplashActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
-        val allGranted = results.values.all { it }
-
         PermissionManager.logPermissionStatus(this, "SplashActivity")
 
-        if (allGranted) {
+        val optionalPermissions = PermissionManager.getOptionalPermissions().toSet()
+        val deniedCore = results.filter { !it.value && it.key !in optionalPermissions }.keys
+        val deniedOptional = results.filter { !it.value && it.key in optionalPermissions }.keys
+
+        if (deniedOptional.isNotEmpty()) {
+            Log.w("SplashActivity", "선택적 권한 거부됨 (전화/캘린더 이벤트 비활성화): $deniedOptional")
+        }
+
+        if (deniedCore.isEmpty()) {
             viewModel.onPermissionAllowed()
             initializeStartApp()
         } else {
-            val deniedPermissions = results.filter { !it.value }.keys
             Toast.makeText(
                 this,
-                "필요한 권한이 거부되었습니다: ${deniedPermissions.joinToString()}",
+                "필요한 권한이 거부되었습니다: ${deniedCore.joinToString()}",
                 Toast.LENGTH_LONG
             ).show()
             viewModel.onPermissionDenied()
@@ -93,30 +98,40 @@ class SplashActivity : ComponentActivity() {
 
     /**
      * 권한 체크 후 진행 방향 결정
-     * - 권한 있음 → 바로 초기화 시작
-     * - 권한 없음 → 권한 안내 다이얼로그 표시
+     * - 필수 권한 없음 → 권한 안내 다이얼로그 표시
+     * - 필수 권한 있음 + 선택적 권한 미요청 → 선택적 권한 요청 후 진행
+     * - 모든 권한 확인 완료 → 초기화 시작
      */
     private fun checkPermissionsAndProceed() {
         val requiredPermissions = PermissionManager.getAllRequiredPermissions()
-        val deniedPermissions = PermissionManager.getDeniedPermissions(this, requiredPermissions)
+        val deniedRequired = PermissionManager.getDeniedPermissions(this, requiredPermissions)
 
-        if (deniedPermissions.isEmpty()) {
+        if (deniedRequired.isNotEmpty()) {
+            viewModel.onLogoTimeout()
+            return
+        }
+
+        val deniedOptional = PermissionManager.getDeniedPermissions(
+            this, PermissionManager.getOptionalPermissions()
+        )
+        if (deniedOptional.isNotEmpty()) {
+            permissionLauncher.launch(deniedOptional.toTypedArray())
+        } else {
             viewModel.onPermissionAllowed()
             initializeStartApp()
-        } else {
-            viewModel.onLogoTimeout()
         }
     }
 
     /**
-     * 필요한 모든 권한 요청
+     * 필요한 모든 권한 요청 (필수 + 선택적 권한 포함)
      */
     private fun requestAllPermissions() {
         PermissionManager.logPermissionStatus(this, "SplashActivity")
 
-        val requiredPermissions = PermissionManager.getAllRequiredPermissions()
+        val allPermissions = PermissionManager.getAllRequiredPermissions() +
+                PermissionManager.getOptionalPermissions()
 
-        val deniedPermissions = PermissionManager.getDeniedPermissions(this, requiredPermissions)
+        val deniedPermissions = PermissionManager.getDeniedPermissions(this, allPermissions)
 
         if (deniedPermissions.isEmpty()) {
             viewModel.onPermissionAllowed()

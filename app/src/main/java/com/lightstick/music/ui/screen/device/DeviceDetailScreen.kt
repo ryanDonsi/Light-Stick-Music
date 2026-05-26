@@ -59,9 +59,13 @@ fun DeviceDetailScreen(
         Column(
             modifier = modifier
                 .fillMaxSize()
-                .padding(top = paddingValues.calculateTopPadding())
+                .padding(
+                    top = paddingValues.calculateTopPadding(),
+                    bottom = paddingValues.calculateBottomPadding()
+                )
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 24.dp),
+                .padding(horizontal = 16.dp)
+                .padding(top = 24.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.Top
         ) {
 

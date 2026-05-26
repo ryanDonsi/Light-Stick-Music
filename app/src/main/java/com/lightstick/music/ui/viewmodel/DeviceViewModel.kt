@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.music.core.manager.DeviceStatusNotificationManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -21,7 +22,7 @@ import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.DisconnectDeviceUseCase
-import com.lightstick.music.domain.usecase.device.RegisterEventRulesUseCase
+import com.lightstick.music.domain.usecase.device.GetCachedDeviceInfoUseCase
 import com.lightstick.music.domain.usecase.device.SendFindEffectUseCase
 import com.lightstick.music.domain.usecase.device.SendConnectionEffectUseCase
 import com.lightstick.music.domain.usecase.device.StartScanUseCase
@@ -31,7 +32,6 @@ import com.lightstick.LSBluetooth
 import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
 import com.lightstick.device.DeviceInfo
-import com.lightstick.events.EventType
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,13 +42,13 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class DeviceViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val sendFindEffectUseCase:       SendFindEffectUseCase,
-    private val connectDeviceUseCase:        ConnectDeviceUseCase,
-    private val disconnectDeviceUseCase:     DisconnectDeviceUseCase,
-    private val registerEventRulesUseCase:   RegisterEventRulesUseCase,
-    private val sendConnectionEffectUseCase: SendConnectionEffectUseCase,
-    private val startScanUseCase:            StartScanUseCase,
-    private val stopScanUseCase:             StopScanUseCase
+    private val sendFindEffectUseCase:        SendFindEffectUseCase,
+    private val connectDeviceUseCase:         ConnectDeviceUseCase,
+    private val disconnectDeviceUseCase:      DisconnectDeviceUseCase,
+    private val sendConnectionEffectUseCase:  SendConnectionEffectUseCase,
+    private val startScanUseCase:             StartScanUseCase,
+    private val stopScanUseCase:              StopScanUseCase,
+    private val getCachedDeviceInfoUseCase:   GetCachedDeviceInfoUseCase
 ) : ViewModel() {
 
     companion object {
@@ -97,10 +97,6 @@ class DeviceViewModel @Inject constructor(
     /** 버전 확인 후 사용자 승인 시 전달할 펌웨어 바이트 임시 보관 */
     private var pendingOtaFirmware: ByteArray? = null
 
-    private val _eventStates = MutableStateFlow<Map<String, Map<EventType, Boolean>>>(emptyMap())
-    @Suppress("unused")
-    val eventStates: StateFlow<Map<String, Map<EventType, Boolean>>> = _eventStates.asStateFlow()
-
     /** 스캔 Job 추적 */
     private var scanJob: Job? = null
 
@@ -121,7 +117,51 @@ class DeviceViewModel @Inject constructor(
     init {
         observeDeviceStateEvents()
         observeDeviceInfoUpdates()
+        syncCurrentlyConnectedDevices()
         ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
+    }
+
+    /**
+     * 앱 시작 시 이미 연결된 디바이스 상태 동기화.
+     * observeDeviceStateEvents()는 앞으로의 변경만 감지하므로 현재 연결 상태를 별도로 읽어야 함.
+     */
+    @SuppressLint("MissingPermission")
+    private fun syncCurrentlyConnectedDevices() {
+        if (!PermissionManager.hasBluetoothConnectPermission(context)) return
+        Log.d(TAG, "[syncCurrentlyConnectedDevices] 시작")
+        viewModelScope.launch {
+            try {
+                val connected = LSBluetooth.connectedDevices()
+                Log.d(TAG, "[syncCurrentlyConnectedDevices] 연결된 기기: ${connected.size}개")
+
+                connected.forEach { sdkDevice ->
+                    Log.d(TAG, "  ${sdkDevice.mac}: connectDeviceUseCase 호출 전 / _deviceDetails=${_deviceDetails.value[sdkDevice.mac]?.deviceInfo?.firmwareRevision ?: "null"}")
+
+                    // Immediately reflect connected state in UI
+                    onDeviceConnectedFromSdk(sdkDevice.mac)
+
+                    // Re-establish GATT layer (lost on process restart even though BLE connection
+                    // persists at OS level) so DIS can be read and battery reads work
+                    connectDeviceUseCase(
+                        context      = context,
+                        device       = sdkDevice,
+                        onConnected  = {
+                            Log.i(TAG, "GATT 재연결 성공: ${sdkDevice.mac}")
+                            startBatteryMonitoring(sdkDevice.mac)
+                        },
+                        onFailed     = { err ->
+                            Log.w(TAG, "GATT 재연결 실패: ${sdkDevice.mac} - ${err.message}")
+                        },
+                        onDeviceInfo = { info ->
+                            Log.d(TAG, "[syncCurrentlyConnectedDevices] DIS 콜백 실행: ${sdkDevice.mac} name=${info.deviceName} fw=${info.firmwareRevision}")
+                            updateDeviceInfoFromCallback(sdkDevice.mac, info)
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "초기 연결 상태 동기화 실패: ${e.message}")
+            }
+        }
     }
 
     /**
@@ -143,18 +183,20 @@ class DeviceViewModel @Inject constructor(
     }
 
     /**
-     * SDK DeviceState StateFlow 구독 — DIS 읽기 완료 시 deviceInfo 자동 업데이트
-     * connect() / onDeviceConnectedFromSdk() 두 경로 모두 커버
+     * SDK DeviceState 구독 — DIS 읽기 완료 이벤트 감시
      */
     private fun observeDeviceInfoUpdates() {
+        Log.d(TAG, "[observeDeviceInfoUpdates] 구독 시작")
         viewModelScope.launch {
             LSBluetooth.observeDeviceStates()
                 .collect { stateMap ->
+                    Log.d(TAG, "[observeDeviceInfoUpdates] 변경사항 수신 - devices=${stateMap.keys} / fw=${stateMap.entries.map { "${it.key}→${it.value.deviceInfo?.firmwareRevision ?: "null"}" }}")
                     stateMap.forEach { (mac, state) ->
                         val info = state.deviceInfo ?: return@forEach
-                        if (info.firmwareRevision?.isNotBlank() == true) {
-                            updateDeviceInfoFromCallback(mac, info)
-                        }
+                        if (info.firmwareRevision?.isNotBlank() != true) return@forEach
+
+                        Log.d(TAG, "  [$mac] DIS 업데이트: fw=${info.firmwareRevision}")
+                        updateDeviceInfoFromCallback(mac, info)
                     }
                 }
         }
@@ -173,11 +215,13 @@ class DeviceViewModel @Inject constructor(
             Log.d(TAG, "onDeviceConnectedFromSdk: skip (already handled by connect()) $mac")
             return
         }
-        Log.i(TAG, "onDeviceConnectedFromSdk: $mac")
+        Log.i(TAG, "[onDeviceConnectedFromSdk] $mac")
 
         val sdkDevice = LSBluetooth.connectedDevices().find { it.mac == mac }
         val device = _devices.value.find { it.mac == mac }
             ?: Device(mac = mac, name = sdkDevice?.name, rssi = sdkDevice?.rssi?.takeIf { it != 0 })
+
+        Log.d(TAG, "  device name=${device.name}")
 
         connectedDevices[mac] = device
 
@@ -186,15 +230,28 @@ class DeviceViewModel @Inject constructor(
                 compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
                     .thenByDescending { it.rssi ?: -100 }
             )
+            Log.d(TAG, "  _devices에 추가")
         }
 
         updateConnectionState(mac, true)
 
         if (!_deviceDetails.value.containsKey(mac)) {
+            Log.d(TAG, "  _deviceDetails 초기화 중...")
             initializeDeviceDetail(device)
+            Log.d(TAG, "  _deviceDetails 초기화 완료 (DIS 없음, fw=null)")
+        } else {
+            Log.d(TAG, "  _deviceDetails 이미 존재")
         }
 
-        registerDeviceEventRules(device)
+        // SDK 캐시에서 DIS 즉시 로드 (SharedFlow 리플레이 부족 문제 해결)
+        val cachedInfo = getCachedDeviceInfoUseCase(mac)
+        if (cachedInfo != null) {
+            Log.d(TAG, "  [캐시 DIS 로드] $mac fw=${cachedInfo.firmwareRevision} name=${cachedInfo.deviceName}")
+            updateDeviceInfoFromCallback(mac, cachedInfo)
+        } else {
+            Log.d(TAG, "  [캐시 DIS 없음] $mac → GATT 재연결 후 콜백으로 수신 예정")
+        }
+
         startBatteryMonitoring(mac)
     }
 
@@ -216,10 +273,6 @@ class DeviceViewModel @Inject constructor(
         if (_otaInProgress.value.containsKey(mac)) {
             _otaInProgress.value -= mac
             _otaProgress.value   -= mac
-        }
-
-        if (_eventStates.value.containsKey(mac)) {
-            _eventStates.value -= mac
         }
     }
 
@@ -341,7 +394,6 @@ class DeviceViewModel @Inject constructor(
                         if (!_deviceDetails.value.containsKey(device.mac)) {
                             initializeDeviceDetail(device)
                         }
-                        registerDeviceEventRules(device)
                         startBatteryMonitoring(device.mac)
                         viewModelScope.launch {
                             sendConnectionEffectUseCase(context, device).onFailure { error ->
@@ -505,42 +557,22 @@ class DeviceViewModel @Inject constructor(
         Log.i(TAG, "OTA aborted: ${device.mac}")
     }
 
-    private fun registerDeviceEventRules(device: Device) {
-        registerEventRulesUseCase(context, device).onFailure { error ->
-            Log.e(TAG, "Failed to register event rules for ${device.mac}: ${error.message}")
-        }
-    }
-
     fun toggleCallEvent(device: Device, enabled: Boolean) {
         DevicePreferences.setCallEventEnabled(device.mac, enabled)
-
-        val states = _eventStates.value[device.mac]?.toMutableMap() ?: mutableMapOf()
-        states[EventType.CALL_RINGING] = enabled
-        _eventStates.value += (device.mac to states)
-
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[device.mac]
             this[device.mac] = existing?.copy(callEventEnabled = enabled)
                 ?: buildDeviceDetailInfo(device, callEventEnabled = enabled)
         }
-
-        registerDeviceEventRules(device)
     }
 
     fun toggleSmsEvent(device: Device, enabled: Boolean) {
         DevicePreferences.setSmsEventEnabled(device.mac, enabled)
-
-        val states = _eventStates.value[device.mac]?.toMutableMap() ?: mutableMapOf()
-        states[EventType.SMS_RECEIVED] = enabled
-        _eventStates.value += (device.mac to states)
-
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[device.mac]
             this[device.mac] = existing?.copy(smsEventEnabled = enabled)
                 ?: buildDeviceDetailInfo(device, smsEventEnabled = enabled)
         }
-
-        registerDeviceEventRules(device)
     }
 
     fun toggleBroadcasting(device: Device, enabled: Boolean) {
@@ -552,6 +584,24 @@ class DeviceViewModel @Inject constructor(
                 ?: buildDeviceDetailInfo(device, broadcasting = enabled)
         }
 
+    }
+
+    /**
+     * 디바이스 정보 다이얼로그 표시 직전 호출 — GATT에서 DIS를 직접 읽어 즉시 반영
+     * getCachedDeviceInfo는 프로세스 재시작 후 캐시가 비어 null을 반환하므로
+     * fetchDeviceInfo로 디바이스에서 직접 조회.
+     */
+    @SuppressLint("MissingPermission")
+    fun refreshDeviceInfo(mac: String) {
+        val device = connectedDevices[mac] ?: run {
+            Log.w(TAG, "[refreshDeviceInfo] $mac → 연결된 기기 없음")
+            return
+        }
+        Log.d(TAG, "[refreshDeviceInfo] $mac → fetchDeviceInfo 호출")
+        device.fetchDeviceInfo { info ->
+            Log.d(TAG, "[refreshDeviceInfo] DIS 수신: $mac fw=${info.firmwareRevision}")
+            updateDeviceInfoFromCallback(mac, info)
+        }
     }
 
     /**
@@ -626,14 +676,15 @@ class DeviceViewModel @Inject constructor(
             broadcasting     = broadcasting
         ))
 
-        _eventStates.value += (device.mac to mapOf(
-            EventType.CALL_RINGING to callEventEnabled,
-            EventType.SMS_RECEIVED to smsEventEnabled
-        ))
     }
 
     private fun updateDeviceInfoFromCallback(mac: String, deviceInfo: DeviceInfo) {
-        Log.d(TAG, "updateDeviceInfo: $mac btName=${deviceInfo.deviceName} modelName=${deviceInfo.modelName} model=${deviceInfo.modelNumber} fw=${deviceInfo.firmwareRevision} mfr=${deviceInfo.manufacturer}")
+        Log.d(TAG, "[updateDeviceInfo] 시작: $mac")
+        Log.d(TAG, "  name=${deviceInfo.deviceName} model=${deviceInfo.modelName} modelNum=${deviceInfo.modelNumber} fw=${deviceInfo.firmwareRevision} mfr=${deviceInfo.manufacturer}")
+
+        val existingBefore = _deviceDetails.value[mac]?.deviceInfo
+        Log.d(TAG, "  기존 상태: fw=${existingBefore?.firmwareRevision ?: "null"}")
+
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
             this[mac] = existing?.copy(deviceInfo = deviceInfo, batteryLevel = deviceInfo.batteryLevel)
@@ -646,19 +697,28 @@ class DeviceViewModel @Inject constructor(
                     batteryLevel = deviceInfo.batteryLevel
                 )
         }
-        Log.d(TAG, "updateDeviceInfo done: $mac fw=${_deviceDetails.value[mac]?.deviceInfo?.firmwareRevision}")
+
+        val updated = _deviceDetails.value[mac]?.deviceInfo
+        Log.d(TAG, "[updateDeviceInfo] 완료: $mac fw=${updated?.firmwareRevision ?: "null"} (existed=${existingBefore != null})")
     }
 
     private fun updateBatteryLevel(mac: String, level: Int) {
+        Log.d(TAG, "[updateBatteryLevel] $mac: $level%")
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
-            if (existing != null) this[mac] = existing.copy(batteryLevel = level)
+            if (existing != null) {
+                this[mac] = existing.copy(batteryLevel = level)
+                Log.d(TAG, "  _deviceDetails 업데이트 완료")
+            } else {
+                Log.d(TAG, "  _deviceDetails에 $mac 없음 → skip")
+            }
         }
+        DeviceStatusNotificationManager.updateDeviceBattery(mac, level)
     }
 
     private fun buildDeviceDetailInfo(
         device: Device,
-        callEventEnabled: Boolean = DevicePreferences.getCallEventEnabled(device.mac),
+        callEventEnabled:     Boolean = DevicePreferences.getCallEventEnabled(device.mac),
         smsEventEnabled:  Boolean = DevicePreferences.getSmsEventEnabled(device.mac),
         broadcasting:     Boolean = DevicePreferences.getBroadcasting(device.mac)
     ): DeviceDetailInfo = DeviceDetailInfo(

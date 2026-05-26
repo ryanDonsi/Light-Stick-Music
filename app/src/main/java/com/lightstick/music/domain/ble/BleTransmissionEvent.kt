@@ -50,6 +50,7 @@ data class BleTransmissionEvent(
             TransmissionSource.EFX_EFFECT -> "EFX 효과"
             TransmissionSource.TIMELINE_EFFECT -> "자동 타임라인 효과"
             TransmissionSource.FFT_EFFECT -> "FFT 효과"
+            TransmissionSource.EVENT_EFFECT -> "이벤트 효과"
         }
     }
 
@@ -108,4 +109,7 @@ enum class TransmissionSource {
 
     /** Music 재생 중 주파수 분석 효과 */
     FFT_EFFECT,
+
+    /** 전화/SMS/캘린더 이벤트 트리거 효과 */
+    EVENT_EFFECT,
 }

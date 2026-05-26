@@ -1,10 +1,14 @@
 package com.lightstick.music.core.permission
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import androidx.core.content.ContextCompat
+import com.lightstick.music.core.service.EventNotificationListenerService
+import com.lightstick.music.core.util.Log
 
 object PermissionManager {
 
@@ -116,6 +120,24 @@ object PermissionManager {
     }
 
     /**
+     * 메시지 알림 접근 권한 확인
+     * 설정 > 앱 > 특별 앱 접근 > 알림 접근에서 사용자가 직접 허용해야 함
+     */
+    fun hasNotificationListenerPermission(context: Context): Boolean {
+        val cn = ComponentName(context, EventNotificationListenerService::class.java)
+        val flat = Settings.Secure.getString(
+            context.contentResolver, "enabled_notification_listeners"
+        ) ?: return false
+        return flat.contains(cn.flattenToString())
+    }
+
+    /**
+     * 선택적 권한 목록 반환
+     * 거부되어도 앱 핵심 기능은 동작하지만 해당 이벤트 기능은 비활성화
+     */
+    fun getOptionalPermissions(): Array<String> = emptyArray()
+
+    /**
      * 거부된 권한 목록 반환
      */
     fun getDeniedPermissions(context: Context, permissions: Array<String>): List<String> {
@@ -126,5 +148,11 @@ object PermissionManager {
      * 디버깅: 모든 권한 상태 로깅
      */
     fun logPermissionStatus(context: Context, tag: String = "PermissionUtils") {
+        Log.d(tag, "[권한 상태]")
+        Log.d(tag, "  BLUETOOTH_SCAN     : ${hasBluetoothScanPermission(context)}")
+        Log.d(tag, "  BLUETOOTH_CONNECT  : ${hasBluetoothConnectPermission(context)}")
+        Log.d(tag, "  STORAGE            : ${hasStoragePermission(context)}")
+        Log.d(tag, "  NOTIFICATION       : ${hasNotificationPermission(context)}")
+        Log.d(tag, "  NOTIFICATION_LISTENER  : ${hasNotificationListenerPermission(context)}")
     }
 }

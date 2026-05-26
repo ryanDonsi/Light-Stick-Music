@@ -406,7 +406,10 @@ private fun calculateEffectColorFromTransmission(
     }
 
     return when (transmission.source) {
-        TransmissionSource.PAYLOAD_EFFECT, TransmissionSource.EFX_EFFECT, TransmissionSource.TIMELINE_EFFECT -> {
+        TransmissionSource.PAYLOAD_EFFECT,
+        TransmissionSource.EFX_EFFECT,
+        TransmissionSource.TIMELINE_EFFECT,
+        TransmissionSource.EVENT_EFFECT -> {
             when (transmission.effectType) {
                 EffectType.ON -> {
                     val transit = transmission.transit ?: 10
