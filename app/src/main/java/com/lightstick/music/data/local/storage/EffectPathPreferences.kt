@@ -124,7 +124,7 @@ object EffectPathPreferences {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val musicUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic")
+            val musicUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic%2FEffects")
             intent.putExtra("android.provider.extra.INITIAL_URI", musicUri)
         }
 

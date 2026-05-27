@@ -19,6 +19,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.core.permission.PermissionManager
+import com.lightstick.music.core.state.OtaState
 import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.DisconnectDeviceUseCase
@@ -119,6 +120,7 @@ class DeviceViewModel @Inject constructor(
         observeDeviceInfoUpdates()
         syncCurrentlyConnectedDevices()
         ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
+        viewModelScope.launch { _otaInProgress.collect { OtaState.update(it) } }
     }
 
     /**

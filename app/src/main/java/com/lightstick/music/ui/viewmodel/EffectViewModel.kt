@@ -177,9 +177,16 @@ class EffectViewModel @Inject constructor(
                                 current is DeviceConnectionState.Connected &&
                                         current.device.mac == event.mac
                             if (!alreadyConnected) {
-                                val device = Device(mac = event.mac, name = null, rssi = null)
+                                @SuppressLint("MissingPermission")
+                                val resolvedDevice = try {
+                                    com.lightstick.LSBluetooth.connectedDevices().find { it.mac == event.mac }
+                                        ?: com.lightstick.LSBluetooth.bondedDevices().find { it.mac == event.mac }
+                                        ?: Device(mac = event.mac, name = null, rssi = null)
+                                } catch (_: Exception) {
+                                    Device(mac = event.mac, name = null, rssi = null)
+                                }
                                 _deviceConnectionState.value =
-                                    DeviceConnectionState.Connected(device)
+                                    DeviceConnectionState.Connected(resolvedDevice)
                             }
                         }
                         is ConnectionState.Disconnected -> {
@@ -592,13 +599,13 @@ class EffectViewModel @Inject constructor(
 
         companion object {
             fun defaultFor(effectType: UiEffectType): EffectSettings = when (effectType) {
-                is UiEffectType.On         -> EffectSettings(period = 0,  transit = 50)
-                is UiEffectType.Off        -> EffectSettings(period = 0,  transit = 100)
-                is UiEffectType.Strobe     -> EffectSettings(period = 10, transit = 0)
-                is UiEffectType.Blink      -> EffectSettings(period = 30, transit = 0)
+                is UiEffectType.On         -> EffectSettings(period = 0,  transit = 0)
+                is UiEffectType.Off        -> EffectSettings(period = 0,  transit = 0)
+                is UiEffectType.Strobe     -> EffectSettings(period = 1,  transit = 0)
+                is UiEffectType.Blink      -> EffectSettings(period = 10, transit = 0)
                 is UiEffectType.Breath     -> EffectSettings(period = 30, transit = 0)
                 is UiEffectType.EffectList -> EffectSettings(period = 0,  transit = 0)
-                is UiEffectType.Custom     -> EffectSettings(period = 30, transit = 0)
+                is UiEffectType.Custom     -> EffectSettings(period = 10, transit = 0)
             }
 
             fun fromJson(jsonStr: String): EffectSettings {

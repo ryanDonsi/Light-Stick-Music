@@ -12,6 +12,7 @@ import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.data.model.FrequencyBand
 import com.lightstick.music.core.permission.PermissionManager
+import com.lightstick.music.core.state.OtaState
 import com.lightstick.types.Color
 import com.lightstick.types.EffectType
 import com.lightstick.types.LSEffectPayload
@@ -39,6 +40,10 @@ object EffectEngineController {
         source: TransmissionSource,
         metadata: Map<String, Any> = emptyMap()
     ): Boolean {
+        if (OtaState.isAnyInProgress.value) {
+            Log.d(TAG, "OTA 진행 중 → 이펙트 전송 차단 [$source]")
+            return false
+        }
         if (!PermissionManager.hasBluetoothConnectPermission(context)) {
             Log.w(TAG, "BLUETOOTH_CONNECT permission required")
             return false
@@ -89,6 +94,10 @@ object EffectEngineController {
         source: TransmissionSource,
         metadata: Map<String, Any> = emptyMap()
     ): Boolean {
+        if (OtaState.isAnyInProgress.value) {
+            Log.d(TAG, "OTA 진행 중 → 이펙트 전송 차단 [$source] → $deviceMac")
+            return false
+        }
         if (!PermissionManager.hasBluetoothConnectPermission(context)) {
             Log.w(TAG, "BLUETOOTH_CONNECT permission required")
             return false

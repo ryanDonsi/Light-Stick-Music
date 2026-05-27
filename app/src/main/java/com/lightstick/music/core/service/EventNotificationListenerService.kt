@@ -11,6 +11,7 @@ import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.manager.DeviceEventEffectSender
 import com.lightstick.music.core.manager.DeviceStatusNotificationManager
 import com.lightstick.music.core.permission.PermissionManager
+import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.music.core.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -69,11 +70,15 @@ class EventNotificationListenerService : NotificationListenerService() {
 
         val category = sbn.notification.category
         val title = sbn.notification.extras?.getCharSequence(Notification.EXTRA_TITLE)
-        Log.d(TAG, "[notification posted] pkg=${sbn.packageName} / category=$category / title='$title'")
+        Log.d(TAG, "[notification posted] id=${sbn.id} / pkg=${sbn.packageName} / category=$category / title='$title'")
 
         when (category) {
             Notification.CATEGORY_CALL -> {
                 Log.i(TAG, "CATEGORY_CALL 알림 수신 [${sbn.packageName}]")
+                if (!hasAnyEnabledDevice { DevicePreferences.getCallEventEnabled(it) }) {
+                    Log.d(TAG, "→ Call Event 모두 OFF → 스킵")
+                    return
+                }
                 if (isIncomingCall(sbn.notification)) {
                     Log.i(TAG, "→ 최종 판정: 수신 전화 → 이펙트 전송")
                     DeviceEventEffectSender.sendCallEffect(applicationContext)
@@ -82,7 +87,12 @@ class EventNotificationListenerService : NotificationListenerService() {
                 }
             }
             Notification.CATEGORY_MESSAGE -> {
-                Log.i(TAG, "메시지 알림 감지 [${sbn.packageName}] → 이펙트 전송")
+                Log.i(TAG, "메시지 알림 감지 [${sbn.packageName}]")
+                if (!hasAnyEnabledDevice { DevicePreferences.getSmsEventEnabled(it) }) {
+                    Log.d(TAG, "→ SMS Event 모두 OFF → 스킵")
+                    return
+                }
+                Log.i(TAG, "→ 이펙트 전송")
                 DeviceEventEffectSender.sendSmsEffect(applicationContext)
             }
             else -> {
@@ -94,66 +104,122 @@ class EventNotificationListenerService : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         if (sbn.notification.category == Notification.CATEGORY_CALL) {
             Log.i(TAG, "[notification removed] CATEGORY_CALL 제거됨 [${sbn.packageName}] → 전화 종료 → 이펙트 정지")
+            if (!hasAnyEnabledDevice { DevicePreferences.getCallEventEnabled(it) }) return
             DeviceEventEffectSender.sendCallEndEffect(applicationContext)
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun hasAnyEnabledDevice(isEnabled: (String) -> Boolean): Boolean {
+        if (!PermissionManager.hasBluetoothConnectPermission(this)) return false
+        return try {
+            LSBluetooth.connectedDevices().any { isEnabled(it.mac) }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     /**
-     * 수신 전화 여부 판단. Samsung incallui는 android.callType을 설정하지 않고
-     * fullScreenIntent도 null인 경우가 있어 다단계 fallback으로 처리.
+     * 수신 전화 여부 판단.
+     *
+     * Samsung incallui(com.samsung.android.incallui)는 android.callType을 수신/발신 모두 2로 보고.
+     * 수신 벨소리 알림에는 android.text = "수신전화"가 설정되므로 이를 1차 판정에 사용.
      *
      * 판정 순서:
-     * 1. android.callType (API 31+)
-     * 2. 전통 방식 (fullScreenIntent, FLAG_INSISTENT, 액션 텍스트)
+     * 1. android.callType == 1 (표준 수신)
+     * 2. FLAG_INSISTENT (수신 벨소리 지속)
+     * 3. android.text 수신 키워드 ("수신" / "incoming") — Samsung 주 판정 기준
+     * 4. 발신 확실 여부 (종료 액션만 존재)
+     * 5. fullScreenIntent (기타 dialer fallback)
+     * 6. 답하기 액션
      */
     private fun isIncomingCall(notification: Notification): Boolean {
         Log.d(TAG, "=== isIncomingCall 판단 시작 ===")
 
-        // 1단계: android.callType (API 31+) - Samsung에서는 신뢰 불가능하므로 1만 사용
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val callType = notification.extras?.getInt("android.callType", 0) ?: 0
-            Log.d(TAG, "  [1] android.callType = $callType")
-            if (callType == 1) {
+        // 판단에 사용 가능한 모든 값을 먼저 출력
+        @Suppress("InlinedApi")
+        val callType = notification.extras?.getInt(Notification.EXTRA_CALL_TYPE, -1) ?: -1
+        val hasFullScreenIntent = notification.fullScreenIntent != null
+        val isInsistent = (notification.flags and Notification.FLAG_INSISTENT) != 0
+        val actionTitles = notification.actions?.map { it.title?.toString() ?: "null" } ?: emptyList()
+        Log.d(TAG, "  [info] callType=$callType | channelId=${notification.channelId} | fullScreenIntent=$hasFullScreenIntent | FLAG_INSISTENT=$isInsistent | flags=0x${notification.flags.toString(16)}")
+        Log.d(TAG, "  [info] actions(${actionTitles.size}개)=$actionTitles")
+        notification.extras?.keySet()?.forEach { key ->
+            try {
+                val v = notification.extras.get(key)
+                if (v != null && v !is android.graphics.Bitmap && v !is android.widget.RemoteViews && v !is android.app.PendingIntent) {
+                    Log.d(TAG, "  [extra] $key = $v")
+                } else if (v is android.app.PendingIntent) {
+                    Log.d(TAG, "  [extra] $key = <PendingIntent>")
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 1단계: Notification.EXTRA_CALL_TYPE 기반 분기
+        Log.d(TAG, "  [1] EXTRA_CALL_TYPE = $callType")
+        when (callType) {
+            1 -> {
+                // forIncomingCall() → CALL_TYPE_INCOMING
                 Log.d(TAG, "  → 수신 (CALL_TYPE_INCOMING)")
                 return true
-            } else if (callType in listOf(2, 3)) {
-                Log.d(TAG, "  → callType=$callType (Samsung에서는 발신/진행중/수신 모두 2로 보고) → 전통 방식으로 재검증")
+            }
+            3 -> {
+                // forScreeningCall() → CALL_TYPE_SCREENING (발신 또는 스크리닝 상태)
+                Log.d(TAG, "  → 발신/스크리닝 (CALL_TYPE_SCREENING)")
+                return false
+            }
+            2 -> {
+                // forOngoingCall() → CALL_TYPE_ONGOING
+                // Samsung은 수신/발신 모두 이 값을 사용하므로 아래 단계에서 계속 검증
+                Log.d(TAG, "  → CALL_TYPE_ONGOING (Samsung 오용 또는 진행 중) → 계속 검증")
+            }
+            else -> {
+                // callType Extra 없음 (-1) — 구버전 앱 또는 비표준 구현 → 2순위 판별로 넘어감
+                Log.d(TAG, "  → EXTRA_CALL_TYPE 없음 (구버전/비표준) → 계속 검증")
             }
         }
 
-        // 2단계: 발신 확실 여부 먼저 체크 (fullScreenIntent보다 우선 — Samsung은 발신에도 fullScreenIntent 있음)
+        // 2단계: FLAG_INSISTENT — 수신 벨소리 지속 플래그
+        Log.d(TAG, "  [2] FLAG_INSISTENT: $isInsistent")
+        if (isInsistent) {
+            Log.d(TAG, "  → 수신 (FLAG_INSISTENT)")
+            return true
+        }
+
+        // 3단계: android.text 수신 키워드 — Samsung CallStyle 수신 알림에 "수신전화" 세팅됨
+        //        발신은 "전화를 거는 중…" 등 다른 텍스트이므로 안전하게 구분 가능
+        val callText = notification.extras?.getCharSequence("android.text")
+            ?.toString()?.lowercase(Locale.getDefault()) ?: ""
+        Log.d(TAG, "  [3] android.text: '$callText'")
+        if (callText.contains("수신") || callText.contains("incoming")) {
+            Log.d(TAG, "  → 수신 (android.text 수신 키워드)")
+            return true
+        }
+
+        // 4단계: 발신 확실 여부 (종료 액션만 존재)
         val definitelyOutgoing = isDefinitelyOutgoing(notification)
-        Log.d(TAG, "  [2] 발신 확실(종료만 있음): $definitelyOutgoing")
+        Log.d(TAG, "  [4] 발신 확실(종료만 있음): $definitelyOutgoing")
         if (definitelyOutgoing) {
             Log.d(TAG, "  → 발신 (종료 액션만 있음)")
             return false
         }
 
-        // 3단계: 전통 방식 (모든 API 레벨)
-        Log.d(TAG, "  [3] 전통 방식 판단")
-        val fullScreenIntent = notification.fullScreenIntent
-        Log.d(TAG, "    - fullScreenIntent 있음: ${fullScreenIntent != null}")
-        if (fullScreenIntent != null) {
-            Log.d(TAG, "    → 수신 (fullScreenIntent 존재)")
+        // 5단계: fullScreenIntent (표준 Android dialer fallback)
+        Log.d(TAG, "  [5] fullScreenIntent 있음: $hasFullScreenIntent")
+        if (hasFullScreenIntent) {
+            Log.d(TAG, "  → 수신 (fullScreenIntent 존재)")
             return true
         }
 
-        val insistent = (notification.flags and Notification.FLAG_INSISTENT) != 0
-        Log.d(TAG, "    - FLAG_INSISTENT: $insistent")
-        if (insistent) {
-            Log.d(TAG, "    → 수신 (FLAG_INSISTENT)")
-            return true
-        }
-
+        // 6단계: 답하기 액션
         val hasAnswer = hasAnswerAction(notification)
-        Log.d(TAG, "    - 답하기 액션 있음: $hasAnswer")
+        Log.d(TAG, "  [6] 답하기 액션 있음: $hasAnswer")
         if (hasAnswer) {
-            Log.d(TAG, "    → 수신 (답하기 액션)")
+            Log.d(TAG, "  → 수신 (답하기 액션)")
             return true
         }
 
-        // 판단 불가 → 수신으로 간주
-        Log.d(TAG, "  [최종] 판단 불가 → 수신으로 간주 (보수적 판단)")
+        Log.d(TAG, "  [최종] 판단 불가 → 수신으로 간주")
         return true
     }
 
@@ -248,6 +314,14 @@ class EventNotificationListenerService : NotificationListenerService() {
 
         if (bonded.isEmpty()) {
             Log.d(TAG, "자동 재연결: 페어링된 디바이스 없음 → 스킵")
+            return
+        }
+
+        val anyEventEnabled = bonded.any { device ->
+            DevicePreferences.getCallEventEnabled(device.mac) || DevicePreferences.getSmsEventEnabled(device.mac)
+        }
+        if (!anyEventEnabled) {
+            Log.d(TAG, "자동 재연결: 모든 디바이스의 Call/SMS Event가 OFF → scan/connect 스킵")
             return
         }
 

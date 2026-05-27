@@ -2,7 +2,10 @@ package com.lightstick.music.ui.activity
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import androidx.activity.compose.BackHandler
+import android.provider.DocumentsContract
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -180,6 +183,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                val otaInProgressMap by deviceViewModel.otaInProgress.collectAsState()
+                val isAnyOtaInProgress = otaInProgressMap.values.any { it }
+
                 Scaffold(
                     contentWindowInsets = WindowInsets(0),
                     bottomBar = {
@@ -188,12 +194,13 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.navigationBarsPadding(),
                                 selectedRoute = currentRoute,
                                 onNavigate = { route ->
-                                    navController.navigate(route) {
-                                        popUpTo("effect") {
-                                            inclusive = false
+                                    if (!isAnyOtaInProgress) {
+                                        navController.navigate(route) {
+                                            popUpTo("effect") {
+                                                inclusive = false
+                                            }
+                                            launchSingleTop = true
                                         }
-
-                                        launchSingleTop = true
                                     }
                                 }
                             )
@@ -419,7 +426,16 @@ fun AppNavigation(
 
             // TODO: 최종 구현 시 서버 API로 최신 버전 조회 + 다운로드 URL 수신으로 대체
             val otaFilePicker = rememberLauncherForActivityResult(
-                ActivityResultContracts.OpenDocument()
+                object : ActivityResultContracts.OpenDocument() {
+                    override fun createIntent(context: android.content.Context, input: Array<String>): Intent {
+                        return super.createIntent(context, input).apply {
+                            putExtra(
+                                DocumentsContract.EXTRA_INITIAL_URI,
+                                Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ADownload")
+                            )
+                        }
+                    }
+                }
             ) { uri ->
                 uri?.let { deviceViewModel.checkFirmwareVersion(context, device, it) }
             }
@@ -458,6 +474,8 @@ fun AppNavigation(
             val isOtaInProgress  = otaInProgressMap[deviceMac] == true
             val otaProgress      = otaProgressMap[deviceMac] ?: 0
 
+            BackHandler(enabled = isOtaInProgress) { /* OTA 진행 중 뒤로가기 차단 */ }
+
             DeviceDetailScreen(
                 deviceName = device.name ?: "Unknown Device",
                 macAddress = device.mac,
@@ -470,7 +488,7 @@ fun AppNavigation(
                 isOtaInProgress = isOtaInProgress,
                 otaProgress = otaProgress,
                 onBackClick = {
-                    navController.popBackStack()
+                    if (!isOtaInProgress) navController.popBackStack()
                 },
                 onDisconnectClick = {
                     showDisconnectDialog = true
