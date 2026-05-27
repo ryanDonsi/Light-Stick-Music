@@ -9,6 +9,7 @@ import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.AutoTimelineGenerator
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v7
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v8
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v9
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -72,6 +73,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         val generator: AutoTimelineGenerator = when (version) {
             7 -> AutoTimelineGeneratorBeat_v7()
             8 -> AutoTimelineGeneratorBeat_v8()
+            9 -> AutoTimelineGeneratorBeat_v9()
             else -> throw IllegalArgumentException("Unsupported version: $version")
         }
 
