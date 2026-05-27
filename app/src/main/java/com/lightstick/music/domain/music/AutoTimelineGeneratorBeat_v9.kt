@@ -1193,7 +1193,7 @@ class AutoTimelineGeneratorBeat_v9 : AutoTimelineGenerator {
                 // ② MEDIUM 비트는 ON_PULSE와 별도 처리
                 if (beatEngine == FgEngine.ON_PULSE && beatAccent == BeatAccent.MEDIUM) {
                     val medFg  = colorsForEngine(palette, FgEngine.ON_TRANSIT_ROTATE, sameTypeIdx, beatIndex, section.type).first
-                    val medBg  = palette.black
+                    val medBg  = colorsForEngine(palette, FgEngine.ON_PULSE, sameTypeIdx, beatIndex, section.type).second
                     val holdMs = (section.beatMs * ON_PULSE_MEDIUM_HOLD_RATIO / 100L).coerceAtLeast(40L)
                     val offT   = minOf(section.endMs - 1L, t + holdMs)
 
@@ -1438,13 +1438,13 @@ class AutoTimelineGeneratorBeat_v9 : AutoTimelineGenerator {
         return when (engine) {
             FgEngine.ON_PULSE ->
                 if (isPatternA) palette.white to palette.onPulseSets[0].bg
-                else            sectionColor  to palette.black
-            FgEngine.BLINK, FgEngine.ON_TRANSIT_ROTATE -> groupColor to palette.black
-            FgEngine.STROBE  -> palette.white to palette.black
+                else            sectionColor  to palette.chorusBg
+            FgEngine.BLINK, FgEngine.ON_TRANSIT_ROTATE -> groupColor to palette.chorusBg
+            FgEngine.STROBE  -> palette.white to palette.chorusBg
             FgEngine.BREATH  -> palette.breathSet.fg to palette.breathSet.bg
             else ->
-                if (isPatternA) palette.bridgeSets[0].fg to palette.black
-                else            groupColor               to palette.black
+                if (isPatternA) palette.bridgeSets[0].fg to palette.chorusBg
+                else            groupColor               to palette.chorusBg
         }
     }
 
