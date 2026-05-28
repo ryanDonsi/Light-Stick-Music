@@ -70,6 +70,14 @@ object DeviceEventEffectSender {
             return
         }
 
+        val appContext = context.applicationContext
+        val wasTimelineActive = EffectEngineController.isTimelineActive()
+
+        if (wasTimelineActive) {
+            EffectEngineController.pauseEffects(appContext)
+            Log.d(TAG, "[SMS] 자동 타임라인 일시정지")
+        }
+
         val payload = LSEffectPayload.Effects.blink(
             period = 10,
             color = Colors.GREEN,
@@ -82,7 +90,6 @@ object DeviceEventEffectSender {
             isEnabled = { mac -> DevicePreferences.getSmsEventEnabled(mac) }
         )
 
-        val appContext = context.applicationContext
         smsBlinkJob = scope.launch {
             delay(SMS_BLINK_DURATION_MS)
             val offPayload = LSEffectPayload.Effects.off()
@@ -92,6 +99,10 @@ object DeviceEventEffectSender {
                 payload = offPayload,
                 isEnabled = { mac -> DevicePreferences.getSmsEventEnabled(mac) }
             )
+            if (wasTimelineActive) {
+                EffectEngineController.resumeEffects(appContext)
+                Log.d(TAG, "[SMS] 자동 타임라인 재개")
+            }
         }
     }
 
