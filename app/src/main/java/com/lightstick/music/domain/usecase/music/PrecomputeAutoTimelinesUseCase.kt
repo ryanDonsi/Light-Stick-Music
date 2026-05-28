@@ -11,6 +11,7 @@ import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v7
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v8
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v9
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v10
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v11
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -76,6 +77,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
             8  -> AutoTimelineGeneratorBeat_v8()
             9  -> AutoTimelineGeneratorBeat_v9()
             10 -> AutoTimelineGeneratorBeat_v10()
+            11 -> AutoTimelineGeneratorBeat_v11()
             else -> throw IllegalArgumentException("Unsupported version: $version")
         }
 
