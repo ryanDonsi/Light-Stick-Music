@@ -135,7 +135,8 @@ class AutoTimelineGeneratorBeat_v9 : AutoTimelineGenerator {
         val change: ChangeLevel,
         val energyScore: Float = 0f,
         val relScore: Float = 0f,
-        val repeatIndex: Int = 0  // ③ 같은 섹션 타입의 등장 횟수 (0-based)
+        val repeatIndex: Int = 0,     // ③ 같은 섹션 타입의 등장 횟수 (0-based)
+        val useBeatAccent: Boolean = true  // false = 클래식 2박자(홀수 스킵), true = STRONG/MEDIUM/WEAK 4박자
     )
 
     // =========================================================================
@@ -610,38 +611,39 @@ class AutoTimelineGeneratorBeat_v9 : AutoTimelineGenerator {
         val range = (highTh - lowTh).coerceAtLeast(1e-6f)
         val rel   = ((energyScore - lowTh) / range).coerceIn(0f, 1f)
 
-        val engine = when (normalizedType) {
+        val (engine, useBeatAccent) = when (normalizedType) {
 
             SectionType.VERSE -> when {
-                isBalladMode -> if (rel < 0.55f) FgEngine.BREATH else FgEngine.ON_TRANSIT_ROTATE
-                rel < 0.10f && beats < 8 -> FgEngine.BREATH
-                rel >= 0.85f -> FgEngine.BLINK              // ① VERSE 고에너지 BLINK
-                rel < 0.75f  -> FgEngine.ON_PULSE
-                else         -> FgEngine.ON_TRANSIT_ROTATE
+                isBalladMode -> if (rel < 0.55f) FgEngine.BREATH to false else FgEngine.ON_TRANSIT_ROTATE to false
+                rel < 0.10f && beats < 8 -> FgEngine.BREATH to false
+                rel >= 0.85f -> FgEngine.BLINK to false              // ① VERSE 고에너지 BLINK
+                rel < 0.40f  -> FgEngine.ON_PULSE to false           // 저에너지: 클래식 2박자 패턴
+                rel < 0.75f  -> FgEngine.ON_PULSE to true            // 중에너지: BeatAccent 4박자 패턴
+                else         -> FgEngine.ON_TRANSIT_ROTATE to false
             }
 
             SectionType.CHORUS -> when {
-                isBalladMode && (isClimaxSection || rel >= 0.65f) -> FgEngine.ON_TRANSIT_ROTATE
-                isBalladMode -> FgEngine.BREATH
-                beatMs <= 290L  -> FgEngine.STROBE
-                isClimaxSection -> FgEngine.STROBE
+                isBalladMode && (isClimaxSection || rel >= 0.65f) -> FgEngine.ON_TRANSIT_ROTATE to false
+                isBalladMode -> FgEngine.BREATH to false
+                beatMs <= 290L  -> FgEngine.STROBE to false
+                isClimaxSection -> FgEngine.STROBE to false
                 // ③ 반복 에스컬레이션 (발라드 제외)
-                repeatIndex >= 2 && rel >= 0.30f -> FgEngine.STROBE
-                repeatIndex >= 1 && rel >= 0.40f -> FgEngine.BLINK
+                repeatIndex >= 2 && rel >= 0.30f -> FgEngine.STROBE to false
+                repeatIndex >= 1 && rel >= 0.40f -> FgEngine.BLINK to false
                 // ① CHORUS 중간 템포 BLINK
-                beatMs in 291L..500L && rel >= 0.50f -> FgEngine.BLINK
-                rel >= 0.40f -> FgEngine.ON_TRANSIT_ROTATE
-                else         -> FgEngine.ON_PULSE
+                beatMs in 291L..500L && rel >= 0.50f -> FgEngine.BLINK to false
+                rel >= 0.40f -> FgEngine.ON_TRANSIT_ROTATE to false
+                else         -> FgEngine.ON_PULSE to false           // 저에너지 CHORUS: 클래식 2박자 패턴
             }
 
             SectionType.BRIDGE -> when {
-                isBalladMode -> FgEngine.BREATH
-                beats < 8    -> FgEngine.ON_TRANSIT_ROTATE
-                else         -> FgEngine.ON_PULSE
+                isBalladMode -> FgEngine.BREATH to false
+                beats < 8    -> FgEngine.ON_TRANSIT_ROTATE to false
+                else         -> FgEngine.ON_PULSE to false           // bridgePhaseEngine으로 동적 전환
             }
 
-            SectionType.INTRO -> FgEngine.BREATH
-            SectionType.END   -> FgEngine.OFF_TRANSIT
+            SectionType.INTRO -> FgEngine.BREATH to false
+            SectionType.END   -> FgEngine.OFF_TRANSIT to false
         }
 
         val source = when (normalizedType) {
@@ -673,23 +675,24 @@ class AutoTimelineGeneratorBeat_v9 : AutoTimelineGenerator {
             else      -> ChangeLevel.STRONG
         }
 
-        Log.d(TAG, "section energy type=$normalizedType engine=$engine repeatIdx=$repeatIndex " +
+        Log.d(TAG, "section energy type=$normalizedType engine=$engine useBeatAccent=$useBeatAccent repeatIdx=$repeatIndex " +
                 "energyScore=${"%.3f".format(energyScore)} relScore=${"%.3f".format(rel)} " +
                 "lowTh=${"%.3f".format(lowTh)} highTh=${"%.3f".format(highTh)} " +
                 "beatMs=${beatMs}ms beats=$beats")
 
         return Section(
-            startMs     = startMs,
-            endMs       = endMs,
-            type        = normalizedType,
-            engine      = engine,
-            beatMs      = beatMs,
-            beats       = beats,
-            source      = source,
-            change      = change,
-            energyScore = energyScore,
-            relScore    = rel,
-            repeatIndex = repeatIndex
+            startMs       = startMs,
+            endMs         = endMs,
+            type          = normalizedType,
+            engine        = engine,
+            beatMs        = beatMs,
+            beats         = beats,
+            source        = source,
+            change        = change,
+            energyScore   = energyScore,
+            relScore      = rel,
+            repeatIndex   = repeatIndex,
+            useBeatAccent = useBeatAccent
         )
     }
 
@@ -1182,7 +1185,11 @@ class AutoTimelineGeneratorBeat_v9 : AutoTimelineGenerator {
                 }
 
                 // ② 비트 강약 패턴
-                val beatAccent = if (beatEngine == FgEngine.ON_PULSE) beatAccentFor(beatIndex) else BeatAccent.STRONG
+                val beatAccent = when {
+                    beatEngine != FgEngine.ON_PULSE -> BeatAccent.STRONG
+                    section.useBeatAccent           -> beatAccentFor(beatIndex)          // 4박자 STRONG/MEDIUM/WEAK
+                    else -> if (beatIndex % 2 == 0) BeatAccent.STRONG else BeatAccent.WEAK  // 클래식: 홀수 스킵
+                }
                 val skipBeat   = (beatAccent == BeatAccent.WEAK)
 
                 if (skipBeat) {
