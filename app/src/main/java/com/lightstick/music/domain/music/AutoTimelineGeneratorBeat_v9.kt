@@ -1438,7 +1438,7 @@ class AutoTimelineGeneratorBeat_v9 : AutoTimelineGenerator {
         return when (engine) {
             FgEngine.ON_PULSE ->
                 if (isPatternA) palette.white to palette.onPulseSets[0].bg
-                else            sectionColor  to palette.black
+                else            sectionColor  to palette.chorusBg
             FgEngine.BLINK, FgEngine.ON_TRANSIT_ROTATE -> groupColor to palette.chorusBg
             FgEngine.STROBE  -> palette.white to palette.chorusBg
             FgEngine.BREATH  -> palette.breathSet.fg to palette.breathSet.bg
