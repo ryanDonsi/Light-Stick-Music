@@ -66,9 +66,9 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
 
         private const val SECTION_GAP_BREATH_THRESHOLD_MS = 2_000L
 
-        // 비트: 10% 구간 100% 밝기 → 나머지 90% 60% 밝기
-        private const val BEAT_BRIGHT_RATIO = 10L   // beatMs의 10% 후 dim 전환
-        private const val BEAT_DIM_LEVEL    = 0.6f  // sustain 구간 밝기 비율
+        // 비트: 10% 구간 fade=100% → 나머지 90% fade=60%
+        private const val BEAT_BRIGHT_RATIO = 10L  // beatMs의 10% 후 dim 전환
+        private const val BEAT_FADE_DIM     = 60   // sustain 구간 fade 값 (60%)
 
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
 
@@ -97,7 +97,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
     }
 
     enum class FgEngine {
-        ON_PULSE, BLINK, STROBE, BREATH, ON_TRANSIT_ROTATE, OFF_TRANSIT
+        ON_PULSE, BLINK, STROBE, BREATH, ON_ROTATE, ON_TRANSIT_ROTATE, OFF_TRANSIT
     }
 
     enum class SectionType {
@@ -623,7 +623,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                 rel >= 0.85f -> FgEngine.BLINK to false
                 rel < 0.40f  -> FgEngine.ON_PULSE to false
                 rel < 0.75f  -> FgEngine.ON_PULSE to true
-                else         -> FgEngine.ON_TRANSIT_ROTATE to false
+                else         -> FgEngine.ON_ROTATE to false
             }
 
             SectionType.CHORUS -> when {
@@ -634,13 +634,13 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                 repeatIndex >= 2 && rel >= 0.30f -> FgEngine.STROBE to false
                 repeatIndex >= 1 && rel >= 0.40f -> FgEngine.BLINK to false
                 beatMs in 291L..500L && rel >= 0.50f -> FgEngine.BLINK to false
-                rel >= 0.40f -> FgEngine.ON_TRANSIT_ROTATE to false
+                rel >= 0.40f -> FgEngine.ON_ROTATE to false
                 else         -> FgEngine.ON_PULSE to false
             }
 
             SectionType.BRIDGE -> when {
                 isBalladMode -> FgEngine.BREATH to false
-                beats < 8    -> FgEngine.ON_TRANSIT_ROTATE to false
+                beats < 8    -> FgEngine.ON_ROTATE to false
                 else         -> FgEngine.ON_PULSE to false
             }
 
@@ -652,13 +652,15 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
             SectionType.VERSE -> when (engine) {
                 FgEngine.BLINK             -> "verse-blink-black-bg"
                 FgEngine.BREATH            -> "verse-breath-black-bg"
-                FgEngine.ON_TRANSIT_ROTATE -> "verse-rotate-black-bg"
+                FgEngine.ON_ROTATE         -> "verse-rotate-black-bg"
+                FgEngine.ON_TRANSIT_ROTATE -> "verse-rotate-ballad-bg"
                 else                       -> "verse-on-pulse-black-bg"
             }
             SectionType.CHORUS -> when (engine) {
                 FgEngine.STROBE            -> "chorus-strobe-color-bg"
                 FgEngine.BLINK             -> "chorus-blink-color-bg"
-                FgEngine.ON_TRANSIT_ROTATE -> "chorus-rotate-color-bg"
+                FgEngine.ON_ROTATE         -> "chorus-rotate-color-bg"
+                FgEngine.ON_TRANSIT_ROTATE -> "chorus-rotate-ballad-bg"
                 FgEngine.BREATH            -> "chorus-breath-color-bg"
                 else                       -> "chorus-on-pulse-color-bg"
             }
@@ -1095,6 +1097,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                     section, "SECTION_START", section.engine, fg = fg, bg = bg,
                     transit = when (section.engine) {
                         FgEngine.ON_PULSE          -> ON_TRANSIT
+                        FgEngine.ON_ROTATE         -> null
                         FgEngine.ON_TRANSIT_ROTATE -> rotateTransit.takeIf { it > 0 }
                         else                       -> null
                     },
@@ -1128,7 +1131,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                 val longCoverThresholdMs = section.beatMs * 3L / 2L
                 if (coverGapMs <= longCoverThresholdMs) {
                     val coverEngine = when (section.engine) {
-                        FgEngine.ON_TRANSIT_ROTATE, FgEngine.STROBE, FgEngine.BLINK -> FgEngine.BREATH
+                        FgEngine.ON_ROTATE, FgEngine.ON_TRANSIT_ROTATE, FgEngine.STROBE, FgEngine.BLINK -> FgEngine.BREATH
                         else -> section.engine
                     }
                     val (cvFg, cvBg) = if (coverEngine == FgEngine.BREATH)
@@ -1161,6 +1164,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                             fg = cvFg, bg = cvBg,
                             transit = when (section.engine) {
                                 FgEngine.ON_PULSE          -> ON_TRANSIT
+                                FgEngine.ON_ROTATE         -> null
                                 FgEngine.ON_TRANSIT_ROTATE -> fillRotateTransit.takeIf { it > 0 }
                                 else                       -> null
                             },
@@ -1222,8 +1226,9 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                 //  - 클라이맥스/발라드는 오버라이드 없음
                 val phraseEngineOverride: FgEngine? = when {
                     climaxPhase != ClimaxPhase.NONE || isBalladMode -> null
+                    effectiveBeatEngine == FgEngine.ON_ROTATE         && phraseIdx % 3 == 1 -> FgEngine.ON_PULSE
                     effectiveBeatEngine == FgEngine.ON_TRANSIT_ROTATE && phraseIdx % 3 == 1 -> FgEngine.ON_PULSE
-                    effectiveBeatEngine == FgEngine.BLINK && phraseIdx % 4 == 1             -> FgEngine.ON_PULSE
+                    effectiveBeatEngine == FgEngine.BLINK             && phraseIdx % 4 == 1 -> FgEngine.ON_PULSE
                     else -> null
                 }
                 val finalBeatEngine = phraseEngineOverride ?: effectiveBeatEngine
@@ -1251,10 +1256,9 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                             note = "beatIndex=$beatIndex phase=$phase phraseIdx=$phraseIdx accent=MEDIUM bright100%")
                     }
                     if (dimT > t && !frameMap.containsKey(dimT)) {
-                        val dimMedFg = dimColor(medFg, BEAT_DIM_LEVEL)
-                        putFrame(dimT, LSEffectPayload.Effects.on(color = dimMedFg, transit = ON_TRANSIT).toByteArray(),
-                            section, "BEAT_MED_DIM", FgEngine.ON_PULSE, fg = dimMedFg, transit = ON_TRANSIT,
-                            note = "beatIndex=$beatIndex phase=$phase accent=MEDIUM dim60% at ${dimT - t}ms")
+                        putFrame(dimT, LSEffectPayload.Effects.on(color = medFg, transit = ON_TRANSIT, fade = BEAT_FADE_DIM).toByteArray(),
+                            section, "BEAT_MED_DIM", FgEngine.ON_PULSE, fg = medFg, transit = ON_TRANSIT,
+                            note = "beatIndex=$beatIndex phase=$phase accent=MEDIUM fade60% at ${dimT - t}ms")
                     }
                     continue
                 }
@@ -1288,8 +1292,9 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                 }
                 val beatRandomDelay = when {
                     finalBeatEngine == FgEngine.STROBE && climaxPhase == ClimaxPhase.PEAK -> 1
+                    finalBeatEngine == FgEngine.ON_ROTATE         -> null
                     finalBeatEngine == FgEngine.ON_TRANSIT_ROTATE -> null
-                    finalBeatEngine == FgEngine.ON_PULSE           -> null
+                    finalBeatEngine == FgEngine.ON_PULSE          -> null
                     finalBeatEngine == FgEngine.BREATH && section.type == SectionType.VERSE -> 0
                     finalBeatEngine == FgEngine.BREATH             -> msToBreathRandomDelay(section.beatMs)
                     else                                            -> null
@@ -1302,7 +1307,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                 //  - BLINK: 색상 또는 period 변경 시만 전송 (프레이즈 전환 감지 포함)
                 //  - STROBE/BREATH: 동일 파라미터 중복 차단
                 val skipRepeat = when (finalBeatEngine) {
-                    FgEngine.ON_TRANSIT_ROTATE -> { lastRepeatKey = null; false }
+                    FgEngine.ON_ROTATE, FgEngine.ON_TRANSIT_ROTATE -> { lastRepeatKey = null; false }
                     FgEngine.STROBE, FgEngine.BREATH -> {
                         val key = RepeatKey(finalBeatEngine,
                             fg.r, fg.g, fg.b, bg.r, bg.g, bg.b,
@@ -1329,7 +1334,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                             section.relScore >= DOWNBEAT_FLASH_MIN_REL &&
                             !isBalladMode &&
                             climaxPhase != ClimaxPhase.PEAK &&
-                            (finalBeatEngine == FgEngine.ON_PULSE || finalBeatEngine == FgEngine.ON_TRANSIT_ROTATE)
+                            (finalBeatEngine == FgEngine.ON_PULSE || finalBeatEngine == FgEngine.ON_ROTATE || finalBeatEngine == FgEngine.ON_TRANSIT_ROTATE)
 
                     if (isDownbeatFlash) {
                         val flashT = (t - DOWNBEAT_FLASH_LEAD_MS).coerceAtLeast(section.startMs)
@@ -1345,6 +1350,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                         section, "BEAT_FG", finalBeatEngine, fg = fg, bg = bg,
                         transit = when (finalBeatEngine) {
                             FgEngine.ON_PULSE          -> ON_TRANSIT
+                            FgEngine.ON_ROTATE         -> null
                             FgEngine.ON_TRANSIT_ROTATE -> beatRotateTransit.takeIf { it > 0 }
                             else                       -> null
                         },
@@ -1361,14 +1367,14 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                         })
                 }
 
-                // STRONG ON_PULSE: 10% 구간 100% 밝기 → 나머지 90% 60% 밝기
-                if (finalBeatEngine == FgEngine.ON_PULSE && beatAccent == BeatAccent.STRONG && !skipRepeat) {
+                // ON_PULSE / ON_ROTATE: 10% 구간 fade=100% → 나머지 90% fade=60%
+                if ((finalBeatEngine == FgEngine.ON_PULSE || finalBeatEngine == FgEngine.ON_ROTATE)
+                    && beatAccent == BeatAccent.STRONG && !skipRepeat) {
                     val dimT = minOf(section.endMs - 1L, t + section.beatMs / BEAT_BRIGHT_RATIO)
                     if (dimT > t && !frameMap.containsKey(dimT)) {
-                        val dimFg = dimColor(fg, BEAT_DIM_LEVEL)
-                        putFrame(dimT, LSEffectPayload.Effects.on(color = dimFg, transit = ON_TRANSIT).toByteArray(),
-                            section, "BEAT_DIM", FgEngine.ON_PULSE, fg = dimFg, transit = ON_TRANSIT,
-                            note = "beatIndex=$beatIndex phase=$phase phraseIdx=$phraseIdx dim60% at ${dimT - t}ms")
+                        putFrame(dimT, LSEffectPayload.Effects.on(color = fg, transit = ON_TRANSIT, fade = BEAT_FADE_DIM).toByteArray(),
+                            section, "BEAT_DIM", finalBeatEngine, fg = fg, transit = ON_TRANSIT,
+                            note = "beatIndex=$beatIndex phase=$phase phraseIdx=$phraseIdx fade60% at ${dimT - t}ms")
                     }
                 }
             }
@@ -1445,14 +1451,6 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
         }
     }
 
-    /** RGB 각 채널을 ratio 배 스케일 다운 (0.0~1.0). 비트 sustain 60% 연출에 사용. */
-    private fun dimColor(c: LSColor, ratio: Float): LSColor =
-        LSColor(
-            (c.r * ratio).toInt().coerceIn(0, 255),
-            (c.g * ratio).toInt().coerceIn(0, 255),
-            (c.b * ratio).toInt().coerceIn(0, 255)
-        )
-
     // =========================================================================
     // Payload builders
     // =========================================================================
@@ -1474,6 +1472,8 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
             LSEffectPayload.Effects.breath(period = period ?: msToBreathPeriod(beatMs),
                 color = fg, backgroundColor = bg,
                 randomDelay = randomDelay.takeIf { it > 0 } ?: 5).toByteArray()
+        FgEngine.ON_ROTATE ->
+            LSEffectPayload.Effects.on(color = fg, transit = 0).toByteArray()
         FgEngine.ON_TRANSIT_ROTATE ->
             LSEffectPayload.Effects.on(color = fg, transit = rotateTransit).toByteArray()
         FgEngine.OFF_TRANSIT -> buildOffPayload()
@@ -1509,14 +1509,14 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
             totalBeats < 8  -> FgEngine.STROBE
             totalBeats < 16 -> {
                 val phase = beatIndex.toFloat() / totalBeats
-                if (phase < strobeEntry) FgEngine.BREATH else FgEngine.ON_TRANSIT_ROTATE
+                if (phase < strobeEntry) FgEngine.BREATH else FgEngine.ON_ROTATE
             }
             else -> {
                 val phase = beatIndex.toFloat() / totalBeats
                 val rotateEntry = (strobeEntry - 0.25f - relScore * 0.10f).coerceIn(0.10f, strobeEntry - 0.10f)
                 when {
                     phase < rotateEntry -> FgEngine.BREATH
-                    else                -> FgEngine.ON_TRANSIT_ROTATE
+                    else                -> FgEngine.ON_ROTATE
                 }
             }
         }
@@ -1594,7 +1594,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                 if (isPatternA) palette.white to palette.onPulseSets[0].bg
                 else            sectionColor  to palette.chorusBg
             // ③ BLINK/ON_TRANSIT_ROTATE: beatIndex 기반 groupColor 사용 (skipRepeat 완화 시 더 다양)
-            FgEngine.BLINK, FgEngine.ON_TRANSIT_ROTATE -> groupColor to palette.chorusBg
+            FgEngine.BLINK, FgEngine.ON_ROTATE, FgEngine.ON_TRANSIT_ROTATE -> groupColor to palette.chorusBg
             FgEngine.STROBE  -> palette.white to palette.chorusBg
             FgEngine.BREATH  -> palette.breathSet.fg to palette.breathSet.bg
             else ->
