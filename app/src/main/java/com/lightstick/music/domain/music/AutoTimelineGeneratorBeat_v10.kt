@@ -944,6 +944,27 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
         }
     }
 
+    /**
+     * 프레이즈 인덱스(phraseIdx % 4)에 따라 4가지 리듬 패턴을 순환 적용:
+     *  0: Standard  — beatAccentForPhase() 위임 (기본 박자)
+     *  1: Sparse    — 다운비트(phase 0)만 STRONG, 나머지 WEAK
+     *  2: Dense     — phase 0 = STRONG, 나머지 모두 MEDIUM
+     *  3: Backbeat  — 약박에 STRONG 배치 (역박자 강조)
+     */
+    private fun phraseAccentFor(phase: Int, beatsPerBar: Int, phraseIdx: Int, useBeatAccent: Boolean): BeatAccent {
+        return when (phraseIdx % 4) {
+            0 -> beatAccentForPhase(phase, beatsPerBar, useBeatAccent)
+            1 -> if (phase == 0) BeatAccent.STRONG else BeatAccent.WEAK
+            2 -> if (phase == 0) BeatAccent.STRONG else BeatAccent.MEDIUM
+            3 -> when (beatsPerBar) {
+                3    -> when (phase) { 1 -> BeatAccent.STRONG; 0 -> BeatAccent.MEDIUM; else -> BeatAccent.WEAK }
+                6    -> when (phase) { 1, 4 -> BeatAccent.STRONG; 0 -> BeatAccent.MEDIUM; else -> BeatAccent.WEAK }
+                else -> when (phase) { 1, 3 -> BeatAccent.STRONG; 0 -> BeatAccent.MEDIUM; else -> BeatAccent.WEAK }
+            }
+            else -> beatAccentForPhase(phase, beatsPerBar, useBeatAccent)
+        }
+    }
+
     // =========================================================================
     // 클라이맥스 단계 판정 (v9와 동일)
     // =========================================================================
@@ -1159,8 +1180,9 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
             }
 
             // ── 비트 루프 ──
-            // ③ BLINK 색상 전환 상태
+            // 섹션 단위 상태 변수
             var lastBlinkColorIndex = -1
+            var lastBlinkPeriod     = -1
 
             for ((beatIndex, t) in effectiveSectionBeats.withIndex()) {
 
@@ -1187,32 +1209,48 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                     else -> beatEngine
                 }
 
-                // ② 다운비트 기준 비트 강약
-                val phase = beatPhaseAtTime(t, firstDownbeatMs, section.beatMs, beatsPerBar)
+                // ② 다운비트 위상 & 프레이즈 인덱스 계산 (비트 강약 + 패턴 변화에 공용)
+                val phase      = beatPhaseAtTime(t, firstDownbeatMs, section.beatMs, beatsPerBar)
+                val measureIdx = beatIndex / beatsPerBar
+                // 프레이즈 = 4마디. 섹션 길이가 짧으면 2마디로 줄임
+                val phraseBars  = if (section.beats / beatsPerBar >= 8) 4 else 2
+                val phraseBeats = beatsPerBar * phraseBars
+                val phraseIdx   = beatIndex / phraseBeats
+
+                // ③+ 프레이즈 엔진 오버라이드
+                //  - ON_TRANSIT_ROTATE 섹션: 3프레이즈 중 1프레이즈를 ON_PULSE로 전환 (여백 패턴)
+                //  - BLINK 섹션          : 4프레이즈 중 1프레이즈를 ON_PULSE로 전환 (임팩트 패턴)
+                //  - 클라이맥스/발라드는 오버라이드 없음
+                val phraseEngineOverride: FgEngine? = when {
+                    climaxPhase != ClimaxPhase.NONE || isBalladMode -> null
+                    effectiveBeatEngine == FgEngine.ON_TRANSIT_ROTATE && phraseIdx % 3 == 1 -> FgEngine.ON_PULSE
+                    effectiveBeatEngine == FgEngine.BLINK && phraseIdx % 4 == 1             -> FgEngine.ON_PULSE
+                    else -> null
+                }
+                val finalBeatEngine = phraseEngineOverride ?: effectiveBeatEngine
+
+                // ② 비트 강약: ON_PULSE일 때 프레이즈별 리듬 패턴 적용
                 val beatAccent = when {
-                    beatEngine != FgEngine.ON_PULSE -> BeatAccent.STRONG
-                    else -> beatAccentForPhase(phase, beatsPerBar, section.useBeatAccent)
+                    finalBeatEngine != FgEngine.ON_PULSE -> BeatAccent.STRONG
+                    else -> phraseAccentFor(phase, beatsPerBar, phraseIdx, section.useBeatAccent)
                 }
                 val skipBeat = (beatAccent == BeatAccent.WEAK)
 
                 if (skipBeat) {
-                    Log.d(TAG, "timeline skip-weak t=${t}ms section=${section.type} beatIndex=$beatIndex phase=$phase")
+                    Log.d(TAG, "timeline skip-weak t=${t}ms section=${section.type} beatIndex=$beatIndex phase=$phase phraseIdx=$phraseIdx")
                     continue
                 }
 
-                // ② MEDIUM 비트 처리
-                if (beatEngine == FgEngine.ON_PULSE && beatAccent == BeatAccent.MEDIUM) {
-                    // ③ MEDIUM 비트도 마디 단위 색상 사용
-                    val measureIdx = beatIndex / beatsPerBar
+                // MEDIUM 비트 처리 (ON_PULSE 전용)
+                if (finalBeatEngine == FgEngine.ON_PULSE && beatAccent == BeatAccent.MEDIUM) {
                     val medFg  = onPulseStrongColor(palette, sameTypeIdx, measureIdx + 1, section.type)
                     val medBg  = palette.black
                     val holdMs = (section.beatMs * ON_PULSE_MEDIUM_HOLD_RATIO / 100L).coerceAtLeast(40L)
                     val offT   = minOf(section.endMs - 1L, t + holdMs)
-
                     if (!frameMap.containsKey(t)) {
                         putFrame(t, LSEffectPayload.Effects.on(color = medFg, transit = ON_TRANSIT).toByteArray(),
                             section, "BEAT_MED", FgEngine.ON_PULSE, fg = medFg, transit = ON_TRANSIT,
-                            note = "beatIndex=$beatIndex phase=$phase accent=MEDIUM holdMs=$holdMs")
+                            note = "beatIndex=$beatIndex phase=$phase phraseIdx=$phraseIdx accent=MEDIUM holdMs=$holdMs")
                     }
                     if (offT > t && !frameMap.containsKey(offT)) {
                         putFrame(offT, LSEffectPayload.Effects.on(color = medBg, transit = ON_TRANSIT).toByteArray(),
@@ -1224,48 +1262,50 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
 
                 // ── 일반 엔진 처리 (STRONG 비트 + 비-ON_PULSE 엔진) ──
 
-                val measureIdx = beatIndex / beatsPerBar
+                // ③+ BLINK 프레이즈별 period 변화: 홀수 프레이즈 1.4배 느리게 → 빠름↔느림 교번
+                val blinkBasePeriod = msToBlinkPeriod(section.beatMs)
+                val blinkPeriod = if (phraseIdx % 2 == 1)
+                    (blinkBasePeriod * 14 / 10).coerceIn(1, 255)
+                else blinkBasePeriod
 
-                // ③ BLINK: 마디 단위 색상 전환
-                val (fg, bg) = when {
-                    effectiveBeatEngine == FgEngine.BLINK -> {
+                val (fg, bg) = when (finalBeatEngine) {
+                    FgEngine.BLINK -> {
                         val blinkColorIdx = (measureIdx / BLINK_COLOR_CHANGE_BARS) % palette.blinkSets.size
                         palette.blinkSets[blinkColorIdx].fg to palette.blinkSets[blinkColorIdx].bg
                     }
-                    effectiveBeatEngine == FgEngine.BREATH ->
+                    FgEngine.BREATH ->
                         breathColorsFor(palette, section.type, sameTypeIdx)
-                    effectiveBeatEngine == FgEngine.ON_PULSE ->
-                        // ③ STRONG 박자: 마디 단위 색상 순환
+                    FgEngine.ON_PULSE ->
                         onPulseStrongColor(palette, sameTypeIdx, measureIdx, section.type) to
                         onPulseBgColor(palette, sameTypeIdx, measureIdx, section.type)
                     else ->
-                        colorsForEngine(palette, effectiveBeatEngine, sameTypeIdx, beatIndex, section.type)
+                        colorsForEngine(palette, finalBeatEngine, sameTypeIdx, beatIndex, section.type)
                 }
-                val beatPeriod = when (effectiveBeatEngine) {
+                val beatPeriod = when (finalBeatEngine) {
                     FgEngine.STROBE -> 1
-                    FgEngine.BLINK  -> (msToBlinkPeriod(section.beatMs) * (1f - progress * 0.35f)).toInt().coerceIn(1, 255)
+                    FgEngine.BLINK  -> (blinkPeriod * (1f - progress * 0.35f)).toInt().coerceIn(1, 255)
                     FgEngine.BREATH -> (msToBreathPeriod(section.beatMs) * (1f - progress * 0.40f)).toInt().coerceIn(1, 255)
                     else            -> null
                 }
                 val beatRandomDelay = when {
-                    effectiveBeatEngine == FgEngine.STROBE && climaxPhase == ClimaxPhase.PEAK -> 1
-                    effectiveBeatEngine == FgEngine.ON_TRANSIT_ROTATE -> null
-                    effectiveBeatEngine == FgEngine.ON_PULSE           -> null
-                    effectiveBeatEngine == FgEngine.BREATH && section.type == SectionType.VERSE -> 0
-                    effectiveBeatEngine == FgEngine.BREATH             -> msToBreathRandomDelay(section.beatMs)
-                    else                                                -> null
+                    finalBeatEngine == FgEngine.STROBE && climaxPhase == ClimaxPhase.PEAK -> 1
+                    finalBeatEngine == FgEngine.ON_TRANSIT_ROTATE -> null
+                    finalBeatEngine == FgEngine.ON_PULSE           -> null
+                    finalBeatEngine == FgEngine.BREATH && section.type == SectionType.VERSE -> 0
+                    finalBeatEngine == FgEngine.BREATH             -> msToBreathRandomDelay(section.beatMs)
+                    else                                            -> null
                 }
-                val beatRotateTransit = if (effectiveBeatEngine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
+                val beatRotateTransit = if (finalBeatEngine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
                     ON_ROTATE_BALLAD_TRANSIT else 0
 
-                // ③ skipRepeat:
+                // skipRepeat:
                 //  - ON_TRANSIT_ROTATE: 항상 전송 (매 비트 색상 갱신)
-                //  - BLINK: 마디(bar)마다 색상이 바뀔 때만 전송
+                //  - BLINK: 색상 또는 period 변경 시만 전송 (프레이즈 전환 감지 포함)
                 //  - STROBE/BREATH: 동일 파라미터 중복 차단
-                val skipRepeat = when (effectiveBeatEngine) {
-                    FgEngine.ON_TRANSIT_ROTATE -> { lastRepeatKey = null; false }  // ③ 항상 전송
+                val skipRepeat = when (finalBeatEngine) {
+                    FgEngine.ON_TRANSIT_ROTATE -> { lastRepeatKey = null; false }
                     FgEngine.STROBE, FgEngine.BREATH -> {
-                        val key = RepeatKey(effectiveBeatEngine,
+                        val key = RepeatKey(finalBeatEngine,
                             fg.r, fg.g, fg.b, bg.r, bg.g, bg.b,
                             beatPeriod ?: 0, beatRandomDelay ?: 0)
                         val dup = (key == lastRepeatKey); lastRepeatKey = key; dup
@@ -1273,44 +1313,46 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                     FgEngine.BLINK -> {
                         lastRepeatKey = null
                         val blinkColorIdx = (measureIdx / BLINK_COLOR_CHANGE_BARS) % palette.blinkSets.size
-                        val changed = (blinkColorIdx != lastBlinkColorIndex)
-                        if (changed) lastBlinkColorIndex = blinkColorIdx
-                        !changed  // ③ 색상 변경 시에만 전송
+                        val currPeriod = beatPeriod ?: 0
+                        val changed = (blinkColorIdx != lastBlinkColorIndex) || (currPeriod != lastBlinkPeriod)
+                        if (changed) { lastBlinkColorIndex = blinkColorIdx; lastBlinkPeriod = currPeriod }
+                        !changed
                     }
                     else -> { lastRepeatKey = null; false }
                 }
 
                 if (skipRepeat) {
                     Log.d(TAG, "timeline skip-repeat t=${t}ms section=${section.type} " +
-                            "engine=${effectiveBeatEngine.name} beatIndex=$beatIndex")
+                            "engine=${finalBeatEngine.name} beatIndex=$beatIndex phraseIdx=$phraseIdx")
                 } else {
-                    // ④ 다운비트 임팩트 플래시: phase=0 + 고에너지 + ON_PULSE/ON_TRANSIT_ROTATE
+                    // ④ 다운비트 임팩트 플래시
                     val isDownbeatFlash = phase == 0 &&
                             section.relScore >= DOWNBEAT_FLASH_MIN_REL &&
                             !isBalladMode &&
                             climaxPhase != ClimaxPhase.PEAK &&
-                            (effectiveBeatEngine == FgEngine.ON_PULSE || effectiveBeatEngine == FgEngine.ON_TRANSIT_ROTATE)
+                            (finalBeatEngine == FgEngine.ON_PULSE || finalBeatEngine == FgEngine.ON_TRANSIT_ROTATE)
 
                     if (isDownbeatFlash) {
                         val flashT = (t - DOWNBEAT_FLASH_LEAD_MS).coerceAtLeast(section.startMs)
                         if (flashT < t && !frameMap.containsKey(flashT)) {
                             putFrame(flashT, LSEffectPayload.Effects.on(color = palette.white, transit = 0).toByteArray(),
-                                section, "DOWNBEAT_FLASH", effectiveBeatEngine, fg = palette.white, transit = 0,
+                                section, "DOWNBEAT_FLASH", finalBeatEngine, fg = palette.white, transit = 0,
                                 note = "phase=$phase relScore=${"%.2f".format(section.relScore)} impact-flash")
                         }
                     }
 
-                    putFrame(t, buildPayload(effectiveBeatEngine, fg, bg, section.beatMs, beatPeriod,
+                    putFrame(t, buildPayload(finalBeatEngine, fg, bg, section.beatMs, beatPeriod,
                         beatRandomDelay ?: 0, rotateTransit = beatRotateTransit),
-                        section, "BEAT_FG", effectiveBeatEngine, fg = fg, bg = bg,
-                        transit = when (effectiveBeatEngine) {
+                        section, "BEAT_FG", finalBeatEngine, fg = fg, bg = bg,
+                        transit = when (finalBeatEngine) {
                             FgEngine.ON_PULSE          -> 0
                             FgEngine.ON_TRANSIT_ROTATE -> beatRotateTransit.takeIf { it > 0 }
                             else                       -> null
                         },
                         period = beatPeriod, randomDelay = beatRandomDelay,
                         note = buildString {
-                            append("beatIndex=$beatIndex phase=$phase measureIdx=$measureIdx")
+                            append("beatIndex=$beatIndex phase=$phase measureIdx=$measureIdx phraseIdx=$phraseIdx")
+                            if (phraseEngineOverride != null) append(" [phrase-override=${phraseEngineOverride.name}]")
                             append(if (actualSectionBeats.isEmpty()) " grid-beat" else " actual-beat")
                             if (climaxPhase == ClimaxPhase.PEAK) append(" [climax-peak]")
                             if (climaxPhase == ClimaxPhase.BUILDUP) append(" [climax-buildup progress=${"%.2f".format(progress)}]")
@@ -1321,7 +1363,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                 }
 
                 // STRONG ON_PULSE BG 복원
-                if (beatEngine == FgEngine.ON_PULSE && beatAccent == BeatAccent.STRONG) {
+                if (finalBeatEngine == FgEngine.ON_PULSE && beatAccent == BeatAccent.STRONG) {
                     val holdMs = minOf(ON_PULSE_ACCENT_HOLD_MS * 2L, section.beatMs * ON_PULSE_STRONG_HOLD_RATIO / 100L).coerceAtLeast(60L)
                     val offT   = minOf(section.endMs - 1L, t + holdMs)
                     if (offT > t) {
@@ -1332,7 +1374,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                                 val cycleMs  = section.beatMs * 2L
                                 val gapMs    = cycleMs - holdMs
                                 val dutyPct  = holdMs * 100L / cycleMs
-                                append("restore beatIndex=$beatIndex phase=$phase hold=${holdMs}ms gap=${gapMs}ms duty=${dutyPct}%")
+                                append("restore beatIndex=$beatIndex phase=$phase phraseIdx=$phraseIdx hold=${holdMs}ms gap=${gapMs}ms duty=${dutyPct}%")
                             })
                     }
                 }
