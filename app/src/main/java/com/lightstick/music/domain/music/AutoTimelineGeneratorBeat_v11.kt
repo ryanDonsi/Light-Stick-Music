@@ -16,8 +16,8 @@ import kotlin.random.Random
 /**
  * AutoTimelineGeneratorBeat v11
  *
- * v8 기반 + 다음 두 가지 핵심 개선:
- * ① BeatDetectorV10 적용 — 신뢰도 기반 비트 감지, adaptive segmentation
+ * v8 기반 + 핵심 개선:
+ * ① BeatDetectorV11 적용 — 정박자(다운비트) 최우선 감지, 그리드 재정렬
  * ② 비트 10%/90% fade 패턴 — 비트 시작 fade=100%, t+beatMs×10% 이후 fade=60%
  *    (ON_PULSE / ON_TRANSIT_ROTATE 모두 적용)
  *
@@ -153,11 +153,11 @@ class AutoTimelineGeneratorBeat_v11 : AutoTimelineGenerator {
 
         val durationMs = envSize.toLong() * HOP_MS
 
-        val detect = BeatDetectorV10.detect(
+        val detect = BeatDetectorV11.detect(
             lowEnv = lowEnv.take(envSize),
             midEnv = midEnv.take(envSize),
             fullEnv = fullEnv.take(envSize),
-            params = BeatDetectorV10.Params(
+            params = BeatDetectorV11.Params(
                 hopMs = HOP_MS,
                 minBeatMs = MIN_BEAT_MS,
                 maxBeatMs = MAX_BEAT_MS,
@@ -168,7 +168,6 @@ class AutoTimelineGeneratorBeat_v11 : AutoTimelineGenerator {
                 snapToleranceMs = 80L,
                 chainToleranceMs = 120L,
                 minChainCount = 3,
-                useAdaptiveSegment = true,
                 continuityBonus = 0.08f
             )
         )
