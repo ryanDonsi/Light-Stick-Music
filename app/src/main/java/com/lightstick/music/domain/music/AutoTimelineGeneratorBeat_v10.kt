@@ -66,10 +66,9 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
 
         private const val SECTION_GAP_BREATH_THRESHOLD_MS = 2_000L
 
-        private const val ON_PULSE_ACCENT_HOLD_MS    = 200L
-        private const val ON_PULSE_STRONG_HOLD_RATIO = 44L
-        private const val ON_PULSE_MEDIUM_HOLD_RATIO = 18L
-        private const val ON_PULSE_BG_TRANSIT        = 5
+        // 비트: 10% 구간 100% 밝기 → 나머지 90% 60% 밝기
+        private const val BEAT_BRIGHT_RATIO = 10L   // beatMs의 10% 후 dim 전환
+        private const val BEAT_DIM_LEVEL    = 0.6f  // sustain 구간 밝기 비율
 
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
 
@@ -1242,20 +1241,20 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                 }
 
                 // MEDIUM 비트 처리 (ON_PULSE 전용)
+                // 10% 구간 100% 밝기 → 나머지 90% 60% 밝기
                 if (finalBeatEngine == FgEngine.ON_PULSE && beatAccent == BeatAccent.MEDIUM) {
                     val medFg  = onPulseStrongColor(palette, sameTypeIdx, measureIdx + 1, section.type)
-                    val medBg  = palette.black
-                    val holdMs = (section.beatMs * ON_PULSE_MEDIUM_HOLD_RATIO / 100L).coerceAtLeast(40L)
-                    val offT   = minOf(section.endMs - 1L, t + holdMs)
+                    val dimT   = minOf(section.endMs - 1L, t + section.beatMs / BEAT_BRIGHT_RATIO)
                     if (!frameMap.containsKey(t)) {
                         putFrame(t, LSEffectPayload.Effects.on(color = medFg, transit = ON_TRANSIT).toByteArray(),
                             section, "BEAT_MED", FgEngine.ON_PULSE, fg = medFg, transit = ON_TRANSIT,
-                            note = "beatIndex=$beatIndex phase=$phase phraseIdx=$phraseIdx accent=MEDIUM holdMs=$holdMs")
+                            note = "beatIndex=$beatIndex phase=$phase phraseIdx=$phraseIdx accent=MEDIUM bright100%")
                     }
-                    if (offT > t && !frameMap.containsKey(offT)) {
-                        putFrame(offT, LSEffectPayload.Effects.on(color = medBg, transit = ON_TRANSIT).toByteArray(),
-                            section, "BEAT_MED_BG", FgEngine.ON_PULSE, fg = medBg, transit = ON_TRANSIT,
-                            note = "beatIndex=$beatIndex phase=$phase accent=MEDIUM restore")
+                    if (dimT > t && !frameMap.containsKey(dimT)) {
+                        val dimMedFg = dimColor(medFg, BEAT_DIM_LEVEL)
+                        putFrame(dimT, LSEffectPayload.Effects.on(color = dimMedFg, transit = ON_TRANSIT).toByteArray(),
+                            section, "BEAT_MED_DIM", FgEngine.ON_PULSE, fg = dimMedFg, transit = ON_TRANSIT,
+                            note = "beatIndex=$beatIndex phase=$phase accent=MEDIUM dim60% at ${dimT - t}ms")
                     }
                     continue
                 }
@@ -1345,7 +1344,7 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                         beatRandomDelay ?: 0, rotateTransit = beatRotateTransit),
                         section, "BEAT_FG", finalBeatEngine, fg = fg, bg = bg,
                         transit = when (finalBeatEngine) {
-                            FgEngine.ON_PULSE          -> 0
+                            FgEngine.ON_PULSE          -> ON_TRANSIT
                             FgEngine.ON_TRANSIT_ROTATE -> beatRotateTransit.takeIf { it > 0 }
                             else                       -> null
                         },
@@ -1362,20 +1361,14 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
                         })
                 }
 
-                // STRONG ON_PULSE BG 복원
-                if (finalBeatEngine == FgEngine.ON_PULSE && beatAccent == BeatAccent.STRONG) {
-                    val holdMs = minOf(ON_PULSE_ACCENT_HOLD_MS * 2L, section.beatMs * ON_PULSE_STRONG_HOLD_RATIO / 100L).coerceAtLeast(60L)
-                    val offT   = minOf(section.endMs - 1L, t + holdMs)
-                    if (offT > t) {
-                        val restoreBg = onPulseBgColor(palette, sameTypeIdx, measureIdx, section.type)
-                        putFrame(offT, LSEffectPayload.Effects.on(color = restoreBg, transit = ON_TRANSIT).toByteArray(),
-                            section, "BEAT_BG", FgEngine.ON_PULSE, fg = restoreBg, transit = ON_PULSE_BG_TRANSIT,
-                            note = buildString {
-                                val cycleMs  = section.beatMs * 2L
-                                val gapMs    = cycleMs - holdMs
-                                val dutyPct  = holdMs * 100L / cycleMs
-                                append("restore beatIndex=$beatIndex phase=$phase phraseIdx=$phraseIdx hold=${holdMs}ms gap=${gapMs}ms duty=${dutyPct}%")
-                            })
+                // STRONG ON_PULSE: 10% 구간 100% 밝기 → 나머지 90% 60% 밝기
+                if (finalBeatEngine == FgEngine.ON_PULSE && beatAccent == BeatAccent.STRONG && !skipRepeat) {
+                    val dimT = minOf(section.endMs - 1L, t + section.beatMs / BEAT_BRIGHT_RATIO)
+                    if (dimT > t && !frameMap.containsKey(dimT)) {
+                        val dimFg = dimColor(fg, BEAT_DIM_LEVEL)
+                        putFrame(dimT, LSEffectPayload.Effects.on(color = dimFg, transit = ON_TRANSIT).toByteArray(),
+                            section, "BEAT_DIM", FgEngine.ON_PULSE, fg = dimFg, transit = ON_TRANSIT,
+                            note = "beatIndex=$beatIndex phase=$phase phraseIdx=$phraseIdx dim60% at ${dimT - t}ms")
                     }
                 }
             }
@@ -1452,16 +1445,25 @@ class AutoTimelineGeneratorBeat_v10 : AutoTimelineGenerator {
         }
     }
 
+    /** RGB 각 채널을 ratio 배 스케일 다운 (0.0~1.0). 비트 sustain 60% 연출에 사용. */
+    private fun dimColor(c: LSColor, ratio: Float): LSColor =
+        LSColor(
+            (c.r * ratio).toInt().coerceIn(0, 255),
+            (c.g * ratio).toInt().coerceIn(0, 255),
+            (c.b * ratio).toInt().coerceIn(0, 255)
+        )
+
     // =========================================================================
     // Payload builders
     // =========================================================================
 
     private fun buildPayload(
         engine: FgEngine, fg: LSColor, bg: LSColor, beatMs: Long,
-        period: Int? = null, randomDelay: Int = 0, rotateTransit: Int = 0
+        period: Int? = null, randomDelay: Int = 0, rotateTransit: Int = 0,
+        pulseTransit: Int = ON_TRANSIT
     ): ByteArray = when (engine) {
         FgEngine.ON_PULSE ->
-            LSEffectPayload.Effects.on(color = fg, transit = 0).toByteArray()
+            LSEffectPayload.Effects.on(color = fg, transit = pulseTransit).toByteArray()
         FgEngine.BLINK ->
             LSEffectPayload.Effects.blink(period = period ?: msToBlinkPeriod(beatMs),
                 color = fg, backgroundColor = bg, randomDelay = randomDelay).toByteArray()
