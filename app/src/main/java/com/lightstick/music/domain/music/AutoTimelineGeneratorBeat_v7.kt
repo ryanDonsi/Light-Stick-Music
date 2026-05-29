@@ -14,23 +14,23 @@ import kotlin.math.sqrt
 import kotlin.random.Random
 
 /**
- * AutoTimelineGeneratorBeat_v7 — 비트 엔진 검증 모드
+ * AutoTimelineGeneratorBeat_v7 — BeatDetector 검증 전용
  *
- * BeatDetectorV11 → SectionDetectorV(SECTION_DETECTOR_VERSION) 순서로 실행.
- * buildTimeline: 감지된 모든 비트 위치에서 20% ON / 80% OFF 처리.
- * 섹션별 색상 변화로 구간 경계를 시각적으로 확인할 수 있다.
+ * 섹션 분석 없음. BeatDetectorV11이 감지한 모든 비트 시각에서
+ * 20% ON / 80% OFF 처리만 수행한다.
+ * 5초 단위로 팔레트 색상을 바꿔 비트 연속성을 육안으로 확인한다.
  */
 class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
-        private const val VERSION     = 9   // 파일 내부 버전 (AutoTimelineConfig.VERSION 과 별개)
+        private const val VERSION     = 9
         private const val HOP_MS      = 50L
         private const val MIN_BEAT_MS = 250L
         private const val MAX_BEAT_MS = 900L
 
-        private const val COLOR_HOLD_MS = 5_000L
+        private const val COLOR_SEGMENT_MS = 5_000L
     }
 
     private enum class EnvMode { LOW, MID, FULL }
@@ -45,8 +45,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         val black: LSColor,
         val size: Int
     )
-
-    private data class HoldColors(val fg: LSColor, val bg: LSColor)
 
     // ──────────────────────────────────────────────────────────────
     // generate
@@ -73,12 +71,11 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        // ① BeatDetectorV11 — 전곡 비트 감지
         val v11Result = BeatDetectorV11.detect(
-            lowEnv = lowEnv,
-            midEnv = midEnv,
+            lowEnv  = lowEnv,
+            midEnv  = midEnv,
             fullEnv = fullEnv,
-            params = BeatDetectorV11.Params(
+            params  = BeatDetectorV11.Params(
                 hopMs             = HOP_MS,
                 minBeatMs         = 290L,
                 maxBeatMs         = 1200L,
@@ -99,97 +96,54 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
 
         Log.d(TAG, "v7 BeatDetectorV11 beatMs=$globalBeatMs beats=${v11Result.beats.size}")
 
-        // ② SectionDetector — 섹션 분할 + 비트 배분
-        val sectionDetector: SectionDetector = when (AutoTimelineConfig.SECTION_DETECTOR_VERSION) {
-            1    -> SectionDetectorV1()
-            else -> throw IllegalArgumentException(
-                "Unsupported SECTION_DETECTOR_VERSION: ${AutoTimelineConfig.SECTION_DETECTOR_VERSION}"
-            )
-        }
-
-        val sections = sectionDetector.detect(
-            lowEnv     = lowEnv,
-            midEnv     = midEnv,
-            fullEnv    = fullEnv,
-            beats      = v11Result.beats,
-            beatMs     = globalBeatMs,
-            durationMs = durationMs,
-            hopMs      = HOP_MS
-        )
-
-        Log.d(TAG, "v7 sections=${sections.size}")
-
-        val frames = buildTimeline(sections, palette, musicId)
+        val frames = buildTimeline(v11Result.beats, globalBeatMs, durationMs, palette, musicId)
         Log.d(TAG, "v7 frames(final)=${frames.size}")
         return frames.sortedBy { it.first }
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Timeline — beat validation mode: 20% ON / 80% OFF
+    // Timeline — 20% ON / 80% OFF, 섹션 없음
     // ──────────────────────────────────────────────────────────────
 
     private fun buildTimeline(
-        sections: List<SectionDetector.Section>,
+        beats: List<BeatDetectorV11.TimedBeat>,
+        beatMs: Long,
+        durationMs: Long,
         palette: Palette,
         musicId: Int
     ): List<Pair<Long, ByteArray>> {
         val frames         = ArrayList<Pair<Long, ByteArray>>()
         val usedTimestamps = HashSet<Long>()
+        val onDurationMs   = (beatMs * 20L / 100L).coerceAtLeast(1L)
 
-        for ((idx, section) in sections.withIndex()) {
-            val hold        = colorsForSection(musicId, palette, section.startMs, section.type)
-            val onDurationMs = (section.beatMs * 20L / 100L).coerceAtLeast(1L)
+        for (beat in beats) {
+            val t = beat.timeMs
+            if (t < 0 || t >= durationMs) continue
 
-            for (beat in section.beatTimesMs) {
-                if (beat < section.startMs || beat >= section.endMs) continue
+            val color = colorForTime(musicId, palette, t)
 
-                if (usedTimestamps.add(beat)) {
-                    frames += beat to LSEffectPayload.Effects.on(
-                        color   = hold.fg,
-                        transit = 0
-                    ).toByteArray()
-                }
-
-                val offT = beat + onDurationMs
-                if (offT < section.endMs && usedTimestamps.add(offT)) {
-                    frames += offT to LSEffectPayload.Effects.off().toByteArray()
-                }
+            if (usedTimestamps.add(t)) {
+                frames += t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray()
             }
 
-            Log.d(TAG, "v7 timeline section[$idx] ${section.startMs}~${section.endMs} " +
-                "type=${section.type} beats=${section.beatTimesMs.size} " +
-                "beatMs=${section.beatMs} onDuration=${onDurationMs}ms")
+            val offT = t + onDurationMs
+            if (offT < durationMs && usedTimestamps.add(offT)) {
+                frames += offT to LSEffectPayload.Effects.off().toByteArray()
+            }
         }
 
         return frames.sortedBy { it.first }
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Palette / colors
+    // Color — 5초 단위 팔레트 순환
     // ──────────────────────────────────────────────────────────────
 
-    private fun colorsForSection(
-        musicId: Int,
-        palette: Palette,
-        tMs: Long,
-        sectionType: SectionDetector.SectionType
-    ): HoldColors {
-        val seg = (tMs / COLOR_HOLD_MS).toInt()
-        val rnd = Random(musicId * 1_000_003 + seg * 97 + sectionType.ordinal * 37)
-
-        val fg = when (sectionType) {
-            SectionDetector.SectionType.CHORUS -> listOf(palette.white, palette.c1, palette.c2)[rnd.nextInt(3)]
-            SectionDetector.SectionType.BRIDGE -> listOf(palette.white, palette.c3)[rnd.nextInt(2)]
-            SectionDetector.SectionType.END    -> palette.black
-            else                               -> listOf(palette.c1, palette.c2, palette.c3, palette.white)[rnd.nextInt(4)]
-        }
-
-        val bg = when (sectionType) {
-            SectionDetector.SectionType.CHORUS -> listOf(palette.c4, palette.black)[rnd.nextInt(2)]
-            else                               -> palette.black
-        }
-
-        return HoldColors(fg = fg, bg = bg)
+    private fun colorForTime(musicId: Int, palette: Palette, tMs: Long): LSColor {
+        val seg = (tMs / COLOR_SEGMENT_MS).toInt()
+        val rnd = Random(musicId * 1_000_003L + seg * 97L)
+        val colors = listOf(palette.c1, palette.c2, palette.c3, palette.white)
+        return colors[rnd.nextInt(colors.size)]
     }
 
     private fun buildPalette(seed: Int, paletteSize: Int): Palette {
@@ -211,7 +165,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         val c  = v * s
         val x  = c * (1f - abs((hh / 60f) % 2f - 1f))
         val m  = v - c
-
         val (rf, gf, bf) = when {
             hh < 60f  -> Triple(c, x, 0f)
             hh < 120f -> Triple(x, c, 0f)
@@ -220,7 +173,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             hh < 300f -> Triple(x, 0f, c)
             else      -> Triple(c, 0f, x)
         }
-
         return LSColor(
             ((rf + m) * 255f).toInt().coerceIn(0, 255),
             ((gf + m) * 255f).toInt().coerceIn(0, 255),
@@ -249,24 +201,14 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             for (i in 0 until extractor.trackCount) {
                 val f    = extractor.getTrackFormat(i)
                 val mime = f.getString(MediaFormat.KEY_MIME) ?: continue
-                if (mime.startsWith("audio/")) {
-                    trackIndex = i
-                    format     = f
-                    break
-                }
+                if (mime.startsWith("audio/")) { trackIndex = i; format = f; break }
             }
 
-            if (trackIndex < 0 || format == null) {
-                extractor.release()
-                return emptyList()
-            }
+            if (trackIndex < 0 || format == null) { extractor.release(); return emptyList() }
 
             extractor.selectTrack(trackIndex)
 
-            val mime = format.getString(MediaFormat.KEY_MIME) ?: run {
-                extractor.release()
-                return emptyList()
-            }
+            val mime = format.getString(MediaFormat.KEY_MIME) ?: run { extractor.release(); return emptyList() }
 
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0)
@@ -279,7 +221,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             val out        = ArrayList<Float>()
             val bufferInfo = MediaCodec.BufferInfo()
             val pcmWindow  = ArrayList<Float>(hopSamples)
-
             var sawInputEOS  = false
             var sawOutputEOS = false
 
@@ -289,7 +230,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
                     if (inIndex >= 0) {
                         val inputBuffer = codec.getInputBuffer(inIndex)
                         val sampleSize  = extractor.readSampleData(inputBuffer!!, 0)
-
                         if (sampleSize < 0) {
                             codec.queueInputBuffer(inIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             sawInputEOS = true
@@ -307,43 +247,31 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
                         if (outputBuffer != null && bufferInfo.size > 0) {
                             outputBuffer.position(bufferInfo.offset)
                             outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
-
                             val chunk    = ByteArray(bufferInfo.size)
                             outputBuffer.get(chunk)
-
                             val mono     = pcm16ToMonoFloat(chunk, channelCount)
                             val filtered = when (mode) {
                                 EnvMode.FULL -> mono
                                 EnvMode.LOW  -> lowBandProxy(mono)
                                 EnvMode.MID  -> midBandProxy(mono)
                             }
-
                             for (v in filtered) {
                                 pcmWindow += v
-                                if (pcmWindow.size >= hopSamples) {
-                                    out += rms(pcmWindow)
-                                    pcmWindow.clear()
-                                }
+                                if (pcmWindow.size >= hopSamples) { out += rms(pcmWindow); pcmWindow.clear() }
                             }
                         }
-
                         codec.releaseOutputBuffer(outIndex, false)
-                        if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-                            sawOutputEOS = true
-                        }
+                        if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) sawOutputEOS = true
                     }
                     outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
                 }
             }
 
-            codec.stop()
-            codec.release()
-            extractor.release()
-
+            codec.stop(); codec.release(); extractor.release()
             normalizeEnvelope(out)
         } catch (t: Throwable) {
             Log.e(TAG, "decodeEnvelopeInternal fail mode=$mode: ${t.message}")
-            try { codec?.stop()    } catch (_: Throwable) {}
+            try { codec?.stop() }    catch (_: Throwable) {}
             try { codec?.release() } catch (_: Throwable) {}
             try { extractor.release() } catch (_: Throwable) {}
             emptyList()
@@ -353,18 +281,17 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     private fun pcm16ToMonoFloat(bytes: ByteArray, channels: Int): List<Float> {
         if (bytes.isEmpty()) return emptyList()
         val out = ArrayList<Float>(bytes.size / 2 / max(1, channels))
-        var i   = 0
+        var i = 0
         while (i + 1 < bytes.size) {
             var sum = 0f; var count = 0
             for (c in 0 until channels) {
                 val idx = i + c * 2
                 if (idx + 1 < bytes.size) {
-                    val lo     = bytes[idx].toInt() and 0xFF
-                    val hi     = bytes[idx + 1].toInt()
+                    val lo = bytes[idx].toInt() and 0xFF
+                    val hi = bytes[idx + 1].toInt()
                     val sample = (hi shl 8) or lo
                     val signed = if (sample > 32767) sample - 65536 else sample
-                    sum += signed / 32768f
-                    count++
+                    sum += signed / 32768f; count++
                 }
             }
             out += if (count == 0) 0f else sum / count.toFloat()
@@ -403,14 +330,14 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     private fun normalizeEnvelope(src: List<Float>): List<Float> {
         if (src.isEmpty()) return emptyList()
         val smooth = movingAverage(src, 5)
-        val mx     = smooth.maxOrNull() ?: 0f
+        val mx = smooth.maxOrNull() ?: 0f
         if (mx <= 1e-6f) return List(smooth.size) { 0f }
         return smooth.map { (it / mx).coerceIn(0f, 1f) }
     }
 
     private fun movingAverage(src: List<Float>, window: Int): List<Float> {
         if (src.isEmpty() || window <= 1) return src
-        val out  = ArrayList<Float>(src.size)
+        val out = ArrayList<Float>(src.size)
         val half = window / 2
         for (i in src.indices) {
             var sum = 0f; var count = 0
