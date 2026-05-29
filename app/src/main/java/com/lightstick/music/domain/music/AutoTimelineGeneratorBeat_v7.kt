@@ -169,18 +169,22 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     }
 
     private fun buildPalette(seed: Int, paletteSize: Int): Palette {
-        val rnd = Random(seed)
+        // v8과 동일한 Knuth 해시 — musicId → baseHue 결정, Random 불필요
+        val rawHue  = (((seed.toLong() * 2654435761L) ushr 8) and 0x7FFFFFFFL).toInt()
+        val baseHue = (((rawHue % 360) + 360) % 360).toFloat()
         return Palette(
-            c1    = hsvToColor(rnd.nextFloat() * 360f, 0.85f, 1.0f),
-            c2    = hsvToColor(rnd.nextFloat() * 360f, 0.85f, 1.0f),
-            c3    = hsvToColor(rnd.nextFloat() * 360f, 0.85f, 1.0f),
-            c4    = hsvToColor(rnd.nextFloat() * 360f, 0.75f, 0.9f),
-            c5    = hsvToColor(rnd.nextFloat() * 360f, 0.70f, 0.95f),
+            c1    = hsvToColor(baseHue,                     1.00f, 1.00f),
+            c2    = hsvToColor(wrap360(baseHue +  60f),     1.00f, 1.00f),
+            c3    = hsvToColor(wrap360(baseHue -  60f),     0.85f, 0.95f),
+            c4    = hsvToColor(wrap360(baseHue - 120f),     1.00f, 1.00f),
+            c5    = hsvToColor(wrap360(baseHue + 120f),     0.90f, 0.95f),
             white = LSColor(255, 255, 255),
             black = LSColor(0, 0, 0),
             size  = paletteSize
         )
     }
+
+    private fun wrap360(h: Float) = ((h % 360f) + 360f) % 360f
 
     private fun hsvToColor(h: Float, s: Float, v: Float): LSColor {
         val hh = ((h % 360f) + 360f) % 360f
