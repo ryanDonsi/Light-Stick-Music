@@ -17,14 +17,14 @@ import kotlin.random.Random
  * AutoTimelineGeneratorBeat_v6
  *
  * 비트 검증 모드 (globalBeatMs 균등 그리드 기반):
- * - 전곡 ODF 자기상관으로 globalBeatMs 계산
+ * - BeatDetectorV11.detect()의 beatMs 사용 (하모닉 폴딩 보정 포함, 정확도 높음)
  * - novelty 위상 추정으로 첫 비트 시작점 결정
  * - 첫 비트부터 끝까지 globalBeatMs 간격의 균등 그리드 생성
  * - 각 그리드 타임에: ON 20% → OFF 80%
  *
  * v7과의 차이:
  * - v7: BeatDetectorV11의 TimedBeat(실제 감지 시각) 사용 → 조용한 구간에 비트 누락 가능
- * - v6: globalBeatMs 기반 균등 그리드 → 전 구간 빈틈없이 균일한 박자 출력
+ * - v6: BeatDetectorV11의 beatMs + 균등 그리드 → 전 구간 빈틈없이 균일한 박자 출력
  */
 class AutoTimelineGeneratorBeat_v6 : AutoTimelineGenerator {
 
@@ -32,9 +32,6 @@ class AutoTimelineGeneratorBeat_v6 : AutoTimelineGenerator {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
         private const val HOP_MS = 50L
-        private const val MIN_BEAT_MS = 250L
-        private const val MAX_BEAT_MS = 900L
-        private const val DEFAULT_BEAT_MS = 450L
 
         // 색상 구간 길이 (ms) — 같은 구간 내 비트는 같은 fg 색상 사용
         private const val COLOR_SEGMENT_MS = 5_000L
@@ -73,14 +70,16 @@ class AutoTimelineGeneratorBeat_v6 : AutoTimelineGenerator {
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        // 전곡 novelty → globalBeatMs (자기상관)
-        val novelty = computeNovelty(lowEnv, midEnv, fullEnv)
-        val globalBeatMs = estimateBeatMsByAutocorr(novelty, HOP_MS, MIN_BEAT_MS, MAX_BEAT_MS)
+        // BeatDetectorV11로 globalBeatMs 계산 (하모닉 폴딩 보정 포함)
+        val v11Result    = BeatDetectorV11.detect(lowEnv, midEnv, fullEnv)
+        val globalBeatMs = if (v11Result.beatMs > 0L) v11Result.beatMs else 500L
 
-        // 첫 비트 위상 추정 (novelty 에너지 분포 기반)
+        // 첫 비트 위상 추정 — novelty 에너지 분포 기반 (V11 beatMs 기준으로 계산)
+        val novelty = computeNovelty(lowEnv, midEnv, fullEnv)
         val phaseMs = estimatePhaseOffsetMs(novelty, HOP_MS, globalBeatMs)
 
-        Log.d(TAG, "v6 globalBeatMs=$globalBeatMs phaseMs=$phaseMs durationMs=$durationMs")
+        Log.d(TAG, "v6 v11BeatMs=${v11Result.beatMs} globalBeatMs=$globalBeatMs " +
+                "phaseMs=$phaseMs durationMs=$durationMs reason=${v11Result.reason}")
 
         val onDurationMs = (globalBeatMs * 20L / 100L).coerceAtLeast(1L)
         val palette = buildPalette(musicId, paletteSize.coerceIn(3, 5))
@@ -123,7 +122,7 @@ class AutoTimelineGeneratorBeat_v6 : AutoTimelineGenerator {
     }
 
     // -------------------------------------------------------------------------
-    // 비트 분석
+    // 위상 추정
     // -------------------------------------------------------------------------
 
     private fun computeNovelty(
@@ -141,37 +140,6 @@ class AutoTimelineGeneratorBeat_v6 : AutoTimelineGenerator {
         normalize01InPlace(n)
         smoothInPlace(n, 2)
         return n
-    }
-
-    /** 전곡 novelty 자기상관으로 globalBeatMs 추정 */
-    private fun estimateBeatMsByAutocorr(
-        novelty: FloatArray,
-        hopMs: Long,
-        minBeatMs: Long,
-        maxBeatMs: Long
-    ): Long {
-        if (novelty.size < 8) return DEFAULT_BEAT_MS
-
-        val minLag = max(1, (minBeatMs / hopMs).toInt())
-        val maxLag = max(minLag + 1, min((maxBeatMs / hopMs).toInt(), novelty.size - 1))
-
-        var bestLag   = (DEFAULT_BEAT_MS / hopMs).toInt().coerceIn(minLag, maxLag)
-        var bestScore = Double.NEGATIVE_INFINITY
-
-        for (lag in minLag..maxLag) {
-            var s = 0.0
-            var i = lag
-            while (i < novelty.size) {
-                s += novelty[i] * novelty[i - lag]
-                i++
-            }
-            if (s > bestScore) {
-                bestScore = s
-                bestLag = lag
-            }
-        }
-
-        return (bestLag.toLong() * hopMs).coerceIn(minBeatMs, maxBeatMs)
     }
 
     /**
