@@ -55,7 +55,8 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         musicId: Int,
         paletteSize: Int
     ): List<Pair<Long, ByteArray>> {
-        Log.d(TAG, "v7 generate() start musicId=$musicId paletteSize=$paletteSize")
+        val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
+        Log.d(TAG, "v7 generate() start file=$fileName musicId=$musicId paletteSize=$paletteSize")
 
         val pSize   = paletteSize.coerceIn(3, 5)
         val palette = buildPalette(musicId, pSize)

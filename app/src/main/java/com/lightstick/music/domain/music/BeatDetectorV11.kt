@@ -47,6 +47,9 @@ object BeatDetectorV11 {
     private const val THIN_RATIO      = 0.55f  // 간격 < beatMs × 0.55 → 밀도 축소
     private const val FILL_CONFIDENCE = 0.20f  // 합성 비트 신뢰도
 
+    // ⑦ 약한 신호 자동 재시도: FAIL 세그먼트 비율이 이 값을 초과하면 완화 파라미터로 재시도
+    private const val WEAK_SIGNAL_FAIL_RATE = 0.60f
+
     // ④ confidence
     data class TimedBeat(val timeMs: Long, val confidence: Float)
 
@@ -126,6 +129,12 @@ object BeatDetectorV11 {
         val beatTimesMs: List<Long> get() = timedBeats.map { it.timeMs }
     }
 
+    private data class SegLoopResult(
+        val segResults: List<SegmentResult>,
+        val mergedBeats: List<TimedBeat>,
+        val sourceVotes: Map<BeatSource, Int>
+    )
+
     // =========================================================================
     // Public entry point
     // =========================================================================
@@ -158,67 +167,29 @@ object BeatDetectorV11 {
         Log.d(TAG, "V11 segments=$segmentCount segmentMs=$effectiveSegmentMs " +
                 "minBeatMs=${params.minBeatMs} maxBeatMs=${params.maxBeatMs}")
 
-        val segResults       = ArrayList<SegmentResult>()
-        val mergedTimedBeats = ArrayList<TimedBeat>()
-        val sourceVotes      = LinkedHashMap<BeatSource, Int>()
-        var prevBeatMs: Long? = null
+        // ⑦ 세그먼트 루프 — 약한 신호 시 완화 파라미터로 자동 재시도
+        var loop = runSegmentLoop(low, mid, full, globalBeatMs, params, segmentFrames, minSize)
 
-        for (segIndex in 0 until segmentCount) {
-            val s = segIndex * segmentFrames
-            val e = min(minSize, s + segmentFrames)
-            if (e - s < 8) continue
-
-            val lowSeg     = low.subList(s, e)
-            val midSeg     = mid.subList(s, e)
-            val fullSeg    = full.subList(s, e)
-            val segStartMs = s.toLong() * params.hopMs
-
-            val srcOrder = buildSourceOrder(lowSeg, midSeg, fullSeg)
-
-            val trials   = ArrayList<TrialResult>()
-            val okTrials = ArrayList<TrialResult>()
-
-            for (src in srcOrder) {
-                val trial = detectSingleSource(
-                    segIndex, src,
-                    combineSource(src, lowSeg, midSeg, fullSeg),
-                    globalBeatMs, params
-                )
-                trials += trial
-                Log.d(TAG,
-                    "SEG[$segIndex] try=${trial.source} beats=${trial.timedBeats.size} " +
-                    "beatMs=${trial.beatMs} score=${fmt(trial.score)} " +
-                    "acPeak=${fmt(trial.acPeak)} snapRatio=${fmt(trial.snapRatio)} " +
-                    "reason=${trial.reason}")
-                if (trial.reason == "ok") okTrials += trial
-            }
-
-            // ⑤ Multi-Hypothesis 연속성 선택
-            val best = selectBestWithContinuity(okTrials, prevBeatMs, params.continuityBonus)
-
-            if (best == null) {
-                Log.w(TAG, "SEG[$segIndex] FAIL → skip")
-                segResults += SegmentResult(segIndex, segStartMs,
-                    e.toLong() * params.hopMs, null, emptyList(), 0L, 0f, "all failed", trials)
-                continue
-            }
-
-            val absBeats = best.timedBeats.map { it.copy(timeMs = it.timeMs + segStartMs) }
-            mergedTimedBeats += absBeats
-            sourceVotes[best.source] = (sourceVotes[best.source] ?: 0) + 1
-            prevBeatMs = best.beatMs
-
-            segResults += SegmentResult(segIndex, segStartMs, e.toLong() * params.hopMs,
-                best.source, absBeats, best.beatMs, best.score, best.reason, trials)
+        val failCount = loop.segResults.count { it.selectedSource == null }
+        val totalSegs = loop.segResults.size
+        if (totalSegs > 1 && failCount.toFloat() / totalSegs > WEAK_SIGNAL_FAIL_RATE) {
+            Log.d(TAG, "V11 weak signal ($failCount/$totalSegs segs FAIL) → retry relaxed params")
+            val relaxed = params.copy(
+                peakThresholdK   = params.peakThresholdK   * 0.65f,
+                minPeakAbs       = params.minPeakAbs        * 0.60f,
+                chainToleranceMs = (params.chainToleranceMs * 1.30f).toLong(),
+                minChainCount    = maxOf(2, params.minChainCount - 1)
+            )
+            loop = runSegmentLoop(low, mid, full, globalBeatMs, relaxed, segmentFrames, minSize)
         }
 
         val dedupedBeats = dedupeCloseTimedBeats(
-            mergedTimedBeats.sortedBy { it.timeMs }, params.minPeakDistanceMs)
+            loop.mergedBeats.sortedBy { it.timeMs }, params.minPeakDistanceMs)
 
         if (dedupedBeats.isEmpty()) {
             Log.w(TAG, "V11 beat detect FAIL")
             return DetectResult(emptyList(), 0L, null, "all segments failed",
-                0L, TimeSignature.FOUR_FOUR, segResults)
+                0L, TimeSignature.FOUR_FOUR, loop.segResults)
         }
 
         val beatTimesList = dedupedBeats.map { it.timeMs }
@@ -230,7 +201,7 @@ object BeatDetectorV11 {
             globalBeatMs
         } else rawBeatMs
 
-        val finalSource = sourceVotes.maxByOrNull { it.value }?.key
+        val finalSource = loop.sourceVotes.maxByOrNull { it.value }?.key
 
         // ③ 박자표 감지 (전곡 ODF 자기상관)
         val globalOnset   = computeGlobalOnset(low, mid, params)
@@ -263,8 +234,78 @@ object BeatDetectorV11 {
             reason           = "ok",
             downbeatOffsetMs = downbeatOffsetMs,
             timeSignature    = timeSignature,
-            debugSegments    = segResults
+            debugSegments    = loop.segResults
         )
+    }
+
+    // =========================================================================
+    // ⑦ 세그먼트 루프 — detect() 에서 분리된 내부 헬퍼
+    // =========================================================================
+
+    private fun runSegmentLoop(
+        low: List<Float>,
+        mid: List<Float>,
+        full: List<Float>,
+        globalBeatMs: Long?,
+        params: Params,
+        segmentFrames: Int,
+        minSize: Int
+    ): SegLoopResult {
+        val segmentCount = (minSize + segmentFrames - 1) / segmentFrames
+        val segResults   = ArrayList<SegmentResult>()
+        val mergedBeats  = ArrayList<TimedBeat>()
+        val sourceVotes  = LinkedHashMap<BeatSource, Int>()
+        var prevBeatMs: Long? = null
+
+        for (segIndex in 0 until segmentCount) {
+            val s = segIndex * segmentFrames
+            val e = min(minSize, s + segmentFrames)
+            if (e - s < 8) continue
+
+            val lowSeg     = low.subList(s, e)
+            val midSeg     = mid.subList(s, e)
+            val fullSeg    = full.subList(s, e)
+            val segStartMs = s.toLong() * params.hopMs
+
+            val srcOrder = buildSourceOrder(lowSeg, midSeg, fullSeg)
+            val trials   = ArrayList<TrialResult>()
+            val okTrials = ArrayList<TrialResult>()
+
+            for (src in srcOrder) {
+                val trial = detectSingleSource(
+                    segIndex, src,
+                    combineSource(src, lowSeg, midSeg, fullSeg),
+                    globalBeatMs, params
+                )
+                trials += trial
+                Log.d(TAG,
+                    "SEG[$segIndex] try=${trial.source} beats=${trial.timedBeats.size} " +
+                    "beatMs=${trial.beatMs} score=${fmt(trial.score)} " +
+                    "acPeak=${fmt(trial.acPeak)} snapRatio=${fmt(trial.snapRatio)} " +
+                    "reason=${trial.reason}")
+                if (trial.reason == "ok") okTrials += trial
+            }
+
+            // ⑤ Multi-Hypothesis 연속성 선택
+            val best = selectBestWithContinuity(okTrials, prevBeatMs, params.continuityBonus)
+
+            if (best == null) {
+                Log.w(TAG, "SEG[$segIndex] FAIL → skip")
+                segResults += SegmentResult(segIndex, segStartMs,
+                    e.toLong() * params.hopMs, null, emptyList(), 0L, 0f, "all failed", trials)
+                continue
+            }
+
+            val absBeats = best.timedBeats.map { it.copy(timeMs = it.timeMs + segStartMs) }
+            mergedBeats += absBeats
+            sourceVotes[best.source] = (sourceVotes[best.source] ?: 0) + 1
+            prevBeatMs = best.beatMs
+
+            segResults += SegmentResult(segIndex, segStartMs, e.toLong() * params.hopMs,
+                best.source, absBeats, best.beatMs, best.score, best.reason, trials)
+        }
+
+        return SegLoopResult(segResults, mergedBeats, sourceVotes)
     }
 
     // =========================================================================
