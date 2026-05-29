@@ -1,5 +1,6 @@
 package com.lightstick.music.domain.music
 
+import com.lightstick.music.domain.music.AutoTimelineConfig
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -153,14 +154,13 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         val globalBeat = detectGlobalBeat(lowEnv, midEnv, fullEnv)
         val windows = buildFeatureWindows(lowEnv, midEnv, fullEnv, globalBeat.beatMs, durationMs)
         val sections = buildSectionsFromWindows(windows, durationMs)
-        val resolvedSections = detectSectionBeats(
-            sections = sections,
-            lowEnv = lowEnv,
-            midEnv = midEnv,
-            fullEnv = fullEnv,
-            globalBeatMs = globalBeat.beatMs,
-            durationMs = durationMs
-        )
+        val resolvedSections = when (AutoTimelineConfig.BEAT_DETECTOR_VERSION) {
+            11 -> {
+                val v11Result = detectBeatsWithV11(lowEnv, midEnv, fullEnv)
+                detectSectionBeatsExternal(sections, v11Result, lowEnv, midEnv, fullEnv, durationMs)
+            }
+            else -> detectSectionBeats(sections, lowEnv, midEnv, fullEnv, globalBeat.beatMs, durationMs)
+        }
 
         val frames = buildTimeline(
             sections = resolvedSections,
@@ -421,7 +421,113 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     }
 
     // ------------------------------------------------------------
-    // Section beat detect
+    // Section beat detect — 외부 BeatDetector 버전 (BEAT_DETECTOR_VERSION >= 11)
+    // ------------------------------------------------------------
+
+    private fun detectBeatsWithV11(
+        lowEnv: List<Float>,
+        midEnv: List<Float>,
+        fullEnv: List<Float>
+    ): BeatDetectorV11.DetectResult = BeatDetectorV11.detect(
+        lowEnv = lowEnv,
+        midEnv = midEnv,
+        fullEnv = fullEnv,
+        params = BeatDetectorV11.Params(
+            hopMs              = HOP_MS,
+            minBeatMs          = 290L,
+            maxBeatMs          = 1200L,
+            minPeakDistanceMs  = 140L,
+            onsetSmoothWindow  = 5,
+            peakThresholdK     = 0.55f,
+            minPeakAbs         = 0.08f,
+            snapToleranceMs    = 80L,
+            chainToleranceMs   = 120L,
+            minChainCount      = 3,
+            continuityBonus    = 0.08f
+        )
+    )
+
+    private fun detectSectionBeatsExternal(
+        sections: List<FeatureWindow>,
+        detect: BeatDetectorV11.DetectResult,
+        lowEnv: List<Float>,
+        midEnv: List<Float>,
+        fullEnv: List<Float>,
+        durationMs: Long
+    ): List<SectionInfo> {
+        val allBeats = detect.beatTimesMs.filter { it in 0..durationMs }.sorted()
+        // 900ms 초과 BPM은 절반 보정 (반속 오검출 방지)
+        val globalBeatMs = detect.beatMs
+            .let { if (it > 900L) it / 2L else it }
+            .coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+
+        Log.d(TAG, "V11 external beatMs=$globalBeatMs totalBeats=${allBeats.size}")
+
+        val out = ArrayList<SectionInfo>()
+        for ((idx, s) in sections.withIndex()) {
+            val sectionBeats = allBeats.filter { it >= s.startMs && it < s.endMs }
+
+            val finalBeatTimes: LongArray
+            val source: String
+            val confidence: Float
+
+            if (sectionBeats.size >= 3) {
+                finalBeatTimes = sectionBeats.toLongArray()
+                source = "external-v11"
+                confidence = 0.75f
+            } else {
+                // 비트 부족 구간: 글로벌 beatMs 기반 그리드로 채움
+                val startIdx = (s.startMs / HOP_MS).toInt().coerceIn(0, fullEnv.lastIndex)
+                val endIdx   = (s.endMs   / HOP_MS).toInt().coerceIn(startIdx + 1, fullEnv.size)
+                val noveltySlice = computeNovelty(
+                    lowEnv.subList(startIdx, endIdx),
+                    midEnv.subList(startIdx, endIdx),
+                    fullEnv.subList(startIdx, endIdx)
+                )
+                finalBeatTimes = buildGridBeatsAligned(
+                    sectionStartMs = s.startMs,
+                    sectionEndMs   = s.endMs,
+                    beatMs         = globalBeatMs,
+                    novelty        = noveltySlice,
+                    noveltyStartMs = s.startMs
+                )
+                source = when (s.sectionType) {
+                    SectionType.BRIDGE -> "sparse-global-breath"
+                    else               -> "sparse-global-blink"
+                }
+                confidence = 0.25f
+            }
+
+            val engineMode = chooseSectionStartEngine(
+                sectionType    = s.sectionType,
+                beatMs         = globalBeatMs,
+                beatConfidence = confidence,
+                source         = source,
+                changeStrength = s.changeStrength
+            )
+
+            Log.d(TAG, "section beat idx=$idx ${s.startMs}~${s.endMs} type=${s.sectionType} " +
+                    "beats=${finalBeatTimes.size} beatMs=$globalBeatMs " +
+                    "source=$source engine=$engineMode change=${s.changeStrength}")
+
+            out += SectionInfo(
+                index          = idx,
+                startMs        = s.startMs,
+                endMs          = s.endMs,
+                type           = s.sectionType,
+                changeStrength = s.changeStrength,
+                beatTimesMs    = finalBeatTimes,
+                beatMs         = globalBeatMs,
+                beatConfidence = confidence,
+                source         = source,
+                engineMode     = engineMode
+            )
+        }
+        return out
+    }
+
+    // ------------------------------------------------------------
+    // Section beat detect — 내부 감지기 (BEAT_DETECTOR_VERSION < 11)
     // ------------------------------------------------------------
 
     private fun detectSectionBeats(

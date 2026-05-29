@@ -72,13 +72,13 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
             }
         }
 
-        val generator: AutoTimelineGenerator = when (version) {
+        val generator: AutoTimelineGenerator = when (AutoTimelineConfig.GENERATOR_VERSION) {
             7  -> AutoTimelineGeneratorBeat_v7()
             8  -> AutoTimelineGeneratorBeat_v8()
             9  -> AutoTimelineGeneratorBeat_v9()
             10 -> AutoTimelineGeneratorBeat_v10()
             11 -> AutoTimelineGeneratorBeat_v11()
-            else -> throw IllegalArgumentException("Unsupported version: $version")
+            else -> throw IllegalArgumentException("Unsupported generator version: ${AutoTimelineConfig.GENERATOR_VERSION}")
         }
 
         // 이미 생성된 파일은 제외한 실제 처리 대상만 추려 정확한 total 확보
