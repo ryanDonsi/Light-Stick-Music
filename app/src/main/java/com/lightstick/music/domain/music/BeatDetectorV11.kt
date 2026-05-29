@@ -50,6 +50,9 @@ object BeatDetectorV11 {
     // ⑦ 약한 신호 자동 재시도: FAIL 세그먼트 비율이 이 값을 초과하면 완화 파라미터로 재시도
     private const val WEAK_SIGNAL_FAIL_RATE = 0.60f
 
+    // ⑧ BPM·위상 신뢰도: 감지된 비트가 예상 대비 이 비율 미만이면 전곡 자기상관 BPM·ODF 위상 우선
+    private const val LOW_COVERAGE_TH = 0.15f
+
     // ④ confidence
     data class TimedBeat(val timeMs: Long, val confidence: Float)
 
@@ -192,14 +195,26 @@ object BeatDetectorV11 {
                 0L, TimeSignature.FOUR_FOUR, loop.segResults)
         }
 
-        val beatTimesList = dedupedBeats.map { it.timeMs }
-        val rawBeatMs = estimateMedianInterval(beatTimesList, params.minBeatMs, params.maxBeatMs, params.hopMs)
-        val finalBeatMs = if (globalBeatMs != null &&
-            globalBeatMs < rawBeatMs &&
-            rawBeatMs - globalBeatMs < rawBeatMs / 6L) {
-            Log.d(TAG, "V11 finalBeatMs: global=$globalBeatMs preferred over raw=$rawBeatMs")
-            globalBeatMs
-        } else rawBeatMs
+        val beatTimesList    = dedupedBeats.map { it.timeMs }
+        val rawBeatMs        = estimateMedianInterval(beatTimesList, params.minBeatMs, params.maxBeatMs, params.hopMs)
+
+        // ⑧ 커버리지가 낮으면 (감지 비트 < 15% of expected) 전곡 자기상관 BPM 우선
+        val expectedBeats = max(1, (durationMs / rawBeatMs).toInt())
+        val coverage      = dedupedBeats.size.toFloat() / expectedBeats.toFloat()
+
+        val finalBeatMs = when {
+            globalBeatMs == null -> rawBeatMs
+            coverage < LOW_COVERAGE_TH -> {
+                Log.d(TAG, "V11 finalBeatMs: low coverage (${(coverage * 100).toInt()}% of $expectedBeats) " +
+                    "→ globalBeatMs=$globalBeatMs over raw=$rawBeatMs")
+                globalBeatMs
+            }
+            abs(rawBeatMs - globalBeatMs) * 6L < rawBeatMs -> {
+                Log.d(TAG, "V11 finalBeatMs: global=$globalBeatMs preferred over raw=$rawBeatMs (within 1/6)")
+                globalBeatMs
+            }
+            else -> rawBeatMs
+        }
 
         val finalSource = loop.sourceVotes.maxByOrNull { it.value }?.key
 
@@ -208,10 +223,16 @@ object BeatDetectorV11 {
         val timeSignature = detectTimeSignature(globalOnset, finalBeatMs, params.hopMs)
         Log.d(TAG, "V11 timeSignature=${timeSignature.type} (${timeSignature.numerator}/${timeSignature.denominator})")
 
-        // ① 다운비트 감지 — LOW 밴드 + 마디 콤 필터 + 일관성
-        val downbeatMs = detectDownbeatEnhanced(
-            beatTimesList, low, finalBeatMs, timeSignature.beatsPerBar, params.hopMs)
-        Log.d(TAG, "V11 downbeatMs=$downbeatMs")
+        // ① 다운비트 / 위상 감지
+        //    커버리지가 낮으면 실제 비트 기반 분석이 부정확 → 전곡 ODF 위상 추정 사용
+        val downbeatMs = if (coverage < LOW_COVERAGE_TH) {
+            val phase = estimatePhaseFromOdf(globalOnset, finalBeatMs, params.hopMs)
+            Log.d(TAG, "V11 downbeat: low coverage → ODF phase=${phase}ms")
+            phase
+        } else {
+            detectDownbeatEnhanced(beatTimesList, low, finalBeatMs, timeSignature.beatsPerBar, params.hopMs)
+        }
+        Log.d(TAG, "V11 downbeatMs=$downbeatMs coverage=${(coverage * 100).toInt()}%")
 
         // ② 비트 그리드 재정렬 — 다운비트 앵커 기준 정박자 스냅
         val realignedBeats = realignBeatsToGrid(dedupedBeats, downbeatMs, finalBeatMs)
@@ -319,6 +340,40 @@ object BeatDetectorV11 {
 
     private fun computeGlobalOnset(low: List<Float>, mid: List<Float>, params: Params): List<Float> =
         computeOdf(mix(low, mid, 0.55f, 0.45f), 5, GLOBAL_NORM_WINDOW)
+
+    /**
+     * 전곡 ODF에서 비트 위상(phase)을 추정한다.
+     *
+     * 비트 감지 커버리지가 낮아 detectDownbeatEnhanced가 부정확할 때 사용.
+     * 0..beatMs-1 범위의 모든 위상 후보에 대해 그리드 위치의 ODF 합산을 구하고,
+     * 합산이 가장 큰 위상 = 비트가 가장 많이 일치하는 시작점으로 반환한다.
+     */
+    private fun estimatePhaseFromOdf(
+        onset: List<Float>,
+        beatMs: Long,
+        hopMs: Long
+    ): Long {
+        val beatFrames = max(1, (beatMs / hopMs).toInt())
+        if (onset.size < beatFrames * 2) return 0L
+
+        var bestPhase = 0
+        var bestScore = Double.NEGATIVE_INFINITY
+
+        for (ph in 0 until beatFrames) {
+            var score = 0.0
+            var f = ph
+            while (f < onset.size) {
+                score += onset[f]
+                f += beatFrames
+            }
+            if (score > bestScore) {
+                bestScore = score
+                bestPhase = ph
+            }
+        }
+
+        return bestPhase.toLong() * hopMs
+    }
 
     // =========================================================================
     // ③ 박자표 감지 (Time Signature)
