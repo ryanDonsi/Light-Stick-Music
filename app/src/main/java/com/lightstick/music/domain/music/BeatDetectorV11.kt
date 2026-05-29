@@ -289,6 +289,7 @@ object BeatDetectorV11 {
             val segStartMs = s.toLong() * params.hopMs
 
             val srcOrder = buildSourceOrder(lowSeg, midSeg, fullSeg)
+            Log.d(TAG, "SEG[$segIndex] srcOrder=${srcOrder.joinToString(",")}")
             val trials   = ArrayList<TrialResult>()
             val okTrials = ArrayList<TrialResult>()
 
@@ -316,6 +317,9 @@ object BeatDetectorV11 {
                     e.toLong() * params.hopMs, null, emptyList(), 0L, 0f, "all failed", trials)
                 continue
             }
+
+            Log.d(TAG, "SEG[$segIndex] WINNER=${best.source} beatMs=${best.beatMs} " +
+                "beats=${best.timedBeats.size} score=${fmt(best.score)}")
 
             val absBeats = best.timedBeats.map { it.copy(timeMs = it.timeMs + segStartMs) }
             mergedBeats += absBeats
@@ -504,7 +508,7 @@ object BeatDetectorV11 {
     ): List<TimedBeat> {
         if (beats.isEmpty() || beatMs <= 0L) return beats
 
-        return beats.map { beat ->
+        return beats.mapNotNull { beat ->
             val offset        = (beat.timeMs - downbeatMs).toDouble()
             val nearestStep   = (offset / beatMs.toDouble()).roundToLong()
             val nearestGridMs = downbeatMs + nearestStep * beatMs
@@ -512,7 +516,7 @@ object BeatDetectorV11 {
             if (abs(beat.timeMs - nearestGridMs) <= REALIGN_SNAP_MS) {
                 beat.copy(timeMs = nearestGridMs)
             } else {
-                beat
+                null  // 그리드와 맞지 않음 → 드롭, 합성 비트로 채움
             }
         }.distinctBy { it.timeMs }.sortedBy { it.timeMs }
     }
@@ -572,12 +576,26 @@ object BeatDetectorV11 {
             t += beatMs
         }
 
-        val thinCount = beats.size - thinned.size
-        val fillCount = filled.size - thinned.size
-        Log.d(TAG, "V11 normalizeBeats: original=${beats.size} " +
-                "thinned=$thinCount filled=$fillCount final=${filled.size} phase=${phase}ms")
+        // ③ 최종 정리: fill 후에도 혹시 남은 이중 비트 제거 (beatMs × 0.75 이상 간격 보장)
+        val minFinalGapMs = (beatMs * 0.75f).toLong()
+        val cleaned = ArrayList<TimedBeat>(filled.size)
+        for (beat in filled.sortedBy { it.timeMs }) {
+            val last = cleaned.lastOrNull()
+            when {
+                last == null                                 -> cleaned += beat
+                beat.timeMs - last.timeMs >= minFinalGapMs  -> cleaned += beat
+                beat.confidence > last.confidence           -> cleaned[cleaned.lastIndex] = beat
+            }
+        }
 
-        return filled.sortedBy { it.timeMs }
+        val thinCount  = beats.size - thinned.size
+        val fillCount  = filled.size - thinned.size
+        val cleanCount = filled.size - cleaned.size
+        Log.d(TAG, "V11 normalizeBeats: original=${beats.size} " +
+                "thinned=$thinCount filled=$fillCount cleaned=$cleanCount " +
+                "final=${cleaned.size} phase=${phase}ms beatMs=${beatMs}ms")
+
+        return cleaned
     }
 
     /** 정렬된 LongArray에서 t ± snapMs 범위 내 값 존재 여부 (binary search) */
@@ -638,6 +656,9 @@ object BeatDetectorV11 {
         val threshold     = max(params.minPeakAbs, mean + std * params.peakThresholdK)
         val minPeakFrames = max(1, (params.minPeakDistanceMs / params.hopMs).toInt())
         val rawPeaks      = findPeaks(onset, threshold, minPeakFrames)
+        Log.d(TAG, "SEG[$segmentIndex][$source] mean=${fmt(mean)} std=${fmt(std)} " +
+            "max=${fmt(onsetMax)} threshold=${fmt(threshold)}(abs=${fmt(params.minPeakAbs)}) " +
+            "rawPeaks=${rawPeaks.size}")
 
         val acResult = autoCorrelateBeat(onset, params.hopMs, params.minBeatMs, params.maxBeatMs)
 
@@ -714,14 +735,15 @@ object BeatDetectorV11 {
         val midVar  = varOf(mid)
         val fullVar = varOf(full)
         val BASS_BONUS = 0.003f
-        return listOf(
+        val scored = listOf(
             BeatSource.LOW      to (lowVar + BASS_BONUS),
             BeatSource.LOW_MID  to ((lowVar + midVar) * 0.5f + min(lowVar, midVar) * 0.2f + BASS_BONUS),
             BeatSource.MID      to midVar,
             BeatSource.FULL     to fullVar,
             BeatSource.MID_FULL to ((midVar + fullVar) * 0.5f + min(midVar, fullVar) * 0.2f),
             BeatSource.LOW_FULL to ((lowVar + fullVar) * 0.5f + min(lowVar, fullVar) * 0.2f)
-        ).sortedByDescending { it.second }.map { it.first }
+        ).sortedByDescending { it.second }
+        return scored.map { it.first }
     }
 
     private fun combineSource(src: BeatSource, low: List<Float>, mid: List<Float>, full: List<Float>): List<Float> =

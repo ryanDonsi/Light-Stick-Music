@@ -30,7 +30,6 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         private const val MIN_BEAT_MS = 250L
         private const val MAX_BEAT_MS = 900L
 
-        private const val COLOR_SEGMENT_MS = 5_000L
     }
 
     private enum class EnvMode { LOW, MID, FULL }
@@ -96,9 +95,18 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             .let { if (it > 900L) it / 2L else it }
             .coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
 
-        Log.d(TAG, "v7 BeatDetectorV11 beatMs=$globalBeatMs beats=${v11Result.beats.size}")
+        val beatsPerBar = v11Result.timeSignature.beatsPerBar
+        Log.d(TAG, "v7 BeatDetectorV11 beatMs=$globalBeatMs beats=${v11Result.beats.size} " +
+            "timeSig=${v11Result.timeSignature.type} beatsPerBar=$beatsPerBar")
 
-        val frames = buildTimeline(v11Result.beats, globalBeatMs, durationMs, palette, musicId)
+        // Q6: 비트 타임스탬프 로그 (처음 12개 + 마지막 4개)
+        if (v11Result.beats.isNotEmpty()) {
+            val first = v11Result.beats.take(12).joinToString(" ") { "${it.timeMs}" }
+            val last  = v11Result.beats.takeLast(4).joinToString(" ") { "${it.timeMs}" }
+            Log.d(TAG, "v7 beatTimes[$fileName] first=[$first] last=[$last]")
+        }
+
+        val frames = buildTimeline(v11Result.beats, globalBeatMs, beatsPerBar, durationMs, palette, musicId)
         Log.d(TAG, "v7 frames(final)=${frames.size}")
         return frames.sortedBy { it.first }
     }
@@ -110,6 +118,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     private fun buildTimeline(
         beats: List<BeatDetectorV11.TimedBeat>,
         beatMs: Long,
+        beatsPerBar: Int,
         durationMs: Long,
         palette: Palette,
         musicId: Int
@@ -117,12 +126,14 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         val frames         = ArrayList<Pair<Long, ByteArray>>()
         val usedTimestamps = HashSet<Long>()
         val onDurationMs   = (beatMs * 20L / 100L).coerceAtLeast(1L)
+        val firstBeatMs    = beats.firstOrNull()?.timeMs ?: 0L
+        val barMs          = beatMs * beatsPerBar.coerceAtLeast(1)
 
         for (beat in beats) {
             val t = beat.timeMs
             if (t < 0 || t >= durationMs) continue
 
-            val color = colorForTime(musicId, palette, t)
+            val color = colorForBar(musicId, palette, barMs, firstBeatMs, t)
 
             if (usedTimestamps.add(t)) {
                 frames += t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray()
@@ -141,10 +152,18 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     // Color — 5초 단위 팔레트 순환
     // ──────────────────────────────────────────────────────────────
 
-    private fun colorForTime(musicId: Int, palette: Palette, tMs: Long): LSColor {
-        val seg = (tMs / COLOR_SEGMENT_MS).toInt()
-        val rnd = Random(musicId * 1_000_003L + seg * 97L)
-        val colors = listOf(palette.c1, palette.c2, palette.c3, palette.white)
+    // barMs = beatMs × beatsPerBar: 4/4 → 4박, 3/4 → 3박마다 색상 변경
+    private fun colorForBar(
+        musicId: Int,
+        palette: Palette,
+        barMs: Long,
+        firstBeatMs: Long,
+        tMs: Long
+    ): LSColor {
+        val elapsed  = (tMs - firstBeatMs).coerceAtLeast(0L)
+        val barIndex = if (barMs > 0L) (elapsed / barMs).toInt() else 0
+        val rnd      = Random(musicId * 1_000_003L + barIndex.toLong() * 97L)
+        val colors   = listOf(palette.c1, palette.c2, palette.c3, palette.white)
         return colors[rnd.nextInt(colors.size)]
     }
 
