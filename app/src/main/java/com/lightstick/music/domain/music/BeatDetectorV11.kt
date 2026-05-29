@@ -43,6 +43,11 @@ object BeatDetectorV11 {
     // ② 그리드 재정렬 스냅 허용 범위
     private const val REALIGN_SNAP_MS = 80L
 
+    // ⑥ 갭 채우기 / 밀도 축소 후처리
+    private const val GAP_FILL_RATIO  = 1.8f   // 두 비트 간격 > beatMs × 1.8 → 갭 채우기
+    private const val THIN_RATIO      = 0.55f  // 두 비트 간격 < beatMs × 0.55 → 밀도 축소
+    private const val FILL_CONFIDENCE = 0.20f  // 합성 비트 신뢰도
+
     // ④ confidence
     data class TimedBeat(val timeMs: Long, val confidence: Float)
 
@@ -239,17 +244,21 @@ object BeatDetectorV11 {
         Log.d(TAG, "V11 downbeatMs=$downbeatMs")
 
         // ② 비트 그리드 재정렬 — 다운비트 앵커 기준 정박자 스냅
-        val realignedBeats   = realignBeatsToGrid(dedupedBeats, downbeatMs, finalBeatMs)
-        val downbeatOffsetMs = (downbeatMs - (realignedBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
+        val realignedBeats = realignBeatsToGrid(dedupedBeats, downbeatMs, finalBeatMs)
+
+        // ⑥ 갭 채우기 + 밀도 축소 후처리
+        val normalizedBeats  = normalizeBeats(realignedBeats, finalBeatMs, durationMs)
+        val downbeatOffsetMs = (downbeatMs - (normalizedBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
         Log.d(TAG,
-            "V11 detect OK source=$finalSource totalBeats=${realignedBeats.size} " +
+            "V11 detect OK source=$finalSource " +
+            "beats: realigned=${realignedBeats.size} → normalized=${normalizedBeats.size} " +
             "beatMs=$finalBeatMs timeSignature=${timeSignature.type} " +
             "downbeatOffset=${downbeatOffsetMs}ms " +
-            "first=${realignedBeats.firstOrNull()?.timeMs} last=${realignedBeats.lastOrNull()?.timeMs}")
+            "first=${normalizedBeats.firstOrNull()?.timeMs} last=${normalizedBeats.lastOrNull()?.timeMs}")
 
         return DetectResult(
-            beats            = realignedBeats,
+            beats            = normalizedBeats,
             beatMs           = finalBeatMs,
             source           = finalSource,
             reason           = "ok",
@@ -411,6 +420,67 @@ object BeatDetectorV11 {
                 beat
             }
         }.distinctBy { it.timeMs }.sortedBy { it.timeMs }
+    }
+
+    // =========================================================================
+    // ⑥ 갭 채우기 + 밀도 축소 후처리
+    // =========================================================================
+
+    /**
+     * realignBeatsToGrid 이후 비트 목록을 정규화한다.
+     *
+     * ① 밀도 축소 (Thin):
+     *    연속 두 비트의 간격 < beatMs × THIN_RATIO 이면 신뢰도가 낮은 쪽 제거.
+     *    너무 촘촘하게 감지된 이중 피크를 제거한다.
+     *
+     * ② 갭 채우기 (Fill):
+     *    연속 두 비트의 간격 > beatMs × GAP_FILL_RATIO 이면 beatMs 간격으로
+     *    합성 비트(confidence = FILL_CONFIDENCE)를 삽입한다.
+     *    조용한 구간이나 감지 실패 구간의 비어있는 박자를 채운다.
+     */
+    private fun normalizeBeats(
+        beats: List<TimedBeat>,
+        beatMs: Long,
+        durationMs: Long
+    ): List<TimedBeat> {
+        if (beats.isEmpty() || beatMs <= 0L) return beats
+
+        val thinThresholdMs = (beatMs * THIN_RATIO).toLong()
+        val fillThresholdMs = (beatMs * GAP_FILL_RATIO).toLong()
+
+        // ① 밀도 축소: 너무 촘촘한 비트 제거 (신뢰도 높은 쪽 유지)
+        val thinned = ArrayList<TimedBeat>(beats.size)
+        for (beat in beats) {
+            val last = thinned.lastOrNull()
+            when {
+                last == null -> thinned += beat
+                beat.timeMs - last.timeMs >= thinThresholdMs -> thinned += beat
+                beat.confidence > last.confidence -> thinned[thinned.lastIndex] = beat
+                // else: 현재 비트가 신뢰도 낮음 → 드롭
+            }
+        }
+
+        // ② 갭 채우기: 비어있는 구간에 합성 비트 삽입
+        val filled = ArrayList<TimedBeat>(thinned.size * 2)
+        for (i in thinned.indices) {
+            filled += thinned[i]
+            val next = thinned.getOrNull(i + 1) ?: continue
+            val gap = next.timeMs - thinned[i].timeMs
+            if (gap > fillThresholdMs) {
+                var t = thinned[i].timeMs + beatMs
+                while (next.timeMs - t > beatMs / 2L) {
+                    if (t in 0L..durationMs) filled += TimedBeat(t, FILL_CONFIDENCE)
+                    t += beatMs
+                }
+            }
+        }
+
+        val thinDiff = beats.size - thinned.size
+        val fillDiff = filled.size - thinned.size
+        Log.d(TAG, "V11 normalizeBeats: original=${beats.size} " +
+                "thinned=$thinDiff filled=$fillDiff final=${filled.size}")
+
+        return filled.sortedBy { it.timeMs }
     }
 
     // =========================================================================

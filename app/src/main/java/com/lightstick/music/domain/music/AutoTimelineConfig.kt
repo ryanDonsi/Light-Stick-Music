@@ -5,7 +5,7 @@ object AutoTimelineConfig {
     /**
      * 파일 캐시 버전 — 생성기·감지기 조합이 바뀔 때마다 증가시켜 기존 캐시를 무효화한다.
      */
-    const val VERSION = 13
+    const val VERSION = 14
 
     /**
      * 타임라인 생성기 버전 (6 ~ 11)
@@ -16,7 +16,7 @@ object AutoTimelineConfig {
      * 10 : v9 기반 + phrase accent, ON_ROTATE 추가
      * 11 : v8 기반 + BeatDetectorV11, fade 10%/90% 패턴
      */
-    const val GENERATOR_VERSION = 6
+    const val GENERATOR_VERSION = 7
 
     /**
      * 비트 감지기 버전 (8 ~ 11)
