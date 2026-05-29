@@ -72,6 +72,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
+        Log.d(TAG, "v7 BeatDetect start file=$fileName musicId=$musicId durationMs=$durationMs")
         val v11Result = BeatDetectorV11.detect(
             lowEnv  = lowEnv,
             midEnv  = midEnv,
