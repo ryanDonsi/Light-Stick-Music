@@ -5,7 +5,7 @@ object AutoTimelineConfig {
     /**
      * 파일 캐시 버전 — 생성기·감지기 조합이 바뀔 때마다 증가시켜 기존 캐시를 무효화한다.
      */
-    const val VERSION = 15
+    const val VERSION = 16
 
     /**
      * 타임라인 생성기 버전 (6 ~ 11)
@@ -26,6 +26,12 @@ object AutoTimelineConfig {
      * 11 : V9 기반 + 정박자 최우선 감지, 다운비트 그리드 재정렬
      */
     const val BEAT_DETECTOR_VERSION = 11
+
+    /**
+     * 섹션 감지기 버전
+     *  1 : 슬라이딩 윈도우 특징 분석 + 비트 경계 정렬
+     */
+    const val SECTION_DETECTOR_VERSION = 1
 
     const val PALETTE_SIZE = 4
 }

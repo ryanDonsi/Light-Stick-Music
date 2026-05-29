@@ -1,0 +1,522 @@
+package com.lightstick.music.domain.music
+
+import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.music.core.util.Log
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+
+/**
+ * SectionDetectorV1
+ *
+ * BeatDetector가 이미 계산한 beats 목록을 받아 섹션 경계를 분석한다.
+ *
+ * 처리 순서:
+ * ① 2000ms 슬라이딩 윈도우 → 에너지/저역비/어택밀도/주기성 계산
+ * ② 윈도우 연속성 평가 → 변화점에서 섹션 분할
+ * ③ 짧은 섹션 병합 + 전체 길이 커버 정규화
+ * ④ 섹션 경계를 가장 가까운 비트 위치로 스냅 (±500ms 이내)
+ * ⑤ 비트 배분 — 각 섹션 구간에 속한 TimedBeat 할당; 부족 시 전역 그리드로 채움
+ */
+class SectionDetectorV1 : SectionDetector {
+
+    companion object {
+        private const val TAG = AppConstants.Feature.AUTO_TIMELINE
+
+        private const val WINDOW_MS = 2_000L
+        private const val STRIDE_MS = 1_000L
+        private const val MIN_SECTION_MS = 4_000L
+
+        private const val MIN_BEAT_MS = 250L
+        private const val MAX_BEAT_MS = 900L
+        private const val DEFAULT_BEAT_MS = 450L
+
+        private const val LOW_ENERGY_TH          = 0.18f
+        private const val HIGH_ENERGY_TH         = 0.52f
+        private const val HIGH_DENSITY_TH        = 0.48f
+        private const val STRONG_PERIODICITY_TH  = 0.40f
+
+        private const val SECTION_STRONG_CHANGE_TH = 0.24f
+        private const val SECTION_MEDIUM_CHANGE_TH = 0.14f
+
+        private const val ALIGN_SNAP_MS = 500L
+        private const val MIN_BEATS_IN_SECTION = 3
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Internal model
+    // ──────────────────────────────────────────────────────────────
+
+    private data class FeatureWindow(
+        val startMs: Long,
+        val endMs: Long,
+        val energy: Float,
+        val lowRatio: Float,
+        val onsetDensity: Float,
+        val periodicity: Float,
+        val beatMsHint: Long,
+        val sectionType: SectionDetector.SectionType,
+        val changeStrength: SectionDetector.ChangeStrength
+    )
+
+    // ──────────────────────────────────────────────────────────────
+    // Public API
+    // ──────────────────────────────────────────────────────────────
+
+    override fun detect(
+        lowEnv: List<Float>,
+        midEnv: List<Float>,
+        fullEnv: List<Float>,
+        beats: List<BeatDetectorV11.TimedBeat>,
+        beatMs: Long,
+        durationMs: Long,
+        hopMs: Long
+    ): List<SectionDetector.Section> {
+        if (fullEnv.isEmpty()) return emptyList()
+
+        val windows = buildFeatureWindows(lowEnv, midEnv, fullEnv, durationMs, hopMs)
+        val rawSections = buildSectionsFromWindows(windows, durationMs)
+
+        val sortedBeatTimes = beats.map { it.timeMs }.toLongArray().also { it.sort() }
+        val alignedSections = alignBoundariesToBeats(rawSections, sortedBeatTimes, durationMs)
+
+        return distributeBeatsToSections(alignedSections, beats, beatMs, sortedBeatTimes)
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // ① Feature windows
+    // ──────────────────────────────────────────────────────────────
+
+    private fun buildFeatureWindows(
+        lowEnv: List<Float>,
+        midEnv: List<Float>,
+        fullEnv: List<Float>,
+        durationMs: Long,
+        hopMs: Long
+    ): List<FeatureWindow> {
+        val windows = ArrayList<FeatureWindow>()
+        val windowFrames = max(1, (WINDOW_MS / hopMs).toInt())
+        val strideFrames  = max(1, (STRIDE_MS / hopMs).toInt())
+
+        val novelty = computeNovelty(lowEnv, midEnv, fullEnv)
+
+        var startIdx = 0
+        var prev: FeatureWindow? = null
+
+        while (startIdx < fullEnv.size) {
+            val endIdx = min(fullEnv.size, startIdx + windowFrames)
+            if (endIdx <= startIdx) break
+
+            val startMs = startIdx.toLong() * hopMs
+            val endMs   = min(durationMs, endIdx.toLong() * hopMs)
+
+            val lowSlice  = lowEnv.subList(startIdx, endIdx)
+            val midSlice  = midEnv.subList(startIdx, endIdx)
+            val fullSlice = fullEnv.subList(startIdx, endIdx)
+            val novSlice  = novelty.copyOfRange(startIdx, endIdx)
+
+            val energy       = average(fullSlice)
+            val lowRatio     = average(lowSlice) / max(0.0001f, average(fullSlice))
+            val onsetDensity = densityAbove(novSlice, 0.12f)
+            val beatMsHint   = estimateBeatMsByAutocorr(novSlice, hopMs, MIN_BEAT_MS, MAX_BEAT_MS)
+            val periodicity  = estimatePeriodicityStrength(novSlice, beatMsHint, hopMs)
+            val type         = classifySectionType(startMs, endMs, durationMs, energy, lowRatio, onsetDensity, periodicity)
+
+            val draft = FeatureWindow(
+                startMs      = startMs,
+                endMs        = endMs,
+                energy       = energy,
+                lowRatio     = lowRatio,
+                onsetDensity = onsetDensity,
+                periodicity  = periodicity,
+                beatMsHint   = beatMsHint,
+                sectionType  = type,
+                changeStrength = SectionDetector.ChangeStrength.NONE
+            )
+
+            val change = estimateChangeStrength(prev, draft)
+            val win = draft.copy(changeStrength = change)
+            windows += win
+            prev = win
+            startIdx += strideFrames
+        }
+
+        return windows
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // ② Section type classification
+    // ──────────────────────────────────────────────────────────────
+
+    private fun classifySectionType(
+        startMs: Long,
+        endMs: Long,
+        durationMs: Long,
+        energy: Float,
+        lowRatio: Float,
+        onsetDensity: Float,
+        periodicity: Float
+    ): SectionDetector.SectionType {
+        val introLimit = min(18_000L, (durationMs * 0.12f).toLong())
+        val endLimit   = max(8_000L,  (durationMs * 0.08f).toLong())
+
+        if (startMs < introLimit) {
+            return if (energy < LOW_ENERGY_TH && periodicity < STRONG_PERIODICITY_TH)
+                SectionDetector.SectionType.INTRO
+            else
+                SectionDetector.SectionType.VERSE
+        }
+
+        if (endMs >= durationMs - endLimit) {
+            return if (energy < LOW_ENERGY_TH || onsetDensity < 0.14f)
+                SectionDetector.SectionType.END
+            else
+                SectionDetector.SectionType.VERSE
+        }
+
+        return when {
+            energy < LOW_ENERGY_TH && onsetDensity < 0.12f        -> SectionDetector.SectionType.BRIDGE
+            energy >= HIGH_ENERGY_TH && onsetDensity >= HIGH_DENSITY_TH -> SectionDetector.SectionType.CHORUS
+            lowRatio < 0.88f && onsetDensity < 0.18f              -> SectionDetector.SectionType.BRIDGE
+            else                                                   -> SectionDetector.SectionType.VERSE
+        }
+    }
+
+    private fun estimateChangeStrength(
+        prev: FeatureWindow?,
+        cur: FeatureWindow
+    ): SectionDetector.ChangeStrength {
+        if (prev == null) return SectionDetector.ChangeStrength.STRONG
+        val score =
+            abs(cur.energy       - prev.energy)       * 0.35f +
+            abs(cur.onsetDensity - prev.onsetDensity) * 0.35f +
+            abs(cur.lowRatio     - prev.lowRatio)     * 0.10f +
+            abs(cur.periodicity  - prev.periodicity)  * 0.10f +
+            if (cur.sectionType != prev.sectionType) 0.20f else 0f
+
+        return when {
+            score >= SECTION_STRONG_CHANGE_TH -> SectionDetector.ChangeStrength.STRONG
+            score >= SECTION_MEDIUM_CHANGE_TH -> SectionDetector.ChangeStrength.MEDIUM
+            else                              -> SectionDetector.ChangeStrength.NONE
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // ③ Merge windows → sections
+    // ──────────────────────────────────────────────────────────────
+
+    private fun buildSectionsFromWindows(
+        windows: List<FeatureWindow>,
+        durationMs: Long
+    ): List<FeatureWindow> {
+        if (windows.isEmpty()) return emptyList()
+
+        val merged = ArrayList<FeatureWindow>()
+        var cur = windows.first()
+
+        for (i in 1 until windows.size) {
+            val next = windows[i]
+            val shouldSplit =
+                next.changeStrength == SectionDetector.ChangeStrength.STRONG ||
+                next.sectionType != cur.sectionType
+
+            if (shouldSplit) {
+                merged += cur.copy(endMs = next.startMs)
+                cur = next.copy(startMs = next.startMs)
+            } else {
+                cur = cur.copy(
+                    endMs        = next.endMs,
+                    energy       = (cur.energy       + next.energy)       * 0.5f,
+                    lowRatio     = (cur.lowRatio     + next.lowRatio)     * 0.5f,
+                    onsetDensity = (cur.onsetDensity + next.onsetDensity) * 0.5f,
+                    periodicity  = (cur.periodicity  + next.periodicity)  * 0.5f,
+                    beatMsHint   = normalizeBeatMsAgainstGlobal(cur.beatMsHint, next.beatMsHint)
+                )
+            }
+        }
+        merged += cur.copy(endMs = durationMs)
+
+        return normalizeSections(merged, durationMs)
+    }
+
+    private fun normalizeSections(
+        sections: List<FeatureWindow>,
+        durationMs: Long
+    ): List<FeatureWindow> {
+        if (sections.isEmpty()) return emptyList()
+
+        val sorted = sections.sortedBy { it.startMs }
+        val out    = ArrayList<FeatureWindow>()
+
+        for (s in sorted) {
+            val fixedStart = if (out.isEmpty()) 0L else max(out.last().endMs, s.startMs)
+            val fixedEnd   = min(durationMs, max(fixedStart + 1L, s.endMs))
+            if (fixedEnd <= fixedStart) continue
+
+            val fixed = s.copy(startMs = fixedStart, endMs = fixedEnd)
+
+            if (out.isNotEmpty()) {
+                val prev = out.last()
+                if (fixed.endMs - fixed.startMs < MIN_SECTION_MS &&
+                    prev.sectionType == fixed.sectionType
+                ) {
+                    out[out.lastIndex] = prev.copy(
+                        endMs        = fixed.endMs,
+                        energy       = (prev.energy       + fixed.energy)       * 0.5f,
+                        lowRatio     = (prev.lowRatio     + fixed.lowRatio)     * 0.5f,
+                        onsetDensity = (prev.onsetDensity + fixed.onsetDensity) * 0.5f,
+                        periodicity  = (prev.periodicity  + fixed.periodicity)  * 0.5f,
+                        beatMsHint   = normalizeBeatMsAgainstGlobal(prev.beatMsHint, fixed.beatMsHint)
+                    )
+                    continue
+                }
+            }
+            out += fixed
+        }
+
+        if (out.isNotEmpty()) {
+            val last = out.last()
+            if (last.endMs < durationMs) {
+                out[out.lastIndex] = last.copy(endMs = durationMs)
+            }
+        }
+
+        return out
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // ④ Align section boundaries to beat positions
+    // ──────────────────────────────────────────────────────────────
+
+    private fun alignBoundariesToBeats(
+        sections: List<FeatureWindow>,
+        sortedBeatTimes: LongArray,
+        durationMs: Long
+    ): List<FeatureWindow> {
+        if (sections.size <= 1 || sortedBeatTimes.isEmpty()) return sections
+
+        val result  = ArrayList<FeatureWindow>(sections.size)
+        var prevEnd = 0L
+
+        for (i in sections.indices) {
+            val s      = sections[i]
+            val isLast = i == sections.lastIndex
+            val rawEnd = if (isLast) durationMs else s.endMs
+
+            val snappedEnd = if (isLast) durationMs
+                             else snapToNearestBeat(rawEnd, sortedBeatTimes, ALIGN_SNAP_MS)
+
+            val start = prevEnd
+            val end   = max(start + 1L, snappedEnd)
+            result += s.copy(startMs = start, endMs = end)
+            prevEnd = end
+        }
+
+        return result
+    }
+
+    private fun snapToNearestBeat(
+        targetMs: Long,
+        sortedBeatTimes: LongArray,
+        snapWindowMs: Long
+    ): Long {
+        if (sortedBeatTimes.isEmpty()) return targetMs
+
+        // Binary search for insertion point
+        var lo = 0; var hi = sortedBeatTimes.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (sortedBeatTimes[mid] < targetMs) lo = mid + 1 else hi = mid
+        }
+
+        var best     = targetMs
+        var bestDist = Long.MAX_VALUE
+
+        for (idx in max(0, lo - 1)..min(sortedBeatTimes.lastIndex, lo + 1)) {
+            val d = abs(sortedBeatTimes[idx] - targetMs)
+            if (d <= snapWindowMs && d < bestDist) {
+                bestDist = d
+                best     = sortedBeatTimes[idx]
+            }
+        }
+
+        return best
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // ⑤ Distribute beats to sections
+    // ──────────────────────────────────────────────────────────────
+
+    private fun distributeBeatsToSections(
+        sections: List<FeatureWindow>,
+        beats: List<BeatDetectorV11.TimedBeat>,
+        globalBeatMs: Long,
+        sortedBeatTimes: LongArray
+    ): List<SectionDetector.Section> {
+        val sortedBeats = beats.sortedBy { it.timeMs }
+        val result      = ArrayList<SectionDetector.Section>(sections.size)
+
+        for ((idx, s) in sections.withIndex()) {
+            val sectionBeats = sortedBeats.filter { it.timeMs >= s.startMs && it.timeMs < s.endMs }
+
+            val beatTimesMs: LongArray
+            val confidence: Float
+
+            if (sectionBeats.size >= MIN_BEATS_IN_SECTION) {
+                beatTimesMs = LongArray(sectionBeats.size) { sectionBeats[it].timeMs }
+                confidence  = sectionBeats.map { it.confidence }.average().toFloat()
+            } else {
+                beatTimesMs = buildGridBeats(s.startMs, s.endMs, globalBeatMs, sortedBeatTimes)
+                confidence  = 0.20f
+            }
+
+            Log.d(TAG, "SectionDetectorV1[$idx] ${s.startMs}~${s.endMs} " +
+                "type=${s.sectionType} beats=${beatTimesMs.size} beatMs=$globalBeatMs " +
+                "confidence=${"%.2f".format(confidence)} change=${s.changeStrength}")
+
+            result += SectionDetector.Section(
+                startMs        = s.startMs,
+                endMs          = s.endMs,
+                type           = s.sectionType,
+                changeStrength = s.changeStrength,
+                beatTimesMs    = beatTimesMs,
+                beatMs         = globalBeatMs,
+                beatConfidence = confidence
+            )
+        }
+
+        return result
+    }
+
+    private fun buildGridBeats(
+        startMs: Long,
+        endMs: Long,
+        beatMs: Long,
+        sortedBeatTimes: LongArray
+    ): LongArray {
+        if (beatMs <= 0) return LongArray(0)
+        // Phase from first detected beat
+        val phase = if (sortedBeatTimes.isEmpty()) 0L else sortedBeatTimes[0] % beatMs
+        val out   = ArrayList<Long>()
+        var t = phase
+        while (t < startMs) t += beatMs
+        while (t < endMs) {
+            out += t
+            t += beatMs
+        }
+        return out.toLongArray()
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Signal analysis helpers
+    // ──────────────────────────────────────────────────────────────
+
+    private fun computeNovelty(
+        lowEnv: List<Float>,
+        midEnv: List<Float>,
+        fullEnv: List<Float>
+    ): FloatArray {
+        val n = FloatArray(fullEnv.size)
+        for (i in 1 until fullEnv.size) {
+            val dLow  = max(0f, lowEnv[i]  - lowEnv[i - 1])
+            val dMid  = max(0f, midEnv[i]  - midEnv[i - 1])
+            val dFull = max(0f, fullEnv[i] - fullEnv[i - 1])
+            n[i] = dLow * 0.45f + dMid * 0.35f + dFull * 0.20f
+        }
+        normalize01InPlace(n)
+        smoothInPlace(n, 2)
+        return n
+    }
+
+    private fun estimateBeatMsByAutocorr(
+        novelty: FloatArray,
+        hopMs: Long,
+        minBeatMs: Long,
+        maxBeatMs: Long
+    ): Long {
+        if (novelty.size < 8) return DEFAULT_BEAT_MS
+
+        val minLag = max(1, (minBeatMs / hopMs).toInt())
+        val maxLag = max(minLag + 1, min((maxBeatMs / hopMs).toInt(), novelty.size - 1))
+
+        var bestLag   = (DEFAULT_BEAT_MS / hopMs).toInt().coerceIn(minLag, maxLag)
+        var bestScore = Double.NEGATIVE_INFINITY
+
+        for (lag in minLag..maxLag) {
+            var s = 0.0
+            var i = lag
+            while (i < novelty.size) {
+                s += novelty[i] * novelty[i - lag]
+                i++
+            }
+            if (s > bestScore) {
+                bestScore = s
+                bestLag   = lag
+            }
+        }
+
+        return (bestLag.toLong() * hopMs).coerceIn(minBeatMs, maxBeatMs)
+    }
+
+    private fun estimatePeriodicityStrength(
+        novelty: FloatArray,
+        beatMs: Long,
+        hopMs: Long
+    ): Float {
+        if (novelty.isEmpty()) return 0f
+        val lag = max(1, (beatMs / hopMs).toInt())
+        if (lag >= novelty.size) return 0f
+
+        var ac  = 0f
+        var raw = 0f
+        for (i in lag until novelty.size) ac += novelty[i] * novelty[i - lag]
+        for (v in novelty) raw += v * v
+
+        return if (raw <= 1e-6f) 0f else (ac / raw).coerceIn(0f, 1f)
+    }
+
+    private fun normalizeBeatMsAgainstGlobal(globalBeatMs: Long, rawBeatMs: Long): Long {
+        var beatMs = rawBeatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+        val g      = globalBeatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+        val ratio  = beatMs.toFloat() / g.toFloat()
+        beatMs = when {
+            ratio in 0.45f..0.65f -> (beatMs * 2L).coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+            ratio in 1.70f..2.20f -> (beatMs / 2L).coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+            else                  -> beatMs
+        }
+        return beatMs
+    }
+
+    private fun average(src: List<Float>): Float {
+        if (src.isEmpty()) return 0f
+        var sum = 0f
+        for (v in src) sum += v
+        return sum / src.size.toFloat()
+    }
+
+    private fun densityAbove(src: FloatArray, th: Float): Float {
+        if (src.isEmpty()) return 0f
+        var count = 0
+        for (v in src) if (v >= th) count++
+        return count.toFloat() / src.size.toFloat()
+    }
+
+    private fun normalize01InPlace(x: FloatArray) {
+        var mx = 0f
+        for (v in x) mx = max(mx, v)
+        if (mx <= 1e-6f) return
+        for (i in x.indices) x[i] = (x[i] / mx).coerceIn(0f, 1f)
+    }
+
+    private fun smoothInPlace(x: FloatArray, win: Int) {
+        if (x.size < win + 2) return
+        val copy = x.copyOf()
+        for (i in x.indices) {
+            var s = 0f; var c = 0
+            val a = (i - win).coerceAtLeast(0)
+            val b = (i + win).coerceAtMost(x.lastIndex)
+            for (j in a..b) { s += copy[j]; c++ }
+            x[i] = s / max(1, c)
+        }
+    }
+}
