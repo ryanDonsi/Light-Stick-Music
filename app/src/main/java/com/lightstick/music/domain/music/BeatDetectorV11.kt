@@ -21,10 +21,11 @@ object BeatDetectorV11 {
 
     private const val TAG = "AutoTimeline"
 
-    private const val HARMONIC_FOLD_HALF_RATIO  = 0.40f
+    private const val HARMONIC_FOLD_HALF_RATIO  = 0.55f  // 이전 0.40 → 오탐 방지
     private const val HARMONIC_FOLD_THIRD_RATIO = 0.35f
     private const val HARMONIC_DOUBLE_RATIO     = 0.80f
     private const val HARMONIC_TWO_THIRDS_RATIO = 0.75f
+    private const val HARMONIC_FOLD_HALF_MIN_MS = 340L   // 340ms(~176BPM) 미만으론 half-fold 금지
 
     private const val LOCAL_NORM_WINDOW  = 60   // 3초 @ 50ms hop
     private const val GLOBAL_NORM_WINDOW = 80   // 4초 @ 50ms hop
@@ -76,7 +77,7 @@ object BeatDetectorV11 {
 
     data class Params(
         val hopMs: Long             = 50L,
-        val minBeatMs: Long         = 290L,
+        val minBeatMs: Long         = 320L,   // 이전 290ms → 320ms(~188BPM) 이하 오탐 방지
         val maxBeatMs: Long         = 1200L,
         val minPeakDistanceMs: Long = 140L,
         val onsetSmoothWindow: Int  = 3,
@@ -784,9 +785,12 @@ object BeatDetectorV11 {
         if ((bestValue - secondValue).coerceAtLeast(0f) + bestValue < 0.012f) return null
 
         // harmonic /2
+        // HARMONIC_FOLD_HALF_MIN_MS 이상일 때만 half-fold 허용 (250ms 등 너무 빠른 BPM 오탐 방지)
         val halfLag = bestLag / 2
-        if (halfLag >= minLag && corrArray[halfLag] >= bestValue * HARMONIC_FOLD_HALF_RATIO) {
-            val halfMs     = halfLag * hopMs
+        val halfMs  = halfLag * hopMs
+        if (halfLag >= minLag && halfMs >= HARMONIC_FOLD_HALF_MIN_MS &&
+            corrArray[halfLag] >= bestValue * HARMONIC_FOLD_HALF_RATIO) {
+            Log.d(TAG, "autoCorr half-fold: bestLag=${bestLag * hopMs}ms → halfMs=${halfMs}ms")
             val quarterLag = halfLag / 2
             if (quarterLag >= minLag && corrArray[quarterLag] >= corrArray[halfLag] * HARMONIC_FOLD_HALF_RATIO)
                 return quarterLag * hopMs to corrArray[quarterLag].coerceIn(0f, 1f)
@@ -867,6 +871,8 @@ object BeatDetectorV11 {
                 abs(diffMs - expected)        <= tol         -> kept += cur
                 abs(diffMs - expected * 2f)   <= tol * 0.6f -> kept += cur
                 abs(diffMs - expected * 0.5f) <= tol * 0.8f -> kept += cur
+                abs(diffMs - expected * 3f)   <= tol * 1.2f -> kept += cur  // 3비트 스킵 허용
+                abs(diffMs - expected * 4f)   <= tol * 1.4f -> kept += cur  // 4비트 스킵 허용
             }
         }
         return kept

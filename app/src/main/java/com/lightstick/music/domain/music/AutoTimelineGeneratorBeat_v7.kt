@@ -11,7 +11,6 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
-import kotlin.random.Random
 
 /**
  * AutoTimelineGeneratorBeat_v7 — BeatDetector 검증 전용
@@ -25,9 +24,9 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
-        private const val VERSION     = 9
+        private const val VERSION     = 10
         private const val HOP_MS      = 50L
-        private const val MIN_BEAT_MS = 250L
+        private const val MIN_BEAT_MS = 320L
         private const val MAX_BEAT_MS = 900L
 
     }
@@ -78,7 +77,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             fullEnv = fullEnv,
             params  = BeatDetectorV11.Params(
                 hopMs             = HOP_MS,
-                minBeatMs         = 290L,
+                minBeatMs         = MIN_BEAT_MS,
                 maxBeatMs         = 1200L,
                 minPeakDistanceMs = 140L,
                 onsetSmoothWindow = 5,
@@ -149,10 +148,12 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Color — 5초 단위 팔레트 순환
+    // Color — barIndex 기반 배열 순환 (musicId로 시작 오프셋 결정)
     // ──────────────────────────────────────────────────────────────
 
     // barMs = beatMs × beatsPerBar: 4/4 → 4박, 3/4 → 3박마다 색상 변경
+    // 색상 배열 [c1, c2, c3, c4, c5, white] 를 barIndex 순서로 Rotate
+    // musicId 기반으로 시작 오프셋(0~5)을 고정 → 같은 곡은 항상 같은 색상 순서
     private fun colorForBar(
         musicId: Int,
         palette: Palette,
@@ -160,11 +161,11 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         firstBeatMs: Long,
         tMs: Long
     ): LSColor {
-        val elapsed  = (tMs - firstBeatMs).coerceAtLeast(0L)
-        val barIndex = if (barMs > 0L) (elapsed / barMs).toInt() else 0
-        val rnd      = Random(musicId * 1_000_003L + barIndex.toLong() * 97L)
-        val colors   = listOf(palette.c1, palette.c2, palette.c3, palette.white)
-        return colors[rnd.nextInt(colors.size)]
+        val colorArray = arrayOf(palette.c1, palette.c2, palette.c3, palette.c4, palette.c5, palette.white)
+        val startOffset = ((musicId and 0x7FFFFFFF) % colorArray.size)
+        val elapsed     = (tMs - firstBeatMs).coerceAtLeast(0L)
+        val barIndex    = if (barMs > 0L) (elapsed / barMs).toInt() else 0
+        return colorArray[(startOffset + barIndex) % colorArray.size]
     }
 
     private fun buildPalette(seed: Int, paletteSize: Int): Palette {
