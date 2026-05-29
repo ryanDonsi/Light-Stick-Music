@@ -647,114 +647,40 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     // Timeline
     // ------------------------------------------------------------
 
+    // Beat validation mode: 20% ON (fg) → 80% OFF per beat, no section start effects
     private fun buildTimeline(
         sections: List<SectionInfo>,
         palette: Palette,
         musicId: Int
     ): List<Pair<Long, ByteArray>> {
         val frames = ArrayList<Pair<Long, ByteArray>>()
-        var state = TimelineState()
         val usedTimestamps = HashSet<Long>()
 
         for (section in sections) {
             val hold = colorsForSection(musicId, palette, section.startMs, section.type)
-            val startPlan = planSectionStartEngine(section, hold)
-
-            if (startPlan.mode != EngineMode.ON_PULSE) {
-                val shouldSend = shouldSendSustain(
-                    last = state,
-                    next = startPlan,
-                    fg = hold.fg,
-                    bg = hold.bg,
-                    sectionType = section.type,
-                    forceByChange = true
-                )
-
-                if (shouldSend && usedTimestamps.add(section.startMs)) {
-                    frames += section.startMs to buildEnginePayload(
-                        plan = startPlan,
-                        fg = hold.fg,
-                        bg = hold.bg
-                    )
-
-                    logSectionStart(
-                        t = section.startMs,
-                        sectionType = section.type,
-                        mode = startPlan.mode,
-                        fg = hold.fg,
-                        bg = hold.bg,
-                        period = startPlan.period,
-                        transit = startPlan.transit,
-                        randomDelay = startPlan.randomDelay,
-                        sustain = startPlan.sustain
-                    )
-
-                    state = TimelineState(
-                        mode = startPlan.mode,
-                        period = startPlan.period,
-                        transit = startPlan.transit,
-                        fg = hold.fg,
-                        bg = hold.bg,
-                        sectionType = section.type
-                    )
-                }
-            }
-
-            val unitMs = (section.beatMs / 10L).coerceAtLeast(1L)
-            val fgMs = unitMs * 3L
+            val onDurationMs = (section.beatMs * 20L / 100L).coerceAtLeast(1L)
 
             for (beat in section.beatTimesMs) {
                 if (beat < section.startMs || beat >= section.endMs) continue
 
-                val pulse = pickPulseHoldColors(musicId, palette, beat, section.type)
-                val pulsePlan = EnginePlan(
-                    mode = EngineMode.ON_PULSE,
-                    transit = ON_TRANSIT
-                )
-
                 if (usedTimestamps.add(beat)) {
-                    frames += beat to buildEnginePayload(
-                        plan = pulsePlan,
-                        fg = pulse.fg,
-                        bg = pulse.bg
-                    )
-
-                    logBeat(
-                        t = beat,
-                        sectionType = section.type,
-                        mode = EngineMode.ON_PULSE,
-                        fg = pulse.fg,
-                        bg = pulse.bg,
-                        period = 0,
-                        transit = ON_TRANSIT,
-                        randomDelay = 0,
-                        unitMs = unitMs,
-                        fgMs = fgMs,
-                        sustain = false
-                    )
+                    frames += beat to LSEffectPayload.Effects.on(
+                        color = hold.fg,
+                        transit = 0
+                    ).toByteArray()
                 }
 
-                val restoreT = beat + fgMs
-                if (restoreT < section.endMs && usedTimestamps.add(restoreT)) {
-                    frames += restoreT to LSEffectPayload.Effects.on(
-                        color = pulse.bg,
-                        transit = ON_TRANSIT
-                    ).toByteArray()
-
-                    logBgRestore(
-                        t = restoreT,
-                        sectionType = section.type,
-                        bg = pulse.bg,
-                        transit = ON_TRANSIT
-                    )
+                val offT = beat + onDurationMs
+                if (offT < section.endMs && usedTimestamps.add(offT)) {
+                    frames += offT to LSEffectPayload.Effects.off().toByteArray()
                 }
             }
 
             Log.d(
                 TAG,
                 "timeline section idx=${section.index} ${section.startMs}~${section.endMs} " +
-                        "section=${section.type} rule=${describeRule(section)} beats=${section.beatTimesMs.size} " +
-                        "beatMs=${section.beatMs} source=${section.source}"
+                        "section=${section.type} beats=${section.beatTimesMs.size} " +
+                        "beatMs=${section.beatMs} onDuration=${onDurationMs}ms source=${section.source}"
             )
         }
 
