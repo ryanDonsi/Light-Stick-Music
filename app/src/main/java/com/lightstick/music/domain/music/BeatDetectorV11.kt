@@ -44,8 +44,7 @@ object BeatDetectorV11 {
     private const val REALIGN_SNAP_MS = 80L
 
     // ⑥ 갭 채우기 / 밀도 축소 후처리
-    private const val GAP_FILL_RATIO  = 1.8f   // 두 비트 간격 > beatMs × 1.8 → 갭 채우기
-    private const val THIN_RATIO      = 0.55f  // 두 비트 간격 < beatMs × 0.55 → 밀도 축소
+    private const val THIN_RATIO      = 0.55f  // 간격 < beatMs × 0.55 → 밀도 축소
     private const val FILL_CONFIDENCE = 0.20f  // 합성 비트 신뢰도
 
     // ④ confidence
@@ -247,7 +246,7 @@ object BeatDetectorV11 {
         val realignedBeats = realignBeatsToGrid(dedupedBeats, downbeatMs, finalBeatMs)
 
         // ⑥ 갭 채우기 + 밀도 축소 후처리
-        val normalizedBeats  = normalizeBeats(realignedBeats, finalBeatMs, durationMs)
+        val normalizedBeats  = normalizeBeats(realignedBeats, finalBeatMs, downbeatMs, durationMs)
         val downbeatOffsetMs = (downbeatMs - (normalizedBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
         Log.d(TAG,
@@ -430,23 +429,25 @@ object BeatDetectorV11 {
      * realignBeatsToGrid 이후 비트 목록을 정규화한다.
      *
      * ① 밀도 축소 (Thin):
-     *    연속 두 비트의 간격 < beatMs × THIN_RATIO 이면 신뢰도가 낮은 쪽 제거.
-     *    너무 촘촘하게 감지된 이중 피크를 제거한다.
+     *    간격 < beatMs × THIN_RATIO → 신뢰도 낮은 쪽 제거 (이중 피크 정리)
      *
-     * ② 갭 채우기 (Fill):
-     *    연속 두 비트의 간격 > beatMs × GAP_FILL_RATIO 이면 beatMs 간격으로
-     *    합성 비트(confidence = FILL_CONFIDENCE)를 삽입한다.
-     *    조용한 구간이나 감지 실패 구간의 비어있는 박자를 채운다.
+     * ② 갭 채우기 (Fill) — 다운비트 앵커 기반 전곡 단일 그리드:
+     *    phase = downbeatMs % beatMs (0 이상의 첫 위상점)
+     *    phase, phase+beatMs, phase+2×beatMs ... 전곡 그리드를 생성하고
+     *    그리드 위치에 실제 비트(±REALIGN_SNAP_MS)가 없으면 합성 비트 삽입.
+     *
+     *    - 모든 합성 비트가 같은 위상 → 세그먼트 경계 위상 불일치 해소
+     *    - 그리드가 0ms 부터 시작 → 곡 초반 공백 해소
      */
     private fun normalizeBeats(
         beats: List<TimedBeat>,
         beatMs: Long,
+        downbeatMs: Long,
         durationMs: Long
     ): List<TimedBeat> {
-        if (beats.isEmpty() || beatMs <= 0L) return beats
+        if (beatMs <= 0L) return beats
 
         val thinThresholdMs = (beatMs * THIN_RATIO).toLong()
-        val fillThresholdMs = (beatMs * GAP_FILL_RATIO).toLong()
 
         // ① 밀도 축소: 너무 촘촘한 비트 제거 (신뢰도 높은 쪽 유지)
         val thinned = ArrayList<TimedBeat>(beats.size)
@@ -456,31 +457,46 @@ object BeatDetectorV11 {
                 last == null -> thinned += beat
                 beat.timeMs - last.timeMs >= thinThresholdMs -> thinned += beat
                 beat.confidence > last.confidence -> thinned[thinned.lastIndex] = beat
-                // else: 현재 비트가 신뢰도 낮음 → 드롭
+                // else: 신뢰도 낮음 → 드롭
             }
         }
 
-        // ② 갭 채우기: 비어있는 구간에 합성 비트 삽입
-        val filled = ArrayList<TimedBeat>(thinned.size * 2)
-        for (i in thinned.indices) {
-            filled += thinned[i]
-            val next = thinned.getOrNull(i + 1) ?: continue
-            val gap = next.timeMs - thinned[i].timeMs
-            if (gap > fillThresholdMs) {
-                var t = thinned[i].timeMs + beatMs
-                while (next.timeMs - t > beatMs / 2L) {
-                    if (t in 0L..durationMs) filled += TimedBeat(t, FILL_CONFIDENCE)
-                    t += beatMs
-                }
+        // ② 갭 채우기: downbeat 기반 전곡 단일 그리드
+        //    phase = downbeatMs % beatMs → 0 이상 첫 위상점
+        val phase     = ((downbeatMs % beatMs) + beatMs) % beatMs
+        val realTimes = LongArray(thinned.size) { thinned[it].timeMs }.also { it.sort() }
+        val snapMs    = REALIGN_SNAP_MS
+
+        val filled = ArrayList<TimedBeat>(thinned)
+        var t = phase
+        while (t <= durationMs) {
+            if (!hasNearbyBeat(realTimes, t, snapMs)) {
+                filled += TimedBeat(t, FILL_CONFIDENCE)
             }
+            t += beatMs
         }
 
-        val thinDiff = beats.size - thinned.size
-        val fillDiff = filled.size - thinned.size
+        val thinCount = beats.size - thinned.size
+        val fillCount = filled.size - thinned.size
         Log.d(TAG, "V11 normalizeBeats: original=${beats.size} " +
-                "thinned=$thinDiff filled=$fillDiff final=${filled.size}")
+                "thinned=$thinCount filled=$fillCount final=${filled.size} phase=${phase}ms")
 
         return filled.sortedBy { it.timeMs }
+    }
+
+    /** 정렬된 LongArray에서 t ± snapMs 범위 내 값 존재 여부 (binary search) */
+    private fun hasNearbyBeat(sortedTimes: LongArray, t: Long, snapMs: Long): Boolean {
+        var lo = 0; var hi = sortedTimes.size - 1
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            val v   = sortedTimes[mid]
+            when {
+                v < t - snapMs -> lo = mid + 1
+                v > t + snapMs -> hi = mid - 1
+                else           -> return true
+            }
+        }
+        return false
     }
 
     // =========================================================================
