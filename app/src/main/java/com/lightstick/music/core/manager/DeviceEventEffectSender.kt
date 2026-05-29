@@ -38,6 +38,10 @@ object DeviceEventEffectSender {
 
     @SuppressLint("MissingPermission")
     fun sendCallEffect(context: Context) {
+        if (EffectEngineController.isEffectActive()) {
+            Log.d(TAG, "[CALL] 이펙트 연출 중 → 이벤트 이펙트 차단")
+            return
+        }
         val payload = LSEffectPayload.Effects.blink(
             period = 10,
             color = Colors.CYAN,
@@ -64,6 +68,10 @@ object DeviceEventEffectSender {
 
     @SuppressLint("MissingPermission")
     fun sendSmsEffect(context: Context) {
+        if (EffectEngineController.isEffectActive()) {
+            Log.d(TAG, "[SMS] 이펙트 연출 중 → 이벤트 이펙트 차단")
+            return
+        }
         // blink가 이미 진행 중이면 중복 알림 무시
         if (smsBlinkJob?.isActive == true) {
             Log.d(TAG, "[SMS] blink 진행 중 → 중복 알림 무시")

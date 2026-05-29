@@ -27,12 +27,19 @@ object EffectEngineController {
     @Volatile private var targetAddress: String? = null
     @Volatile private var isTimelineLoaded: Boolean = false
     @Volatile private var loadedEffectSource: TransmissionSource? = null
+    @Volatile private var isManualEffectActive: Boolean = false  // PAYLOAD_EFFECT 활성 여부
 
     @Volatile private var cachedTimeline: List<EfxEntry> = emptyList()
     @Volatile private var lastRecordedEffectIndex: Int = -1
 
-    /**  MusicViewModel에서 FFT 차단용으로 사용 */
+    /** MusicViewModel에서 FFT 차단용으로 사용 */
     fun isTimelineActive(): Boolean = isTimelineLoaded
+
+    /**
+     * 앱 기능(Effect Control, Music 등)이 현재 이펙트를 연출 중인지 반환.
+     * true 이면 SMS/CALL 이벤트 이펙트를 차단해야 한다.
+     */
+    fun isEffectActive(): Boolean = isTimelineLoaded || isManualEffectActive
 
     fun sendEffect(
         context: Context,
@@ -78,6 +85,11 @@ object EffectEngineController {
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to send to ${device.mac}: ${e.message}")
                 }
+            }
+
+            // Effect Control(PAYLOAD_EFFECT) 활성 상태 갱신
+            if (success && source == TransmissionSource.PAYLOAD_EFFECT) {
+                isManualEffectActive = (payload.effectType != EffectType.OFF)
             }
 
             success
@@ -287,6 +299,7 @@ object EffectEngineController {
     @Synchronized
     fun reset() {
         isTimelineLoaded = false
+        isManualEffectActive = false
         loadedEffectSource = null
         cachedTimeline = emptyList()
         lastRecordedEffectIndex = -1
