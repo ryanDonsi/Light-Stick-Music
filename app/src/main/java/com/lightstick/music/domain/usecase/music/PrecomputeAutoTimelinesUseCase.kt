@@ -7,6 +7,7 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.AutoTimelineGenerator
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v6
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v7
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v8
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v9
@@ -73,12 +74,13 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         }
 
         val generator: AutoTimelineGenerator = when (AutoTimelineConfig.GENERATOR_VERSION) {
+            6  -> AutoTimelineGeneratorBeat_v6()
             7  -> AutoTimelineGeneratorBeat_v7()
             8  -> AutoTimelineGeneratorBeat_v8()
             9  -> AutoTimelineGeneratorBeat_v9()
             10 -> AutoTimelineGeneratorBeat_v10()
             11 -> AutoTimelineGeneratorBeat_v11()
-            else -> throw IllegalArgumentException("Unsupported generator version: ${AutoTimelineConfig.GENERATOR_VERSION}")
+            else -> throw IllegalArgumentException("Unsupported generator version: ${AutoTimelineConfig.GENERATOR_VERSION} (supported: 6~11)")
         }
 
         // 이미 생성된 파일은 제외한 실제 처리 대상만 추려 정확한 total 확보
