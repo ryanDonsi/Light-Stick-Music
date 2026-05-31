@@ -24,10 +24,10 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
-        private const val VERSION     = 10
+        private const val VERSION     = 11
         private const val HOP_MS      = 50L
         private const val MIN_BEAT_MS = 320L
-        private const val MAX_BEAT_MS = 900L
+        private const val MAX_BEAT_MS = 1200L
 
     }
 
@@ -90,9 +90,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             )
         )
 
-        val globalBeatMs = v11Result.beatMs
-            .let { if (it > 900L) it / 2L else it }
-            .coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+        val globalBeatMs = v11Result.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
 
         val beatsPerBar = v11Result.timeSignature.beatsPerBar
         Log.d(TAG, "v7 BeatDetectorV11 beatMs=$globalBeatMs beats=${v11Result.beats.size} " +
