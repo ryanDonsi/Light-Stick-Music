@@ -24,7 +24,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
-        private const val VERSION     = 12
+        private const val VERSION     = 13
         private const val HOP_MS      = 50L
         private const val MIN_BEAT_MS = 320L
         private const val MAX_BEAT_MS = 1200L
@@ -103,6 +103,28 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             Log.d(TAG, "v7 beatTimes[$fileName] first=[$first] last=[$last]")
         }
 
+        // ── [진단A] V11 출력 비트 품질 분석 ──────────────────────────────
+        // confidence ≤ 0.20 = normalizeBeats fill 합성 비트
+        // confidence  > 0.20 = 실제 ODF 피크에서 감지된 비트
+        if (v11Result.beats.isNotEmpty()) {
+            val synth  = v11Result.beats.count { it.confidence <= 0.20f }
+            val real   = v11Result.beats.size - synth
+            val sPct   = synth * 100 / v11Result.beats.size
+            Log.d(TAG, "v7 [A] V11_quality[$fileName]: " +
+                "real=$real synth=$synth(${sPct}%) total=${v11Result.beats.size}")
+
+            // 3×beatMs 이상의 갭 → normalizeBeats fill 이 동작하지 않은 구간
+            val gapTh  = globalBeatMs * 3
+            val bigGaps = (1 until v11Result.beats.size).mapNotNull { i ->
+                val gap = v11Result.beats[i].timeMs - v11Result.beats[i - 1].timeMs
+                if (gap >= gapTh) "${v11Result.beats[i - 1].timeMs / 1000}s+${gap}ms" else null
+            }
+            if (bigGaps.isEmpty())
+                Log.d(TAG, "v7 [A] V11_gaps[$fileName]: 없음 (최대 < ${gapTh}ms) ✓")
+            else
+                Log.w(TAG, "v7 [A] V11_gaps[$fileName](≥${gapTh}ms): ${bigGaps.take(5).joinToString(" | ")}")
+        }
+
         val frames = buildTimeline(v11Result.beats, globalBeatMs, beatsPerBar, durationMs, palette, musicId)
         Log.d(TAG, "v7 frames(final)=${frames.size}")
         return frames.sortedBy { it.first }
@@ -126,21 +148,49 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         val firstBeatMs    = beats.firstOrNull()?.timeMs ?: 0L
         val barMs          = beatMs * beatsPerBar.coerceAtLeast(1)
 
+        // ── [진단B] 카운터 ──────────────────────────────────────────────
+        var rangeSkip = 0   // t < 0 || t >= durationMs 로 제외된 비트
+        var onDupe    = 0   // 이미 같은 타임스탬프가 등록돼 ON 생략된 비트
+        var offSkip   = 0   // OFF 프레임이 범위 초과 또는 중복으로 생략된 횟수
+
         for (beat in beats) {
             val t = beat.timeMs
-            if (t < 0 || t >= durationMs) continue
+            if (t < 0 || t >= durationMs) { rangeSkip++; continue }
 
             val color = colorForBar(musicId, palette, barMs, firstBeatMs, t)
 
             if (usedTimestamps.add(t)) {
                 frames += t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray()
+            } else {
+                onDupe++
             }
 
             val offT = t + onDurationMs
-            if (offT < durationMs && usedTimestamps.add(offT)) {
-                frames += offT to LSEffectPayload.Effects.off().toByteArray()
+            if (offT < durationMs) {
+                if (usedTimestamps.add(offT)) {
+                    frames += offT to LSEffectPayload.Effects.off().toByteArray()
+                } else {
+                    offSkip++
+                }
+            } else {
+                offSkip++
             }
         }
+
+        // ── [진단B] 입력 비트 갭 분석 (buildTimeline 입력 기준) ─────────
+        val inRange   = beats.filter { it.timeMs in 0 until durationMs }.sortedBy { it.timeMs }
+        val gapTh     = beatMs * 3
+        val bigGaps   = (1 until inRange.size).mapNotNull { i ->
+            val gap = inRange[i].timeMs - inRange[i - 1].timeMs
+            if (gap >= gapTh) "${inRange[i - 1].timeMs / 1000}s +${gap}ms" else null
+        }
+        if (bigGaps.isEmpty())
+            Log.d(TAG, "v7 [B] timeline_gaps: 없음 (최대 < ${gapTh}ms) ✓")
+        else
+            Log.w(TAG, "v7 [B] timeline_gaps(≥${gapTh}ms): ${bigGaps.take(5).joinToString(" | ")}")
+
+        Log.d(TAG, "v7 [B] buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip " +
+            "onDupe=$onDupe offSkip=$offSkip onDur=${onDurationMs}ms frames=${frames.size}")
 
         return frames.sortedBy { it.first }
     }

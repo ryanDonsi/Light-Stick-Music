@@ -509,7 +509,7 @@ object BeatDetectorV11 {
     ): List<TimedBeat> {
         if (beats.isEmpty() || beatMs <= 0L) return beats
 
-        return beats.mapNotNull { beat ->
+        val result = beats.mapNotNull { beat ->
             val offset        = (beat.timeMs - downbeatMs).toDouble()
             val nearestStep   = (offset / beatMs.toDouble()).roundToLong()
             val nearestGridMs = downbeatMs + nearestStep * beatMs
@@ -520,6 +520,11 @@ object BeatDetectorV11 {
                 null  // 그리드와 맞지 않음 → 드롭, 합성 비트로 채움
             }
         }.distinctBy { it.timeMs }.sortedBy { it.timeMs }
+
+        val dropped = beats.size - result.size
+        Log.d(TAG, "V11 realignBeatsToGrid: in=${beats.size} kept=${result.size} " +
+            "dropped=$dropped snapMs=${REALIGN_SNAP_MS}ms downbeat=${downbeatMs}ms")
+        return result
     }
 
     // =========================================================================
@@ -592,9 +597,12 @@ object BeatDetectorV11 {
         val thinCount  = beats.size - thinned.size
         val fillCount  = filled.size - thinned.size
         val cleanCount = filled.size - cleaned.size
+        val realCount  = thinned.size   // thin 이후 남은 실 감지 비트
+        val synthRatio = if (realCount + fillCount > 0) fillCount * 100 / (realCount + fillCount) else 0
         Log.d(TAG, "V11 normalizeBeats: original=${beats.size} " +
                 "thinned=$thinCount filled=$fillCount cleaned=$cleanCount " +
-                "final=${cleaned.size} phase=${phase}ms beatMs=${beatMs}ms")
+                "final=${cleaned.size} real=$realCount synth=$fillCount(${synthRatio}%) " +
+                "phase=${phase}ms beatMs=${beatMs}ms")
 
         return cleaned
     }
