@@ -24,7 +24,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
-        private const val VERSION     = 11
+        private const val VERSION     = 12
         private const val HOP_MS      = 50L
         private const val MIN_BEAT_MS = 320L
         private const val MAX_BEAT_MS = 1200L
@@ -80,11 +80,11 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
                 minBeatMs         = MIN_BEAT_MS,
                 maxBeatMs         = 1200L,
                 minPeakDistanceMs = 140L,
-                onsetSmoothWindow = 5,
-                peakThresholdK    = 0.55f,
-                minPeakAbs        = 0.08f,
-                snapToleranceMs   = 80L,
-                chainToleranceMs  = 120L,
+                onsetSmoothWindow = 3,     // 5→3: 좁은 스무딩으로 비트 피크 선명하게 유지
+                peakThresholdK    = 0.28f, // 0.55→0.28: 임계값 완화, 약한 비트도 검출
+                minPeakAbs        = 0.05f, // 0.08→0.05: 절대 임계값 완화
+                snapToleranceMs   = 130L,  // 80→130: 그리드 스냅 허용범위 확대 (2frame)
+                chainToleranceMs  = 150L,  // 120→150: 체인 허용 오차 확대
                 minChainCount     = 3,
                 continuityBonus   = 0.08f
             )
