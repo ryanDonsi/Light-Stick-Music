@@ -144,14 +144,13 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     ): List<Pair<Long, ByteArray>> {
         val frames         = ArrayList<Pair<Long, ByteArray>>()
         val usedTimestamps = HashSet<Long>()
-        val onDurationMs   = (beatMs * 30L / 100L).coerceAtLeast(1L)
         val firstBeatMs    = beats.firstOrNull()?.timeMs ?: 0L
         val barMs          = beatMs * beatsPerBar.coerceAtLeast(1)
 
         // ── [진단B] 카운터 ──────────────────────────────────────────────
         var rangeSkip = 0   // t < 0 || t >= durationMs 로 제외된 비트
         var onDupe    = 0   // 이미 같은 타임스탬프가 등록돼 ON 생략된 비트
-        var offSkip   = 0   // OFF 프레임이 범위 초과 또는 중복으로 생략된 횟수
+        val offSkip   = 0   // OFF 프레임 없음 (ON-only 모드)
 
         for (beat in beats) {
             val t = beat.timeMs
@@ -160,22 +159,11 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             val color = colorForBar(musicId, palette, barMs, firstBeatMs, t)
 
             if (usedTimestamps.add(t)) {
-                val beatNum = frames.size / 2 + 1
+                val beatNum = frames.size + 1
                 Log.d(TAG, "frame ON[$beatNum] t=${t}ms color=$color barIndex=${(t - firstBeatMs) / barMs}")
                 frames += t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray()
             } else {
                 onDupe++
-            }
-
-            val offT = t + onDurationMs
-            if (offT < durationMs) {
-                if (usedTimestamps.add(offT)) {
-                    frames += offT to LSEffectPayload.Effects.on(color = LSColor(0, 0, 0), transit = 0).toByteArray()
-                } else {
-                    offSkip++
-                }
-            } else {
-                offSkip++
             }
         }
 
