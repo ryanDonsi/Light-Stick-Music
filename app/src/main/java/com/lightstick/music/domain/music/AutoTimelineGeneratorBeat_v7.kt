@@ -180,7 +180,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             Log.w(TAG, "v7 [B] timeline_gaps(≥${gapTh}ms): ${bigGaps.take(5).joinToString(" | ")}")
 
         Log.d(TAG, "v7 [B] buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip " +
-            "onDupe=$onDupe offSkip=$offSkip onDur=${onDurationMs}ms frames=${frames.size}")
+            "onDupe=$onDupe frames=${frames.size}")
 
         return frames.sortedBy { it.first }
     }
