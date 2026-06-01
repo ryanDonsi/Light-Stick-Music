@@ -147,18 +147,20 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         val barMs       = beatMs * beatsPerBar.coerceAtLeast(1)
         var rangeSkip   = 0
 
+        // 마디(bar) 첫 박에만 ON(color) 1개 — effectIndex 5 드롭 검증용
         for ((beatIndex, beat) in beats.withIndex()) {
             val t = beat.timeMs
             if (t < 0 || t >= durationMs) { rangeSkip++; continue }
+            if (beatIndex % beatsPerBar != 0) continue  // 첫 박만
 
-            // 마디(bar) 단위로 색상 변환 — 4박마다 R→G→B→W 순환
-            val color = when ((beatIndex / beatsPerBar) % 4) {
+            val barIndex = beatIndex / beatsPerBar
+            val color = when (barIndex % 4) {
                 0    -> LSColor(255, 0,   0)
                 1    -> LSColor(0,   255, 0)
                 2    -> LSColor(0,   0,   255)
                 else -> LSColor(255, 255, 255)
             }
-            Log.d(TAG, "frame ON[${beatIndex + 1}] t=${t}ms color=$color")
+            Log.d(TAG, "frame ON[bar${barIndex + 1}] t=${t}ms color=$color")
             frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
         }
 
