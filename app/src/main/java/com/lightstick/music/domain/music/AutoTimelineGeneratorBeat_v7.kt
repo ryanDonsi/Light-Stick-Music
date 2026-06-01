@@ -170,7 +170,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             val offT = t + onDurationMs
             if (offT < durationMs) {
                 if (usedTimestamps.add(offT)) {
-                    frames += offT to LSEffectPayload.Effects.off().toByteArray()
+                    frames += offT to LSEffectPayload.Effects.on(color = LSColor(0, 0, 0), transit = 0).toByteArray()
                 } else {
                     offSkip++
                 }
