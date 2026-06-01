@@ -309,9 +309,11 @@ class MusicViewModel @Inject constructor(
         if (player.isPlaying) {
             player.pause()
             _isPlaying.value = false
+            if (_isAutoModeEnabled.value) EffectEngineController.pauseEffects(context)
         } else {
             player.play()
             _isPlaying.value = true
+            if (_isAutoModeEnabled.value) EffectEngineController.resumeEffects(context)
         }
         updateNotificationProgress()
     }
