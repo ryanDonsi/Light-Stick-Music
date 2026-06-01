@@ -150,8 +150,7 @@ object BeatDetectorV11 {
         params: Params = Params()
     ): DetectResult {
         if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
-            return DetectResult(emptyList(), 0L, null, "empty env",
-                0L, TimeSignature.FOUR_FOUR, emptyList())
+            return DetectResult(emptyList(), 0L, null, "empty env", 0L, TimeSignature.FOUR_FOUR, emptyList())
         }
 
         val minSize    = min(lowEnv.size, min(midEnv.size, fullEnv.size))
@@ -160,18 +159,14 @@ object BeatDetectorV11 {
         val full       = fullEnv.take(minSize)
         val durationMs = minSize * params.hopMs
 
-        // 전곡 글로벌 BPM 추정 (V9: LOW_MID 기반)
         val globalBeatMs = estimateGlobalBpm(low, mid, params)
         Log.d(TAG, "V11 globalBeatMs=$globalBeatMs durationMs=$durationMs")
 
         val effectiveSegmentMs = if (durationMs < 60_000L) durationMs else params.segmentMs
         val segmentFrames      = max(1, (effectiveSegmentMs / params.hopMs).toInt())
-        val segmentCount       = (minSize + segmentFrames - 1) / segmentFrames
 
-        Log.d(TAG, "V11 segments=$segmentCount segmentMs=$effectiveSegmentMs " +
-                "minBeatMs=${params.minBeatMs} maxBeatMs=${params.maxBeatMs}")
+        Log.d(TAG, "V11 segmentMs=$effectiveSegmentMs minBeatMs=${params.minBeatMs} maxBeatMs=${params.maxBeatMs}")
 
-        // ⑦ 세그먼트 루프 — 약한 신호 시 완화 파라미터로 자동 재시도
         var loop = runSegmentLoop(low, mid, full, globalBeatMs, params, segmentFrames, minSize)
 
         val failCount = loop.segResults.count { it.selectedSource == null }
@@ -187,70 +182,64 @@ object BeatDetectorV11 {
             loop = runSegmentLoop(low, mid, full, globalBeatMs, relaxed, segmentFrames, minSize)
         }
 
-        val dedupedBeats = dedupeCloseTimedBeats(
-            loop.mergedBeats.sortedBy { it.timeMs }, params.minPeakDistanceMs)
-
+        val dedupedBeats = dedupeCloseTimedBeats(loop.mergedBeats.sortedBy { it.timeMs }, params.minPeakDistanceMs)
         if (dedupedBeats.isEmpty()) {
             Log.w(TAG, "V11 beat detect FAIL")
-            return DetectResult(emptyList(), 0L, null, "all segments failed",
-                0L, TimeSignature.FOUR_FOUR, loop.segResults)
+            return DetectResult(emptyList(), 0L, null, "all segments failed", 0L, TimeSignature.FOUR_FOUR, loop.segResults)
         }
 
-        val beatTimesList    = dedupedBeats.map { it.timeMs }
-        val rawBeatMs        = estimateMedianInterval(beatTimesList, params.minBeatMs, params.maxBeatMs, params.hopMs)
-
-        // ⑧ 커버리지가 낮으면 (감지 비트 < 15% of expected) 전곡 자기상관 BPM 우선
-        val expectedBeats = max(1, (durationMs / rawBeatMs).toInt())
-        val coverage      = dedupedBeats.size.toFloat() / expectedBeats.toFloat()
-
-        val finalBeatMs = when {
-            globalBeatMs == null -> rawBeatMs
-            coverage < LOW_COVERAGE_TH -> {
-                Log.d(TAG, "V11 finalBeatMs: low coverage (${(coverage * 100).toInt()}% of $expectedBeats) " +
-                    "→ globalBeatMs=$globalBeatMs over raw=$rawBeatMs")
-                globalBeatMs
-            }
-            abs(rawBeatMs - globalBeatMs) * 6L < rawBeatMs -> {
-                Log.d(TAG, "V11 finalBeatMs: global=$globalBeatMs preferred over raw=$rawBeatMs (within 1/6)")
-                globalBeatMs
-            }
-            else -> rawBeatMs
-        }
-
+        val rawBeatMs   = estimateMedianInterval(dedupedBeats.map { it.timeMs }, params.minBeatMs, params.maxBeatMs, params.hopMs)
+        val finalBeatMs = globalBeatMs ?: rawBeatMs
         val finalSource = loop.sourceVotes.maxByOrNull { it.value }?.key
 
-        // ③ 박자표 감지 (전곡 ODF 자기상관)
+        // [핵심] 누적 오차 없는 로컬 갭 채우기 (고정 그리드 강제 스냅 제거)
+        val filledBeats = ArrayList<TimedBeat>()
+        filledBeats.add(dedupedBeats.first())
+        for (i in 1 until dedupedBeats.size) {
+            val prev = filledBeats.last()
+            val curr = dedupedBeats[i]
+            val gap  = curr.timeMs - prev.timeMs
+            if (gap > finalBeatMs * 1.4f) {
+                val missingCount = (gap.toDouble() / finalBeatMs.toDouble()).roundToLong()
+                if (missingCount > 1) {
+                    val step = gap / missingCount
+                    for (j in 1 until missingCount) {
+                        filledBeats.add(TimedBeat(prev.timeMs + j * step, 0.5f))
+                    }
+                }
+            }
+            filledBeats.add(curr)
+        }
+
+        // 곡 앞/뒤 빈 구간 채우기
+        val firstTime    = filledBeats.first().timeMs
+        val initialFills = ArrayList<TimedBeat>()
+        var tStart = firstTime - finalBeatMs
+        while (tStart >= 0) { initialFills.add(TimedBeat(tStart, 0.5f)); tStart -= finalBeatMs }
+        initialFills.reverse()
+
+        val withHead  = initialFills + filledBeats
+        val lastTime  = withHead.last().timeMs
+        val tailFills = ArrayList<TimedBeat>()
+        var tEnd = lastTime + finalBeatMs
+        while (tEnd <= durationMs) { tailFills.add(TimedBeat(tEnd, 0.5f)); tEnd += finalBeatMs }
+
+        val completeBeats = withHead + tailFills
+
         val globalOnset   = computeGlobalOnset(low, mid, params)
         val timeSignature = detectTimeSignature(globalOnset, finalBeatMs, params.hopMs)
-        Log.d(TAG, "V11 timeSignature=${timeSignature.type} (${timeSignature.numerator}/${timeSignature.denominator})")
+        Log.d(TAG, "V11 timeSignature=${timeSignature.type}")
 
-        // ① 다운비트 / 위상 감지
-        //    커버리지가 낮으면 실제 비트 기반 분석이 부정확 → 전곡 ODF 위상 추정 사용
-        val downbeatMs = if (coverage < LOW_COVERAGE_TH) {
-            val phase = estimatePhaseFromOdf(globalOnset, finalBeatMs, params.hopMs)
-            Log.d(TAG, "V11 downbeat: low coverage → ODF phase=${phase}ms")
-            phase
-        } else {
-            detectDownbeatEnhanced(beatTimesList, low, finalBeatMs, timeSignature.beatsPerBar, params.hopMs)
-        }
-        Log.d(TAG, "V11 downbeatMs=$downbeatMs coverage=${(coverage * 100).toInt()}%")
+        val downbeatMs = detectDownbeatEnhanced(
+            completeBeats.map { it.timeMs }, low, finalBeatMs, timeSignature.beatsPerBar, params.hopMs)
+        val downbeatOffsetMs = (downbeatMs - (completeBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        // ② 비트 그리드 재정렬 — 다운비트 앵커 기준 정박자 스냅
-        val realignedBeats = realignBeatsToGrid(dedupedBeats, downbeatMs, finalBeatMs)
-
-        // ⑥ 갭 채우기 + 밀도 축소 후처리
-        val normalizedBeats  = normalizeBeats(realignedBeats, finalBeatMs, downbeatMs, durationMs)
-        val downbeatOffsetMs = (downbeatMs - (normalizedBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
-
-        Log.d(TAG,
-            "V11 detect OK source=$finalSource " +
-            "beats: realigned=${realignedBeats.size} → normalized=${normalizedBeats.size} " +
-            "beatMs=$finalBeatMs timeSignature=${timeSignature.type} " +
-            "downbeatOffset=${downbeatOffsetMs}ms " +
-            "first=${normalizedBeats.firstOrNull()?.timeMs} last=${normalizedBeats.lastOrNull()?.timeMs}")
+        Log.d(TAG, "V11 detect OK source=$finalSource beats=${completeBeats.size} " +
+            "beatMs=$finalBeatMs timeSignature=${timeSignature.type} downbeatOffset=${downbeatOffsetMs}ms " +
+            "first=${completeBeats.firstOrNull()?.timeMs} last=${completeBeats.lastOrNull()?.timeMs}")
 
         return DetectResult(
-            beats            = normalizedBeats,
+            beats            = completeBeats,
             beatMs           = finalBeatMs,
             source           = finalSource,
             reason           = "ok",
@@ -309,7 +298,6 @@ object BeatDetectorV11 {
                 if (trial.reason == "ok") okTrials += trial
             }
 
-            // ⑤ Multi-Hypothesis 연속성 선택
             val best = selectBestWithContinuity(okTrials, prevBeatMs, params.continuityBonus)
 
             if (best == null) {
@@ -322,13 +310,34 @@ object BeatDetectorV11 {
             Log.d(TAG, "SEG[$segIndex] WINNER=${best.source} beatMs=${best.beatMs} " +
                 "beats=${best.timedBeats.size} score=${fmt(best.score)}")
 
-            val absBeats = best.timedBeats.map { it.copy(timeMs = it.timeMs + segStartMs) }
-            mergedBeats += absBeats
+            val absBeats    = best.timedBeats.map { it.copy(timeMs = it.timeMs + segStartMs) }
+            val halfBeatMs  = best.beatMs / 2
+
+            // [핵심] 엇박(Snare Trap) 인버전 자동 교정
+            var onBeatEnergy = 0f; var offBeatEnergy = 0f
+            var onCount = 0; var offCount = 0
+            for (beat in absBeats) {
+                val fOn  = (beat.timeMs / params.hopMs).toInt().coerceIn(0, low.lastIndex)
+                val fOff = ((beat.timeMs + halfBeatMs) / params.hopMs).toInt().coerceIn(0, low.lastIndex)
+                onBeatEnergy  += low[fOn];  onCount++
+                offBeatEnergy += low[fOff]; offCount++
+            }
+            val avgOn  = if (onCount  > 0) onBeatEnergy  / onCount  else 0f
+            val avgOff = if (offCount > 0) offBeatEnergy / offCount else 0f
+
+            val correctedBeats = if (avgOff > avgOn * 1.15f) {
+                Log.d(TAG, "SEG[$segIndex] Inversion Detected! avgOff=${fmt(avgOff)} > avgOn=${fmt(avgOn)} → shift +${halfBeatMs}ms")
+                absBeats.map { it.copy(timeMs = it.timeMs + halfBeatMs) }
+            } else {
+                absBeats
+            }
+
+            mergedBeats += correctedBeats
             sourceVotes[best.source] = (sourceVotes[best.source] ?: 0) + 1
             prevBeatMs = best.beatMs
 
             segResults += SegmentResult(segIndex, segStartMs, e.toLong() * params.hopMs,
-                best.source, absBeats, best.beatMs, best.score, best.reason, trials)
+                best.source, correctedBeats, best.beatMs, best.score, best.reason, trials)
         }
 
         return SegLoopResult(segResults, mergedBeats, sourceVotes)

@@ -142,52 +142,39 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         palette: Palette,
         musicId: Int
     ): List<Pair<Long, ByteArray>> {
-        val frames         = ArrayList<Pair<Long, ByteArray>>()
-        val usedTimestamps = HashSet<Long>()
-        val firstBeatMs    = beats.firstOrNull()?.timeMs ?: 0L
-        val barMs          = beatMs * beatsPerBar.coerceAtLeast(1)
+        val frames       = ArrayList<Pair<Long, ByteArray>>()
+        val onDurationMs = (beatMs * 20L / 100L).coerceAtLeast(1L)
+        val firstBeatMs  = beats.firstOrNull()?.timeMs ?: 0L
+        val barMs        = beatMs * beatsPerBar.coerceAtLeast(1)
 
-        // ── [진단B] 카운터 ──────────────────────────────────────────────
-        var rangeSkip = 0
-        var onDupe    = 0
+        // 다음 OFF 예약 시각 (-1 = 없음)
+        var currentOffTime = -1L
 
         for ((beatIndex, beat) in beats.withIndex()) {
             val t = beat.timeMs
-            if (t < 0 || t >= durationMs) { rangeSkip++; continue }
+            if (t < 0 || t >= durationMs) continue
 
-            val beatNum = beatIndex + 1
-            // 비트 순서(1-2-3-4 순환)별 고정 색상 — 육안 확인용
-            val color = when ((beatIndex % beatsPerBar) + 1) {
-                1    -> LSColor(255, 0,   0)    // 빨강
-                2    -> LSColor(0,   255, 0)    // 초록
-                3    -> LSColor(0,   0,   255)  // 파랑
-                else -> LSColor(255, 255, 255)  // 흰색
+            // 이전 OFF가 현재 ON보다 앞서면 정상 삽입
+            if (currentOffTime != -1L && currentOffTime < t) {
+                Log.d(TAG, "frame OFF t=${currentOffTime}ms")
+                frames.add(currentOffTime to LSEffectPayload.Effects.off().toByteArray())
             }
+            // OFF 시각이 현재 ON보다 뒤에 있으면 끄지 않고 색상만 덮어씌움 (LED 씹힘 방지)
 
-            if (usedTimestamps.add(t)) {
-                Log.d(TAG, "frame ON[$beatNum] t=${t}ms color=$color")
-                frames += t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray()
-            } else {
-                onDupe++
-                Log.w(TAG, "frame ON[$beatNum] t=${t}ms SKIP(dupe)")
-            }
+            val color = colorForBar(musicId, palette, barMs, firstBeatMs, t)
+            Log.d(TAG, "frame ON[${beatIndex + 1}] t=${t}ms color=$color")
+            frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
+
+            val offT = t + onDurationMs
+            currentOffTime = if (offT < durationMs) offT else -1L
         }
 
-        // ── [진단B] 입력 비트 갭 분석 (buildTimeline 입력 기준) ─────────
-        val inRange   = beats.filter { it.timeMs in 0 until durationMs }.sortedBy { it.timeMs }
-        val gapTh     = beatMs * 3
-        val bigGaps   = (1 until inRange.size).mapNotNull { i ->
-            val gap = inRange[i].timeMs - inRange[i - 1].timeMs
-            if (gap >= gapTh) "${inRange[i - 1].timeMs / 1000}s +${gap}ms" else null
+        // 마지막 OFF 닫기
+        if (currentOffTime != -1L) {
+            frames.add(currentOffTime to LSEffectPayload.Effects.off().toByteArray())
         }
-        if (bigGaps.isEmpty())
-            Log.d(TAG, "v7 [B] timeline_gaps: 없음 (최대 < ${gapTh}ms) ✓")
-        else
-            Log.w(TAG, "v7 [B] timeline_gaps(≥${gapTh}ms): ${bigGaps.take(5).joinToString(" | ")}")
 
-        Log.d(TAG, "v7 [B] buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip " +
-            "onDupe=$onDupe frames=${frames.size}")
-
+        Log.d(TAG, "v7 buildTimeline: beats=${beats.size} onDur=${onDurationMs}ms frames=${frames.size}")
         return frames.sortedBy { it.first }
     }
 
