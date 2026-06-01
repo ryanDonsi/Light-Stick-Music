@@ -3,6 +3,7 @@ package com.lightstick.music.domain.effect
 import android.annotation.SuppressLint
 import android.content.Context
 import com.lightstick.music.core.util.Log
+import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
 import com.lightstick.efx.EfxEntry
@@ -21,7 +22,7 @@ import java.io.File
 @SuppressLint("MissingPermission")
 object EffectEngineController {
 
-    private const val TAG = "EffectEngineCtrl"
+    private const val TAG = AppConstants.Feature.EFFECT_ENGINE
 
     @Volatile private var targetDevice: Device? = null
     @Volatile private var targetAddress: String? = null

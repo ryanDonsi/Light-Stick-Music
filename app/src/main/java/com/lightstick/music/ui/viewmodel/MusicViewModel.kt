@@ -391,7 +391,7 @@ class MusicViewModel @Inject constructor(
                     if (prevPosition >= 0 && jump > AppConstants.POSITION_MONITOR_INTERVAL_MS * 3) {
                         Log.w(TAG, "[pos] 큰 점프 감지: ${prevPosition}ms → ${current}ms (+${jump}ms)")
                     }
-                    Log.v(TAG, "[pos] updatePlaybackPosition pos=${current}ms jump=${if (prevPosition < 0) "first" else "${jump}ms"}")
+                    Log.d(TAG, "[pos] updatePlaybackPosition pos=${current}ms jump=${if (prevPosition < 0) "first" else "${jump}ms"}")
                     prevPosition = current.toLong()
                     try { updatePlaybackPositionUseCase(context, current.toLong()) }
                     catch (e: Exception) {

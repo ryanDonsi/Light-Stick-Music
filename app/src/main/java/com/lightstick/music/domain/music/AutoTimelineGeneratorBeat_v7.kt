@@ -142,39 +142,27 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         palette: Palette,
         musicId: Int
     ): List<Pair<Long, ByteArray>> {
-        val frames       = ArrayList<Pair<Long, ByteArray>>()
-        val onDurationMs = (beatMs * 20L / 100L).coerceAtLeast(1L)
-        val firstBeatMs  = beats.firstOrNull()?.timeMs ?: 0L
-        val barMs        = beatMs * beatsPerBar.coerceAtLeast(1)
-
-        // 다음 OFF 예약 시각 (-1 = 없음)
-        var currentOffTime = -1L
+        val frames      = ArrayList<Pair<Long, ByteArray>>()
+        val firstBeatMs = beats.firstOrNull()?.timeMs ?: 0L
+        val barMs       = beatMs * beatsPerBar.coerceAtLeast(1)
+        var rangeSkip   = 0
 
         for ((beatIndex, beat) in beats.withIndex()) {
             val t = beat.timeMs
-            if (t < 0 || t >= durationMs) continue
+            if (t < 0 || t >= durationMs) { rangeSkip++; continue }
 
-            // 이전 OFF가 현재 ON보다 앞서면 정상 삽입
-            if (currentOffTime != -1L && currentOffTime < t) {
-                Log.d(TAG, "frame OFF t=${currentOffTime}ms")
-                frames.add(currentOffTime to LSEffectPayload.Effects.off().toByteArray())
+            // 비트 순서(1-2-3-4 순환)별 고정 색상 — 육안 확인용 (ON-only 모드)
+            val color = when ((beatIndex % beatsPerBar) + 1) {
+                1    -> LSColor(255, 0,   0)
+                2    -> LSColor(0,   255, 0)
+                3    -> LSColor(0,   0,   255)
+                else -> LSColor(255, 255, 255)
             }
-            // OFF 시각이 현재 ON보다 뒤에 있으면 끄지 않고 색상만 덮어씌움 (LED 씹힘 방지)
-
-            val color = colorForBar(musicId, palette, barMs, firstBeatMs, t)
             Log.d(TAG, "frame ON[${beatIndex + 1}] t=${t}ms color=$color")
             frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
-
-            val offT = t + onDurationMs
-            currentOffTime = if (offT < durationMs) offT else -1L
         }
 
-        // 마지막 OFF 닫기
-        if (currentOffTime != -1L) {
-            frames.add(currentOffTime to LSEffectPayload.Effects.off().toByteArray())
-        }
-
-        Log.d(TAG, "v7 buildTimeline: beats=${beats.size} onDur=${onDurationMs}ms frames=${frames.size}")
+        Log.d(TAG, "v7 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size}")
         return frames.sortedBy { it.first }
     }
 
