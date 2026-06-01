@@ -151,8 +151,13 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             val t = beat.timeMs
             if (t < 0 || t >= durationMs) { rangeSkip++; continue }
 
-            // 전체 흰색 고정 — effectIndex 5 드롭이 색상 무관한지 검증용
-            val color = LSColor(255, 255, 255)
+            // 마디(bar) 단위로 색상 변환 — 4박마다 R→G→B→W 순환
+            val color = when ((beatIndex / beatsPerBar) % 4) {
+                0    -> LSColor(255, 0,   0)
+                1    -> LSColor(0,   255, 0)
+                2    -> LSColor(0,   0,   255)
+                else -> LSColor(255, 255, 255)
+            }
             Log.d(TAG, "frame ON[${beatIndex + 1}] t=${t}ms color=$color")
             frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
         }
