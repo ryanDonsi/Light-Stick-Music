@@ -21,7 +21,7 @@ object BeatDetectorV11 {
 
     private const val TAG = "AutoTimeline"
 
-    private const val HARMONIC_FOLD_HALF_RATIO  = 0.55f  // 이전 0.40 → 오탐 방지
+    private const val HARMONIC_FOLD_HALF_RATIO  = 0.45f  // 0.55 → 0.45: 빠른 댄스곡 half-time 오탐 교정 강화
     private const val HARMONIC_FOLD_THIRD_RATIO = 0.35f
     private const val HARMONIC_DOUBLE_RATIO     = 0.80f
     private const val HARMONIC_TWO_THIRDS_RATIO = 0.75f
@@ -189,7 +189,21 @@ object BeatDetectorV11 {
         }
 
         val rawBeatMs   = estimateMedianInterval(dedupedBeats.map { it.timeMs }, params.minBeatMs, params.maxBeatMs, params.hopMs)
-        val finalBeatMs = globalBeatMs ?: rawBeatMs
+        // globalBeatMs vs rawBeatMs 하모닉 교차 검증:
+        //   global이 raw의 2배 → global이 half-time 오탐, raw 채택 (신메뉴: raw=375ms, global=750ms)
+        //   raw가 global의 2배 → raw가 half-time 오탐, global 채택 (이미 globalBeatMs 우선이지만 명시 로그)
+        val finalBeatMs: Long = when {
+            globalBeatMs == null -> rawBeatMs
+            kotlin.math.abs(globalBeatMs - rawBeatMs * 2L) < 60L -> {
+                Log.d(TAG, "V11 finalBeatMs: global($globalBeatMs) ≈ 2×raw($rawBeatMs) → raw 채택 (global half-time)")
+                rawBeatMs
+            }
+            kotlin.math.abs(rawBeatMs - globalBeatMs * 2L) < 60L -> {
+                Log.d(TAG, "V11 finalBeatMs: raw($rawBeatMs) ≈ 2×global($globalBeatMs) → global 채택 (raw half-time)")
+                globalBeatMs
+            }
+            else -> globalBeatMs
+        }
         val finalSource = loop.sourceVotes.maxByOrNull { it.value }?.key
 
         // [핵심] 누적 오차 없는 로컬 갭 채우기 (고정 그리드 강제 스냅 제거)
