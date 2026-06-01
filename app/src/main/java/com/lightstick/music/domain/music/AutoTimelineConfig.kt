@@ -5,7 +5,7 @@ object AutoTimelineConfig {
     /**
      * 파일 캐시 버전 — 생성기·감지기 조합이 바뀔 때마다 증가시켜 기존 캐시를 무효화한다.
      */
-    const val VERSION = 21
+    const val VERSION = 22
 
     /**
      * 타임라인 생성기 버전 (6 ~ 11)

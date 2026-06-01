@@ -32,7 +32,7 @@ object AppConstants {
 
     const val MAX_CUSTOM_EFFECTS = 7
 
-    const val POSITION_MONITOR_INTERVAL_MS = 100L
+    const val POSITION_MONITOR_INTERVAL_MS = 50L
 
     const val MAX_TRANSMISSION_HISTORY              = 100
     const val TRANSMISSION_MONITOR_UPDATE_INTERVAL_MS = 50L

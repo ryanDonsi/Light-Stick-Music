@@ -144,7 +144,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     ): List<Pair<Long, ByteArray>> {
         val frames         = ArrayList<Pair<Long, ByteArray>>()
         val usedTimestamps = HashSet<Long>()
-        val onDurationMs   = (beatMs * 20L / 100L).coerceAtLeast(1L)
+        val onDurationMs   = (beatMs * 30L / 100L).coerceAtLeast(1L)
         val firstBeatMs    = beats.firstOrNull()?.timeMs ?: 0L
         val barMs          = beatMs * beatsPerBar.coerceAtLeast(1)
 
