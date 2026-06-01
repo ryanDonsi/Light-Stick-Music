@@ -152,11 +152,17 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         var onDupe    = 0   // 이미 같은 타임스탬프가 등록돼 ON 생략된 비트
         val offSkip   = 0   // OFF 프레임 없음 (ON-only 모드)
 
-        for (beat in beats) {
+        for ((beatIndex, beat) in beats.withIndex()) {
             val t = beat.timeMs
             if (t < 0 || t >= durationMs) { rangeSkip++; continue }
 
-            val color = colorForBar(musicId, palette, barMs, firstBeatMs, t)
+            // 비트 순서(1-2-3-4 순환)별 고정 색상 — 3번째 비트가 파랑으로 표시되는지 육안 확인용
+            val color = when ((beatIndex % beatsPerBar) + 1) {
+                1    -> LSColor(255, 0,   0)    // 빨강
+                2    -> LSColor(0,   255, 0)    // 초록
+                3    -> LSColor(0,   0,   255)  // 파랑 ← 이게 보여야 정상
+                else -> LSColor(255, 255, 255)  // 흰색
+            }
 
             if (usedTimestamps.add(t)) {
                 val beatNum = frames.size + 1
