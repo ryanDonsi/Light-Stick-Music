@@ -205,7 +205,13 @@ object EffectEngineController {
         if (devices.isEmpty()) { Log.w(TAG, "No connected devices for auto timeline"); return }
 
         try {
+            Log.d(TAG, "[load] loadTimeline: total=${frames.size}개 frames → SDK 전달")
+            frames.take(10).forEachIndexed { i, (t, bytes) ->
+                val payload = runCatching { LSEffectPayload.fromByteArray(bytes) }.getOrNull()
+                Log.d(TAG, "[load]   frame[$i] t=${t}ms type=${payload?.effectType} color=${payload?.color}")
+            }
             devices.forEach { it.loadTimeline(frames) }
+            Log.d(TAG, "[load] loadTimeline 완료 devices=${devices.size}")
             isTimelineLoaded = true
             loadedEffectSource = TransmissionSource.TIMELINE_EFFECT
             lastRecordedEffectIndex = -1
@@ -262,6 +268,13 @@ object EffectEngineController {
         if (devices.isEmpty()) return
 
         try {
+            // 이 posMs 기준으로 "이미 지난" 프레임 중 아직 안 보낸 것 목록
+            val due = cachedTimeline.filter { it.timestampMs <= currentPositionMs }
+            val lastSent = lastRecordedEffectIndex
+            if (due.size > lastSent + 2) {
+                Log.w(TAG, "[sdk] 위험: posMs=${currentPositionMs}ms 기준 due=${due.size}개, lastSent=$lastSent → ${due.size - lastSent - 1}개 한번에 처리 가능")
+            }
+            Log.d(TAG, "[sdk] updatePlaybackPosition posMs=${currentPositionMs}ms due=${due.size} lastSentIdx=$lastSent")
             devices.forEach { it.updatePlaybackPosition(currentPositionMs) }
             recordCurrentTimelineEffect(devices.first().mac, currentPositionMs)
         } catch (e: Exception) {
@@ -382,8 +395,21 @@ object EffectEngineController {
             }
 
             val currentEffectIndex = cachedTimeline.indexOfLast { it.timestampMs <= currentPositionMs }
-            if (currentEffectIndex == lastRecordedEffectIndex || currentEffectIndex < 0) return
+            if (currentEffectIndex < 0) return
+            if (currentEffectIndex == lastRecordedEffectIndex) return
 
+            // 인덱스가 2 이상 건너뛰면 경고 (SDK가 중간 프레임을 스킵했을 가능성)
+            val skipped = currentEffectIndex - lastRecordedEffectIndex - 1
+            if (lastRecordedEffectIndex >= 0 && skipped > 0) {
+                Log.w(TAG, "[record] effectIndex 건너뜀: ${lastRecordedEffectIndex} → ${currentEffectIndex} (${skipped}개 스킵) posMs=${currentPositionMs}ms")
+                for (si in (lastRecordedEffectIndex + 1) until currentEffectIndex) {
+                    val skippedEntry = cachedTimeline[si]
+                    val p = skippedEntry.payload
+                    Log.w(TAG, "[record]   스킵된 frame[$si] t=${skippedEntry.timestampMs}ms type=${p.effectType} color=${p.color}")
+                }
+            }
+
+            Log.d(TAG, "[record] effectIndex=${currentEffectIndex} posMs=${currentPositionMs}ms t=${cachedTimeline[currentEffectIndex].timestampMs}ms")
             lastRecordedEffectIndex = currentEffectIndex
             val currentEffect = cachedTimeline[currentEffectIndex]
 
