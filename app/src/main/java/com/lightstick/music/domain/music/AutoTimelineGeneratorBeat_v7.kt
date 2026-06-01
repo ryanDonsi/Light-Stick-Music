@@ -160,6 +160,8 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             val color = colorForBar(musicId, palette, barMs, firstBeatMs, t)
 
             if (usedTimestamps.add(t)) {
+                val beatNum = frames.size / 2 + 1
+                Log.d(TAG, "frame ON[$beatNum] t=${t}ms color=$color barIndex=${(t - firstBeatMs) / barMs}")
                 frames += t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray()
             } else {
                 onDupe++
