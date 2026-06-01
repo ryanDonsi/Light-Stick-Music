@@ -410,7 +410,35 @@ object EffectEngineController {
                 }
             }
 
-            Log.d(TAG, "[record] effectIndex=${currentEffectIndex} posMs=${currentPositionMs}ms t=${cachedTimeline[currentEffectIndex].timestampMs}ms")
+            val currentEntry = cachedTimeline[currentEffectIndex]
+            val currentPayload = currentEntry.payload
+
+            // [firmware] 이전 프레임과의 간격 및 연속 동일 color 패턴 감지
+            if (lastRecordedEffectIndex >= 0) {
+                val prevEntry = cachedTimeline[lastRecordedEffectIndex]
+                val intervalMs = currentEntry.timestampMs - prevEntry.timestampMs
+                val prevColor = prevEntry.payload.color
+                val currColor = currentPayload.color
+                val sameColor = (prevColor != null && currColor != null &&
+                        prevColor.r == currColor.r && prevColor.g == currColor.g && prevColor.b == currColor.b)
+                Log.d(TAG, "[firmware] idx=${currentEffectIndex}(1-idx=${currentEffectIndex + 1}) " +
+                        "t=${currentEntry.timestampMs}ms interval=${intervalMs}ms " +
+                        "type=${currentPayload.effectType} color=${currColor} " +
+                        "sameColorAsPrev=$sameColor")
+                if (sameColor) {
+                    Log.w(TAG, "[firmware] ★ 연속 동일 color 감지! idx=${lastRecordedEffectIndex}→${currentEffectIndex} " +
+                            "t=${prevEntry.timestampMs}→${currentEntry.timestampMs}ms color=${currColor} " +
+                            "→ 펌웨어가 무시할 가능성 있음")
+                }
+            }
+
+            // [firmware] raw bytes 로그 (effectIndex 4 = LedControl 1-indexed 5 주변 집중 확인)
+            if (currentEffectIndex in 3..5) {
+                val bytes = runCatching { currentEntry.payload.toByteArray() }.getOrNull()
+                Log.d(TAG, "[firmware] raw frame[$currentEffectIndex] bytes=${bytes?.joinToString(",") { "%02X".format(it) }}")
+            }
+
+            Log.d(TAG, "[record] effectIndex=${currentEffectIndex} posMs=${currentPositionMs}ms t=${currentEntry.timestampMs}ms")
             lastRecordedEffectIndex = currentEffectIndex
             val currentEffect = cachedTimeline[currentEffectIndex]
 
