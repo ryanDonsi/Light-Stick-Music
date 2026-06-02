@@ -631,10 +631,15 @@ class SectionDetectorV1 : SectionDetector {
         return sections.map { s ->
             val midMs = (s.startMs + s.endMs) / 2L
             val nearClimax = climaxMoments.any { abs(it - midMs) <= CLIMAX_WINDOW_HALF_MS }
-            if (nearClimax && s.type == SectionDetector.SectionType.CHORUS) {
-                Log.d(TAG, "SectionDetectorV1 reclassify CHORUS→CLIMAX [${s.startMs}~${s.endMs}]")
-                s.copy(type = SectionDetector.SectionType.CLIMAX)
-            } else s
+            val isHighEnergy = s.energy >= 0.50f
+            when {
+                nearClimax && (s.type == SectionDetector.SectionType.CHORUS ||
+                              (s.type == SectionDetector.SectionType.VERSE && isHighEnergy)) -> {
+                    Log.d(TAG, "SectionDetectorV1 reclassify ${s.type}→CLIMAX [${s.startMs}~${s.endMs}] energy=${s.energy}")
+                    s.copy(type = SectionDetector.SectionType.CLIMAX)
+                }
+                else -> s
+            }
         }
     }
 }
