@@ -5,6 +5,7 @@ import com.lightstick.music.core.util.Log
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /**
  * SectionDetectorV1
@@ -41,6 +42,11 @@ class SectionDetectorV1 : SectionDetector {
 
         private const val ALIGN_SNAP_MS = 500L
         private const val MIN_BEATS_IN_SECTION = 3
+
+        // ── Climax detection (V8 로직) ───────────────────────────────
+        private const val CLIMAX_WINDOW_HALF_MS = 4_000L
+        private const val CLIMAX_MIN_CV         = 0.35f
+        private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -84,7 +90,9 @@ class SectionDetectorV1 : SectionDetector {
         val sortedBeatTimes = beats.map { it.timeMs }.toLongArray().also { it.sort() }
         val alignedSections = alignBoundariesToBeats(rawSections, sortedBeatTimes, durationMs)
 
-        return distributeBeatsToSections(alignedSections, beats, beatMs, sortedBeatTimes)
+        val sections = distributeBeatsToSections(alignedSections, beats, beatMs, sortedBeatTimes)
+        val climaxMoments = detectClimaxMoments(fullEnv, durationMs, hopMs, beatMs)
+        return reclassifyClimax(sections, climaxMoments)
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -543,6 +551,90 @@ class SectionDetectorV1 : SectionDetector {
             val b = (i + win).coerceAtMost(x.lastIndex)
             for (j in a..b) { s += copy[j]; c++ }
             x[i] = s / max(1, c)
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Climax detection (V8 로직 이식)
+    // ──────────────────────────────────────────────────────────────
+
+    private fun detectClimaxMoments(
+        fullEnv: List<Float>,
+        durationMs: Long,
+        hopMs: Long,
+        beatMs: Long
+    ): List<Long> {
+        if (fullEnv.size < 8) return emptyList()
+
+        data class PeakCandidate(val tMs: Long, val score: Float)
+
+        val scoreArray = FloatArray(fullEnv.size) { 0f }
+        for (i in 2 until fullEnv.size - 2) {
+            val energy   = fullEnv[i]
+            val rise     = max(0f, fullEnv[i] - fullEnv[i - 1])
+            val localAvg = (fullEnv[i-2] + fullEnv[i-1] + fullEnv[i+1] + fullEnv[i+2]) / 4f
+            val contrast = max(0f, energy - localAvg)
+            scoreArray[i] = energy * 0.50f + rise * 0.30f + contrast * 0.20f
+        }
+
+        val scoreList = scoreArray.toList().filter { it > 0f }
+        if (scoreList.isEmpty()) return emptyList()
+
+        val envMean  = scoreList.average().toFloat()
+        val envStd   = sqrt(scoreList.fold(0f) { acc, v -> acc + (v - envMean) * (v - envMean) } / scoreList.size)
+        val cv       = if (envMean > 0f) envStd / envMean else 0f
+        val peakScore = scoreList.max()
+        val peakRatio = if (envMean > 0f) peakScore / envMean else 0f
+
+        if (cv < CLIMAX_MIN_CV || peakRatio < CLIMAX_MIN_PEAK_RATIO) {
+            Log.d(TAG, "SectionDetectorV1 climax skip: CV=${"%.3f".format(cv)} peakRatio=${"%.2f".format(peakRatio)}")
+            return emptyList()
+        }
+        Log.d(TAG, "SectionDetectorV1 climax CV=${"%.3f".format(cv)} peakRatio=${"%.2f".format(peakRatio)} → detecting")
+
+        val candidates = ArrayList<PeakCandidate>()
+        for (i in 2 until scoreArray.size - 2) {
+            val score = scoreArray[i]
+            if (score <= 0f) continue
+            val isLocalPeak = score >= scoreArray[i-1] && score >= scoreArray[i-2] &&
+                    score >= scoreArray[i+1] && score >= scoreArray[i+2]
+            if (isLocalPeak) candidates += PeakCandidate(tMs = i.toLong() * hopMs, score = score)
+        }
+        if (candidates.isEmpty()) return emptyList()
+
+        val sortedScores = scoreList.sorted()
+        val p90 = sortedScores[(sortedScores.lastIndex * 0.90f).toInt().coerceIn(0, sortedScores.lastIndex)]
+
+        val strongCandidates = candidates
+            .filter { it.score >= p90 * 1.18f && it.score >= envMean + envStd * 1.30f }
+            .sortedByDescending { it.score }
+
+        if (strongCandidates.isEmpty()) return emptyList()
+
+        val minGapMs = max(800L, beatMs * 4L)
+        val selected = ArrayList<PeakCandidate>()
+        for (c in strongCandidates) {
+            if (selected.none { abs(it.tMs - c.tMs) < minGapMs }) selected += c
+            if (selected.size >= 3) break
+        }
+
+        val result = selected.sortedBy { it.tMs }.map { it.tMs.coerceIn(0L, durationMs) }
+        Log.d(TAG, "SectionDetectorV1 climax moments=${result.joinToString()}")
+        return result
+    }
+
+    private fun reclassifyClimax(
+        sections: List<SectionDetector.Section>,
+        climaxMoments: List<Long>
+    ): List<SectionDetector.Section> {
+        if (climaxMoments.isEmpty()) return sections
+        return sections.map { s ->
+            val midMs = (s.startMs + s.endMs) / 2L
+            val nearClimax = climaxMoments.any { abs(it - midMs) <= CLIMAX_WINDOW_HALF_MS }
+            if (nearClimax && s.type == SectionDetector.SectionType.CHORUS) {
+                Log.d(TAG, "SectionDetectorV1 reclassify CHORUS→CLIMAX [${s.startMs}~${s.endMs}]")
+                s.copy(type = SectionDetector.SectionType.CLIMAX)
+            } else s
         }
     }
 }

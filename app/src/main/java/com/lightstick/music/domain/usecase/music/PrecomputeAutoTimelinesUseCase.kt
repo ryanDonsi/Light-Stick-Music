@@ -7,13 +7,6 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.AutoTimelineGenerator
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v6
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v0
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v2
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v8
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v9
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v10
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v11
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v3
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v4
 import com.lightstick.music.domain.music.SectionAwareGenerator
@@ -79,16 +72,9 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         }
 
         val generator: AutoTimelineGenerator = when (AutoTimelineConfig.GENERATOR_VERSION) {
-            6  -> AutoTimelineGeneratorBeat_v6()
-            7  -> AutoTimelineGeneratorBeat_v0()
-            8  -> AutoTimelineGeneratorBeat_v8()
-            9  -> AutoTimelineGeneratorBeat_v9()
-            10 -> AutoTimelineGeneratorBeat_v10()
-            11 -> AutoTimelineGeneratorBeat_v11()
-            12 -> AutoTimelineGeneratorBeat_v2()
-            13 -> AutoTimelineGeneratorBeat_v3()
-            14 -> AutoTimelineGeneratorBeat_v4()
-            else -> throw IllegalArgumentException("Unsupported generator version: ${AutoTimelineConfig.GENERATOR_VERSION} (supported: 6~14)")
+            3  -> AutoTimelineGeneratorBeat_v3()
+            4  -> AutoTimelineGeneratorBeat_v4()
+            else -> throw IllegalArgumentException("Unsupported generator version: ${AutoTimelineConfig.GENERATOR_VERSION} (supported: 3, 4)")
         }
         val sectionStorage = if (generator is SectionAwareGenerator) SectionMetaStorage(version) else null
 

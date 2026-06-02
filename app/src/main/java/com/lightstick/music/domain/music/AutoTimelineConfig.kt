@@ -5,16 +5,14 @@ object AutoTimelineConfig {
     /**
      * 파일 캐시 버전 — 생성기·감지기 조합이 바뀔 때마다 증가시켜 기존 캐시를 무효화한다.
      */
-    const val VERSION = 55
+    const val VERSION = 3
 
     /**
-     * 타임라인 생성기 버전
-     *  0 : beat 검증 모드 — BeatDetector + 박자별 색상 ON (→ AutoTimelineGeneratorBeat_v0)
-     * 12 : v0 + SectionDetectorV1, 섹션 타입별 색상 + 박자 강약 fade (→ AutoTimelineGeneratorBeat_v2)
-     * 13 : BeatDetectorV2 + SectionDetectorV1 + V8 이펙트 매칭룰 (→ AutoTimelineGeneratorBeat_v3)
-     * 14 : BeatDetectorV2 + SectionDetectorV2 + V8 이펙트 매칭룰 (→ AutoTimelineGeneratorBeat_v4)
+     * 타임라인 생성기 버전 (파일명 숫자와 일치)
+     *  3 : BeatDetectorV2 + SectionDetectorV1 (CLIMAX 포함) + V8 이펙트 룰 (→ AutoTimelineGeneratorBeat_v3)
+     *  4 : BeatDetectorV2 + SectionDetectorV2 + V8 이펙트 룰 (→ AutoTimelineGeneratorBeat_v4)
      */
-    const val GENERATOR_VERSION = 14
+    const val GENERATOR_VERSION = 3
 
     /**
      * 비트 감지기 버전 — v0/v2 에서 BeatDetectorRouter 를 통해 적용된다.
