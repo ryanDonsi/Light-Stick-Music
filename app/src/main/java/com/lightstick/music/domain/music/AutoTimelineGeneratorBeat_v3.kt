@@ -498,7 +498,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
                     val holdMs = minOf(ON_PULSE_ACCENT_HOLD_MS * 2L, section.beatMs * 44L / 100L).coerceAtLeast(60L)
                     val offT   = minOf(section.endMs - 1L, t + holdMs)
                     if (offT > t)
-                        put(offT, LSEffectPayload.Effects.on(color = bg, transit = ON_TRANSIT).toByteArray())
+                        put(offT, LSEffectPayload.Effects.off(transit = 3).toByteArray())
                 }
             }
 
