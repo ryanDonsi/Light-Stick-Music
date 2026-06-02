@@ -209,6 +209,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         SectionDetector.SectionType.CHORUS -> LSColor(255, 50,  50)    // Red
         SectionDetector.SectionType.BRIDGE -> LSColor(255, 128, 0)     // Orange
         SectionDetector.SectionType.END    -> LSColor(0,   200, 200)   // Teal
+        else                               -> LSColor(0,   100, 255)   // V2 타입 fallback → Blue
     }
 
     // ──────────────────────────────────────────────────────────────

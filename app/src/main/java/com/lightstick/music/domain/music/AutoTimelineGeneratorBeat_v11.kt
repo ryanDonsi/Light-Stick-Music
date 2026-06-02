@@ -649,6 +649,7 @@ class AutoTimelineGeneratorBeat_v11 : AutoTimelineGenerator {
             }
             SectionType.INTRO -> FgEngine.BREATH
             SectionType.END -> FgEngine.OFF_TRANSIT
+            else -> FgEngine.ON_PULSE  // V2 section types: treat as moderate pulse
         }
 
         val source = when (normalizedType) {
@@ -670,6 +671,7 @@ class AutoTimelineGeneratorBeat_v11 : AutoTimelineGenerator {
             }
             SectionType.INTRO -> "intro-breath"
             SectionType.END -> "end-protected"
+            else -> "verse-on-pulse-black-bg"  // V2 section types fallback
         }
 
         val change = when {
