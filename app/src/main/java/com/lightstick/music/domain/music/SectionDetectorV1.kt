@@ -70,7 +70,7 @@ class SectionDetectorV1 : SectionDetector {
         lowEnv: List<Float>,
         midEnv: List<Float>,
         fullEnv: List<Float>,
-        beats: List<BeatDetectorV2.TimedBeat>,
+        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
         beatMs: Long,
         durationMs: Long,
         hopMs: Long,
@@ -368,7 +368,7 @@ class SectionDetectorV1 : SectionDetector {
 
     private fun distributeBeatsToSections(
         sections: List<FeatureWindow>,
-        beats: List<BeatDetectorV2.TimedBeat>,
+        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
         globalBeatMs: Long,
         sortedBeatTimes: LongArray
     ): List<SectionDetector.Section> {

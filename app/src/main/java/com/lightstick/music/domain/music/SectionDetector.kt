@@ -39,7 +39,7 @@ interface SectionDetector {
         lowEnv: List<Float>,
         midEnv: List<Float>,
         fullEnv: List<Float>,
-        beats: List<BeatDetectorV2.TimedBeat>,
+        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
         beatMs: Long,
         durationMs: Long,
         hopMs: Long = 50L,

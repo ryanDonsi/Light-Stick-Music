@@ -5,32 +5,27 @@ object AutoTimelineConfig {
     /**
      * 파일 캐시 버전 — 생성기·감지기 조합이 바뀔 때마다 증가시켜 기존 캐시를 무효화한다.
      */
-    const val VERSION = 49
+    const val VERSION = 50
 
     /**
-     * 타임라인 생성기 버전 (6 ~ 12)
-     *  6 : 비트 검증 모드 — globalBeatMs 균등 그리드, 20% ON / 80% OFF (전 구간 빈틈 없음)
-     *  7 : 비트 검증 모드 — BeatDetectorV11 실제 감지 시각 사용, 20% ON / 80% OFF (→ v0)
-     *  8 : 에너지 기반 섹션 분류 + ON_PULSE 비트 연출 + BeatDetectorV8
-     *  9 : v8 기반 + BeatDetectorV9 적용
-     * 10 : v9 기반 + phrase accent, ON_ROTATE 추가
-     * 11 : v8 기반 + BeatDetectorV11, fade 10%/90% 패턴
-     * 12 : v0 기반 + SectionDetectorV1, 섹션 타입별 색상 ON 이펙트 (→ v2)
+     * 타임라인 생성기 버전
+     *  0 : beat 검증 모드 — BeatDetector + 박자별 색상 ON (→ AutoTimelineGeneratorBeat_v0)
+     * 12 : v0 + SectionDetectorV1, 섹션 타입별 색상 + 박자 강약 fade (→ AutoTimelineGeneratorBeat_v2)
      */
     const val GENERATOR_VERSION = 12
 
     /**
-     * 비트 감지기 버전 (8 ~ 11)
-     * GENERATOR_VERSION = 7 일 때만 적용된다.
-     * (v8 ~ v11 생성기는 각자 고정된 감지기를 내장한다.)
-     *
-     * 11 : V9 기반 + 정박자 최우선 감지, 다운비트 그리드 재정렬
+     * 비트 감지기 버전 — v0/v2 에서 BeatDetectorRouter 를 통해 적용된다.
+     *  8  : BeatDetectorV8
+     *  9  : BeatDetectorV9
+     * 10  : BeatDetectorV10 (downbeat + timeSignature 지원)
+     * 11  : BeatDetectorV2 = V11 (현재 기본값)
      */
     const val BEAT_DETECTOR_VERSION = 11
 
     /**
-     * 섹션 감지기 버전
-     *  1 : 슬라이딩 윈도우 특징 분석 + 비트 경계 정렬
+     * 섹션 감지기 버전 — v2 에서 SectionDetectorRouter 를 통해 적용된다.
+     *  1 : SectionDetectorV1 (슬라이딩 윈도우 특징 분석 + 비트 경계 정렬)
      */
     const val SECTION_DETECTOR_VERSION = 1
 

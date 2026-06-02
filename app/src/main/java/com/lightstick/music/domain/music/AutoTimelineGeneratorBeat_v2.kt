@@ -75,74 +75,63 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        // 2. BeatDetectorV2 — same params as v0
-        Log.d(TAG, "v2 BeatDetect start file=$fileName musicId=$musicId durationMs=$durationMs")
-        val v11Result = BeatDetectorV2.detect(
-            lowEnv  = lowEnv,
-            midEnv  = midEnv,
-            fullEnv = fullEnv,
-            params  = BeatDetectorV2.Params(
-                hopMs             = HOP_MS,
-                minBeatMs         = MIN_BEAT_MS,
-                maxBeatMs         = 1200L,
-                minPeakDistanceMs = 140L,
-                onsetSmoothWindow = 3,
-                peakThresholdK    = 0.28f,
-                minPeakAbs        = 0.07f,
-                snapToleranceMs   = 130L,
-                chainToleranceMs  = 150L,
-                minChainCount     = 3,
-                continuityBonus   = 0.08f
-            )
+        // 2. BeatDetector (버전은 AutoTimelineConfig.BEAT_DETECTOR_VERSION)
+        Log.d(TAG, "v2 BeatDetect start file=$fileName musicId=$musicId durationMs=$durationMs beatDetectorVer=${AutoTimelineConfig.BEAT_DETECTOR_VERSION}")
+        val beatInfo = BeatDetectorRouter.detect(
+            version   = AutoTimelineConfig.BEAT_DETECTOR_VERSION,
+            lowEnv    = lowEnv,
+            midEnv    = midEnv,
+            fullEnv   = fullEnv,
+            hopMs     = HOP_MS,
+            minBeatMs = MIN_BEAT_MS,
+            maxBeatMs = 1200L
         )
 
-        val globalBeatMs = v11Result.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
-        val beatsPerBar  = v11Result.timeSignature.beatsPerBar
-        Log.d(TAG, "v2 BeatDetectorV2 beatMs=$globalBeatMs beats=${v11Result.beats.size} " +
-            "timeSig=${v11Result.timeSignature.type} beatsPerBar=$beatsPerBar")
+        val globalBeatMs = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+        val beatsPerBar  = beatInfo.beatsPerBar
+        Log.d(TAG, "v2 beatMs=$globalBeatMs beats=${beatInfo.beats.size} beatsPerBar=$beatsPerBar")
 
-        // Q6: 비트 타임스탬프 로그 (처음 12개 + 마지막 4개)
-        if (v11Result.beats.isNotEmpty()) {
-            val first = v11Result.beats.take(12).joinToString(" ") { "${it.timeMs}" }
-            val last  = v11Result.beats.takeLast(4).joinToString(" ") { "${it.timeMs}" }
+        // 비트 타임스탬프 로그 (처음 12개 + 마지막 4개)
+        if (beatInfo.beats.isNotEmpty()) {
+            val first = beatInfo.beats.take(12).joinToString(" ") { "${it.timeMs}" }
+            val last  = beatInfo.beats.takeLast(4).joinToString(" ") { "${it.timeMs}" }
             Log.d(TAG, "v2 beatTimes[$fileName] first=[$first] last=[$last]")
         }
 
-        // [진단A] V11 출력 비트 품질 분석
-        if (v11Result.beats.isNotEmpty()) {
-            val synth  = v11Result.beats.count { it.confidence <= 0.20f }
-            val real   = v11Result.beats.size - synth
-            val sPct   = synth * 100 / v11Result.beats.size
-            Log.d(TAG, "v2 [A] V11_quality[$fileName]: " +
-                "real=$real synth=$synth(${sPct}%) total=${v11Result.beats.size}")
+        // 비트 품질 분석 (confidence ≤ 0.20 = 합성 비트)
+        if (beatInfo.beats.isNotEmpty()) {
+            val synth  = beatInfo.beats.count { it.confidence <= 0.20f }
+            val real   = beatInfo.beats.size - synth
+            val sPct   = synth * 100 / beatInfo.beats.size
+            Log.d(TAG, "v2 [A] quality[$fileName]: real=$real synth=$synth(${sPct}%) total=${beatInfo.beats.size}")
 
             val gapTh   = globalBeatMs * 3
-            val bigGaps = (1 until v11Result.beats.size).mapNotNull { i ->
-                val gap = v11Result.beats[i].timeMs - v11Result.beats[i - 1].timeMs
-                if (gap >= gapTh) "${v11Result.beats[i - 1].timeMs / 1000}s+${gap}ms" else null
+            val bigGaps = (1 until beatInfo.beats.size).mapNotNull { i ->
+                val gap = beatInfo.beats[i].timeMs - beatInfo.beats[i - 1].timeMs
+                if (gap >= gapTh) "${beatInfo.beats[i - 1].timeMs / 1000}s+${gap}ms" else null
             }
             if (bigGaps.isEmpty())
-                Log.d(TAG, "v2 [A] V11_gaps[$fileName]: 없음 (최대 < ${gapTh}ms) ✓")
+                Log.d(TAG, "v2 [A] gaps[$fileName]: 없음 (최대 < ${gapTh}ms) ✓")
             else
-                Log.w(TAG, "v2 [A] V11_gaps[$fileName](≥${gapTh}ms): ${bigGaps.take(5).joinToString(" | ")}")
+                Log.w(TAG, "v2 [A] gaps[$fileName](≥${gapTh}ms): ${bigGaps.take(5).joinToString(" | ")}")
         }
 
-        // 3. SectionDetectorV1 (HIGH 밴드 포함)
-        val sections = SectionDetectorV1().detect(
+        // 3. SectionDetector (버전은 AutoTimelineConfig.SECTION_DETECTOR_VERSION)
+        val sections = SectionDetectorRouter.detect(
+            version    = AutoTimelineConfig.SECTION_DETECTOR_VERSION,
             lowEnv     = lowEnv,
             midEnv     = midEnv,
             fullEnv    = fullEnv,
             highEnv    = highEnv,
-            beats      = v11Result.beats,
+            beats      = beatInfo.beats,
             beatMs     = globalBeatMs,
             durationMs = durationMs,
             hopMs      = HOP_MS
         )
-        Log.d(TAG, "v2 SectionDetectorV1: sections=${sections.size}")
+        Log.d(TAG, "v2 sections=${sections.size}")
 
         // 4. Section-aware timeline
-        val downbeatMs = (v11Result.beats.firstOrNull()?.timeMs ?: 0L) + v11Result.downbeatOffsetMs
-        val frames = buildTimeline(v11Result.beats, sections, beatsPerBar, globalBeatMs, downbeatMs, durationMs)
+        val frames = buildTimeline(beatInfo.beats, sections, beatsPerBar, globalBeatMs, beatInfo.downbeatMs, durationMs)
         Log.d(TAG, "v2 frames(final)=${frames.size}")
 
         // 5. Convert SectionDetector.Section → SectionMeta
@@ -173,7 +162,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
     // ──────────────────────────────────────────────────────────────
 
     private fun buildTimeline(
-        beats: List<BeatDetectorV2.TimedBeat>,
+        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
         sections: List<SectionDetector.Section>,
         beatsPerBar: Int,
         beatMs: Long,
