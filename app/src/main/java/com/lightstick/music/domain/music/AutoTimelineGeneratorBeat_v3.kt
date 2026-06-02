@@ -128,10 +128,12 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
                 minChainCount     = 3,
                 continuityBonus   = 0.08f
             ))
-        val beatInfoBeats = beatResult.beats.map { BeatDetectorRouter.BeatInfo.Beat(it.timeMs, it.confidence) }
-        val globalBeatMs = beatResult.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+        val beatInfoBeats  = beatResult.beats.map { BeatDetectorRouter.BeatInfo.Beat(it.timeMs, it.confidence) }
+        val globalBeatMs   = beatResult.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
             .let { if (it > 900L) it / 2L else it }
-        val beatTimesMs = beatInfoBeats.map { it.timeMs }.filter { it in 0..durationMs }
+        val beatsPerBar    = beatResult.timeSignature.beatsPerBar
+        val downbeatMs     = (beatResult.beats.firstOrNull()?.timeMs ?: 0L) + beatResult.downbeatOffsetMs
+        val beatTimesMs    = beatInfoBeats.map { it.timeMs }.filter { it in 0..durationMs }
 
         if (beatTimesMs.isEmpty()) {
             Log.w(TAG, "v3 beat detect FAIL"); return Pair(emptyList(), emptyList())
@@ -178,7 +180,9 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             durationMs      = durationMs,
             climaxMoments   = climaxMoments,
             isBalladMode    = isBalladMode,
-            finalOffMs      = finalOffMs
+            finalOffMs      = finalOffMs,
+            downbeatMs      = downbeatMs,
+            beatsPerBar     = beatsPerBar
         )
         Log.d(TAG, "v3 frames=${frames.size}")
 
@@ -313,7 +317,9 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         durationMs: Long,
         climaxMoments: List<Long>,
         isBalladMode: Boolean,
-        finalOffMs: Long
+        finalOffMs: Long,
+        downbeatMs: Long = 0L,
+        beatsPerBar: Int = 4
     ): List<Pair<Long, ByteArray>> {
         val frameMap = LinkedHashMap<Long, ByteArray>(beatTimesMs.size * 4 + sections.size + 8)
 
@@ -350,6 +356,17 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
             Log.d(TAG, "v3 section[$index] ${section.type} ${section.startMs}~${section.endMs} " +
                 "engine=${section.engine} beats=${effectiveBeats.size} ballad=$isBalladMode")
+
+            // ── BEAT 섹션 전용: 1/4박 White-C1-C2-C3 패턴 ─────────
+            if (section.type == SectionDetector.SectionType.BEAT) {
+                put(section.startMs, buildOffPayload())
+                for (t in effectiveBeats) {
+                    val beatInBar = beatInBar(t, downbeatMs, globalBeatMs = section.beatMs, beatsPerBar)
+                    val (color, fade) = beatSectionColorAndFade(beatInBar, palette)
+                    put(t, LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
+                }
+                prevSectionEndMs = section.endMs; continue
+            }
 
             if (section.engine == FgEngine.OFF_TRANSIT) {
                 put(section.startMs, buildOffPayload())
@@ -535,6 +552,35 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
     // ──────────────────────────────────────────────────────────────
     // Payload builder (V8와 동일)
+    // ──────────────────────────────────────────────────────────────
+    // BEAT 섹션 전용 헬퍼
+    // ──────────────────────────────────────────────────────────────
+
+    /**
+     * 다운비트 기준 beat-in-bar (0-based).
+     * 4/4: 0=강박 1=약박 2=중간박 3=약박
+     */
+    private fun beatInBar(tMs: Long, downbeatMs: Long, globalBeatMs: Long, beatsPerBar: Int): Int {
+        if (globalBeatMs <= 0L || beatsPerBar <= 0) return 0
+        val steps = Math.round((tMs - downbeatMs).toDouble() / globalBeatMs.toDouble())
+        return (((steps % beatsPerBar) + beatsPerBar) % beatsPerBar).toInt()
+    }
+
+    /**
+     * BEAT 섹션 1/4박 색상·밝기 규칙:
+     *  beatInBar 0 → White, fade 100%  (강박)
+     *  beatInBar 1 → C1,    fade  35%  (약박)
+     *  beatInBar 2 → C2,    fade 100%  (중간박)
+     *  beatInBar 3 → C3,    fade  35%  (약박)
+     * beatsPerBar != 4 일 때: 0 → White 100%, else → palette.colors 순환 35%
+     */
+    private fun beatSectionColorAndFade(beatInBar: Int, palette: Palette): Pair<LSColor, Int> {
+        if (beatInBar == 0) return palette.white to 100
+        val paletteColor = palette.colorGroup.getOrElse(beatInBar - 1) { palette.colorGroup.first() }
+        val fade = when (beatInBar) { 2 -> 100; else -> 35 }
+        return paletteColor to fade
+    }
+
     // ──────────────────────────────────────────────────────────────
 
     private fun buildPayload(
