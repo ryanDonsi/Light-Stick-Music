@@ -31,7 +31,6 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
 
     }
 
-    private enum class EnvMode { LOW, MID, FULL }
 
     data class Palette(
         val c1: LSColor,
@@ -59,9 +58,8 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
         val pSize   = paletteSize.coerceIn(3, 5)
         val palette = buildPalette(musicId, pSize)
 
-        val lowEnv  = decodeEnvelopeInternal(musicPath, HOP_MS.toInt(), EnvMode.LOW)
-        val midEnv  = decodeEnvelopeInternal(musicPath, HOP_MS.toInt(), EnvMode.MID)
-        val fullEnv = decodeEnvelopeInternal(musicPath, HOP_MS.toInt(), EnvMode.FULL)
+        // [PERF] 단일 패스 디코딩 — MediaCodec 1회로 low/mid/full 동시 추출
+        val (lowEnv, midEnv, fullEnv) = decodeAllEnvelopes(musicPath, HOP_MS.toInt())
 
         if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
             Log.w(TAG, "v0 env empty -> return empty")
@@ -234,11 +232,11 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
     // Audio decode / envelope
     // ──────────────────────────────────────────────────────────────
 
-    private fun decodeEnvelopeInternal(
+    /** 단일 패스로 LOW / MID / FULL 엔벨로프를 동시에 추출한다. */
+    private fun decodeAllEnvelopes(
         musicPath: String,
-        hopMs: Int,
-        mode: EnvMode
-    ): List<Float> {
+        hopMs: Int
+    ): Triple<List<Float>, List<Float>, List<Float>> {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
 
@@ -247,18 +245,16 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
 
             var trackIndex = -1
             var format: MediaFormat? = null
-
             for (i in 0 until extractor.trackCount) {
                 val f    = extractor.getTrackFormat(i)
                 val mime = f.getString(MediaFormat.KEY_MIME) ?: continue
                 if (mime.startsWith("audio/")) { trackIndex = i; format = f; break }
             }
-
-            if (trackIndex < 0 || format == null) { extractor.release(); return emptyList() }
+            if (trackIndex < 0 || format == null) { extractor.release(); return Triple(emptyList(), emptyList(), emptyList()) }
 
             extractor.selectTrack(trackIndex)
-
-            val mime = format.getString(MediaFormat.KEY_MIME) ?: run { extractor.release(); return emptyList() }
+            val mime = format.getString(MediaFormat.KEY_MIME)
+                ?: run { extractor.release(); return Triple(emptyList(), emptyList(), emptyList()) }
 
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0)
@@ -268,9 +264,15 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
             val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             val hopSamples   = max(1, sampleRate * hopMs / 1000)
 
-            val out        = ArrayList<Float>()
-            val bufferInfo = MediaCodec.BufferInfo()
-            val pcmWindow  = ArrayList<Float>(hopSamples)
+            val outLow  = ArrayList<Float>()
+            val outMid  = ArrayList<Float>()
+            val outFull = ArrayList<Float>()
+
+            val winLow  = ArrayList<Float>(hopSamples)
+            val winMid  = ArrayList<Float>(hopSamples)
+            val winFull = ArrayList<Float>(hopSamples)
+
+            val bufferInfo   = MediaCodec.BufferInfo()
             var sawInputEOS  = false
             var sawOutputEOS = false
 
@@ -297,17 +299,20 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
                         if (outputBuffer != null && bufferInfo.size > 0) {
                             outputBuffer.position(bufferInfo.offset)
                             outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
-                            val chunk    = ByteArray(bufferInfo.size)
+                            val chunk = ByteArray(bufferInfo.size)
                             outputBuffer.get(chunk)
-                            val mono     = pcm16ToMonoFloat(chunk, channelCount)
-                            val filtered = when (mode) {
-                                EnvMode.FULL -> mono
-                                EnvMode.LOW  -> lowBandProxy(mono)
-                                EnvMode.MID  -> midBandProxy(mono)
-                            }
-                            for (v in filtered) {
-                                pcmWindow += v
-                                if (pcmWindow.size >= hopSamples) { out += rms(pcmWindow); pcmWindow.clear() }
+
+                            val mono = pcm16ToMonoFloat(chunk, channelCount)
+                            val low  = lowBandProxy(mono)
+                            val mid  = midBandProxy(mono)
+
+                            for (j in mono.indices) {
+                                winFull += mono[j]; winLow += low[j]; winMid += mid[j]
+                                if (winFull.size >= hopSamples) {
+                                    outFull += rms(winFull); winFull.clear()
+                                    outLow  += rms(winLow);  winLow.clear()
+                                    outMid  += rms(winMid);  winMid.clear()
+                                }
                             }
                         }
                         codec.releaseOutputBuffer(outIndex, false)
@@ -318,13 +323,13 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
             }
 
             codec.stop(); codec.release(); extractor.release()
-            normalizeEnvelope(out)
+            Triple(normalizeEnvelope(outLow), normalizeEnvelope(outMid), normalizeEnvelope(outFull))
         } catch (t: Throwable) {
-            Log.e(TAG, "decodeEnvelopeInternal fail mode=$mode: ${t.message}")
+            Log.e(TAG, "decodeAllEnvelopes fail: ${t.message}")
             try { codec?.stop() }    catch (_: Throwable) {}
             try { codec?.release() } catch (_: Throwable) {}
             try { extractor.release() } catch (_: Throwable) {}
-            emptyList()
+            Triple(emptyList(), emptyList(), emptyList())
         }
     }
 
