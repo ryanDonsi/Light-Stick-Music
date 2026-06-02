@@ -15,7 +15,7 @@ import kotlin.math.sqrt
 /**
  * AutoTimelineGeneratorBeat v3
  *
- * 감지기: BeatDetectorRouter(BEAT_DETECTOR_VERSION) + SectionDetectorRouter(SECTION_DETECTOR_VERSION)
+ * 감지기: BeatDetectorV2 (V11) + SectionDetectorV1 (고정)
  * 이펙트: V8 이펙트 매칭룰 (FgEngine 기반 — ON_PULSE / STROBE / BREATH / ON_TRANSIT_ROTATE 등)
  *
  * V2 대비 변경:
@@ -108,9 +108,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         musicPath: String, musicId: Int, paletteSize: Int
     ): Pair<List<Pair<Long, ByteArray>>, List<SectionMeta>> {
 
-        Log.d(TAG, "v3 start file=$musicPath musicId=$musicId " +
-            "beatVer=${AutoTimelineConfig.BEAT_DETECTOR_VERSION} " +
-            "sectionVer=${AutoTimelineConfig.SECTION_DETECTOR_VERSION}")
+        Log.d(TAG, "v3 start file=$musicPath musicId=$musicId detector=BeatDetectorV2+SectionDetectorV1")
 
         val palette    = buildPalette(musicId)
         val (lowEnv, midEnv, fullEnv, highEnv) = decodeAllEnvelopes(musicPath)
@@ -121,26 +119,35 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        // ── 1. Beat detection ─────────────────────────────────────
-        val beatInfo = BeatDetectorRouter.detect(
-            version   = AutoTimelineConfig.BEAT_DETECTOR_VERSION,
-            lowEnv    = lowEnv, midEnv = midEnv, fullEnv = fullEnv,
-            hopMs     = HOP_MS, minBeatMs = MIN_BEAT_MS, maxBeatMs = MAX_BEAT_MS
-        )
-        val globalBeatMs = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+        // ── 1. Beat detection (BeatDetectorV2 고정) ───────────────
+        val beatResult = BeatDetectorV2.detect(lowEnv, midEnv, fullEnv,
+            BeatDetectorV2.Params(
+                hopMs             = HOP_MS,
+                minBeatMs         = MIN_BEAT_MS,
+                maxBeatMs         = MAX_BEAT_MS,
+                minPeakDistanceMs = 140L,
+                onsetSmoothWindow = 3,
+                peakThresholdK    = 0.28f,
+                minPeakAbs        = 0.07f,
+                snapToleranceMs   = 130L,
+                chainToleranceMs  = 150L,
+                minChainCount     = 3,
+                continuityBonus   = 0.08f
+            ))
+        val beatInfoBeats = beatResult.beats.map { BeatDetectorRouter.BeatInfo.Beat(it.timeMs, it.confidence) }
+        val globalBeatMs = beatResult.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
             .let { if (it > 900L) it / 2L else it }
-        val beatTimesMs = beatInfo.beatTimesMs.filter { it in 0..durationMs }
+        val beatTimesMs = beatInfoBeats.map { it.timeMs }.filter { it in 0..durationMs }
 
         if (beatTimesMs.isEmpty()) {
             Log.w(TAG, "v3 beat detect FAIL"); return Pair(emptyList(), emptyList())
         }
         Log.d(TAG, "v3 beats=${beatTimesMs.size} beatMs=$globalBeatMs")
 
-        // ── 2. Section detection ──────────────────────────────────
-        val detectedSections = SectionDetectorRouter.detect(
-            version    = AutoTimelineConfig.SECTION_DETECTOR_VERSION,
+        // ── 2. Section detection (SectionDetectorV1 고정) ─────────
+        val detectedSections = SectionDetectorV1().detect(
             lowEnv     = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
-            beats      = beatInfo.beats,
+            beats      = beatInfoBeats,
             beatMs     = globalBeatMs, durationMs = durationMs, hopMs = HOP_MS
         )
         Log.d(TAG, "v3 sections=${detectedSections.size}")
