@@ -146,16 +146,16 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
         var rangeSkip   = 0
 
         // 박자(beat)마다 50ms ON / 나머지 OFF — R→G→B→W 순환
-        val onDurationMs = 50L
+        val onDurationMs = 100L
         for ((beatIndex, beat) in beats.withIndex()) {
             val t = beat.timeMs
             if (t < 0 || t >= durationMs) { rangeSkip++; continue }
 
             val color = when (beatIndex % beatsPerBar) {
-                0    -> LSColor(255, 0,   0)    // Red
-                1    -> LSColor(0,   255, 0)    // Green
-                2    -> LSColor(0,   0,   255)  // Blue
-                else -> LSColor(255, 255, 255)  // White
+                0    -> LSColor(255, 255, 255)      // White
+                1    -> LSColor(255, 255, 0)        // Red
+                2    -> LSColor(0,   255, 0)        // Green
+                else -> LSColor(0,   0,   255)      // Blue
             }
             frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
 
