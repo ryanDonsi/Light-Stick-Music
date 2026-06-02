@@ -127,7 +127,8 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
                 Log.w(TAG, "v0 [A] V11_gaps[$fileName](≥${gapTh}ms): ${bigGaps.take(5).joinToString(" | ")}")
         }
 
-        val frames = buildTimeline(v11Result.beats, globalBeatMs, beatsPerBar, durationMs, palette, musicId)
+        val downbeatMs = (v11Result.beats.firstOrNull()?.timeMs ?: 0L) + v11Result.downbeatOffsetMs
+        val frames = buildTimeline(v11Result.beats, globalBeatMs, beatsPerBar, downbeatMs, durationMs, palette, musicId)
         Log.d(TAG, "v0 frames(final)=${frames.size}")
         return frames.sortedBy { it.first }
     }
@@ -140,30 +141,35 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
         beats: List<BeatDetectorV2.TimedBeat>,
         beatMs: Long,
         beatsPerBar: Int,
+        downbeatMs: Long,
         durationMs: Long,
         palette: Palette,
         musicId: Int
     ): List<Pair<Long, ByteArray>> {
-        val frames      = ArrayList<Pair<Long, ByteArray>>()
-        val firstBeatMs = beats.firstOrNull()?.timeMs ?: 0L
-        val barMs       = beatMs * beatsPerBar.coerceAtLeast(1)
-        var rangeSkip   = 0
+        val frames    = ArrayList<Pair<Long, ByteArray>>()
+        var rangeSkip = 0
 
-        // 1/4박자마다 ON — R→G→B→W 순환
-        for ((beatIndex, beat) in beats.withIndex()) {
+        // 1/4박자마다 ON — downbeat 기준 마디 내 위치로 색상 결정
+        // beatInBar 0(강박)=White, 1=Purple, 2=Yellow, 3=Cyan
+        for (beat in beats) {
             val t = beat.timeMs
             if (t < 0 || t >= durationMs) { rangeSkip++; continue }
 
-            val color = when (beatIndex % beatsPerBar) {
-                0    -> LSColor(255, 255, 255)      // White
-                1    -> LSColor(255, 0,   255)      // Pupple
-                2    -> LSColor(255, 255, 0)        // yellow
-                else -> LSColor(0,   255, 255)      // Cyan
+            val beatInBar = if (beatMs > 0L) {
+                val steps = Math.round((t - downbeatMs).toDouble() / beatMs.toDouble())
+                (((steps % beatsPerBar) + beatsPerBar) % beatsPerBar).toInt()
+            } else 0
+
+            val color = when (beatInBar) {
+                0    -> LSColor(255, 255, 255)      // White  — 강박
+                1    -> LSColor(255, 0,   255)      // Purple — 약박
+                2    -> LSColor(255, 255, 0)        // Yellow — 중간박
+                else -> LSColor(0,   255, 255)      // Cyan   — 약박
             }
             frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
         }
 
-        Log.d(TAG, "v0 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size}")
+        Log.d(TAG, "v0 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size} downbeatMs=$downbeatMs")
         return frames.sortedBy { it.first }
     }
 
