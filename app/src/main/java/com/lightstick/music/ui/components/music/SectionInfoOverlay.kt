@@ -82,7 +82,7 @@ fun SectionInfoOverlay(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FeatureChip("E.avg", cur.energy)
                 FeatureChip("E.peak", cur.peakEnergy)
-                FeatureChip("beat", cur.beatMs.toString() + "ms", raw = true)
+                FeatureChip("beat", "${cur.beatMs}ms")
                 FeatureChip("conf", cur.beatConfidence)
             }
 
@@ -115,12 +115,16 @@ fun SectionInfoOverlay(
 
 @Composable
 private fun FeatureChip(label: String, value: Float) {
-    FeatureChip(label = label, raw = "%.2f".format(value))
+    FeatureChipImpl(label = label, display = "%.2f".format(value))
 }
 
 @Composable
-private fun FeatureChip(label: String, raw: String = "", value: Float = 0f) {
-    val display = if (raw.isNotEmpty()) raw else "%.2f".format(value)
+private fun FeatureChip(label: String, raw: String) {
+    FeatureChipImpl(label = label, display = raw)
+}
+
+@Composable
+private fun FeatureChipImpl(label: String, display: String) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -141,7 +145,7 @@ private fun SectionBar(
         val totalWidth = maxWidth
 
         Row(modifier = Modifier.fillMaxSize()) {
-            sections.forEach { section ->
+            for (section in sections) {
                 val fraction = ((section.endMs - section.startMs).toFloat() / durationMs.toFloat())
                     .coerceIn(0f, 1f)
                 Box(
