@@ -141,7 +141,8 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         Log.d(TAG, "v2 SectionDetectorV1: sections=${sections.size}")
 
         // 4. Section-aware timeline
-        val frames = buildTimeline(v11Result.beats, sections, beatsPerBar, durationMs)
+        val downbeatMs = (v11Result.beats.firstOrNull()?.timeMs ?: 0L) + v11Result.downbeatOffsetMs
+        val frames = buildTimeline(v11Result.beats, sections, beatsPerBar, globalBeatMs, downbeatMs, durationMs)
         Log.d(TAG, "v2 frames(final)=${frames.size}")
 
         // 5. Convert SectionDetector.Section → SectionMeta
@@ -175,6 +176,8 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         beats: List<BeatDetectorV2.TimedBeat>,
         sections: List<SectionDetector.Section>,
         beatsPerBar: Int,
+        beatMs: Long,
+        downbeatMs: Long,
         durationMs: Long
     ): List<Pair<Long, ByteArray>> {
         val frames    = ArrayList<Pair<Long, ByteArray>>()
@@ -184,14 +187,36 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
             val t = beat.timeMs
             if (t < 0 || t >= durationMs) { rangeSkip++; continue }
 
-            val section = sections.firstOrNull { t >= it.startMs && t < it.endMs }
-            val color   = sectionColorFor(section?.type ?: SectionDetector.SectionType.VERSE)
+            val section   = sections.firstOrNull { t >= it.startMs && t < it.endMs }
+            val baseColor = sectionColorFor(section?.type ?: SectionDetector.SectionType.VERSE)
+
+            val beatInBar = if (beatMs > 0L) {
+                val steps = Math.round((t - downbeatMs).toDouble() / beatMs.toDouble())
+                (((steps % beatsPerBar) + beatsPerBar) % beatsPerBar).toInt()
+            } else 0
+
+            val brightness = beatBrightness(beatInBar, beatsPerBar)
+            val color = if (brightness >= 1.0f) baseColor else baseColor.scale(brightness)
+
             frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
         }
 
-        Log.d(TAG, "v2 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size}")
+        Log.d(TAG, "v2 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size} downbeatMs=$downbeatMs beatsPerBar=$beatsPerBar")
         return frames.sortedBy { it.first }
     }
+
+    /** 4/4: 강(1.0) 약(0.35) 중간(0.65) 약(0.35) / 3/4: 강 약 약 / 6/8: 강 약 약 중간 약 약 */
+    private fun beatBrightness(beatInBar: Int, beatsPerBar: Int): Float = when (beatsPerBar) {
+        4 -> when (beatInBar) { 0 -> 1.00f; 2 -> 0.65f; else -> 0.35f }
+        3 -> when (beatInBar) { 0 -> 1.00f; else -> 0.45f }
+        6 -> when (beatInBar) { 0 -> 1.00f; 3 -> 0.65f; else -> 0.35f }
+        else -> 1.00f
+    }
+
+    private fun LSColor.scale(factor: Float): LSColor =
+        LSColor((r * factor).toInt().coerceIn(0, 255),
+                (g * factor).toInt().coerceIn(0, 255),
+                (b * factor).toInt().coerceIn(0, 255))
 
     private fun sectionColorFor(type: SectionDetector.SectionType): LSColor = when (type) {
         SectionDetector.SectionType.INTRO  -> LSColor(128, 0,   255)   // Purple
