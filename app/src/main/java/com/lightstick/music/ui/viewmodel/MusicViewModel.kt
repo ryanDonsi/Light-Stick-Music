@@ -329,7 +329,14 @@ class MusicViewModel @Inject constructor(
         } else {
             player.play()
             _isPlaying.value = true
-            if (_isAutoModeEnabled.value) EffectEngineController.resumeEffects(context)
+            if (_isAutoModeEnabled.value) {
+                EffectEngineController.resumeEffects(context)
+                // SDK가 resumeEffects()만으로 BLE 전송을 재개하지 못하는 경우가 있어
+                // 현재 position으로 re-seek해 전송 엔진을 강제 재시작한다
+                val currentPos = player.currentPosition
+                try { handleSeekUseCase(context, currentPos) }
+                catch (e: Exception) { Log.e(TAG, "Resume position sync failed: ${e.message}") }
+            }
         }
         updateNotificationProgress()
     }
