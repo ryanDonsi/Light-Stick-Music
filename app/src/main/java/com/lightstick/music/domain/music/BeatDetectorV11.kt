@@ -194,11 +194,11 @@ object BeatDetectorV11 {
         //   raw가 global의 2배 → raw가 half-time 오탐, global 채택 (이미 globalBeatMs 우선이지만 명시 로그)
         val finalBeatMs: Long = when {
             globalBeatMs == null -> rawBeatMs
-            kotlin.math.abs(globalBeatMs - rawBeatMs * 2L) < 60L -> {
+            kotlin.math.abs(globalBeatMs - rawBeatMs * 2L) < 100L -> {
                 Log.d(TAG, "V11 finalBeatMs: global($globalBeatMs) ≈ 2×raw($rawBeatMs) → raw 채택 (global half-time)")
                 rawBeatMs
             }
-            kotlin.math.abs(rawBeatMs - globalBeatMs * 2L) < 60L -> {
+            kotlin.math.abs(rawBeatMs - globalBeatMs * 2L) < 100L -> {
                 Log.d(TAG, "V11 finalBeatMs: raw($rawBeatMs) ≈ 2×global($globalBeatMs) → global 채택 (raw half-time)")
                 globalBeatMs
             }
@@ -817,10 +817,13 @@ object BeatDetectorV11 {
 
         // harmonic /2
         // HARMONIC_FOLD_HALF_MIN_MS 이상일 때만 half-fold 허용 (250ms 등 너무 빠른 BPM 오탐 방지)
-        val halfLag = bestLag / 2
-        val halfMs  = halfLag * hopMs
+        // 감지된 템포가 650ms(~92 BPM) 이상으로 느릴 때 half-fold 허용 임계값을 낮춤
+        // → 트랩/댄스 곡에서 2박 패턴이 강해 half-fold가 발동 못하는 케이스 구제
+        val halfLag        = bestLag / 2
+        val halfMs         = halfLag * hopMs
+        val dynamicHalfRatio = if (bestLag * hopMs > 650L) 0.30f else HARMONIC_FOLD_HALF_RATIO
         if (halfLag >= minLag && halfMs >= HARMONIC_FOLD_HALF_MIN_MS &&
-            corrArray[halfLag] >= bestValue * HARMONIC_FOLD_HALF_RATIO) {
+            corrArray[halfLag] >= bestValue * dynamicHalfRatio) {
             Log.d(TAG, "autoCorr half-fold: bestLag=${bestLag * hopMs}ms → halfMs=${halfMs}ms")
             val quarterLag = halfLag / 2
             if (quarterLag >= minLag && corrArray[quarterLag] >= corrArray[halfLag] * HARMONIC_FOLD_HALF_RATIO)
