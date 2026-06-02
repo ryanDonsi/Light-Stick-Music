@@ -56,7 +56,9 @@ class SectionDetectorV1 : SectionDetector {
         val periodicity: Float,
         val beatMsHint: Long,
         val sectionType: SectionDetector.SectionType,
-        val changeStrength: SectionDetector.ChangeStrength
+        val changeStrength: SectionDetector.ChangeStrength,
+        val peakEnergy: Float = 0f,
+        val midRatio: Float   = 0f
     )
 
     // ──────────────────────────────────────────────────────────────
@@ -115,23 +117,28 @@ class SectionDetectorV1 : SectionDetector {
             val fullSlice = fullEnv.subList(startIdx, endIdx)
             val novSlice  = novelty.copyOfRange(startIdx, endIdx)
 
-            val energy       = average(fullSlice)
-            val lowRatio     = average(lowSlice) / max(0.0001f, average(fullSlice))
+            val avgFull      = average(fullSlice)
+            val energy       = avgFull
+            val lowRatio     = average(lowSlice) / max(0.0001f, avgFull)
+            val midRatio     = average(midSlice)  / max(0.0001f, avgFull)
+            val peakEnergy   = fullSlice.maxOrNull() ?: 0f
             val onsetDensity = densityAbove(novSlice, 0.12f)
             val beatMsHint   = estimateBeatMsByAutocorr(novSlice, hopMs, MIN_BEAT_MS, MAX_BEAT_MS)
             val periodicity  = estimatePeriodicityStrength(novSlice, beatMsHint, hopMs)
             val type         = classifySectionType(startMs, endMs, durationMs, energy, lowRatio, onsetDensity, periodicity)
 
             val draft = FeatureWindow(
-                startMs      = startMs,
-                endMs        = endMs,
-                energy       = energy,
-                lowRatio     = lowRatio,
-                onsetDensity = onsetDensity,
-                periodicity  = periodicity,
-                beatMsHint   = beatMsHint,
-                sectionType  = type,
-                changeStrength = SectionDetector.ChangeStrength.NONE
+                startMs        = startMs,
+                endMs          = endMs,
+                energy         = energy,
+                lowRatio       = lowRatio,
+                onsetDensity   = onsetDensity,
+                periodicity    = periodicity,
+                beatMsHint     = beatMsHint,
+                sectionType    = type,
+                changeStrength = SectionDetector.ChangeStrength.NONE,
+                peakEnergy     = peakEnergy,
+                midRatio       = midRatio
             )
 
             val change = estimateChangeStrength(prev, draft)
@@ -228,8 +235,10 @@ class SectionDetectorV1 : SectionDetector {
                     endMs        = next.endMs,
                     energy       = (cur.energy       + next.energy)       * 0.5f,
                     lowRatio     = (cur.lowRatio     + next.lowRatio)     * 0.5f,
+                    midRatio     = (cur.midRatio     + next.midRatio)     * 0.5f,
                     onsetDensity = (cur.onsetDensity + next.onsetDensity) * 0.5f,
                     periodicity  = (cur.periodicity  + next.periodicity)  * 0.5f,
+                    peakEnergy   = max(cur.peakEnergy, next.peakEnergy),
                     beatMsHint   = normalizeBeatMsAgainstGlobal(cur.beatMsHint, next.beatMsHint)
                 )
             }
@@ -264,8 +273,10 @@ class SectionDetectorV1 : SectionDetector {
                         endMs        = fixed.endMs,
                         energy       = (prev.energy       + fixed.energy)       * 0.5f,
                         lowRatio     = (prev.lowRatio     + fixed.lowRatio)     * 0.5f,
+                        midRatio     = (prev.midRatio     + fixed.midRatio)     * 0.5f,
                         onsetDensity = (prev.onsetDensity + fixed.onsetDensity) * 0.5f,
                         periodicity  = (prev.periodicity  + fixed.periodicity)  * 0.5f,
+                        peakEnergy   = max(prev.peakEnergy, fixed.peakEnergy),
                         beatMsHint   = normalizeBeatMsAgainstGlobal(prev.beatMsHint, fixed.beatMsHint)
                     )
                     continue
@@ -381,7 +392,13 @@ class SectionDetectorV1 : SectionDetector {
                 changeStrength = s.changeStrength,
                 beatTimesMs    = beatTimesMs,
                 beatMs         = globalBeatMs,
-                beatConfidence = confidence
+                beatConfidence = confidence,
+                energy         = s.energy,
+                lowRatio       = s.lowRatio,
+                onsetDensity   = s.onsetDensity,
+                periodicity    = s.periodicity,
+                peakEnergy     = s.peakEnergy,
+                midRatio       = s.midRatio
             )
         }
 

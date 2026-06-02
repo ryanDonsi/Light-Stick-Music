@@ -12,7 +12,14 @@ interface SectionDetector {
         val changeStrength: ChangeStrength,
         val beatTimesMs: LongArray,
         val beatMs: Long,
-        val beatConfidence: Float
+        val beatConfidence: Float,
+        // 구간 특성값 — SectionDetectorV1 의 FeatureWindow 에서 끌어올린 값
+        val energy: Float       = 0f,  // 전체 에너지 (0~1)
+        val lowRatio: Float     = 0f,  // 저역/전체 에너지 비율 (0~1)
+        val onsetDensity: Float = 0f,  // 비트 밀집도 (0~1, novelty > 0.12 비율)
+        val periodicity: Float  = 0f,  // 주기성 강도 (0~1)
+        val peakEnergy: Float   = 0f,  // 구간 내 최대 에너지 (0~1)
+        val midRatio: Float     = 0f   // 중역/전체 에너지 비율 (0~1)
     )
 
     /**

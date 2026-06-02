@@ -142,7 +142,13 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                 type           = s.type,
                 changeStrength = s.changeStrength,
                 beatMs         = s.beatMs,
-                beatConfidence = s.beatConfidence
+                beatConfidence = s.beatConfidence,
+                energy         = s.energy,
+                peakEnergy     = s.peakEnergy,
+                lowRatio       = s.lowRatio,
+                midRatio       = s.midRatio,
+                onsetDensity   = s.onsetDensity,
+                periodicity    = s.periodicity
             )
         }
 

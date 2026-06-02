@@ -23,6 +23,12 @@ import java.io.FileOutputStream
  *     Int:   changeStrength.ordinal
  *     Long:  beatMs
  *     Float: beatConfidence
+ *     Float: energy
+ *     Float: peakEnergy
+ *     Float: lowRatio
+ *     Float: midRatio
+ *     Float: onsetDensity
+ *     Float: periodicity
  */
 class SectionMetaStorage(private val version: Int) {
 
@@ -47,6 +53,12 @@ class SectionMetaStorage(private val version: Int) {
                     out.writeInt(s.changeStrength.ordinal)
                     out.writeLong(s.beatMs)
                     out.writeFloat(s.beatConfidence)
+                    out.writeFloat(s.energy)
+                    out.writeFloat(s.peakEnergy)
+                    out.writeFloat(s.lowRatio)
+                    out.writeFloat(s.midRatio)
+                    out.writeFloat(s.onsetDensity)
+                    out.writeFloat(s.periodicity)
                 }
             }
         } catch (t: Throwable) {
@@ -76,6 +88,12 @@ class SectionMetaStorage(private val version: Int) {
                     val strengthOrdinal = input.readInt()
                     val beatMs          = input.readLong()
                     val beatConfidence  = input.readFloat()
+                    val energy          = input.readFloat()
+                    val peakEnergy      = input.readFloat()
+                    val lowRatio        = input.readFloat()
+                    val midRatio        = input.readFloat()
+                    val onsetDensity    = input.readFloat()
+                    val periodicity     = input.readFloat()
 
                     sections.add(
                         SectionMeta(
@@ -84,7 +102,13 @@ class SectionMetaStorage(private val version: Int) {
                             type           = sectionTypes.getOrElse(typeOrdinal) { SectionDetector.SectionType.VERSE },
                             changeStrength = changeStrengths.getOrElse(strengthOrdinal) { SectionDetector.ChangeStrength.NONE },
                             beatMs         = beatMs,
-                            beatConfidence = beatConfidence
+                            beatConfidence = beatConfidence,
+                            energy         = energy,
+                            peakEnergy     = peakEnergy,
+                            lowRatio       = lowRatio,
+                            midRatio       = midRatio,
+                            onsetDensity   = onsetDensity,
+                            periodicity    = periodicity
                         )
                     )
                 }

@@ -3,7 +3,6 @@ package com.lightstick.music.ui.components.music
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,8 +19,12 @@ import com.lightstick.music.domain.music.SectionMeta
  * 앨범 이미지 위에 겹쳐 표시되는 섹션 정보 오버레이.
  *
  * 구성:
- *  - 하단 반투명 영역: 현재 섹션 타입 레이블 + 비트 정보
+ *  - 하단 반투명 패널: 현재 섹션 타입 + 구간 특성값 전체
  *  - 섹션 바: 전체 구간을 비율 분할한 색상 막대 + 현재 위치 포인터
+ *
+ * 표시 특성:
+ *  type, changeStrength, beatMs, beatConfidence,
+ *  energy(avg/peak), lowRatio, midRatio, onsetDensity, periodicity
  */
 @Composable
 fun SectionInfoOverlay(
@@ -32,50 +35,66 @@ fun SectionInfoOverlay(
 ) {
     if (sections.isEmpty() || durationMs <= 0L) return
 
-    val currentSection = sections.firstOrNull {
+    val cur = sections.firstOrNull {
         currentPositionMs >= it.startMs && currentPositionMs < it.endMs
     } ?: sections.last()
 
     Box(modifier = modifier) {
-        // 하단 오버레이 패널
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.55f))
+                .background(Color.Black.copy(alpha = 0.62f))
                 .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            // 현재 섹션 레이블 + 비트 정보
+            // ── 섹션 타입 + 변화강도 ──────────────────────────
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .size(8.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(sectionColor(currentSection.type))
+                        .background(sectionColor(cur.type))
                 )
                 Text(
-                    text      = sectionLabel(currentSection.type),
-                    color     = Color.White,
-                    fontSize  = 11.sp,
+                    text       = sectionLabel(cur.type),
+                    color      = Color.White,
+                    fontSize   = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text     = "♩${currentSection.beatMs}ms",
-                    color    = Color.White.copy(alpha = 0.75f),
+                    text     = "∆${changeLabel(cur.changeStrength)}",
+                    color    = changeColor(cur.changeStrength),
                     fontSize = 10.sp
                 )
+                Spacer(Modifier.weight(1f))
                 Text(
-                    text     = "⟳${"%.2f".format(currentSection.beatConfidence)}",
-                    color    = Color.White.copy(alpha = 0.75f),
-                    fontSize = 10.sp
+                    text     = "${cur.startMs / 1000}s–${cur.endMs / 1000}s",
+                    color    = Color.White.copy(alpha = 0.55f),
+                    fontSize = 9.sp
                 )
             }
 
-            // 섹션 바
+            // ── 에너지 / 피크 ────────────────────────────────
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FeatureChip("E.avg", cur.energy)
+                FeatureChip("E.peak", cur.peakEnergy)
+                FeatureChip("beat", cur.beatMs.toString() + "ms", raw = true)
+                FeatureChip("conf", cur.beatConfidence)
+            }
+
+            // ── 스펙트럼 비율 / 밀집도 / 주기성 ─────────────
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FeatureChip("low%", cur.lowRatio)
+                FeatureChip("mid%", cur.midRatio)
+                FeatureChip("onset", cur.onsetDensity)
+                FeatureChip("period", cur.periodicity)
+            }
+
+            // ── 섹션 바 ──────────────────────────────────────
             SectionBar(
                 sections          = sections,
                 durationMs        = durationMs,
@@ -86,6 +105,23 @@ fun SectionInfoOverlay(
                     .clip(RoundedCornerShape(3.dp))
             )
         }
+    }
+}
+
+@Composable
+private fun FeatureChip(label: String, value: Float) {
+    FeatureChip(label = label, raw = "%.2f".format(value))
+}
+
+@Composable
+private fun FeatureChip(label: String, raw: String = "", value: Float = 0f) {
+    val display = if (raw.isNotEmpty()) raw else "%.2f".format(value)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(text = label, color = Color.White.copy(alpha = 0.55f), fontSize = 9.sp)
+        Text(text = display, color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -134,7 +170,19 @@ private fun sectionLabel(type: SectionDetector.SectionType): String = when (type
     SectionDetector.SectionType.END    -> "END"
 }
 
-private fun sectionColor(type: SectionDetector.SectionType): Color = when (type) {
+private fun changeLabel(s: SectionDetector.ChangeStrength): String = when (s) {
+    SectionDetector.ChangeStrength.NONE   -> "NONE"
+    SectionDetector.ChangeStrength.MEDIUM -> "MED"
+    SectionDetector.ChangeStrength.STRONG -> "STRONG"
+}
+
+private fun changeColor(s: SectionDetector.ChangeStrength): Color = when (s) {
+    SectionDetector.ChangeStrength.NONE   -> Color.White.copy(alpha = 0.45f)
+    SectionDetector.ChangeStrength.MEDIUM -> Color(0xFFFFD54F)
+    SectionDetector.ChangeStrength.STRONG -> Color(0xFFFF7043)
+}
+
+fun sectionColor(type: SectionDetector.SectionType): Color = when (type) {
     SectionDetector.SectionType.INTRO  -> Color(0xFF9C27B0)  // Purple
     SectionDetector.SectionType.VERSE  -> Color(0xFF2196F3)  // Blue
     SectionDetector.SectionType.CHORUS -> Color(0xFFF44336)  // Red
