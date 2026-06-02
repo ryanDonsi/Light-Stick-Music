@@ -1,5 +1,6 @@
 package com.lightstick.music.ui.components.music
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -118,6 +119,7 @@ private fun FeatureChip(label: String, value: Float) {
     FeatureChipImpl(label = label, display = "%.2f".format(value))
 }
 
+@Suppress("SameParameterValue")
 @Composable
 private fun FeatureChip(label: String, raw: String) {
     FeatureChipImpl(label = label, display = raw)
@@ -141,33 +143,27 @@ private fun SectionBar(
     currentPositionMs: Long,
     modifier: Modifier = Modifier
 ) {
-    BoxWithConstraints(modifier = modifier) {
-        val totalWidth = maxWidth
-
-        Row(modifier = Modifier.fillMaxSize()) {
-            for (section in sections) {
-                val fraction = ((section.endMs - section.startMs).toFloat() / durationMs.toFloat())
-                    .coerceIn(0f, 1f)
-                Box(
-                    modifier = Modifier
-                        .weight(fraction.coerceAtLeast(0.001f))
-                        .fillMaxHeight()
-                        .background(sectionColor(section.type).copy(alpha = 0.80f))
-                )
-            }
-        }
-
-        // 현재 위치 포인터
-        if (durationMs > 0L) {
-            val posX = totalWidth * (currentPositionMs.toFloat() / durationMs.toFloat())
-            Box(
-                modifier = Modifier
-                    .offset(x = posX - 1.dp)
-                    .width(2.dp)
-                    .fillMaxHeight()
-                    .background(Color.White)
+    val sectionColors = sections.map { sectionColor(it.type) }
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        for (i in sections.indices) {
+            val s = sections[i]
+            val startX = w * (s.startMs.toFloat() / durationMs)
+            val endX   = w * (s.endMs.toFloat()   / durationMs)
+            drawRect(
+                color  = sectionColors[i].copy(alpha = 0.80f),
+                topLeft = androidx.compose.ui.geometry.Offset(startX, 0f),
+                size   = androidx.compose.ui.geometry.Size(endX - startX, h)
             )
         }
+        // 현재 위치 포인터
+        val posX = w * (currentPositionMs.toFloat() / durationMs)
+        drawRect(
+            color   = Color.White,
+            topLeft = androidx.compose.ui.geometry.Offset(posX - 1f, 0f),
+            size    = androidx.compose.ui.geometry.Size(2f, h)
+        )
     }
 }
 
