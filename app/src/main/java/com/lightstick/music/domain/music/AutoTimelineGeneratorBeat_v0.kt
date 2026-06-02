@@ -29,6 +29,10 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
         private const val MIN_BEAT_MS = 320L
         private const val MAX_BEAT_MS = 1200L
 
+        // IIR filter coefficients (V8 최적화)
+        private const val LOW_ALPHA     = 0.12f
+        private const val MID_LP1_ALPHA = 0.35f
+        private const val MID_LP2_ALPHA = 0.08f
     }
 
 
@@ -157,11 +161,11 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
                 2    -> LSColor(255, 255, 0)        // yellow
                 else -> LSColor(0,   255, 255)      // Cyan
             }
-            frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
+            frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0, fade = 100).toByteArray())
 
-            val offT = t + onDurationMs
-            if (offT < durationMs) {
-                frames.add(offT to LSEffectPayload.Effects.off(transit = 0).toByteArray())
+            val dimT = t + onDurationMs
+            if (dimT < durationMs) {
+                frames.add(dimT to LSEffectPayload.Effects.on(color = color, transit = 0, fade = 60).toByteArray())
             }
         }
 
@@ -268,9 +272,11 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
             val outMid  = ArrayList<Float>()
             val outFull = ArrayList<Float>()
 
-            val winLow  = ArrayList<Float>(hopSamples)
-            val winMid  = ArrayList<Float>(hopSamples)
-            val winFull = ArrayList<Float>(hopSamples)
+            // IIR 상태 변수 (청크 간 유지)
+            var lowZ   = 0f; var midLP1 = 0f; var midLP2 = 0f
+            // 누산기 RMS (hopSamples 마다 flush)
+            var lowSumSq = 0f; var midSumSq = 0f; var fullSumSq = 0f; var winPos = 0
+            val stepBytes = channelCount * 2
 
             val bufferInfo   = MediaCodec.BufferInfo()
             var sawInputEOS  = false
@@ -302,17 +308,31 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
                             val chunk = ByteArray(bufferInfo.size)
                             outputBuffer.get(chunk)
 
-                            val mono = pcm16ToMonoFloat(chunk, channelCount)
-                            val low  = lowBandProxy(mono)
-                            val mid  = midBandProxy(mono)
-
-                            for (j in mono.indices) {
-                                winFull += mono[j]; winLow += low[j]; winMid += mid[j]
-                                if (winFull.size >= hopSamples) {
-                                    outFull += rms(winFull); winFull.clear()
-                                    outLow  += rms(winLow);  winLow.clear()
-                                    outMid  += rms(winMid);  winMid.clear()
+                            var byteIdx = 0
+                            while (byteIdx + stepBytes <= chunk.size) {
+                                var monoSum = 0f
+                                for (c in 0 until channelCount) {
+                                    val lo = chunk[byteIdx + c * 2].toInt() and 0xFF
+                                    val hi = chunk[byteIdx + c * 2 + 1].toInt()
+                                    monoSum += (hi shl 8 or lo).toShort().toFloat()
                                 }
+                                val mono = monoSum / channelCount / 32768f
+                                lowZ   += LOW_ALPHA     * (mono - lowZ)
+                                midLP1 += MID_LP1_ALPHA * (mono - midLP1)
+                                midLP2 += MID_LP2_ALPHA * (mono - midLP2)
+                                val lowVal = abs(lowZ)
+                                val midVal = abs(midLP1 - midLP2)
+                                lowSumSq  += lowVal * lowVal
+                                midSumSq  += midVal * midVal
+                                fullSumSq += mono    * mono
+                                winPos++
+                                if (winPos >= hopSamples) {
+                                    outLow  += sqrt(lowSumSq  / winPos)
+                                    outMid  += sqrt(midSumSq  / winPos)
+                                    outFull += sqrt(fullSumSq / winPos)
+                                    lowSumSq = 0f; midSumSq = 0f; fullSumSq = 0f; winPos = 0
+                                }
+                                byteIdx += stepBytes
                             }
                         }
                         codec.releaseOutputBuffer(outIndex, false)
@@ -331,55 +351,6 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
             try { extractor.release() } catch (_: Throwable) {}
             Triple(emptyList(), emptyList(), emptyList())
         }
-    }
-
-    private fun pcm16ToMonoFloat(bytes: ByteArray, channels: Int): List<Float> {
-        if (bytes.isEmpty()) return emptyList()
-        val out = ArrayList<Float>(bytes.size / 2 / max(1, channels))
-        var i = 0
-        while (i + 1 < bytes.size) {
-            var sum = 0f; var count = 0
-            for (c in 0 until channels) {
-                val idx = i + c * 2
-                if (idx + 1 < bytes.size) {
-                    val lo = bytes[idx].toInt() and 0xFF
-                    val hi = bytes[idx + 1].toInt()
-                    val sample = (hi shl 8) or lo
-                    val signed = if (sample > 32767) sample - 65536 else sample
-                    sum += signed / 32768f; count++
-                }
-            }
-            out += if (count == 0) 0f else sum / count.toFloat()
-            i += channels * 2
-        }
-        return out
-    }
-
-    private fun lowBandProxy(src: List<Float>): List<Float> {
-        if (src.isEmpty()) return emptyList()
-        return onePoleLowPass(src, 0.12f).map { abs(it) }
-    }
-
-    private fun midBandProxy(src: List<Float>): List<Float> {
-        if (src.isEmpty()) return emptyList()
-        val lp1 = onePoleLowPass(src, 0.35f)
-        val lp2 = onePoleLowPass(src, 0.08f)
-        return List(src.size) { i -> abs(lp1[i] - lp2[i]) }
-    }
-
-    private fun onePoleLowPass(src: List<Float>, alpha: Float): List<Float> {
-        if (src.isEmpty()) return emptyList()
-        val out = ArrayList<Float>(src.size)
-        var y = 0f
-        for (x in src) { y += alpha * (x - y); out += y }
-        return out
-    }
-
-    private fun rms(src: List<Float>): Float {
-        if (src.isEmpty()) return 0f
-        var sum = 0f
-        for (x in src) sum += x * x
-        return sqrt(sum / src.size.toFloat())
     }
 
     private fun normalizeEnvelope(src: List<Float>): List<Float> {
