@@ -425,7 +425,7 @@ object EffectEngineController {
                 }
             }
 
-            // [firmware] raw bytes 로그 (frame index 3-5 집중 확인 — SDK effectIndex 필드는 Mode 용도)
+            // [firmware] raw bytes 로그 (frame index 3-5 집중 확인 — SDK effectIndex 필드는 Mode 용도, 기본값=1)
             if (currentEffectIndex in 3..5) {
                 val bytes = runCatching { currentEntry.payload.toByteArray() }.getOrNull()
                 Log.d(TAG, "[firmware] raw frame[$currentEffectIndex] bytes=${bytes?.joinToString(",") { "%02X".format(it) }}")
