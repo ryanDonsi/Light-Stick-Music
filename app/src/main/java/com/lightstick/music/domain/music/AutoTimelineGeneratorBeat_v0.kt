@@ -147,8 +147,8 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
         val barMs       = beatMs * beatsPerBar.coerceAtLeast(1)
         var rangeSkip   = 0
 
-        // 박자(beat)마다 20% ON / 80% OFF — R→G→B→W 순환
-        val onDurationMs = (beatMs * 0.20).toLong().coerceAtLeast(50L)
+        // 박자(beat)마다 50ms ON / 나머지 OFF — R→G→B→W 순환
+        val onDurationMs = 50L
         for ((beatIndex, beat) in beats.withIndex()) {
             val t = beat.timeMs
             if (t < 0 || t >= durationMs) { rangeSkip++; continue }
