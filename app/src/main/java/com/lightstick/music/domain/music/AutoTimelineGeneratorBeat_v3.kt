@@ -149,12 +149,20 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         // ── 3. Music style + climax ───────────────────────────────
         val styleResult  = MusicStyleClassifier.classify(
             lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
-            beatMs = globalBeatMs, beats = beatInfoBeats
+            beatMs = globalBeatMs, beats = beatInfoBeats, hopMs = HOP_MS
         )
-        val isBalladMode  = styleResult.style == MusicStyleClassifier.MusicStyle.BALLAD
-        val climaxMoments = if (isBalladMode) emptyList()
+        val musicStyle    = styleResult.style
+        // BALLAD / HIPHOP_RNB 는 느리고 부드러운 이펙트 계열로 처리
+        val isBalladMode  = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
+                         || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
+        // EDM / DANCE_POP 는 클라이맥스 감지 필요, 나머지는 불필요
+        val needsClimax   = musicStyle == MusicStyleClassifier.MusicStyle.EDM
+                         || musicStyle == MusicStyleClassifier.MusicStyle.DANCE_POP
+                         || musicStyle == MusicStyleClassifier.MusicStyle.ROCK
+                         || musicStyle == MusicStyleClassifier.MusicStyle.POP
+        val climaxMoments = if (!needsClimax) emptyList()
                             else detectClimaxPeakMoments(fullEnv, durationMs, globalBeatMs)
-        Log.d(TAG, "v3 style=${styleResult.style} balladMode=$isBalladMode climax=${climaxMoments.size}")
+        Log.d(TAG, "v3 style=$musicStyle balladMode=$isBalladMode climax=${climaxMoments.size}")
 
         // ── 4. Convert → V8Section with FgEngine assignment ───────
         val v8Sections = convertToV8Sections(detectedSections, globalBeatMs, climaxMoments, isBalladMode)
