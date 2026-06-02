@@ -166,7 +166,12 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
                 2    -> LSColor(255, 255, 0)        // Yellow — 중간박
                 else -> LSColor(0,   255, 255)      // Cyan   — 약박
             }
-            frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
+            val fade = when (beatInBar) {
+                0    -> 100   // 강박 — 최대 밝기
+                2    -> 100   // 중간박
+                else -> 35    // 약박
+            }
+            frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
         }
 
         Log.d(TAG, "v0 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size} downbeatMs=$downbeatMs")

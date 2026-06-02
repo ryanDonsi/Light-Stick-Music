@@ -195,32 +195,24 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                 (((steps % beatsPerBar) + beatsPerBar) % beatsPerBar).toInt()
             } else 0
 
-            // 1박(0)=White, 3박(2)=섹션색상 100%, 약박=섹션색상 35%
-            val color = when {
-                beatInBar == 0 -> LSColor(255, 255, 255)
-                beatBrightness(beatInBar, beatsPerBar) >= 1.0f -> baseColor
-                else -> baseColor.scale(beatBrightness(beatInBar, beatsPerBar))
-            }
+            // 1박(0)=White, 3박(2)=섹션색상, 약박=섹션색상 — 밝기는 fade로 조정
+            val color = if (beatInBar == 0) LSColor(255, 255, 255) else baseColor
+            val fade  = beatFade(beatInBar, beatsPerBar)
 
-            frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
+            frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
         }
 
         Log.d(TAG, "v2 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size} downbeatMs=$downbeatMs beatsPerBar=$beatsPerBar")
         return frames.sortedBy { it.first }
     }
 
-    /** 강박(0)은 호출 측에서 White 고정. 나머지 박자 밝기 반환. */
-    private fun beatBrightness(beatInBar: Int, beatsPerBar: Int): Float = when (beatsPerBar) {
-        4 -> when (beatInBar) { 2 -> 1.00f; else -> 0.35f }
-        3 -> 0.45f
-        6 -> when (beatInBar) { 3 -> 1.00f; else -> 0.35f }
-        else -> 1.00f
+    /** fade 값 반환 (0~100). 강박(0)은 White + fade=100 고정 */
+    private fun beatFade(beatInBar: Int, beatsPerBar: Int): Int = when (beatsPerBar) {
+        4 -> when (beatInBar) { 0, 2 -> 100; else -> 35 }
+        3 -> when (beatInBar) { 0    -> 100; else -> 45 }
+        6 -> when (beatInBar) { 0, 3 -> 100; else -> 35 }
+        else -> 100
     }
-
-    private fun LSColor.scale(factor: Float): LSColor =
-        LSColor((r * factor).toInt().coerceIn(0, 255),
-                (g * factor).toInt().coerceIn(0, 255),
-                (b * factor).toInt().coerceIn(0, 255))
 
     private fun sectionColorFor(type: SectionDetector.SectionType): LSColor = when (type) {
         SectionDetector.SectionType.INTRO  -> LSColor(128, 0,   255)   // Purple
