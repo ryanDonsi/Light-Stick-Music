@@ -82,7 +82,7 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
                 minPeakDistanceMs = 140L,
                 onsetSmoothWindow = 3,     // 5→3: 좁은 스무딩으로 비트 피크 선명하게 유지
                 peakThresholdK    = 0.28f, // 0.55→0.28: 임계값 완화, 약한 비트도 검출
-                minPeakAbs        = 0.05f, // 0.08→0.05: 절대 임계값 완화
+                minPeakAbs        = 0.07f, // 0.05→0.07: 조용한 구간 노이즈 오탐 차단
                 snapToleranceMs   = 130L,  // 80→130: 그리드 스냅 허용범위 확대 (2frame)
                 chainToleranceMs  = 150L,  // 120→150: 체인 허용 오차 확대
                 minChainCount     = 3,

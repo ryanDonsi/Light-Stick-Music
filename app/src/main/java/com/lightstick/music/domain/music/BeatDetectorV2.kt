@@ -213,7 +213,7 @@ object BeatDetectorV2 {
             val prev = filledBeats.last()
             val curr = dedupedBeats[i]
             val gap  = curr.timeMs - prev.timeMs
-            if (gap > finalBeatMs * 1.4f) {
+            if (gap > finalBeatMs * 1.2f) {
                 val missingCount = (gap.toDouble() / finalBeatMs.toDouble()).roundToLong()
                 if (missingCount > 1) {
                     val step = gap / missingCount
@@ -316,6 +316,17 @@ object BeatDetectorV2 {
 
             if (best == null) {
                 Log.w(TAG, "SEG[$segIndex] FAIL → skip")
+                // globalBeatMs가 확립된 경우 조용한 구간을 phantom beat로 채워 gap 방지
+                if (globalBeatMs != null && globalBeatMs > 0L && prevBeatMs != null) {
+                    val segEndMs = e.toLong() * params.hopMs
+                    val lastMs   = mergedBeats.lastOrNull()?.timeMs ?: segStartMs
+                    var t = lastMs + globalBeatMs
+                    while (t < segEndMs) {
+                        mergedBeats.add(TimedBeat(t, FILL_CONFIDENCE))
+                        t += globalBeatMs
+                    }
+                    Log.d(TAG, "SEG[$segIndex] FAIL gap-fill: globalBeatMs=${globalBeatMs}ms phantom 삽입")
+                }
                 segResults += SegmentResult(segIndex, segStartMs,
                     e.toLong() * params.hopMs, null, emptyList(), 0L, 0f, "all failed", trials)
                 continue
