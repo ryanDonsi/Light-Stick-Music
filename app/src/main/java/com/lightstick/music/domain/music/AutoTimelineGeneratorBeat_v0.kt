@@ -149,8 +149,7 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
         val barMs       = beatMs * beatsPerBar.coerceAtLeast(1)
         var rangeSkip   = 0
 
-        // 박자(beat)마다 50ms ON / 나머지 OFF — R→G→B→W 순환
-        val onDurationMs = 100L
+        // 1/4박자마다 ON — R→G→B→W 순환
         for ((beatIndex, beat) in beats.withIndex()) {
             val t = beat.timeMs
             if (t < 0 || t >= durationMs) { rangeSkip++; continue }
@@ -161,12 +160,7 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
                 2    -> LSColor(255, 255, 0)        // yellow
                 else -> LSColor(0,   255, 255)      // Cyan
             }
-            frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0, fade = 100).toByteArray())
-
-            val dimT = t + onDurationMs
-            if (dimT < durationMs) {
-                frames.add(dimT to LSEffectPayload.Effects.on(color = color, transit = 0, fade = 60).toByteArray())
-            }
+            frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
         }
 
         Log.d(TAG, "v0 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size}")
