@@ -15,6 +15,7 @@ import java.io.FileOutputStream
  *
  * 바이너리 포맷 (DataOutputStream):
  *   Int:   version
+ *   Int:   musicStyle.ordinal (-1 = null)
  *   Int:   count
  *   For each SectionMeta:
  *     Long:  startMs
@@ -45,6 +46,7 @@ class SectionMetaStorage(private val version: Int) {
         try {
             DataOutputStream(FileOutputStream(f)).use { out ->
                 out.writeInt(version)
+                out.writeInt(sections.firstOrNull()?.musicStyle?.ordinal ?: -1)
                 out.writeInt(sections.size)
                 sections.forEach { s ->
                     out.writeLong(s.startMs)
@@ -76,13 +78,17 @@ class SectionMetaStorage(private val version: Int) {
                 val v = input.readInt()
                 if (v != version) return@use null
 
+                val musicStyleOrdinal = input.readInt()
+                val musicStyles       = MusicStyleClassifier.MusicStyle.values()
+                val songStyle         = musicStyles.getOrNull(musicStyleOrdinal)
+
                 val count = input.readInt()
                 val sections = ArrayList<SectionMeta>(count)
 
                 val sectionTypes     = SectionDetector.SectionType.values()
                 val changeStrengths  = SectionDetector.ChangeStrength.values()
 
-                repeat(count) {
+                repeat(count) { idx ->
                     val startMs         = input.readLong()
                     val endMs           = input.readLong()
                     val typeOrdinal     = input.readInt()
@@ -111,7 +117,8 @@ class SectionMetaStorage(private val version: Int) {
                             midRatio       = midRatio,
                             highRatio      = highRatio,
                             onsetDensity   = onsetDensity,
-                            periodicity    = periodicity
+                            periodicity    = periodicity,
+                            musicStyle     = if (idx == 0) songStyle else null
                         )
                     )
                 }

@@ -18,5 +18,7 @@ data class SectionMeta(
     val midRatio: Float     = 0f,  // 중역(585~3020Hz) / 전체 에너지 비율
     val highRatio: Float    = 0f,  // 고역(3.6kHz↑) / 전체 에너지 비율 (여성보컬 존재감)
     val onsetDensity: Float = 0f,  // 비트 밀집도 (0~1, novelty > 0.12 비율)
-    val periodicity: Float  = 0f   // 주기성 강도 (0~1)
+    val periodicity: Float  = 0f,  // 주기성 강도 (0~1)
+    // 곡 단위 스타일 — 첫 번째 섹션에만 채워지며 나머지는 null
+    val musicStyle: MusicStyleClassifier.MusicStyle? = null
 )

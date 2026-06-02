@@ -118,7 +118,7 @@ fun MusicControlScreen(
                             )
                         ) {
                             Text(
-                                text       = "SECTION",
+                                text       = "EFFECT INFO",
                                 style      = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
                                 color      = if (isSectionOverlayEnabled) com.lightstick.music.ui.theme.Secondary

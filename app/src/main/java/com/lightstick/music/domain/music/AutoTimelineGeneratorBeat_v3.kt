@@ -183,7 +183,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         Log.d(TAG, "v3 frames=${frames.size}")
 
         // ── 6. SectionMeta for overlay ────────────────────────────
-        val sectionMetas = detectedSections.map { s ->
+        val sectionMetas = detectedSections.mapIndexed { idx, s ->
             SectionMeta(
                 startMs        = s.startMs,    endMs          = s.endMs,
                 type           = s.type,       changeStrength = s.changeStrength,
@@ -191,7 +191,8 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
                 energy         = s.energy,     peakEnergy     = s.peakEnergy,
                 lowRatio       = s.lowRatio,   midRatio       = s.midRatio,
                 highRatio      = s.highRatio,  onsetDensity   = s.onsetDensity,
-                periodicity    = s.periodicity
+                periodicity    = s.periodicity,
+                musicStyle     = if (idx == 0) musicStyle else null
             )
         }
 

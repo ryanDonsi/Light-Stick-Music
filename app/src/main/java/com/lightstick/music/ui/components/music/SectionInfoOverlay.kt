@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lightstick.music.domain.music.MusicStyleClassifier
 import com.lightstick.music.domain.music.SectionDetector
 import com.lightstick.music.domain.music.SectionMeta
 
@@ -36,9 +37,10 @@ fun SectionInfoOverlay(
 ) {
     if (sections.isEmpty() || durationMs <= 0L) return
 
-    val cur = sections.firstOrNull {
+    val cur        = sections.firstOrNull {
         currentPositionMs >= it.startMs && currentPositionMs < it.endMs
     } ?: sections.last()
+    val musicStyle = sections.firstOrNull()?.musicStyle
 
     Box(modifier = modifier) {
         Column(
@@ -49,6 +51,31 @@ fun SectionInfoOverlay(
                 .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
+            // ── Music Style 배지 ──────────────────────────────
+            if (musicStyle != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text       = "STYLE",
+                        color      = Color.White.copy(alpha = 0.50f),
+                        fontSize   = 9.sp
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(musicStyleColor(musicStyle).copy(alpha = 0.25f))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text       = musicStyleLabel(musicStyle),
+                            color      = musicStyleColor(musicStyle),
+                            fontSize   = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
             // ── 섹션 타입 + 변화강도 ──────────────────────────
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -185,6 +212,24 @@ private fun changeColor(s: SectionDetector.ChangeStrength): Color = when (s) {
     SectionDetector.ChangeStrength.NONE   -> Color.White.copy(alpha = 0.45f)
     SectionDetector.ChangeStrength.MEDIUM -> Color(0xFFFFD54F)
     SectionDetector.ChangeStrength.STRONG -> Color(0xFFFF7043)
+}
+
+private fun musicStyleLabel(style: MusicStyleClassifier.MusicStyle): String = when (style) {
+    MusicStyleClassifier.MusicStyle.EDM        -> "EDM"
+    MusicStyleClassifier.MusicStyle.DANCE_POP  -> "DANCE POP"
+    MusicStyleClassifier.MusicStyle.HIPHOP_RNB -> "HIPHOP / R&B"
+    MusicStyleClassifier.MusicStyle.BALLAD     -> "BALLAD"
+    MusicStyleClassifier.MusicStyle.ROCK       -> "ROCK"
+    MusicStyleClassifier.MusicStyle.POP        -> "POP"
+}
+
+private fun musicStyleColor(style: MusicStyleClassifier.MusicStyle): Color = when (style) {
+    MusicStyleClassifier.MusicStyle.EDM        -> Color(0xFF00E5FF)  // Cyan
+    MusicStyleClassifier.MusicStyle.DANCE_POP  -> Color(0xFFE040FB)  // Purple
+    MusicStyleClassifier.MusicStyle.HIPHOP_RNB -> Color(0xFFFFD740)  // Amber
+    MusicStyleClassifier.MusicStyle.BALLAD     -> Color(0xFF69F0AE)  // Green
+    MusicStyleClassifier.MusicStyle.ROCK       -> Color(0xFFFF5252)  // Red
+    MusicStyleClassifier.MusicStyle.POP        -> Color(0xFF40C4FF)  // Light Blue
 }
 
 fun sectionColor(type: SectionDetector.SectionType): Color = when (type) {
