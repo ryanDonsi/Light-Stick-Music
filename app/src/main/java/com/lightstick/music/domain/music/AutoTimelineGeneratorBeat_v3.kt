@@ -53,12 +53,6 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         private const val ON_PULSE_BG_TRANSIT     = 5
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
 
-        private const val BALLAD_BEAT_MS_THRESHOLD  = 550L
-        private const val BALLAD_SLOW_BEAT_MS       = 800L
-        private const val BALLAD_AVG_ENERGY_MAX      = 0.50f
-        private const val BALLAD_AVG_ENERGY_MAX_SLOW = 0.60f
-        private const val BALLAD_ACTIVE_ENERGY_MIN   = 0.15f
-
         // IIR 필터 계수 (V2와 동일: HIGH 밴드 포함)
         private const val LOW_ALPHA     = 0.12f
         private const val MID_LP1_ALPHA = 0.35f
@@ -152,14 +146,15 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         )
         Log.d(TAG, "v3 sections=${detectedSections.size}")
 
-        // ── 3. Climax + ballad mode ───────────────────────────────
-        val activeFrames     = fullEnv.filter { it > BALLAD_ACTIVE_ENERGY_MIN }
-        val avgFullEnergy    = if (activeFrames.size > 10) activeFrames.average().toFloat()
-                               else fullEnv.average().toFloat()
-        val isBalladMode     = isQuietFolkOrBallad(globalBeatMs, avgFullEnergy)
-        val climaxMoments    = if (isBalladMode) emptyList()
-                               else detectClimaxPeakMoments(fullEnv, durationMs, globalBeatMs)
-        Log.d(TAG, "v3 balladMode=$isBalladMode climax=${climaxMoments.size}")
+        // ── 3. Music style + climax ───────────────────────────────
+        val styleResult  = MusicStyleClassifier.classify(
+            lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
+            beatMs = globalBeatMs, beats = beatInfoBeats
+        )
+        val isBalladMode  = styleResult.style == MusicStyleClassifier.MusicStyle.BALLAD
+        val climaxMoments = if (isBalladMode) emptyList()
+                            else detectClimaxPeakMoments(fullEnv, durationMs, globalBeatMs)
+        Log.d(TAG, "v3 style=${styleResult.style} balladMode=$isBalladMode climax=${climaxMoments.size}")
 
         // ── 4. Convert → V8Section with FgEngine assignment ───────
         val v8Sections = convertToV8Sections(detectedSections, globalBeatMs, climaxMoments, isBalladMode)
@@ -673,12 +668,6 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             if (selected.size >= 3) break
         }
         return selected.sortedBy { it.first }.map { it.first.coerceIn(0L, durationMs) }
-    }
-
-    private fun isQuietFolkOrBallad(beatMs: Long, avgFullEnergy: Float): Boolean {
-        if (beatMs < BALLAD_BEAT_MS_THRESHOLD) return false
-        val energyMax = if (beatMs >= BALLAD_SLOW_BEAT_MS) BALLAD_AVG_ENERGY_MAX_SLOW else BALLAD_AVG_ENERGY_MAX
-        return avgFullEnergy < energyMax
     }
 
     private fun detectLastMusicEndMs(frames: FloatArray, hopMs: Long, minTrailingSilenceMs: Long): Long {
