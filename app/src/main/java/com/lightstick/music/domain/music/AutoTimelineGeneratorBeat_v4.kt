@@ -13,17 +13,17 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * AutoTimelineGeneratorBeat v3
+ * AutoTimelineGeneratorBeat v4
  *
- * 감지기: BeatDetectorV2 (V11) + SectionDetectorV1 (고정)
+ * 감지기: BeatDetectorV2 (V11) + SectionDetectorV2 (고정)
  * 이펙트: V8 이펙트 매칭룰 (FgEngine 기반 — ON_PULSE / STROBE / BREATH / ON_TRANSIT_ROTATE 등)
  *
  * V2 대비 변경:
  *  - 단순 beat-ON 대신 V8의 섹션별 엔진(FgEngine) + 팔레트 기반 이펙트 적용
- *  - SectionDetectorV1의 energy 필드를 V8의 energyScore 로 활용
+ *  - SectionDetectorV2의 energy 필드를 V8의 energyScore 로 활용
  *  - Climax 감지 / 발라드 모드 / Bridge phase engine 등 V8 규칙 전부 유지
  */
-class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerator {
+class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerator {
 
     // ──────────────────────────────────────────────────────────────
     // Constants (V8 기준 유지)
@@ -102,13 +102,13 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         musicPath: String, musicId: Int, paletteSize: Int
     ): Pair<List<Pair<Long, ByteArray>>, List<SectionMeta>> {
 
-        Log.d(TAG, "v3 start file=$musicPath musicId=$musicId detector=BeatDetectorV2+SectionDetectorV1")
+        Log.d(TAG, "v4 start file=$musicPath musicId=$musicId detector=BeatDetectorV2+SectionDetectorV2")
 
         val palette    = buildPalette(musicId)
         val (lowEnv, midEnv, fullEnv, highEnv) = decodeAllEnvelopes(musicPath)
 
         if (lowEnv.isEmpty()) {
-            Log.w(TAG, "v3 env empty"); return Pair(emptyList(), emptyList())
+            Log.w(TAG, "v4 env empty"); return Pair(emptyList(), emptyList())
         }
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
@@ -136,17 +136,17 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         val beatTimesMs    = beatInfoBeats.map { it.timeMs }.filter { it in 0..durationMs }
 
         if (beatTimesMs.isEmpty()) {
-            Log.w(TAG, "v3 beat detect FAIL"); return Pair(emptyList(), emptyList())
+            Log.w(TAG, "v4 beat detect FAIL"); return Pair(emptyList(), emptyList())
         }
-        Log.d(TAG, "v3 beats=${beatTimesMs.size} beatMs=$globalBeatMs")
+        Log.d(TAG, "v4 beats=${beatTimesMs.size} beatMs=$globalBeatMs")
 
-        // ── 2. Section detection (SectionDetectorV1 고정) ─────────
-        val detectedSections = SectionDetectorV1().detect(
+        // ── 2. Section detection (SectionDetectorV2 고정) ─────────
+        val detectedSections = SectionDetectorV2().detect(
             lowEnv     = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beats      = beatInfoBeats,
             beatMs     = globalBeatMs, durationMs = durationMs, hopMs = HOP_MS
         )
-        Log.d(TAG, "v3 sections=${detectedSections.size}")
+        Log.d(TAG, "v4 sections=${detectedSections.size}")
 
         // ── 3. Music style + climax ───────────────────────────────
         val styleResult  = MusicStyleClassifier.classify(
@@ -164,7 +164,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
                          || musicStyle == MusicStyleClassifier.MusicStyle.POP
         val climaxMoments = if (!needsClimax) emptyList()
                             else detectClimaxPeakMoments(fullEnv, durationMs, globalBeatMs)
-        Log.d(TAG, "v3 style=$musicStyle balladMode=$isBalladMode climax=${climaxMoments.size}")
+        Log.d(TAG, "v4 style=$musicStyle balladMode=$isBalladMode climax=${climaxMoments.size}")
 
         // ── 4. Convert → V8Section with FgEngine assignment ───────
         val v8Sections = convertToV8Sections(detectedSections, globalBeatMs, climaxMoments, isBalladMode)
@@ -184,7 +184,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             downbeatMs      = downbeatMs,
             beatsPerBar     = beatsPerBar
         )
-        Log.d(TAG, "v3 frames=${frames.size}")
+        Log.d(TAG, "v4 frames=${frames.size}")
 
         // ── 6. SectionMeta for overlay ────────────────────────────
         val sectionMetas = detectedSections.mapIndexed { idx, s ->
@@ -253,7 +253,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         }
     }
 
-    /** SectionDetectorV1 타입별 FgEngine 할당 */
+    /** SectionDetectorV2 타입별 FgEngine 할당 */
     private fun assignFgEngine(
         type: SectionDetector.SectionType,
         rel: Float, beats: Int, globalBeatMs: Long,
