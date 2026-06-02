@@ -153,11 +153,11 @@ class AutoTimelineGeneratorBeat_v11 : AutoTimelineGenerator {
 
         val durationMs = envSize.toLong() * HOP_MS
 
-        val detect = BeatDetectorV11.detect(
+        val detect = BeatDetectorV2.detect(
             lowEnv = lowEnv.take(envSize),
             midEnv = midEnv.take(envSize),
             fullEnv = fullEnv.take(envSize),
-            params = BeatDetectorV11.Params(
+            params = BeatDetectorV2.Params(
                 hopMs = HOP_MS,
                 minBeatMs = MIN_BEAT_MS,
                 maxBeatMs = MAX_BEAT_MS,

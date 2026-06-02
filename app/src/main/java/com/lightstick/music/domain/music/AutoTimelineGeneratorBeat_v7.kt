@@ -71,11 +71,11 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
         Log.d(TAG, "v7 BeatDetect start file=$fileName musicId=$musicId durationMs=$durationMs")
-        val v11Result = BeatDetectorV11.detect(
+        val v11Result = BeatDetectorV2.detect(
             lowEnv  = lowEnv,
             midEnv  = midEnv,
             fullEnv = fullEnv,
-            params  = BeatDetectorV11.Params(
+            params  = BeatDetectorV2.Params(
                 hopMs             = HOP_MS,
                 minBeatMs         = MIN_BEAT_MS,
                 maxBeatMs         = 1200L,
@@ -93,7 +93,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         val globalBeatMs = v11Result.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
 
         val beatsPerBar = v11Result.timeSignature.beatsPerBar
-        Log.d(TAG, "v7 BeatDetectorV11 beatMs=$globalBeatMs beats=${v11Result.beats.size} " +
+        Log.d(TAG, "v7 BeatDetectorV2 beatMs=$globalBeatMs beats=${v11Result.beats.size} " +
             "timeSig=${v11Result.timeSignature.type} beatsPerBar=$beatsPerBar")
 
         // Q6: 비트 타임스탬프 로그 (처음 12개 + 마지막 4개)
@@ -135,7 +135,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
     // ──────────────────────────────────────────────────────────────
 
     private fun buildTimeline(
-        beats: List<BeatDetectorV11.TimedBeat>,
+        beats: List<BeatDetectorV2.TimedBeat>,
         beatMs: Long,
         beatsPerBar: Int,
         durationMs: Long,
