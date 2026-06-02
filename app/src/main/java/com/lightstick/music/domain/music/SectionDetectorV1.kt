@@ -58,7 +58,8 @@ class SectionDetectorV1 : SectionDetector {
         val sectionType: SectionDetector.SectionType,
         val changeStrength: SectionDetector.ChangeStrength,
         val peakEnergy: Float = 0f,
-        val midRatio: Float   = 0f
+        val midRatio: Float   = 0f,
+        val highRatio: Float  = 0f
     )
 
     // ──────────────────────────────────────────────────────────────
@@ -72,11 +73,12 @@ class SectionDetectorV1 : SectionDetector {
         beats: List<BeatDetectorV2.TimedBeat>,
         beatMs: Long,
         durationMs: Long,
-        hopMs: Long
+        hopMs: Long,
+        highEnv: List<Float>
     ): List<SectionDetector.Section> {
         if (fullEnv.isEmpty()) return emptyList()
 
-        val windows = buildFeatureWindows(lowEnv, midEnv, fullEnv, durationMs, hopMs)
+        val windows = buildFeatureWindows(lowEnv, midEnv, fullEnv, highEnv, durationMs, hopMs)
         val rawSections = buildSectionsFromWindows(windows, durationMs)
 
         val sortedBeatTimes = beats.map { it.timeMs }.toLongArray().also { it.sort() }
@@ -93,6 +95,7 @@ class SectionDetectorV1 : SectionDetector {
         lowEnv: List<Float>,
         midEnv: List<Float>,
         fullEnv: List<Float>,
+        highEnv: List<Float>,
         durationMs: Long,
         hopMs: Long
     ): List<FeatureWindow> {
@@ -115,12 +118,14 @@ class SectionDetectorV1 : SectionDetector {
             val lowSlice  = lowEnv.subList(startIdx, endIdx)
             val midSlice  = midEnv.subList(startIdx, endIdx)
             val fullSlice = fullEnv.subList(startIdx, endIdx)
+            val highSlice = if (highEnv.size >= endIdx) highEnv.subList(startIdx, endIdx) else emptyList()
             val novSlice  = novelty.copyOfRange(startIdx, endIdx)
 
             val avgFull      = average(fullSlice)
             val energy       = avgFull
-            val lowRatio     = average(lowSlice) / max(0.0001f, avgFull)
+            val lowRatio     = average(lowSlice)  / max(0.0001f, avgFull)
             val midRatio     = average(midSlice)  / max(0.0001f, avgFull)
+            val highRatio    = if (highSlice.isNotEmpty()) average(highSlice) / max(0.0001f, avgFull) else 0f
             val peakEnergy   = fullSlice.maxOrNull() ?: 0f
             val onsetDensity = densityAbove(novSlice, 0.12f)
             val beatMsHint   = estimateBeatMsByAutocorr(novSlice, hopMs, MIN_BEAT_MS, MAX_BEAT_MS)
@@ -138,7 +143,8 @@ class SectionDetectorV1 : SectionDetector {
                 sectionType    = type,
                 changeStrength = SectionDetector.ChangeStrength.NONE,
                 peakEnergy     = peakEnergy,
-                midRatio       = midRatio
+                midRatio       = midRatio,
+                highRatio      = highRatio
             )
 
             val change = estimateChangeStrength(prev, draft)
@@ -236,6 +242,7 @@ class SectionDetectorV1 : SectionDetector {
                     energy       = (cur.energy       + next.energy)       * 0.5f,
                     lowRatio     = (cur.lowRatio     + next.lowRatio)     * 0.5f,
                     midRatio     = (cur.midRatio     + next.midRatio)     * 0.5f,
+                    highRatio    = (cur.highRatio    + next.highRatio)    * 0.5f,
                     onsetDensity = (cur.onsetDensity + next.onsetDensity) * 0.5f,
                     periodicity  = (cur.periodicity  + next.periodicity)  * 0.5f,
                     peakEnergy   = max(cur.peakEnergy, next.peakEnergy),
@@ -274,6 +281,7 @@ class SectionDetectorV1 : SectionDetector {
                         energy       = (prev.energy       + fixed.energy)       * 0.5f,
                         lowRatio     = (prev.lowRatio     + fixed.lowRatio)     * 0.5f,
                         midRatio     = (prev.midRatio     + fixed.midRatio)     * 0.5f,
+                        highRatio    = (prev.highRatio    + fixed.highRatio)    * 0.5f,
                         onsetDensity = (prev.onsetDensity + fixed.onsetDensity) * 0.5f,
                         periodicity  = (prev.periodicity  + fixed.periodicity)  * 0.5f,
                         peakEnergy   = max(prev.peakEnergy, fixed.peakEnergy),
@@ -394,11 +402,12 @@ class SectionDetectorV1 : SectionDetector {
                 beatMs         = globalBeatMs,
                 beatConfidence = confidence,
                 energy         = s.energy,
-                lowRatio       = s.lowRatio,
-                onsetDensity   = s.onsetDensity,
-                periodicity    = s.periodicity,
                 peakEnergy     = s.peakEnergy,
-                midRatio       = s.midRatio
+                lowRatio       = s.lowRatio,
+                midRatio       = s.midRatio,
+                highRatio      = s.highRatio,
+                onsetDensity   = s.onsetDensity,
+                periodicity    = s.periodicity
             )
         }
 

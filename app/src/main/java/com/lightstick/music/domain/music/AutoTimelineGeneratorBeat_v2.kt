@@ -29,10 +29,18 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         private const val MAX_BEAT_MS = 1200L
 
         // IIR filter coefficients
-        private const val LOW_ALPHA     = 0.12f
-        private const val MID_LP1_ALPHA = 0.35f
-        private const val MID_LP2_ALPHA = 0.08f
+        private const val LOW_ALPHA     = 0.12f  // ~897 Hz 저역 차단
+        private const val MID_LP1_ALPHA = 0.35f  // ~3020 Hz
+        private const val MID_LP2_ALPHA = 0.08f  // ~585 Hz  → MID = LP1-LP2 (585~3020 Hz)
+        private const val HIGH_ALPHA    = 0.40f  // ~3585 Hz  → HIGH = mono-LP (3.6 kHz↑, 여성보컬 존재감)
     }
+
+    private data class Envelopes(
+        val low: List<Float>,
+        val mid: List<Float>,
+        val full: List<Float>,
+        val high: List<Float>
+    )
 
     // ──────────────────────────────────────────────────────────────
     // AutoTimelineGenerator
@@ -56,8 +64,9 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
         Log.d(TAG, "v2 generateWithSections() start file=$fileName musicId=$musicId paletteSize=$paletteSize")
 
-        // 1. Single-pass decode
-        val (lowEnv, midEnv, fullEnv) = decodeAllEnvelopes(musicPath, HOP_MS.toInt())
+        // 1. Single-pass decode (LOW / MID / FULL / HIGH 4밴드)
+        val envs = decodeAllEnvelopes(musicPath, HOP_MS.toInt())
+        val (lowEnv, midEnv, fullEnv, highEnv) = envs
 
         if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
             Log.w(TAG, "v2 env empty -> return empty")
@@ -118,15 +127,16 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                 Log.w(TAG, "v2 [A] V11_gaps[$fileName](≥${gapTh}ms): ${bigGaps.take(5).joinToString(" | ")}")
         }
 
-        // 3. SectionDetectorV1
+        // 3. SectionDetectorV1 (HIGH 밴드 포함)
         val sections = SectionDetectorV1().detect(
-            lowEnv   = lowEnv,
-            midEnv   = midEnv,
-            fullEnv  = fullEnv,
-            beats    = v11Result.beats,
-            beatMs   = globalBeatMs,
+            lowEnv     = lowEnv,
+            midEnv     = midEnv,
+            fullEnv    = fullEnv,
+            highEnv    = highEnv,
+            beats      = v11Result.beats,
+            beatMs     = globalBeatMs,
             durationMs = durationMs,
-            hopMs    = HOP_MS
+            hopMs      = HOP_MS
         )
         Log.d(TAG, "v2 SectionDetectorV1: sections=${sections.size}")
 
@@ -147,6 +157,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                 peakEnergy     = s.peakEnergy,
                 lowRatio       = s.lowRatio,
                 midRatio       = s.midRatio,
+                highRatio      = s.highRatio,
                 onsetDensity   = s.onsetDensity,
                 periodicity    = s.periodicity
             )
@@ -194,11 +205,11 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
     // Audio decode / envelope — IDENTICAL to v0
     // ──────────────────────────────────────────────────────────────
 
-    /** 단일 패스로 LOW / MID / FULL 엔벨로프를 동시에 추출한다. */
+    /** 단일 패스로 LOW / MID / FULL / HIGH 엔벨로프를 동시에 추출한다. */
     private fun decodeAllEnvelopes(
         musicPath: String,
         hopMs: Int
-    ): Triple<List<Float>, List<Float>, List<Float>> {
+    ): Envelopes {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
 
@@ -212,11 +223,11 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                 val mime = f.getString(MediaFormat.KEY_MIME) ?: continue
                 if (mime.startsWith("audio/")) { trackIndex = i; format = f; break }
             }
-            if (trackIndex < 0 || format == null) { extractor.release(); return Triple(emptyList(), emptyList(), emptyList()) }
+            if (trackIndex < 0 || format == null) { extractor.release(); return Envelopes(emptyList(), emptyList(), emptyList(), emptyList()) }
 
             extractor.selectTrack(trackIndex)
             val mime = format.getString(MediaFormat.KEY_MIME)
-                ?: run { extractor.release(); return Triple(emptyList(), emptyList(), emptyList()) }
+                ?: run { extractor.release(); return Envelopes(emptyList(), emptyList(), emptyList(), emptyList()) }
 
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0)
@@ -229,11 +240,12 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
             val outLow  = ArrayList<Float>()
             val outMid  = ArrayList<Float>()
             val outFull = ArrayList<Float>()
+            val outHigh = ArrayList<Float>()
 
             // IIR 상태 변수 (청크 간 유지)
-            var lowZ   = 0f; var midLP1 = 0f; var midLP2 = 0f
+            var lowZ   = 0f; var midLP1 = 0f; var midLP2 = 0f; var highLP = 0f
             // 누산기 RMS (hopSamples 마다 flush)
-            var lowSumSq = 0f; var midSumSq = 0f; var fullSumSq = 0f; var winPos = 0
+            var lowSumSq = 0f; var midSumSq = 0f; var fullSumSq = 0f; var highSumSq = 0f; var winPos = 0
             val stepBytes = channelCount * 2
 
             val bufferInfo   = MediaCodec.BufferInfo()
@@ -278,17 +290,21 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                                 lowZ   += LOW_ALPHA     * (mono - lowZ)
                                 midLP1 += MID_LP1_ALPHA * (mono - midLP1)
                                 midLP2 += MID_LP2_ALPHA * (mono - midLP2)
-                                val lowVal = abs(lowZ)
-                                val midVal = abs(midLP1 - midLP2)
-                                lowSumSq  += lowVal * lowVal
-                                midSumSq  += midVal * midVal
+                                highLP += HIGH_ALPHA    * (mono - highLP)
+                                val lowVal  = abs(lowZ)
+                                val midVal  = abs(midLP1 - midLP2)
+                                val highVal = abs(mono - highLP)   // high-pass: 3.6kHz↑
+                                lowSumSq  += lowVal  * lowVal
+                                midSumSq  += midVal  * midVal
                                 fullSumSq += mono    * mono
+                                highSumSq += highVal * highVal
                                 winPos++
                                 if (winPos >= hopSamples) {
                                     outLow  += sqrt(lowSumSq  / winPos)
                                     outMid  += sqrt(midSumSq  / winPos)
                                     outFull += sqrt(fullSumSq / winPos)
-                                    lowSumSq = 0f; midSumSq = 0f; fullSumSq = 0f; winPos = 0
+                                    outHigh += sqrt(highSumSq / winPos)
+                                    lowSumSq = 0f; midSumSq = 0f; fullSumSq = 0f; highSumSq = 0f; winPos = 0
                                 }
                                 byteIdx += stepBytes
                             }
@@ -301,13 +317,18 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
             }
 
             codec.stop(); codec.release(); extractor.release()
-            Triple(normalizeEnvelope(outLow), normalizeEnvelope(outMid), normalizeEnvelope(outFull))
+            Envelopes(
+                low  = normalizeEnvelope(outLow),
+                mid  = normalizeEnvelope(outMid),
+                full = normalizeEnvelope(outFull),
+                high = normalizeEnvelope(outHigh)
+            )
         } catch (t: Throwable) {
             Log.e(TAG, "decodeAllEnvelopes fail: ${t.message}")
             try { codec?.stop() }    catch (_: Throwable) {}
             try { codec?.release() } catch (_: Throwable) {}
             try { extractor.release() } catch (_: Throwable) {}
-            Triple(emptyList(), emptyList(), emptyList())
+            Envelopes(emptyList(), emptyList(), emptyList(), emptyList())
         }
     }
 

@@ -86,10 +86,15 @@ fun SectionInfoOverlay(
                 FeatureChip("conf", cur.beatConfidence)
             }
 
-            // ── 스펙트럼 비율 / 밀집도 / 주기성 ─────────────
+            // ── 스펙트럼 밴드 비율 ────────────────────────────
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FeatureChip("low%", cur.lowRatio)
                 FeatureChip("mid%", cur.midRatio)
+                FeatureChip("high%", cur.highRatio)   // 3.6kHz↑ 여성보컬 존재감
+            }
+
+            // ── 리듬 특성 ────────────────────────────────────
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FeatureChip("onset", cur.onsetDensity)
                 FeatureChip("period", cur.periodicity)
             }

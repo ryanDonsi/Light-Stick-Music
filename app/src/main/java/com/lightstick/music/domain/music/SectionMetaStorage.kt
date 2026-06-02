@@ -57,6 +57,7 @@ class SectionMetaStorage(private val version: Int) {
                     out.writeFloat(s.peakEnergy)
                     out.writeFloat(s.lowRatio)
                     out.writeFloat(s.midRatio)
+                    out.writeFloat(s.highRatio)
                     out.writeFloat(s.onsetDensity)
                     out.writeFloat(s.periodicity)
                 }
@@ -92,6 +93,7 @@ class SectionMetaStorage(private val version: Int) {
                     val peakEnergy      = input.readFloat()
                     val lowRatio        = input.readFloat()
                     val midRatio        = input.readFloat()
+                    val highRatio       = input.readFloat()
                     val onsetDensity    = input.readFloat()
                     val periodicity     = input.readFloat()
 
@@ -107,6 +109,7 @@ class SectionMetaStorage(private val version: Int) {
                             peakEnergy     = peakEnergy,
                             lowRatio       = lowRatio,
                             midRatio       = midRatio,
+                            highRatio      = highRatio,
                             onsetDensity   = onsetDensity,
                             periodicity    = periodicity
                         )
