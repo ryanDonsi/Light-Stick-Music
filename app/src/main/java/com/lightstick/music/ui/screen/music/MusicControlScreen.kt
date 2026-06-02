@@ -36,12 +36,14 @@ fun MusicControlScreen(
     viewModel: MusicViewModel,
     onNavigateToMusicList: () -> Unit
 ) {
-    val nowPlaying        by viewModel.nowPlaying.collectAsState()
-    val isPlaying         by viewModel.isPlaying.collectAsState()
-    val currentPosition   by viewModel.currentPosition.collectAsState()
-    val duration          by viewModel.duration.collectAsState()
-    val isAutoModeEnabled by viewModel.isAutoModeEnabled.collectAsState()
-    val latestTransmission by viewModel.latestTransmission.collectAsState()
+    val nowPlaying              by viewModel.nowPlaying.collectAsState()
+    val isPlaying               by viewModel.isPlaying.collectAsState()
+    val currentPosition         by viewModel.currentPosition.collectAsState()
+    val duration                by viewModel.duration.collectAsState()
+    val isAutoModeEnabled       by viewModel.isAutoModeEnabled.collectAsState()
+    val latestTransmission      by viewModel.latestTransmission.collectAsState()
+    val currentSections         by viewModel.currentSections.collectAsState()
+    val isSectionOverlayEnabled by viewModel.isSectionOverlayEnabled.collectAsState()
 
     val toastState = rememberToastState()
 
@@ -94,14 +96,37 @@ fun MusicControlScreen(
                             onNextClick      = { viewModel.playNext() },
                             onSeekTo         = { position -> viewModel.seekTo(position) },
                             modifier         = Modifier.fillMaxWidth(),
-                            latestTransmission = latestTransmission
+                            latestTransmission      = latestTransmission,
+                            sections                = currentSections,
+                            isSectionOverlayEnabled = isSectionOverlayEnabled
                         )
                     }
 
                     Row(
                         modifier              = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically
                     ) {
+                        // 섹션 오버레이 토글
+                        TextButton(
+                            onClick        = { viewModel.toggleSectionOverlay() },
+                            contentPadding = PaddingValues(
+                                start  = 0.dp,
+                                top    = 8.dp,
+                                end    = 0.dp,
+                                bottom = 8.dp
+                            )
+                        ) {
+                            Text(
+                                text       = "SECTION",
+                                style      = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color      = if (isSectionOverlayEnabled) com.lightstick.music.ui.theme.Secondary
+                                             else Color.Gray
+                            )
+                        }
+
+                        // 음악 목록 이동
                         TextButton(
                             onClick        = onNavigateToMusicList,
                             contentPadding = PaddingValues(

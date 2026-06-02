@@ -9,10 +9,13 @@ import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.AutoTimelineGenerator
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v6
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v0
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v2
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v8
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v9
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v10
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v11
+import com.lightstick.music.domain.music.SectionAwareGenerator
+import com.lightstick.music.domain.music.SectionMetaStorage
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -80,8 +83,10 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
             9  -> AutoTimelineGeneratorBeat_v9()
             10 -> AutoTimelineGeneratorBeat_v10()
             11 -> AutoTimelineGeneratorBeat_v11()
-            else -> throw IllegalArgumentException("Unsupported generator version: ${AutoTimelineConfig.GENERATOR_VERSION} (supported: 6~11)")
+            12 -> AutoTimelineGeneratorBeat_v2()
+            else -> throw IllegalArgumentException("Unsupported generator version: ${AutoTimelineConfig.GENERATOR_VERSION} (supported: 6~12)")
         }
+        val sectionStorage = if (generator is SectionAwareGenerator) SectionMetaStorage(version) else null
 
         // 이미 생성된 파일은 제외한 실제 처리 대상만 추려 정확한 total 확보
         val filesToProcess = if (TEST_FORCE_REGENERATE) {
@@ -119,13 +124,20 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                         }
 
                         try {
-                            val frames = generator.generate(file.absolutePath, musicId, paletteSize = paletteSize)
+                            val (frames, sections) = if (generator is SectionAwareGenerator) {
+                                generator.generateWithSections(file.absolutePath, musicId, paletteSize)
+                            } else {
+                                generator.generate(file.absolutePath, musicId, paletteSize) to emptyList()
+                            }
 
                             if (frames.isEmpty()) {
                                 failed.incrementAndGet()
                                 Log.w(TAG, "empty frames -> skip save file=${file.name} musicId=$musicId")
                             } else {
                                 storage.save(context, musicId, frames)
+                                if (sections.isNotEmpty()) {
+                                    sectionStorage?.save(context, musicId, sections)
+                                }
                                 created.incrementAndGet()
                             }
                         } catch (t: Throwable) {

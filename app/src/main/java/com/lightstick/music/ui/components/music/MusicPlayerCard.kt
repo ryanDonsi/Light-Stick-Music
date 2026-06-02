@@ -28,6 +28,7 @@ import com.lightstick.music.R
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.TransmissionSource
+import com.lightstick.music.domain.music.SectionMeta
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
 
@@ -51,7 +52,9 @@ fun MusicPlayerCard(
     onNextClick: () -> Unit,
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier,
-    latestTransmission: BleTransmissionEvent? = null
+    latestTransmission: BleTransmissionEvent? = null,
+    sections: List<SectionMeta>? = null,
+    isSectionOverlayEnabled: Boolean = false
 ) {
     if (musicItem == null) {
         EmptyMusicCard(modifier = modifier)
@@ -114,6 +117,17 @@ fun MusicPlayerCard(
                             modifier     = Modifier
                                 .align(Alignment.BottomEnd)
                                 .padding(8.dp)
+                        )
+                    }
+
+                    if (isSectionOverlayEnabled && !sections.isNullOrEmpty()) {
+                        SectionInfoOverlay(
+                            sections          = sections,
+                            currentPositionMs = currentPosition,
+                            durationMs        = duration,
+                            modifier          = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(20.dp))
                         )
                     }
                 }

@@ -18,6 +18,7 @@ import com.lightstick.music.core.state.MusicPlaybackState
 import com.lightstick.music.core.util.FileHelper
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.local.preferences.AutoModePreferences
+import com.lightstick.music.data.local.preferences.SectionOverlayPreferences
 import com.lightstick.music.data.local.storage.EffectPathPreferences
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
@@ -25,6 +26,8 @@ import com.lightstick.music.domain.ble.BleTransmissionMonitor
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
+import com.lightstick.music.domain.music.SectionMeta
+import com.lightstick.music.domain.music.SectionMetaStorage
 import com.lightstick.music.domain.music.FftAudioProcessor
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.domain.music.createFftPlayer
@@ -94,6 +97,12 @@ class MusicViewModel @Inject constructor(
     val latestTransmission: StateFlow<BleTransmissionEvent?> =
         BleTransmissionMonitor.latestTransmission
 
+    private val _currentSections = MutableStateFlow<List<SectionMeta>?>(null)
+    val currentSections: StateFlow<List<SectionMeta>?> = _currentSections.asStateFlow()
+
+    private val _isSectionOverlayEnabled = MutableStateFlow(false)
+    val isSectionOverlayEnabled: StateFlow<Boolean> = _isSectionOverlayEnabled.asStateFlow()
+
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_ENDED) playNext()
@@ -104,7 +113,8 @@ class MusicViewModel @Inject constructor(
         initializeEffects()
         EffectEngineController.reset()
 
-        _isAutoModeEnabled.value = AutoModePreferences.isAutoModeEnabled(getApplication())
+        _isAutoModeEnabled.value      = AutoModePreferences.isAutoModeEnabled(getApplication())
+        _isSectionOverlayEnabled.value = SectionOverlayPreferences.isEnabled(getApplication())
 
         viewModelScope.launch {
             combine(_isPlaying, _isAutoModeEnabled) { playing, autoMode ->
@@ -260,15 +270,16 @@ class MusicViewModel @Inject constructor(
         _duration.value        = 0
         _currentPosition.value = 0
 
+        val musicFile = File(item.filePath)
+        val musicId   = com.lightstick.efx.MusicId.fromFile(musicFile)
+        val ver       = AutoTimelineConfig.VERSION
+
         if (_isAutoModeEnabled.value) {
-            val musicFile = File(item.filePath)
             EffectEngineController.reset()
 
             if (MusicEffectManager.hasEffectFor(musicFile)) {
                 loadEfxUseCase(context, musicFile)
             } else {
-                val musicId = com.lightstick.efx.MusicId.fromFile(musicFile)
-                val ver     = AutoTimelineConfig.VERSION
                 val storage = AutoTimelineStorage(version = ver)
                 val frames  = storage.load(context, musicId)
 
@@ -280,6 +291,11 @@ class MusicViewModel @Inject constructor(
             }
         } else {
             EffectEngineController.reset()
+        }
+
+        // 섹션 메타 비동기 로드 (오버레이용)
+        viewModelScope.launch(Dispatchers.IO) {
+            _currentSections.value = SectionMetaStorage(ver).load(context, musicId)
         }
 
         ServiceController.startMusicEffectService(
@@ -316,6 +332,12 @@ class MusicViewModel @Inject constructor(
             if (_isAutoModeEnabled.value) EffectEngineController.resumeEffects(context)
         }
         updateNotificationProgress()
+    }
+
+    fun toggleSectionOverlay(): Boolean {
+        val newState = SectionOverlayPreferences.toggle(getApplication())
+        _isSectionOverlayEnabled.value = newState
+        return newState
     }
 
     fun toggleAutoMode(): Boolean {
