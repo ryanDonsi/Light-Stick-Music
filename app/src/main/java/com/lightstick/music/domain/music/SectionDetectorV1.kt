@@ -144,8 +144,9 @@ class SectionDetectorV1 : SectionDetector {
             val periodicity  = estimatePeriodicityStrength(novSlice, beatMsHint, hopMs)
 
             // V8 방식: activity (에너지 변화) 계산
-            var activity = 0f; var prev = if (fullSlice.isNotEmpty()) fullSlice[0] else 0f
-            for (v in fullSlice) { activity += abs(v - prev); prev = v }
+            var activity = 0f
+            var prevEnergy = if (fullSlice.isNotEmpty()) fullSlice[0] else 0f
+            for (v in fullSlice) { activity += abs(v - prevEnergy); prevEnergy = v }
             activity = if (fullSlice.isNotEmpty()) activity / fullSlice.size else 0f
 
             // V8 방식: score 계산 (mean*0.60 + activity*0.20 + maxV*0.10 + onsetBonus - lowPenalty)
