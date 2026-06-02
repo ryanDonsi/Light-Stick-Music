@@ -32,11 +32,6 @@ class SectionDetectorV1 : SectionDetector {
         private const val MAX_BEAT_MS = 900L
         private const val DEFAULT_BEAT_MS = 450L
 
-        private const val LOW_ENERGY_TH          = 0.18f
-        private const val HIGH_ENERGY_TH         = 0.52f
-        private const val HIGH_DENSITY_TH        = 0.48f
-        private const val STRONG_PERIODICITY_TH  = 0.40f
-
         private const val SECTION_STRONG_CHANGE_TH = 0.24f
         private const val SECTION_MEDIUM_CHANGE_TH = 0.14f
 
@@ -296,7 +291,9 @@ class SectionDetectorV1 : SectionDetector {
                         onsetDensity = (prev.onsetDensity + fixed.onsetDensity) * 0.5f,
                         periodicity  = (prev.periodicity  + fixed.periodicity)  * 0.5f,
                         peakEnergy   = max(prev.peakEnergy, fixed.peakEnergy),
-                        beatMsHint   = normalizeBeatMsAgainstGlobal(prev.beatMsHint, fixed.beatMsHint)
+                        beatMsHint   = normalizeBeatMsAgainstGlobal(prev.beatMsHint, fixed.beatMsHint),
+                        score        = (prev.score       + fixed.score)       * 0.5f,
+                        activity     = (prev.activity     + fixed.activity)     * 0.5f
                     )
                     continue
                 }
