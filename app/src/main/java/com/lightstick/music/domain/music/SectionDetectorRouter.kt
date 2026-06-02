@@ -17,15 +17,17 @@ object SectionDetectorRouter {
         durationMs: Long,
         hopMs: Long
     ): List<SectionDetector.Section> = when (version) {
+        2    -> SectionDetectorV2().detect(
+            lowEnv     = lowEnv, midEnv     = midEnv,
+            fullEnv    = fullEnv, highEnv   = highEnv,
+            beats      = beats,  beatMs     = beatMs,
+            durationMs = durationMs,  hopMs = hopMs
+        )
         else -> SectionDetectorV1().detect(
-            lowEnv     = lowEnv,
-            midEnv     = midEnv,
-            fullEnv    = fullEnv,
-            highEnv    = highEnv,
-            beats      = beats,
-            beatMs     = beatMs,
-            durationMs = durationMs,
-            hopMs      = hopMs
+            lowEnv     = lowEnv, midEnv     = midEnv,
+            fullEnv    = fullEnv, highEnv   = highEnv,
+            beats      = beats,  beatMs     = beatMs,
+            durationMs = durationMs,  hopMs = hopMs
         )
     }
 }

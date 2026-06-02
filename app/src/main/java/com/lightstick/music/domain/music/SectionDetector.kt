@@ -2,7 +2,9 @@ package com.lightstick.music.domain.music
 
 interface SectionDetector {
 
-    enum class SectionType { INTRO, VERSE, CHORUS, BRIDGE, END }
+    // V1 타입 (legacy — 순서 변경 금지, SectionMetaStorage ordinal 의존)
+    // V2 타입 (V2 이후)
+    enum class SectionType { INTRO, VERSE, CHORUS, BRIDGE, END, VOCAL, BEAT, BUILD, CLIMAX, BREAK, OUTRO }
     enum class ChangeStrength { NONE, MEDIUM, STRONG }
 
     data class Section(

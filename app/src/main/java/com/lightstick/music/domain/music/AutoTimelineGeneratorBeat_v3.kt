@@ -15,12 +15,12 @@ import kotlin.math.sqrt
 /**
  * AutoTimelineGeneratorBeat v3
  *
- * 감지기: BeatDetectorV2 (V11) + SectionDetectorV1 (고정)
+ * 감지기: BeatDetectorV2 (V11) + SectionDetectorV2 (고정)
  * 이펙트: V8 이펙트 매칭룰 (FgEngine 기반 — ON_PULSE / STROBE / BREATH / ON_TRANSIT_ROTATE 등)
  *
  * V2 대비 변경:
  *  - 단순 beat-ON 대신 V8의 섹션별 엔진(FgEngine) + 팔레트 기반 이펙트 적용
- *  - SectionDetectorV1의 energy 필드를 V8의 energyScore 로 활용
+ *  - SectionDetectorV2의 energy 필드를 V8의 energyScore 로 활용
  *  - Climax 감지 / 발라드 모드 / Bridge phase engine 등 V8 규칙 전부 유지
  */
 class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerator {
@@ -102,7 +102,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         musicPath: String, musicId: Int, paletteSize: Int
     ): Pair<List<Pair<Long, ByteArray>>, List<SectionMeta>> {
 
-        Log.d(TAG, "v3 start file=$musicPath musicId=$musicId detector=BeatDetectorV2+SectionDetectorV1")
+        Log.d(TAG, "v3 start file=$musicPath musicId=$musicId detector=BeatDetectorV2+SectionDetectorV2")
 
         val palette    = buildPalette(musicId)
         val (lowEnv, midEnv, fullEnv, highEnv) = decodeAllEnvelopes(musicPath)
@@ -138,8 +138,8 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         }
         Log.d(TAG, "v3 beats=${beatTimesMs.size} beatMs=$globalBeatMs")
 
-        // ── 2. Section detection (SectionDetectorV1 고정) ─────────
-        val detectedSections = SectionDetectorV1().detect(
+        // ── 2. Section detection (SectionDetectorV2 고정) ─────────
+        val detectedSections = SectionDetectorV2().detect(
             lowEnv     = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beats      = beatInfoBeats,
             beatMs     = globalBeatMs, durationMs = durationMs, hopMs = HOP_MS
@@ -249,55 +249,57 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         }
     }
 
-    /** V8의 buildContentSection 엔진 할당 규칙 */
+    /** SectionDetectorV2 타입별 FgEngine 할당 */
     private fun assignFgEngine(
         type: SectionDetector.SectionType,
         rel: Float, beats: Int, globalBeatMs: Long,
         isClimax: Boolean, isBalladMode: Boolean
     ): FgEngine = when (type) {
-        SectionDetector.SectionType.VERSE -> when {
-            isBalladMode -> if (rel < 0.55f) FgEngine.BREATH else FgEngine.ON_TRANSIT_ROTATE
-            rel < 0.10f && beats < 8 -> FgEngine.BREATH
-            rel < 0.75f -> FgEngine.ON_PULSE
-            else        -> FgEngine.ON_TRANSIT_ROTATE
+        SectionDetector.SectionType.INTRO  -> FgEngine.BREATH
+        SectionDetector.SectionType.OUTRO  -> FgEngine.OFF_TRANSIT
+        SectionDetector.SectionType.BREAK  -> FgEngine.BREATH
+
+        SectionDetector.SectionType.CLIMAX -> when {
+            globalBeatMs <= 300L -> FgEngine.STROBE
+            rel >= 0.60f         -> FgEngine.STROBE
+            else                 -> FgEngine.ON_TRANSIT_ROTATE
         }
-        SectionDetector.SectionType.CHORUS -> when {
-            isBalladMode && (isClimax || rel >= 0.65f) -> FgEngine.ON_TRANSIT_ROTATE
-            isBalladMode -> FgEngine.BREATH
-            globalBeatMs <= 290L -> FgEngine.STROBE
-            isClimax     -> FgEngine.STROBE
-            rel >= 0.40f -> FgEngine.ON_TRANSIT_ROTATE
-            else         -> FgEngine.ON_PULSE
+        SectionDetector.SectionType.BUILD  -> FgEngine.ON_TRANSIT_ROTATE
+
+        SectionDetector.SectionType.BEAT   -> when {
+            isBalladMode         -> FgEngine.BREATH
+            globalBeatMs <= 350L -> FgEngine.BLINK
+            else                 -> FgEngine.ON_PULSE
         }
-        SectionDetector.SectionType.BRIDGE -> when {
-            isBalladMode -> FgEngine.BREATH
-            beats < 8   -> FgEngine.ON_TRANSIT_ROTATE
-            else        -> FgEngine.ON_PULSE
+        SectionDetector.SectionType.VOCAL  -> when {
+            isBalladMode         -> FgEngine.BREATH
+            rel >= 0.55f         -> FgEngine.ON_PULSE
+            else                 -> FgEngine.BREATH
         }
-        SectionDetector.SectionType.INTRO -> FgEngine.BREATH
-        SectionDetector.SectionType.END   -> FgEngine.OFF_TRANSIT
+
+        // V1 legacy (V3+V2 detector에서는 나오지 않음)
+        SectionDetector.SectionType.VERSE  -> if (isBalladMode) FgEngine.BREATH else FgEngine.ON_PULSE
+        SectionDetector.SectionType.CHORUS -> if (isClimax) FgEngine.STROBE else FgEngine.ON_TRANSIT_ROTATE
+        SectionDetector.SectionType.BRIDGE -> FgEngine.BREATH
+        SectionDetector.SectionType.END    -> FgEngine.OFF_TRANSIT
     }
 
     private fun buildSourceName(type: SectionDetector.SectionType, engine: FgEngine, beats: Int): String =
         when (type) {
-            SectionDetector.SectionType.VERSE  -> when (engine) {
-                FgEngine.BREATH            -> "verse-breath"
-                FgEngine.ON_TRANSIT_ROTATE -> "verse-rotate"
-                else                       -> "verse-on-pulse"
+            SectionDetector.SectionType.INTRO  -> "intro-breath"
+            SectionDetector.SectionType.OUTRO  -> "outro-off"
+            SectionDetector.SectionType.BREAK  -> "break-breath"
+            SectionDetector.SectionType.CLIMAX -> if (engine == FgEngine.STROBE) "climax-strobe" else "climax-rotate"
+            SectionDetector.SectionType.BUILD  -> "build-rotate"
+            SectionDetector.SectionType.BEAT   -> when (engine) {
+                FgEngine.BLINK -> "beat-blink"
+                else           -> "beat-pulse"
             }
-            SectionDetector.SectionType.CHORUS -> when (engine) {
-                FgEngine.STROBE            -> "chorus-strobe"
-                FgEngine.ON_TRANSIT_ROTATE -> "chorus-rotate"
-                FgEngine.BREATH            -> "chorus-breath"
-                else                       -> "chorus-on-pulse"
-            }
-            SectionDetector.SectionType.BRIDGE -> when {
-                beats < 8  -> "bridge-rotate"
-                beats < 16 -> "bridge-breath-rotate"
-                else       -> "bridge-breath-rotate-long"
-            }
-            SectionDetector.SectionType.INTRO -> "intro-breath"
-            SectionDetector.SectionType.END   -> "end-off"
+            SectionDetector.SectionType.VOCAL  -> if (engine == FgEngine.BREATH) "vocal-breath" else "vocal-pulse"
+            SectionDetector.SectionType.VERSE  -> "verse-on-pulse"
+            SectionDetector.SectionType.CHORUS -> "chorus-rotate"
+            SectionDetector.SectionType.BRIDGE -> "bridge-breath"
+            SectionDetector.SectionType.END    -> "end-off"
         }
 
     // ──────────────────────────────────────────────────────────────
