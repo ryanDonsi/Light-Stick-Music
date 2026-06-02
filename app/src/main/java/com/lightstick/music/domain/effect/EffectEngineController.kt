@@ -269,13 +269,6 @@ object EffectEngineController {
         if (devices.isEmpty()) return
 
         try {
-            // 이 posMs 기준으로 "이미 지난" 프레임 중 아직 안 보낸 것 목록
-            val due = cachedTimeline.filter { it.timestampMs <= currentPositionMs }
-            val lastSent = lastRecordedEffectIndex
-            if (due.size > lastSent + 2) {
-                Log.w(TAG, "[sdk] 위험: posMs=${currentPositionMs}ms 기준 due=${due.size}개, lastSent=$lastSent → ${due.size - lastSent - 1}개 한번에 처리 가능")
-            }
-            Log.d(TAG, "[sdk] updatePlaybackPosition posMs=${currentPositionMs}ms due=${due.size} lastSentIdx=$lastSent")
             devices.forEach { it.updatePlaybackPosition(currentPositionMs) }
             recordCurrentTimelineEffect(devices.first().mac, currentPositionMs)
         } catch (e: Exception) {
@@ -432,7 +425,7 @@ object EffectEngineController {
                 }
             }
 
-            // [firmware] raw bytes 로그 (effectIndex 4 = LedControl 1-indexed 5 주변 집중 확인)
+            // [firmware] raw bytes 로그 (frame index 3-5 집중 확인 — SDK effectIndex 필드는 Mode 용도)
             if (currentEffectIndex in 3..5) {
                 val bytes = runCatching { currentEntry.payload.toByteArray() }.getOrNull()
                 Log.d(TAG, "[firmware] raw frame[$currentEffectIndex] bytes=${bytes?.joinToString(",") { "%02X".format(it) }}")

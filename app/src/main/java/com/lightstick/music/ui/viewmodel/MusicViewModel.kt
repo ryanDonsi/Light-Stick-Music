@@ -381,7 +381,6 @@ class MusicViewModel @Inject constructor(
     @SuppressLint("MissingPermission")
     private fun monitorPosition() {
         viewModelScope.launch {
-            var prevPosition = -1L
             while (true) {
                 val current  = player.currentPosition.toInt()
                 val duration = player.duration.toInt()
@@ -389,18 +388,10 @@ class MusicViewModel @Inject constructor(
                 _duration.value        = duration
 
                 if (player.isPlaying && _isAutoModeEnabled.value) {
-                    val jump = current.toLong() - prevPosition
-                    if (prevPosition >= 0 && jump > AppConstants.POSITION_MONITOR_INTERVAL_MS * 3) {
-                        Log.w(TAG, "[pos] 큰 점프 감지: ${prevPosition}ms → ${current}ms (+${jump}ms)")
-                    }
-                    Log.d(TAG, "[pos] updatePlaybackPosition pos=${current}ms jump=${if (prevPosition < 0) "first" else "${jump}ms"}")
-                    prevPosition = current.toLong()
                     try { updatePlaybackPositionUseCase(context, current.toLong()) }
                     catch (e: Exception) {
                         Log.e(TAG, "updatePlaybackPosition() failed: ${e.message}")
                     }
-                } else {
-                    prevPosition = -1L
                 }
 
                 delay(AppConstants.POSITION_MONITOR_INTERVAL_MS)
