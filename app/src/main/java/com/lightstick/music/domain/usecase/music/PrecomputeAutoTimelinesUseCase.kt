@@ -8,7 +8,7 @@ import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.AutoTimelineGenerator
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v6
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v7
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v0
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v8
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v9
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v10
@@ -75,7 +75,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
 
         val generator: AutoTimelineGenerator = when (AutoTimelineConfig.GENERATOR_VERSION) {
             6  -> AutoTimelineGeneratorBeat_v6()
-            7  -> AutoTimelineGeneratorBeat_v7()
+            7  -> AutoTimelineGeneratorBeat_v0()
             8  -> AutoTimelineGeneratorBeat_v8()
             9  -> AutoTimelineGeneratorBeat_v9()
             10 -> AutoTimelineGeneratorBeat_v10()

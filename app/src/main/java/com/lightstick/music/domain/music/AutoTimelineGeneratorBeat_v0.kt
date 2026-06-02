@@ -13,13 +13,13 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * AutoTimelineGeneratorBeat_v7 — BeatDetector 검증 전용
+ * AutoTimelineGeneratorBeat_v0 — BeatDetector 검증 전용
  *
- * 섹션 분석 없음. BeatDetectorV11이 감지한 모든 비트 시각에서
+ * 섹션 분석 없음. BeatDetectorV1 / V2 알고리즘 비교 테스트 전용 (BeatDetector Test)
  * 20% ON / 80% OFF 처리만 수행한다.
  * 5초 단위로 팔레트 색상을 바꿔 비트 연속성을 육안으로 확인한다.
  */
-class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
+class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
@@ -54,7 +54,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         paletteSize: Int
     ): List<Pair<Long, ByteArray>> {
         val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
-        Log.d(TAG, "v7 generate() start file=$fileName musicId=$musicId paletteSize=$paletteSize")
+        Log.d(TAG, "v0 generate() start file=$fileName musicId=$musicId paletteSize=$paletteSize")
 
         val pSize   = paletteSize.coerceIn(3, 5)
         val palette = buildPalette(musicId, pSize)
@@ -64,13 +64,13 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         val fullEnv = decodeEnvelopeInternal(musicPath, HOP_MS.toInt(), EnvMode.FULL)
 
         if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
-            Log.w(TAG, "v7 env empty -> return empty")
+            Log.w(TAG, "v0 env empty -> return empty")
             return emptyList()
         }
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        Log.d(TAG, "v7 BeatDetect start file=$fileName musicId=$musicId durationMs=$durationMs")
+        Log.d(TAG, "v0 BeatDetect start file=$fileName musicId=$musicId durationMs=$durationMs")
         val v11Result = BeatDetectorV2.detect(
             lowEnv  = lowEnv,
             midEnv  = midEnv,
@@ -93,14 +93,14 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
         val globalBeatMs = v11Result.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
 
         val beatsPerBar = v11Result.timeSignature.beatsPerBar
-        Log.d(TAG, "v7 BeatDetectorV2 beatMs=$globalBeatMs beats=${v11Result.beats.size} " +
+        Log.d(TAG, "v0 BeatDetectorV2 beatMs=$globalBeatMs beats=${v11Result.beats.size} " +
             "timeSig=${v11Result.timeSignature.type} beatsPerBar=$beatsPerBar")
 
         // Q6: 비트 타임스탬프 로그 (처음 12개 + 마지막 4개)
         if (v11Result.beats.isNotEmpty()) {
             val first = v11Result.beats.take(12).joinToString(" ") { "${it.timeMs}" }
             val last  = v11Result.beats.takeLast(4).joinToString(" ") { "${it.timeMs}" }
-            Log.d(TAG, "v7 beatTimes[$fileName] first=[$first] last=[$last]")
+            Log.d(TAG, "v0 beatTimes[$fileName] first=[$first] last=[$last]")
         }
 
         // ── [진단A] V11 출력 비트 품질 분석 ──────────────────────────────
@@ -110,7 +110,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             val synth  = v11Result.beats.count { it.confidence <= 0.20f }
             val real   = v11Result.beats.size - synth
             val sPct   = synth * 100 / v11Result.beats.size
-            Log.d(TAG, "v7 [A] V11_quality[$fileName]: " +
+            Log.d(TAG, "v0 [A] V11_quality[$fileName]: " +
                 "real=$real synth=$synth(${sPct}%) total=${v11Result.beats.size}")
 
             // 3×beatMs 이상의 갭 → normalizeBeats fill 이 동작하지 않은 구간
@@ -120,13 +120,13 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
                 if (gap >= gapTh) "${v11Result.beats[i - 1].timeMs / 1000}s+${gap}ms" else null
             }
             if (bigGaps.isEmpty())
-                Log.d(TAG, "v7 [A] V11_gaps[$fileName]: 없음 (최대 < ${gapTh}ms) ✓")
+                Log.d(TAG, "v0 [A] V11_gaps[$fileName]: 없음 (최대 < ${gapTh}ms) ✓")
             else
-                Log.w(TAG, "v7 [A] V11_gaps[$fileName](≥${gapTh}ms): ${bigGaps.take(5).joinToString(" | ")}")
+                Log.w(TAG, "v0 [A] V11_gaps[$fileName](≥${gapTh}ms): ${bigGaps.take(5).joinToString(" | ")}")
         }
 
         val frames = buildTimeline(v11Result.beats, globalBeatMs, beatsPerBar, durationMs, palette, musicId)
-        Log.d(TAG, "v7 frames(final)=${frames.size}")
+        Log.d(TAG, "v0 frames(final)=${frames.size}")
         return frames.sortedBy { it.first }
     }
 
@@ -162,7 +162,7 @@ class AutoTimelineGeneratorBeat_v7 : AutoTimelineGenerator {
             frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
         }
 
-        Log.d(TAG, "v7 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size}")
+        Log.d(TAG, "v0 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size}")
         return frames.sortedBy { it.first }
     }
 
