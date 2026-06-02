@@ -153,9 +153,9 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
 
             val color = when (beatIndex % beatsPerBar) {
                 0    -> LSColor(255, 255, 255)      // White
-                1    -> LSColor(255, 255, 0)        // Red
-                2    -> LSColor(0,   255, 0)        // Green
-                else -> LSColor(0,   0,   255)      // Blue
+                1    -> LSColor(255, 0,   255)      // Pupple
+                2    -> LSColor(255, 255, 0)        // yellow
+                else -> LSColor(0,   255, 255)      // Cyan
             }
             frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
 
