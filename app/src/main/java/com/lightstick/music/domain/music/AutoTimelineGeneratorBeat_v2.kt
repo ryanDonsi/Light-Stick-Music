@@ -195,12 +195,11 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                 (((steps % beatsPerBar) + beatsPerBar) % beatsPerBar).toInt()
             } else 0
 
-            // 강박(0)은 White 고정, 나머지는 섹션 색상 + 밝기 적용
-            val color = if (beatInBar == 0) {
-                LSColor(255, 255, 255)
-            } else {
-                val brightness = beatBrightness(beatInBar, beatsPerBar)
-                baseColor.scale(brightness)
+            // 1박(0)=White, 3박(2)=섹션색상 100%, 약박=섹션색상 35%
+            val color = when {
+                beatInBar == 0 -> LSColor(255, 255, 255)
+                beatBrightness(beatInBar, beatsPerBar) >= 1.0f -> baseColor
+                else -> baseColor.scale(beatBrightness(beatInBar, beatsPerBar))
             }
 
             frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0).toByteArray())
@@ -212,9 +211,9 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
     /** 강박(0)은 호출 측에서 White 고정. 나머지 박자 밝기 반환. */
     private fun beatBrightness(beatInBar: Int, beatsPerBar: Int): Float = when (beatsPerBar) {
-        4 -> when (beatInBar) { 2 -> 0.70f; else -> 0.35f }
+        4 -> when (beatInBar) { 2 -> 1.00f; else -> 0.35f }
         3 -> 0.45f
-        6 -> when (beatInBar) { 3 -> 0.70f; else -> 0.35f }
+        6 -> when (beatInBar) { 3 -> 1.00f; else -> 0.35f }
         else -> 1.00f
     }
 
