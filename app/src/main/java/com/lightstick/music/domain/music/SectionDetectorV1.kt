@@ -65,7 +65,9 @@ class SectionDetectorV1 : SectionDetector {
         val changeStrength: SectionDetector.ChangeStrength,
         val peakEnergy: Float = 0f,
         val midRatio: Float   = 0f,
-        val highRatio: Float  = 0f
+        val highRatio: Float  = 0f,
+        val score: Float      = 0f,
+        val activity: Float   = 0f
     )
 
     // ──────────────────────────────────────────────────────────────
@@ -85,7 +87,14 @@ class SectionDetectorV1 : SectionDetector {
         if (fullEnv.isEmpty()) return emptyList()
 
         val windows = buildFeatureWindows(lowEnv, midEnv, fullEnv, highEnv, durationMs, hopMs)
-        val rawSections = buildSectionsFromWindows(windows, durationMs)
+
+        // V8 방식: score 기반 임계값 계산
+        val frameScores = windows.map { it.score }
+        val lowTh  = if (frameScores.isNotEmpty()) percentile(frameScores, 0.35f) else 0f
+        val highTh = if (frameScores.isNotEmpty()) percentile(frameScores, 0.70f) else 1f
+        Log.d(TAG, "SectionDetectorV1 thresholds: lowTh=${"%.3f".format(lowTh)} highTh=${"%.3f".format(highTh)}")
+
+        val rawSections = buildSectionsFromWindows(windows, durationMs, lowTh, highTh)
 
         val sortedBeatTimes = beats.map { it.timeMs }.toLongArray().also { it.sort() }
         val alignedSections = alignBoundariesToBeats(rawSections, sortedBeatTimes, durationMs)
@@ -138,7 +147,20 @@ class SectionDetectorV1 : SectionDetector {
             val onsetDensity = densityAbove(novSlice, 0.12f)
             val beatMsHint   = estimateBeatMsByAutocorr(novSlice, hopMs, MIN_BEAT_MS, MAX_BEAT_MS)
             val periodicity  = estimatePeriodicityStrength(novSlice, beatMsHint, hopMs)
-            val type         = classifySectionType(startMs, endMs, durationMs, energy, lowRatio, onsetDensity, periodicity)
+
+            // V8 방식: activity (에너지 변화) 계산
+            var activity = 0f; var prev = if (fullSlice.isNotEmpty()) fullSlice[0] else 0f
+            for (v in fullSlice) { activity += abs(v - prev); prev = v }
+            activity = if (fullSlice.isNotEmpty()) activity / fullSlice.size else 0f
+
+            // V8 방식: score 계산 (mean*0.60 + activity*0.20 + maxV*0.10 + onsetBonus - lowPenalty)
+            val onsetBonus = (onsetDensity * 0.12f)
+            val lowPenalty = (lowRatio * 0.08f).coerceIn(0f, 0.08f)
+            val score = (energy * 0.60f + activity * 0.20f + peakEnergy * 0.10f + onsetBonus - lowPenalty)
+                .coerceIn(0f, 1f)
+
+            // 임시 분류 (나중에 임계값으로 재분류)
+            val type = SectionDetector.SectionType.VERSE
 
             val draft = FeatureWindow(
                 startMs        = startMs,
@@ -152,7 +174,9 @@ class SectionDetectorV1 : SectionDetector {
                 changeStrength = SectionDetector.ChangeStrength.NONE,
                 peakEnergy     = peakEnergy,
                 midRatio       = midRatio,
-                highRatio      = highRatio
+                highRatio      = highRatio,
+                score          = score,
+                activity       = activity
             )
 
             val change = estimateChangeStrength(prev, draft)
@@ -166,40 +190,15 @@ class SectionDetectorV1 : SectionDetector {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // ② Section type classification
+    // ② Section type classification (V8 방식)
     // ──────────────────────────────────────────────────────────────
 
-    private fun classifySectionType(
-        startMs: Long,
-        endMs: Long,
-        durationMs: Long,
-        energy: Float,
-        lowRatio: Float,
-        onsetDensity: Float,
-        periodicity: Float
-    ): SectionDetector.SectionType {
-        val introLimit = min(18_000L, (durationMs * 0.12f).toLong())
-        val endLimit   = max(8_000L,  (durationMs * 0.08f).toLong())
-
-        if (startMs < introLimit) {
-            return if (energy < LOW_ENERGY_TH && periodicity < STRONG_PERIODICITY_TH)
-                SectionDetector.SectionType.INTRO
-            else
-                SectionDetector.SectionType.VERSE
-        }
-
-        if (endMs >= durationMs - endLimit) {
-            return if (energy < LOW_ENERGY_TH || onsetDensity < 0.14f)
-                SectionDetector.SectionType.END
-            else
-                SectionDetector.SectionType.VERSE
-        }
-
+    private fun classifyType(score: Float, lowTh: Float, highTh: Float): SectionDetector.SectionType {
+        val bridgeTh = lowTh * 0.85f
         return when {
-            energy < LOW_ENERGY_TH && onsetDensity < 0.12f        -> SectionDetector.SectionType.BRIDGE
-            energy >= HIGH_ENERGY_TH && onsetDensity >= HIGH_DENSITY_TH -> SectionDetector.SectionType.CHORUS
-            lowRatio < 0.88f && onsetDensity < 0.18f              -> SectionDetector.SectionType.BRIDGE
-            else                                                   -> SectionDetector.SectionType.VERSE
+            score >= highTh   -> SectionDetector.SectionType.CHORUS
+            score <= bridgeTh -> SectionDetector.SectionType.BRIDGE
+            else              -> SectionDetector.SectionType.VERSE
         }
     }
 
@@ -228,15 +227,17 @@ class SectionDetectorV1 : SectionDetector {
 
     private fun buildSectionsFromWindows(
         windows: List<FeatureWindow>,
-        durationMs: Long
+        durationMs: Long,
+        lowTh: Float = 0f,
+        highTh: Float = 1f
     ): List<FeatureWindow> {
         if (windows.isEmpty()) return emptyList()
 
         val merged = ArrayList<FeatureWindow>()
-        var cur = windows.first()
+        var cur = windows.first().copy(sectionType = classifyType(windows.first().score, lowTh, highTh))
 
         for (i in 1 until windows.size) {
-            val next = windows[i]
+            val next = windows[i].copy(sectionType = classifyType(windows[i].score, lowTh, highTh))
             val shouldSplit =
                 next.changeStrength == SectionDetector.ChangeStrength.STRONG ||
                 next.sectionType != cur.sectionType
@@ -254,7 +255,9 @@ class SectionDetectorV1 : SectionDetector {
                     onsetDensity = (cur.onsetDensity + next.onsetDensity) * 0.5f,
                     periodicity  = (cur.periodicity  + next.periodicity)  * 0.5f,
                     peakEnergy   = max(cur.peakEnergy, next.peakEnergy),
-                    beatMsHint   = normalizeBeatMsAgainstGlobal(cur.beatMsHint, next.beatMsHint)
+                    beatMsHint   = normalizeBeatMsAgainstGlobal(cur.beatMsHint, next.beatMsHint),
+                    score        = (cur.score       + next.score)       * 0.5f,
+                    activity     = (cur.activity     + next.activity)     * 0.5f
                 )
             }
         }
@@ -641,5 +644,16 @@ class SectionDetectorV1 : SectionDetector {
                 else -> s
             }
         }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Percentile (V8 방식 임계값 계산)
+    // ──────────────────────────────────────────────────────────────
+
+    private fun percentile(values: List<Float>, p: Float): Float {
+        if (values.isEmpty()) return 0f
+        val sorted = values.sorted()
+        val idx = ((sorted.size - 1) * p).toInt().coerceIn(0, sorted.lastIndex)
+        return sorted[idx]
     }
 }
