@@ -18,6 +18,7 @@ librosa 기준 F-measure 정확도를 측정하는 도구.
 """
 
 import struct
+import re
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 import threading
@@ -33,6 +34,26 @@ except ImportError:
 # ──────────────────────────────────────────────
 # 바이너리 파서
 # ──────────────────────────────────────────────
+
+def extract_music_id(filename: str) -> str:
+    """
+    파일명에서 Music ID를 추출한다.
+    패턴 예: 78f70262-timeline_923573155_v0.bin  → 923573155
+             timeline_123456_v3.bin              → 123456
+             123456_timeline.bin                 → 123456
+    숫자를 찾지 못하면 파일명 그대로 반환.
+    """
+    name = os.path.splitext(os.path.basename(filename))[0]
+    # "timeline_숫자" 패턴 우선
+    m = re.search(r'timeline[_\-](\d+)', name)
+    if m:
+        return m.group(1)
+    # 그 외 첫 번째 숫자 블록
+    m = re.search(r'(\d{5,})', name)
+    if m:
+        return m.group(1)
+    return name
+
 
 def parse_timeline_binary(path: str):
     with open(path, "rb") as f:
@@ -128,15 +149,31 @@ class App(tk.Tk):
         frame_files = tk.LabelFrame(self, text="파일 선택", **pad)
         frame_files.pack(fill="x", **pad)
 
+        # 원곡
         tk.Label(frame_files, text="원곡 (MP3/WAV/FLAC):").grid(row=0, column=0, sticky="w", **pad)
         self.audio_var = tk.StringVar()
-        tk.Entry(frame_files, textvariable=self.audio_var, width=58).grid(row=0, column=1, **pad)
+        tk.Entry(frame_files, textvariable=self.audio_var, width=48).grid(row=0, column=1, **pad)
         tk.Button(frame_files, text="찾기", command=self._pick_audio).grid(row=0, column=2, **pad)
+        # 원곡 Music ID 표시
+        self.audio_id_var = tk.StringVar(value="")
+        tk.Label(frame_files, text="Music ID:").grid(row=0, column=3, sticky="w", **pad)
+        tk.Label(frame_files, textvariable=self.audio_id_var,
+                 font=("Courier", 11, "bold"), fg="#1565c0", width=14, anchor="w"
+                 ).grid(row=0, column=4, sticky="w", **pad)
+        self.audio_var.trace_add("write", self._update_audio_id)
 
+        # 바이너리
         tk.Label(frame_files, text="타임라인 바이너리:").grid(row=1, column=0, sticky="w", **pad)
         self.bin_var = tk.StringVar()
-        tk.Entry(frame_files, textvariable=self.bin_var, width=58).grid(row=1, column=1, **pad)
+        tk.Entry(frame_files, textvariable=self.bin_var, width=48).grid(row=1, column=1, **pad)
         tk.Button(frame_files, text="찾기", command=self._pick_bin).grid(row=1, column=2, **pad)
+        # 바이너리 Music ID 표시
+        self.bin_id_var = tk.StringVar(value="")
+        tk.Label(frame_files, text="Music ID:").grid(row=1, column=3, sticky="w", **pad)
+        tk.Label(frame_files, textvariable=self.bin_id_var,
+                 font=("Courier", 11, "bold"), fg="#1565c0", width=14, anchor="w"
+                 ).grid(row=1, column=4, sticky="w", **pad)
+        self.bin_var.trace_add("write", self._update_bin_id)
 
         # ── 설정 ───────────────────────────────────
         frame_opt = tk.LabelFrame(self, text="설정", **pad)
@@ -181,6 +218,16 @@ class App(tk.Tk):
                  relief="sunken").pack(fill="x", side="bottom")
 
     # ── 파일 선택 다이얼로그 ───────────────────────
+
+    def _update_audio_id(self, *_):
+        path = self.audio_var.get().strip()
+        mid = extract_music_id(path) if path else ""
+        self.audio_id_var.set(mid if mid != os.path.splitext(os.path.basename(path))[0] else "")
+
+    def _update_bin_id(self, *_):
+        path = self.bin_var.get().strip()
+        mid = extract_music_id(path) if path else ""
+        self.bin_id_var.set(mid)
 
     def _pick_audio(self):
         p = filedialog.askopenfilename(
@@ -257,12 +304,14 @@ class App(tk.Tk):
         # ① 바이너리 파싱 ─────────────────────────
         self.after(0, lambda: self._log("[ 1/3 ]  타임라인 바이너리 파싱…"))
         version, frame_count, app_ms = parse_timeline_binary(bin_path)
-        app_sec = [t / 1000.0 for t in app_ms]
-        app_st  = beat_stats(app_ms)
+        app_sec  = [t / 1000.0 for t in app_ms]
+        app_st   = beat_stats(app_ms)
+        music_id = extract_music_id(bin_path)
 
         def _log_bin():
             self._log(SEP)
             self._log(f"  바이너리 : {os.path.basename(bin_path)}")
+            self._log(f"  Music ID    : {music_id}")
             self._log(f"  포맷 버전   : {version}")
             self._log(f"  총 프레임   : {frame_count}  (파싱 성공: {len(app_ms)})")
             self._log(f"  감지 BPM    : {app_st.get('bpm', 0):.1f}")
