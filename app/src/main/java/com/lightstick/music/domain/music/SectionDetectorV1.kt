@@ -36,7 +36,6 @@ class SectionDetectorV1 : SectionDetector {
         private const val SECTION_MEDIUM_CHANGE_TH = 0.14f
 
         private const val ALIGN_SNAP_MS = 500L
-        private const val MIN_BEATS_IN_SECTION = 3
 
         // ── Climax detection (V8 로직) ───────────────────────────────
         private const val CLIMAX_WINDOW_HALF_MS = 4_000L
@@ -96,7 +95,7 @@ class SectionDetectorV1 : SectionDetector {
         val sortedBeatTimes = beats.map { it.timeMs }.toLongArray().also { it.sort() }
         val alignedSections = alignBoundariesToBeats(rawSections, sortedBeatTimes, durationMs, beatMs, beatsPerBar, downbeatMs)
 
-        val sections = distributeBeatsToSections(alignedSections, beats, beatMs, sortedBeatTimes)
+        val sections = toSections(alignedSections)
         val climaxMoments = detectClimaxMoments(fullEnv, durationMs, hopMs, beatMs)
         return reclassifyClimax(sections, climaxMoments)
     }
@@ -420,44 +419,17 @@ class SectionDetectorV1 : SectionDetector {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // ⑤ Distribute beats to sections
+    // ⑤ FeatureWindow → Section (경계·특성값만, beat 없음)
     // ──────────────────────────────────────────────────────────────
 
-    private fun distributeBeatsToSections(
-        sections: List<FeatureWindow>,
-        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
-        globalBeatMs: Long,
-        sortedBeatTimes: LongArray
-    ): List<SectionDetector.Section> {
-        val sortedBeats = beats.sortedBy { it.timeMs }
-        val result      = ArrayList<SectionDetector.Section>(sections.size)
-
-        for ((idx, s) in sections.withIndex()) {
-            val sectionBeats = sortedBeats.filter { it.timeMs >= s.startMs && it.timeMs < s.endMs }
-
-            val beatTimesMs: LongArray
-            val confidence: Float
-
-            if (sectionBeats.size >= MIN_BEATS_IN_SECTION) {
-                beatTimesMs = LongArray(sectionBeats.size) { sectionBeats[it].timeMs }
-                confidence  = sectionBeats.map { it.confidence }.average().toFloat()
-            } else {
-                beatTimesMs = buildGridBeats(s.startMs, s.endMs, globalBeatMs, sortedBeatTimes)
-                confidence  = 0.20f
-            }
-
-            Log.d(TAG, "SectionDetectorV1[$idx] ${s.startMs}~${s.endMs} " +
-                "type=${s.sectionType} beats=${beatTimesMs.size} beatMs=$globalBeatMs " +
-                "confidence=${"%.2f".format(confidence)} change=${s.changeStrength}")
-
-            result += SectionDetector.Section(
+    private fun toSections(windows: List<FeatureWindow>): List<SectionDetector.Section> =
+        windows.mapIndexed { idx, s ->
+            Log.d(TAG, "SectionDetectorV1[$idx] ${s.startMs}~${s.endMs} type=${s.sectionType} change=${s.changeStrength}")
+            SectionDetector.Section(
                 startMs        = s.startMs,
                 endMs          = s.endMs,
                 type           = s.sectionType,
                 changeStrength = s.changeStrength,
-                beatTimesMs    = beatTimesMs,
-                beatMs         = globalBeatMs,
-                beatConfidence = confidence,
                 energy         = s.energy,
                 peakEnergy     = s.peakEnergy,
                 lowRatio       = s.lowRatio,
@@ -467,28 +439,6 @@ class SectionDetectorV1 : SectionDetector {
                 periodicity    = s.periodicity
             )
         }
-
-        return result
-    }
-
-    private fun buildGridBeats(
-        startMs: Long,
-        endMs: Long,
-        beatMs: Long,
-        sortedBeatTimes: LongArray
-    ): LongArray {
-        if (beatMs <= 0) return LongArray(0)
-        // Phase from first detected beat
-        val phase = if (sortedBeatTimes.isEmpty()) 0L else sortedBeatTimes[0] % beatMs
-        val out   = ArrayList<Long>()
-        var t = phase
-        while (t < startMs) t += beatMs
-        while (t < endMs) {
-            out += t
-            t += beatMs
-        }
-        return out.toLongArray()
-    }
 
     // ──────────────────────────────────────────────────────────────
     // Signal analysis helpers

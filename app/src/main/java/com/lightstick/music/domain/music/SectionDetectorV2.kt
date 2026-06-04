@@ -68,7 +68,6 @@ class SectionDetectorV2 : SectionDetector {
         private const val MEDIUM_CHANGE_TH = 0.12f
 
         private const val ALIGN_SNAP_MS     = 500L
-        private const val MIN_BEATS_IN_SECTION = 3
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -130,9 +129,21 @@ class SectionDetectorV2 : SectionDetector {
         val sortedBeatTimes = beats.map { it.timeMs }.toLongArray().also { it.sort() }
         val aligned = alignBoundariesToBeats(rawSections, sortedBeatTimes, durationMs)
 
-        // ⑥ 비트 배분
-        return distributeBeatsToSections(aligned, beats, beatMs, sortedBeatTimes)
+        return toSections(aligned)
     }
+
+    private fun toSections(windows: List<FeatureWindow>): List<SectionDetector.Section> =
+        windows.mapIndexed { idx, s ->
+            Log.d(TAG, "SectionDetectorV2[$idx] ${s.startMs}~${s.endMs} type=${s.sectionType} change=${s.changeStrength}")
+            SectionDetector.Section(
+                startMs        = s.startMs, endMs          = s.endMs,
+                type           = s.sectionType, changeStrength = s.changeStrength,
+                energy         = s.energy,  peakEnergy     = s.peakEnergy,
+                lowRatio       = s.lowRatio, midRatio       = s.midRatio,
+                highRatio      = s.highRatio, onsetDensity  = s.onsetDensity,
+                periodicity    = s.periodicity
+            )
+        }
 
     // ──────────────────────────────────────────────────────────────
     // ① Feature windows
@@ -370,67 +381,6 @@ class SectionDetectorV2 : SectionDetector {
             if (d <= snapMs && d < bestDist) { bestDist = d; best = sortedBeatTimes[idx] }
         }
         return best
-    }
-
-    // ──────────────────────────────────────────────────────────────
-    // ⑤ 비트 배분
-    // ──────────────────────────────────────────────────────────────
-
-    private fun distributeBeatsToSections(
-        sections: List<FeatureWindow>,
-        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
-        globalBeatMs: Long,
-        sortedBeatTimes: LongArray
-    ): List<SectionDetector.Section> {
-        val sortedBeats = beats.sortedBy { it.timeMs }
-        val result      = ArrayList<SectionDetector.Section>(sections.size)
-
-        for ((idx, s) in sections.withIndex()) {
-            val sBeats = sortedBeats.filter { it.timeMs >= s.startMs && it.timeMs < s.endMs }
-
-            val beatTimesMs: LongArray
-            val confidence: Float
-
-            if (sBeats.size >= MIN_BEATS_IN_SECTION) {
-                beatTimesMs = LongArray(sBeats.size) { sBeats[it].timeMs }
-                confidence  = sBeats.map { it.confidence }.average().toFloat()
-            } else {
-                beatTimesMs = buildGridBeats(s.startMs, s.endMs, globalBeatMs, sortedBeatTimes)
-                confidence  = 0.20f
-            }
-
-            Log.d(TAG, "SectionDetectorV2[$idx] ${s.startMs}~${s.endMs} " +
-                "type=${s.sectionType} beats=${beatTimesMs.size} " +
-                "energy=${"%.2f".format(s.energy)} trend=${"%.2f".format(s.energyTrend)} " +
-                "low=${"%.2f".format(s.lowRatio)} onset=${"%.2f".format(s.onsetDensity)}")
-
-            result += SectionDetector.Section(
-                startMs        = s.startMs,
-                endMs          = s.endMs,
-                type           = s.sectionType,
-                changeStrength = s.changeStrength,
-                beatTimesMs    = beatTimesMs,
-                beatMs         = globalBeatMs,
-                beatConfidence = confidence,
-                energy         = s.energy,
-                peakEnergy     = s.peakEnergy,
-                lowRatio       = s.lowRatio,
-                midRatio       = s.midRatio,
-                highRatio      = s.highRatio,
-                onsetDensity   = s.onsetDensity,
-                periodicity    = s.periodicity
-            )
-        }
-        return result
-    }
-
-    private fun buildGridBeats(startMs: Long, endMs: Long, beatMs: Long, sortedBeatTimes: LongArray): LongArray {
-        if (beatMs <= 0) return LongArray(0)
-        val phase = if (sortedBeatTimes.isEmpty()) 0L else sortedBeatTimes[0] % beatMs
-        val out   = ArrayList<Long>()
-        var t = phase; while (t < startMs) t += beatMs
-        while (t < endMs) { out += t; t += beatMs }
-        return out.toLongArray()
     }
 
     // ──────────────────────────────────────────────────────────────

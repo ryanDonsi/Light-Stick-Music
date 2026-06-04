@@ -136,13 +136,15 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
         // 5. Convert SectionDetector.Section → SectionMeta
         val sectionMetas = sections.map { s ->
+            val sBeats     = beatInfo.beats.filter { it.timeMs >= s.startMs && it.timeMs < s.endMs }
+            val confidence = if (sBeats.isNotEmpty()) sBeats.map { it.confidence }.average().toFloat() else 0.20f
             SectionMeta(
                 startMs        = s.startMs,
                 endMs          = s.endMs,
                 type           = s.type,
                 changeStrength = s.changeStrength,
-                beatMs         = s.beatMs,
-                beatConfidence = s.beatConfidence,
+                beatMs         = globalBeatMs,
+                beatConfidence = confidence,
                 energy         = s.energy,
                 peakEnergy     = s.peakEnergy,
                 lowRatio       = s.lowRatio,

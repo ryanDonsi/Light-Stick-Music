@@ -189,10 +189,13 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
         // ── 6. SectionMeta for overlay ────────────────────────────
         val sectionMetas = detectedSections.mapIndexed { idx, s ->
+            val sectionBeats = beatInfoBeats.filter { it.timeMs >= s.startMs && it.timeMs < s.endMs }
+            val confidence   = if (sectionBeats.isNotEmpty())
+                sectionBeats.map { it.confidence }.average().toFloat() else 0.20f
             SectionMeta(
                 startMs        = s.startMs,    endMs          = s.endMs,
                 type           = s.type,       changeStrength = s.changeStrength,
-                beatMs         = s.beatMs,     beatConfidence = s.beatConfidence,
+                beatMs         = globalBeatMs, beatConfidence = confidence,
                 energy         = s.energy,     peakEnergy     = s.peakEnergy,
                 lowRatio       = s.lowRatio,   midRatio       = s.midRatio,
                 highRatio      = s.highRatio,  onsetDensity   = s.onsetDensity,
