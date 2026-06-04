@@ -116,58 +116,56 @@ def best_available_engine(preferred: str) -> str:
 
 def detect_beats_beat_transformer(audio_path):
     """
-    Beat Transformer 로컬 레포 또는 pip 패키지로 비트 감지.
-    레포 구조: Beat-Transformer/code/ 에 inference 모듈 존재.
+    Beat Transformer 비트 감지.
+    bt_infer.py 래퍼를 subprocess로 호출 → JSON 파싱.
     """
-    # 방법 1: beat_transformer 패키지 직접 임포트
+    import subprocess, json, tempfile
+
+    # bt_infer.py 위치: beat_accuracy_checker.py 와 같은 폴더
+    script_dir  = os.path.dirname(os.path.abspath(__file__))
+    infer_script = os.path.join(script_dir, "bt_infer.py")
+
+    if not os.path.isfile(infer_script):
+        raise RuntimeError(f"bt_infer.py 없음: {infer_script}")
+
+    # checkpoint 폴더 탐색
+    bt_root = BT_LOCAL_PATH or os.path.join(script_dir, "Beat-Transformer")
+    ckpt_dir = os.path.join(bt_root, "checkpoint")
+    if not os.path.isdir(ckpt_dir):
+        raise RuntimeError(
+            f"checkpoint 폴더 없음: {ckpt_dir}\n"
+            "GUI에서 Beat-Transformer 클론 폴더를 지정하고 [적용]을 누르세요."
+        )
+
+    code_dir = os.path.join(bt_root, "code")
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tf:
+        out_path = tf.name
     try:
-        from beat_transformer import BeatTransformer
-        model = BeatTransformer()
-        beats, _ = model.predict(audio_path)
-        beats_sec = sorted(float(b) for b in beats)
+        cmd = [
+            sys.executable, infer_script,
+            "--audio",      audio_path,
+            "--checkpoint", ckpt_dir,
+            "--out",        out_path,
+            "--code_dir",   code_dir,
+        ]
+        print(f"[BT] 실행: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if result.stdout: print(result.stdout)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"bt_infer.py 실패 (exit {result.returncode}):\n{result.stderr[-1000:]}\n\n"
+                "pip install torch torchaudio librosa einops scipy 설치 후 재시도하세요."
+            )
+        with open(out_path) as f:
+            data = json.load(f)
+        beats_sec = sorted(float(b) for b in data.get("beats", []))
+        if not beats_sec:
+            raise RuntimeError("비트가 감지되지 않았습니다. 모델 출력을 확인하세요.")
         return beats_sec, _median_bpm(beats_sec)
-    except Exception:
-        pass
-
-    # 방법 2: 로컬 레포 code/ 디렉터리에서 inference 모듈 탐색
-    candidate_dirs = [BT_LOCAL_PATH,
-                      os.path.join(BT_LOCAL_PATH, "code") if BT_LOCAL_PATH else ""]
-    for d in candidate_dirs:
-        if not d or not os.path.isdir(d):
-            continue
-        if d not in sys.path:
-            sys.path.insert(0, d)
-        # inference.py 직접 실행 방식 (subprocess)
-        infer_py = os.path.join(d, "inference.py")
-        if os.path.isfile(infer_py):
-            import subprocess, json, tempfile
-            with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tf:
-                out_path = tf.name
-            try:
-                result = subprocess.run(
-                    [sys.executable, infer_py,
-                     "--audio", audio_path,
-                     "--out_json", out_path],
-                    capture_output=True, text=True, timeout=300
-                )
-                if result.returncode == 0 and os.path.isfile(out_path):
-                    with open(out_path) as f:
-                        data = json.load(f)
-                    beats_sec = sorted(float(b) for b in data.get("beats", []))
-                    if beats_sec:
-                        return beats_sec, _median_bpm(beats_sec)
-            except Exception:
-                pass
-            finally:
-                if os.path.isfile(out_path):
-                    os.unlink(out_path)
-
-    raise RuntimeError(
-        "Beat Transformer 실행 실패.\n"
-        "1) GUI에서 Beat-Transformer 클론 폴더를 지정하고 [적용]을 누르세요.\n"
-        "2) pip install torch torchaudio einops 설치 확인\n"
-        "3) 또는 엔진을 librosa로 변경하세요."
-    )
+    finally:
+        if os.path.isfile(out_path):
+            os.unlink(out_path)
 
 def detect_beats_madmom(audio_path):
     from madmom.features.beats import DBNBeatTrackingProcessor, RNNBeatProcessor
