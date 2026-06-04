@@ -46,31 +46,29 @@ HAS_BT = False
 BT_LOCAL_PATH = ""   # 로컬 클론 경로 (GUI에서 설정)
 
 def _try_load_bt(local_path=""):
-    """Beat Transformer 임포트 시도. local_path 있으면 sys.path에 추가."""
+    """
+    Beat Transformer 경로 검증.
+    패키지 임포트 대신 checkpoint/ 폴더 존재 여부로 판단.
+    (이 레포는 pip 패키지가 아니라 스크립트 모음이라 임포트 불가)
+    """
     global HAS_BT, BT_LOCAL_PATH
-    if local_path and os.path.isdir(local_path):
-        if local_path not in sys.path:
-            sys.path.insert(0, local_path)
-        BT_LOCAL_PATH = local_path
-    try:
-        import importlib
-        import beat_transformer as _bt
-        importlib.reload(_bt)          # 경로 변경 후 재로드
-        HAS_BT = True
-        return True
-    except Exception:
-        HAS_BT = False
-        return False
+    # 루트 또는 상위 폴더에 checkpoint/ 가 있으면 유효
+    for check_root in [local_path,
+                       os.path.dirname(local_path) if local_path else ""]:
+        if not check_root or not os.path.isdir(check_root):
+            continue
+        ckpt = os.path.join(check_root, "checkpoint")
+        code = os.path.join(check_root, "code")
+        if os.path.isdir(ckpt) and os.path.isdir(code):
+            BT_LOCAL_PATH = check_root
+            HAS_BT = True
+            return True
+    HAS_BT = False
+    return False
 
-# 시작 시 자동 감지 (pip 설치 또는 같은 폴더에 있는 경우)
+# 시작 시 자동 감지 (tools/Beat-Transformer 에 클론했을 경우)
 _script_dir = os.path.dirname(os.path.abspath(__file__))
-for _candidate in [
-    "",                                              # pip 설치
-    os.path.join(_script_dir, "Beat-Transformer"),  # tools/Beat-Transformer
-    os.path.join(_script_dir, "beat_transformer"),  # tools/beat_transformer
-]:
-    if _try_load_bt(_candidate):
-        break
+_try_load_bt(os.path.join(_script_dir, "Beat-Transformer"))
 
 # madmom
 HAS_MADMOM = False
@@ -168,9 +166,34 @@ def detect_beats_beat_transformer(audio_path):
             os.unlink(out_path)
 
 def detect_beats_madmom(audio_path):
+    """
+    madmom DBNBeatTracker.
+    MP3는 ffmpeg 없이 못 읽으므로 librosa로 먼저 WAV로 변환 후 넘긴다.
+    """
+    import tempfile, shutil
     from madmom.features.beats import DBNBeatTrackingProcessor, RNNBeatProcessor
-    act   = RNNBeatProcessor()(audio_path)
-    beats = DBNBeatTrackingProcessor(fps=100)(act)
+
+    # MP3/M4A 등 → librosa로 로드 → 임시 WAV 저장
+    ext = os.path.splitext(audio_path)[1].lower()
+    if ext not in (".wav",) and HAS_LIBROSA:
+        y, sr = librosa.load(audio_path, sr=44100, mono=True)
+        tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp_wav.close()
+        import soundfile as sf
+        sf.write(tmp_wav.name, y, sr)
+        work_path = tmp_wav.name
+        cleanup = True
+    else:
+        work_path = audio_path
+        cleanup   = False
+
+    try:
+        act   = RNNBeatProcessor()(work_path)
+        beats = DBNBeatTrackingProcessor(fps=100)(act)
+    finally:
+        if cleanup and os.path.isfile(work_path):
+            os.unlink(work_path)
+
     beats_sec = sorted(float(b) for b in beats)
     return beats_sec, _median_bpm(beats_sec)
 
@@ -639,30 +662,35 @@ class App(tk.Tk):
         path = self.bt_path_var.get().strip()
         if not path or not os.path.isdir(path):
             messagebox.showerror("오류", "유효한 폴더를 선택하세요."); return
+
         ok = _try_load_bt(path)
         if ok:
-            self.bt_status_var.set("● 로드 성공!")
-            # 배너 업데이트
-            messagebox.showinfo("성공", f"Beat Transformer 로드 완료\n경로: {path}")
+            self.bt_status_var.set(f"● 감지됨  ({BT_LOCAL_PATH})")
+            messagebox.showinfo("성공",
+                f"Beat Transformer 경로 설정 완료!\n\n"
+                f"루트: {BT_LOCAL_PATH}\n"
+                f"checkpoint/: ✓\n"
+                f"code/: ✓\n\n"
+                f"이제 엔진에서 Beat Transformer (~91%) 를 선택하세요.")
         else:
-            # code/ 서브폴더도 시도
-            code_path = os.path.join(path, "code")
-            ok = _try_load_bt(code_path)
-            if ok:
-                self.bt_status_var.set("● 로드 성공! (code/ 서브폴더)")
-                messagebox.showinfo("성공", f"Beat Transformer 로드 완료\n경로: {code_path}")
-            else:
-                self.bt_status_var.set("✗ 로드 실패 — beat_transformer 모듈 없음")
-                messagebox.showerror(
-                    "로드 실패",
-                    "beat_transformer 모듈을 찾을 수 없습니다.\n\n"
-                    "폴더 구조 확인:\n"
-                    "  Beat-Transformer/\n"
-                    "  └── code/\n"
-                    "      └── beat_transformer/  ← 여기에 __init__.py 있어야 함\n\n"
-                    "또는 아래 명령으로 의존성 설치:\n"
-                    "pip install torch torchaudio librosa einops"
-                )
+            # 안내: checkpoint/ 와 code/ 가 있는 루트를 선택해야 함
+            ckpt = os.path.join(path, "checkpoint")
+            code = os.path.join(path, "code")
+            missing = []
+            if not os.path.isdir(ckpt): missing.append("checkpoint/  ← 없음")
+            if not os.path.isdir(code): missing.append("code/  ← 없음")
+            self.bt_status_var.set("✗ 경로 오류 — 루트 폴더를 선택하세요")
+            messagebox.showerror(
+                "경로 오류",
+                "Beat-Transformer 루트 폴더를 선택하세요.\n\n"
+                "올바른 구조:\n"
+                "  Beat-Transformer/      ← 이 폴더를 선택\n"
+                "  ├── checkpoint/\n"
+                "  ├── code/\n"
+                "  └── ...\n\n"
+                f"현재 선택: {path}\n"
+                + ("\n미발견:\n  " + "\n  ".join(missing) if missing else "")
+            )
 
     def _update_audio_id(self, *_):
         p = self.audio_var.get().strip()
