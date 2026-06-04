@@ -67,6 +67,29 @@ object BeatDetectorRouter {
             )
         }
 
+        12 -> { // BeatDetectorV3 = V12 (Fix 1~5 적용)
+            val r = BeatDetectorV3.detect(lowEnv, midEnv, fullEnv,
+                BeatDetectorV3.Params(
+                    hopMs             = hopMs,
+                    minBeatMs         = minBeatMs.coerceAtLeast(430L),
+                    maxBeatMs         = maxBeatMs.coerceAtMost(1000L),
+                    minPeakDistanceMs = 140L,
+                    onsetSmoothWindow = 3,
+                    peakThresholdK    = 0.28f,
+                    minPeakAbs        = 0.07f,
+                    snapToleranceMs   = 130L,
+                    chainToleranceMs  = 150L,
+                    minChainCount     = 3,
+                    continuityBonus   = 0.08f
+                ))
+            BeatInfo(
+                beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
+                beatMs      = r.beatMs,
+                beatsPerBar = r.timeSignature.beatsPerBar,
+                downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
+            )
+        }
+
         else -> { // 11 (BeatDetectorV2 = V11)
             val r = BeatDetectorV2.detect(lowEnv, midEnv, fullEnv,
                 BeatDetectorV2.Params(

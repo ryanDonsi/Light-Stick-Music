@@ -33,8 +33,8 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
         private const val HOP_MS      = 50L
-        private const val MIN_BEAT_MS = 290L
-        private const val MAX_BEAT_MS = 1200L
+        private const val MIN_BEAT_MS = 430L   // Fix 1: 290 → 430ms (8분음표 오탐 방지)
+        private const val MAX_BEAT_MS = 1000L  // Fix 1: 1200 → 1000ms
 
         private const val ON_TRANSIT = 2
 
@@ -113,9 +113,9 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        // ── 1. Beat detection (BeatDetectorV2 고정) ───────────────
-        val beatResult = BeatDetectorV2.detect(lowEnv, midEnv, fullEnv,
-            BeatDetectorV2.Params(
+        // ── 1. Beat detection (BeatDetectorV3 고정) ───────────────
+        val beatResult = BeatDetectorV3.detect(lowEnv, midEnv, fullEnv,
+            BeatDetectorV3.Params(
                 hopMs             = HOP_MS,
                 minBeatMs         = MIN_BEAT_MS,
                 maxBeatMs         = MAX_BEAT_MS,
@@ -130,7 +130,6 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             ))
         val beatInfoBeats  = beatResult.beats.map { BeatDetectorRouter.BeatInfo.Beat(it.timeMs, it.confidence) }
         val globalBeatMs   = beatResult.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
-            .let { if (it > 900L) it / 2L else it }
         val beatsPerBar    = beatResult.timeSignature.beatsPerBar
         val downbeatMs     = (beatResult.beats.firstOrNull()?.timeMs ?: 0L) + beatResult.downbeatOffsetMs
         val beatTimesMs    = beatInfoBeats.map { it.timeMs }.filter { it in 0..durationMs }
