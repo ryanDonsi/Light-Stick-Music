@@ -206,28 +206,66 @@ object BeatDetectorV3 {
         val dpTimes    = dpBeatTracker(globalOdf, finalBeatMs, params.hopMs, durationMs)
 
         // DP 결과와 실제 감지 비트를 병합: 실제 비트 우선, DP는 갭 채움
-        val detectedSet = dedupedBeats.associate { it.timeMs to it.confidence }
-        val mergedMap   = LinkedHashMap<Long, Float>()
-        for (t in dpTimes)                       mergedMap[t] = FILL_CONFIDENCE
-        for ((t, conf) in detectedSet)           mergedMap[t] = conf   // 실제 감지 우선
-        val filledBeats = mergedMap.entries
-            .sortedBy { it.key }
-            .map { TimedBeat(it.key, it.value) }
+        // 버킷 단위(finalBeatMs/4)로 반올림해 같은 버킷이면 높은 confidence만 유지 → 50ms 아티팩트 제거
+        val bucketMs    = (finalBeatMs / 4L).coerceAtLeast(1L)
+        val bucketMap   = LinkedHashMap<Long, TimedBeat>()
+        for (t in dpTimes) {
+            val bucket = t / bucketMs
+            val existing = bucketMap[bucket]
+            if (existing == null || FILL_CONFIDENCE > existing.confidence) {
+                bucketMap[bucket] = TimedBeat(t, FILL_CONFIDENCE)
+            }
+        }
+        for (b in dedupedBeats) {
+            val bucket = b.timeMs / bucketMs
+            val existing = bucketMap[bucket]
+            if (existing == null || b.confidence > existing.confidence) {
+                bucketMap[bucket] = b   // 실제 감지 우선
+            }
+        }
+        val mergedSorted = bucketMap.values.sortedBy { it.timeMs }
+
+        // 최소 간격(finalBeatMs * 0.45)보다 가까운 중복 제거
+        val minMergeGapMs = (finalBeatMs * 0.45f).toLong()
+        val filledBeats = ArrayList<TimedBeat>(mergedSorted.size)
+        for (b in mergedSorted) {
+            val last = filledBeats.lastOrNull()
+            when {
+                last == null -> filledBeats += b
+                b.timeMs - last.timeMs >= minMergeGapMs -> filledBeats += b
+                b.confidence > last.confidence -> filledBeats[filledBeats.lastIndex] = b
+            }
+        }
 
         // 곡 앞/뒤 빈 구간 채우기
-        val firstTime    = filledBeats.first().timeMs
+        val firstTime    = filledBeats.firstOrNull()?.timeMs ?: 0L
         val initialFills = ArrayList<TimedBeat>()
         var tStart = firstTime - finalBeatMs
-        while (tStart >= 0) { initialFills.add(TimedBeat(tStart, 0.5f)); tStart -= finalBeatMs }
+        while (tStart >= 0) { initialFills.add(TimedBeat(tStart, FILL_CONFIDENCE)); tStart -= finalBeatMs }
         initialFills.reverse()
 
         val withHead  = initialFills + filledBeats
-        val lastTime  = withHead.last().timeMs
+        val lastTime  = withHead.lastOrNull()?.timeMs ?: 0L
         val tailFills = ArrayList<TimedBeat>()
         var tEnd = lastTime + finalBeatMs
-        while (tEnd <= durationMs) { tailFills.add(TimedBeat(tEnd, 0.5f)); tEnd += finalBeatMs }
+        while (tEnd <= durationMs) { tailFills.add(TimedBeat(tEnd, FILL_CONFIDENCE)); tEnd += finalBeatMs }
 
-        val completeBeats = withHead + tailFills
+        // 중간 대형 갭(> finalBeatMs * 1.5) 그리드 채우기
+        val withTail     = withHead + tailFills
+        val gapThreshMs  = (finalBeatMs * 1.5f).toLong()
+        val completeList = ArrayList<TimedBeat>(withTail.size + 32)
+        completeList += withTail.first()
+        for (i in 1 until withTail.size) {
+            val prev = withTail[i - 1]
+            val cur  = withTail[i]
+            var gapT = prev.timeMs + finalBeatMs
+            while (cur.timeMs - gapT > gapThreshMs / 2) {
+                completeList += TimedBeat(gapT, FILL_CONFIDENCE)
+                gapT += finalBeatMs
+            }
+            completeList += cur
+        }
+        val completeBeats = completeList
 
         val timeSignature = detectTimeSignature(globalOdf, finalBeatMs, params.hopMs)
         Log.d(TAG, "V3 timeSignature=${timeSignature.type}")
