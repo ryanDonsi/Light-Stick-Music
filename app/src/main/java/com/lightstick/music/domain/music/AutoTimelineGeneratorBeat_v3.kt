@@ -144,7 +144,8 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         val detectedSections = SectionDetectorV1().detect(
             lowEnv     = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beats      = beatInfoBeats,
-            beatMs     = globalBeatMs, durationMs = durationMs, hopMs = HOP_MS
+            beatMs     = globalBeatMs, durationMs = durationMs, hopMs = HOP_MS,
+            beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
         )
         Log.d(TAG, "v3 sections=${detectedSections.size}")
 

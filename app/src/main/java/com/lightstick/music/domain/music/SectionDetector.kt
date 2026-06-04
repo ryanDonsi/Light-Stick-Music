@@ -35,6 +35,9 @@ interface SectionDetector {
      * @param beatMs   전곡 글로벌 BPM (ms)
      * @param durationMs 전곡 길이 (ms)
      * @param hopMs    엔벨로프 프레임 간격 (기본 50ms)
+     * @param highEnv  고역 엔벨로프 (선택)
+     * @param beatsPerBar 시간 서명 분자 (기본 4 = 4/4박자)
+     * @param downbeatMs 첫 번째 다운비트 시간 (ms)
      * @return 구간별 Section 목록 (시간 순, 전체 길이 커버)
      */
     fun detect(
@@ -45,6 +48,8 @@ interface SectionDetector {
         beatMs: Long,
         durationMs: Long,
         hopMs: Long = 50L,
-        highEnv: List<Float> = emptyList()
+        highEnv: List<Float> = emptyList(),
+        beatsPerBar: Int = 4,
+        downbeatMs: Long = 0L
     ): List<Section>
 }

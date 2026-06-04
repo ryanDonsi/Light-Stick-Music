@@ -77,7 +77,9 @@ class SectionDetectorV1 : SectionDetector {
         beatMs: Long,
         durationMs: Long,
         hopMs: Long,
-        highEnv: List<Float>
+        highEnv: List<Float>,
+        beatsPerBar: Int,
+        downbeatMs: Long
     ): List<SectionDetector.Section> {
         if (fullEnv.isEmpty()) return emptyList()
 
@@ -92,7 +94,7 @@ class SectionDetectorV1 : SectionDetector {
         val rawSections = buildSectionsFromWindows(windows, durationMs, lowTh, highTh)
 
         val sortedBeatTimes = beats.map { it.timeMs }.toLongArray().also { it.sort() }
-        val alignedSections = alignBoundariesToBeats(rawSections, sortedBeatTimes, durationMs)
+        val alignedSections = alignBoundariesToBeats(rawSections, sortedBeatTimes, durationMs, beatMs, beatsPerBar, downbeatMs)
 
         val sections = distributeBeatsToSections(alignedSections, beats, beatMs, sortedBeatTimes)
         val climaxMoments = detectClimaxMoments(fullEnv, durationMs, hopMs, beatMs)
@@ -319,12 +321,19 @@ class SectionDetectorV1 : SectionDetector {
     private fun alignBoundariesToBeats(
         sections: List<FeatureWindow>,
         sortedBeatTimes: LongArray,
-        durationMs: Long
+        durationMs: Long,
+        beatMs: Long,
+        beatsPerBar: Int,
+        downbeatMs: Long
     ): List<FeatureWindow> {
-        if (sections.size <= 1 || sortedBeatTimes.isEmpty()) return sections
+        if (sections.size <= 1) return sections
 
         val result  = ArrayList<FeatureWindow>(sections.size)
         var prevEnd = 0L
+
+        // Bar 경계 생성 (downbeatMs, downbeatMs + barMs, downbeatMs + 2*barMs, ...)
+        val barMs = beatMs * beatsPerBar.coerceAtLeast(1)
+        val barBoundaries = generateBarBoundaries(downbeatMs, durationMs, barMs)
 
         for (i in sections.indices) {
             val s      = sections[i]
@@ -332,7 +341,7 @@ class SectionDetectorV1 : SectionDetector {
             val rawEnd = if (isLast) durationMs else s.endMs
 
             val snappedEnd = if (isLast) durationMs
-                             else snapToNearestBeat(rawEnd, sortedBeatTimes, ALIGN_SNAP_MS)
+                             else snapToNearestBar(rawEnd, barBoundaries, ALIGN_SNAP_MS)
 
             val start = prevEnd
             val end   = max(start + 1L, snappedEnd)
@@ -365,6 +374,45 @@ class SectionDetectorV1 : SectionDetector {
             if (d <= snapWindowMs && d < bestDist) {
                 bestDist = d
                 best     = sortedBeatTimes[idx]
+            }
+        }
+
+        return best
+    }
+
+    // ── Bar 경계 기반 스냅 ────────────────────────────────────────
+    private fun generateBarBoundaries(downbeatMs: Long, durationMs: Long, barMs: Long): LongArray {
+        val boundaries = ArrayList<Long>()
+        var t = downbeatMs
+        while (t <= durationMs) {
+            if (t >= 0L) boundaries += t
+            t += barMs
+        }
+        return boundaries.toLongArray()
+    }
+
+    private fun snapToNearestBar(
+        targetMs: Long,
+        barBoundaries: LongArray,
+        snapWindowMs: Long
+    ): Long {
+        if (barBoundaries.isEmpty()) return targetMs
+
+        // Binary search for insertion point
+        var lo = 0; var hi = barBoundaries.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (barBoundaries[mid] < targetMs) lo = mid + 1 else hi = mid
+        }
+
+        var best     = targetMs
+        var bestDist = Long.MAX_VALUE
+
+        for (idx in max(0, lo - 1)..min(barBoundaries.lastIndex, lo + 1)) {
+            val d = abs(barBoundaries[idx] - targetMs)
+            if (d <= snapWindowMs && d < bestDist) {
+                bestDist = d
+                best     = barBoundaries[idx]
             }
         }
 

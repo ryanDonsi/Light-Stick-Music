@@ -15,19 +15,23 @@ object SectionDetectorRouter {
         beats: List<BeatDetectorRouter.BeatInfo.Beat>,
         beatMs: Long,
         durationMs: Long,
-        hopMs: Long
+        hopMs: Long,
+        beatsPerBar: Int = 4,
+        downbeatMs: Long = 0L
     ): List<SectionDetector.Section> = when (version) {
         2    -> SectionDetectorV2().detect(
             lowEnv     = lowEnv, midEnv     = midEnv,
             fullEnv    = fullEnv, highEnv   = highEnv,
             beats      = beats,  beatMs     = beatMs,
-            durationMs = durationMs,  hopMs = hopMs
+            durationMs = durationMs,  hopMs = hopMs,
+            beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
         )
         else -> SectionDetectorV1().detect(
             lowEnv     = lowEnv, midEnv     = midEnv,
             fullEnv    = fullEnv, highEnv   = highEnv,
             beats      = beats,  beatMs     = beatMs,
-            durationMs = durationMs,  hopMs = hopMs
+            durationMs = durationMs,  hopMs = hopMs,
+            beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
         )
     }
 }

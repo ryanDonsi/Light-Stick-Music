@@ -103,7 +103,9 @@ class SectionDetectorV2 : SectionDetector {
         beatMs: Long,
         durationMs: Long,
         hopMs: Long,
-        highEnv: List<Float>
+        highEnv: List<Float>,
+        beatsPerBar: Int,
+        downbeatMs: Long
     ): List<SectionDetector.Section> {
         if (fullEnv.isEmpty()) return emptyList()
 
