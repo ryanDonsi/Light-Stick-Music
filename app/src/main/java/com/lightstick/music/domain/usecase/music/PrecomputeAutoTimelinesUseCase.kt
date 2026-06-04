@@ -7,6 +7,7 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.AutoTimelineGenerator
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v0
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v3
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v4
 import com.lightstick.music.domain.music.SectionAwareGenerator
@@ -72,9 +73,10 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         }
 
         val generator: AutoTimelineGenerator = when (AutoTimelineConfig.GENERATOR_VERSION) {
+            0  -> AutoTimelineGeneratorBeat_v0()
             3  -> AutoTimelineGeneratorBeat_v3()
             4  -> AutoTimelineGeneratorBeat_v4()
-            else -> throw IllegalArgumentException("Unsupported generator version: ${AutoTimelineConfig.GENERATOR_VERSION} (supported: 3, 4)")
+            else -> throw IllegalArgumentException("Unsupported generator version: ${AutoTimelineConfig.GENERATOR_VERSION} (supported: 0, 3, 4)")
         }
         val sectionStorage = if (generator is SectionAwareGenerator) SectionMetaStorage(version) else null
 
