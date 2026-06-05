@@ -81,7 +81,7 @@ def _auto_detect_bt():
     1) 이전 세션에서 저장한 경로 (.bt_path)
     2) 스크립트와 같은 폴더 (tools/Beat-Transformer)
     3) 스크립트 상위 폴더들 (프로젝트 루트 등)
-    4) 현재 드라이브 루트 직하위 (C:\Beat-Transformer 등)
+    4) 현재 드라이브 루트 직하위 (C:\\Beat-Transformer 등)
     """
     candidates = []
 
