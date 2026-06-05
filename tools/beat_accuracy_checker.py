@@ -37,6 +37,31 @@ try:
     import matplotlib.gridspec as gridspec
     import matplotlib.patches as mpatches
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib import font_manager
+
+    def _setup_korean_font():
+        """OS별 한글 폰트를 자동 탐색하여 matplotlib에 적용한다."""
+        candidates = [
+            # Windows
+            "Malgun Gothic", "맑은 고딕",
+            # Mac
+            "AppleGothic", "Apple SD Gothic Neo",
+            # Linux (nanum 계열)
+            "NanumGothic", "NanumBarunGothic", "NanumSquare",
+            # 범용 CJK
+            "Noto Sans CJK KR", "Noto Sans KR", "UnDotum",
+        ]
+        available = {f.name for f in font_manager.fontManager.ttflist}
+        for name in candidates:
+            if name in available:
+                matplotlib.rcParams["font.family"] = name
+                matplotlib.rcParams["axes.unicode_minus"] = False
+                return name
+        # 못 찾으면 마이너스 부호 깨짐만 방지
+        matplotlib.rcParams["axes.unicode_minus"] = False
+        return None
+
+    _setup_korean_font()
     HAS_MPL = True
 except ImportError:
     HAS_MPL = False
