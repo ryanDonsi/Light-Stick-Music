@@ -772,12 +772,11 @@ class App(tk.Tk):
         self.tl_canvas.pack(fill="x", padx=4, pady=(0, 4))
         self.tl_canvas.bind("<Configure>", lambda e: self._redraw_timeline())
 
-        # ── 3열 메인 영역 ──────────────────────────
+        # ── 2열 메인 영역 ──────────────────────────
         main = tk.Frame(self)
         main.pack(fill="both", expand=True, padx=6, pady=4)
         main.columnconfigure(0, weight=2, minsize=240)
-        main.columnconfigure(1, weight=3, minsize=280)
-        main.columnconfigure(2, weight=3, minsize=280)
+        main.columnconfigure(1, weight=4, minsize=400)
         main.rowconfigure(0, weight=1)
 
         # ══════════════════════════════════════════
@@ -866,9 +865,24 @@ class App(tk.Tk):
         self._tree.column("bt",      width=60,  stretch=False, anchor="center")
         self._tree.column("madmom",  width=60,  stretch=False, anchor="center")
         self._tree.column("librosa", width=60,  stretch=False, anchor="center")
-        self._tree.tag_configure("matched",   foreground="#69f0ae")
-        self._tree.tag_configure("unmatched", foreground="#ef9a9a")
+        # Treeview 기본 스타일: 진회색
+        _ts = ttk.Style()
+        _ts.configure("Treeview",
+                       foreground="#546e7a", background="#1a1a2e",
+                       fieldbackground="#1a1a2e", rowheight=24)
+        _ts.configure("Treeview.Heading",
+                       foreground="#90a4ae", background="#263238", relief="flat")
+        _ts.map("Treeview",
+                background=[("selected", "#1e3a5f")],
+                foreground=[("selected", "#e0e0e0")])
+        # 매칭 상태 태그
+        self._tree.tag_configure("matched",   foreground="#546e7a")
+        self._tree.tag_configure("unmatched", foreground="#b71c1c")
         self._tree.tag_configure("pending",   foreground="#ffcc02")
+        # 등급별 태그 (분석 후 행 전체에 적용)
+        for _g, _c in [("S", "#69f0ae"), ("A", "#82b1ff"),
+                        ("B", "#ffcc02"), ("C", "#ff8c42"), ("D", "#ef9a9a")]:
+            self._tree.tag_configure(f"grade_{_g}", foreground=_c)
         tree_sb = tk.Scrollbar(tree_wrap, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=tree_sb.set)
         self._tree.grid(row=0, column=0, sticky="nsew")
@@ -898,15 +912,22 @@ class App(tk.Tk):
         self.save_btn.pack(side="left", padx=2)
 
         # ══════════════════════════════════════════
-        # 2열: 분석 결과
+        # 2열: 분석 결과(위) + 분석 로그(아래)
         # ══════════════════════════════════════════
-        col2 = tk.Frame(main, bg="#1a1a2e", bd=1, relief="solid")
-        col2.grid(row=0, column=1, sticky="nsew", padx=3)
-        col2.rowconfigure(1, weight=1)
+        col2 = tk.Frame(main)
+        col2.grid(row=0, column=1, sticky="nsew", padx=(3, 0))
         col2.columnconfigure(0, weight=1)
+        col2.rowconfigure(0, weight=3)
+        col2.rowconfigure(1, weight=2)
+
+        # 2열 1행: 분석 결과
+        results_frame = tk.Frame(col2, bg="#1a1a2e", bd=1, relief="solid")
+        results_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 3))
+        results_frame.rowconfigure(1, weight=1)
+        results_frame.columnconfigure(0, weight=1)
 
         # 등급 헤더
-        self.grade_frame = tk.Frame(col2, bg="#263238")
+        self.grade_frame = tk.Frame(results_frame, bg="#263238")
         self.grade_frame.pack(fill="x")
         self.grade_label = tk.Label(self.grade_frame, text="—",
                                     font=("", 36, "bold"), width=3,
@@ -931,7 +952,7 @@ class App(tk.Tk):
         )
 
         # 지표 카드들
-        metrics_frame = tk.Frame(col2, bg="#1a1a2e")
+        metrics_frame = tk.Frame(results_frame, bg="#1a1a2e")
         metrics_frame.pack(fill="both", expand=True, padx=8, pady=6)
 
         def _card(parent, row, col, title, var, color="#ffffff", colspan=1):
@@ -979,7 +1000,7 @@ class App(tk.Tk):
         _card(metrics_frame, 3, 1, "BPM (GT)",    self.v_bpm_g,"#ffffff")
         _card(metrics_frame, 3, 2, "BPM 오차",    self.v_bpm_e,"#ffcc02")
 
-        advice_f = tk.Frame(col2, bg="#37474f")
+        advice_f = tk.Frame(results_frame, bg="#37474f")
         advice_f.pack(fill="x", padx=8, pady=(0, 8))
         advice_hdr = tk.Frame(advice_f, bg="#37474f")
         advice_hdr.pack(anchor="w", padx=6, pady=(3, 0), fill="x")
@@ -1001,15 +1022,10 @@ class App(tk.Tk):
                  anchor="w", padx=8, pady=(0, 6))
 
         # ══════════════════════════════════════════
-        # 3열: 분석 로그
+        # 2열 2행: 분석 로그
         # ══════════════════════════════════════════
-        col3 = tk.Frame(main)
-        col3.grid(row=0, column=2, sticky="nsew", padx=(3, 0))
-        col3.rowconfigure(0, weight=1)
-        col3.columnconfigure(0, weight=1)
-
-        log_frame = tk.LabelFrame(col3, text="분석 로그", bg="#1a1a2e", fg="#90a4ae")
-        log_frame.grid(row=0, column=0, sticky="nsew")
+        log_frame = tk.LabelFrame(col2, text="분석 로그", bg="#1a1a2e", fg="#90a4ae")
+        log_frame.grid(row=1, column=0, sticky="nsew", pady=(3, 0))
         log_frame.rowconfigure(0, weight=1)
         log_frame.columnconfigure(0, weight=1)
         self.out = scrolledtext.ScrolledText(log_frame, font=("Courier", 9),
@@ -1141,6 +1157,7 @@ class App(tk.Tk):
 
     def _save_result_to_item(self, audio_path, engine, grade, f_score):
         """분석 결과를 해당 항목에 저장하고 Treeview 컬럼을 갱신한다."""
+        _grade_order = ["S", "A", "B", "C", "D", "!"]
         col_idx = {"beat_transformer": 3, "madmom": 4, "librosa": 5}
         label = f"{grade} {f_score*100:.0f}%"
         for iid, item in self._audio_items.items():
@@ -1152,7 +1169,16 @@ class App(tk.Tk):
                     while len(vals) < 6:
                         vals.append("미분석")
                     vals[col_idx[engine]] = label
-                    self._tree.item(iid, values=tuple(vals))
+                    # pick best grade across all analyzed engines for row color
+                    results = item["results"]
+                    best = max(
+                        (r["grade"] for r in results.values() if r["grade"] in _grade_order),
+                        key=lambda g: -_grade_order.index(g),
+                        default=None
+                    )
+                    match_tag = "matched" if item.get("bin_path") else "unmatched"
+                    tags = (match_tag,) + ((f"grade_{best}",) if best else ())
+                    self._tree.item(iid, values=tuple(vals), tags=tags)
                 except Exception:
                     pass
                 break
