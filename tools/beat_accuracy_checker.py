@@ -547,6 +547,124 @@ def _draw_beat_lanes(ax, ref_sec, app_sec, tp_est, fp_est, fn_ref,
 # GUI
 # ──────────────────────────────────────────────
 
+class _Tooltip:
+    """위젯에 마우스 오버 툴팁을 달아주는 헬퍼."""
+
+    _BG  = "#37474f"
+    _FG  = "#eceff1"
+    _PAD = 6
+
+    def __init__(self, widget, text, delay=400):
+        self._widget = widget
+        self._text   = text
+        self._delay  = delay
+        self._tip    = None
+        self._job    = None
+        widget.bind("<Enter>",    self._schedule, add="+")
+        widget.bind("<Leave>",    self._cancel,   add="+")
+        widget.bind("<Button>",   self._cancel,   add="+")
+
+    def _schedule(self, _evt=None):
+        self._cancel()
+        self._job = self._widget.after(self._delay, self._show)
+
+    def _cancel(self, _evt=None):
+        if self._job:
+            self._widget.after_cancel(self._job)
+            self._job = None
+        if self._tip:
+            self._tip.destroy()
+            self._tip = None
+
+    def _show(self):
+        x = self._widget.winfo_rootx() + self._widget.winfo_width() // 2
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
+        self._tip = tw = tk.Toplevel(self._widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        tw.attributes("-topmost", True)
+        lbl = tk.Label(tw, text=self._text, justify="left",
+                       bg=self._BG, fg=self._FG,
+                       font=("", 9), relief="solid", bd=1,
+                       padx=self._PAD, pady=self._PAD,
+                       wraplength=320)
+        lbl.pack()
+
+
+def _attach_tooltip(widget, text):
+    _Tooltip(widget, text)
+
+
+# ── 각 지표별 툴팁 설명 ────────────────────────────────────────────
+_TIPS = {
+    "F-measure": (
+        "F-measure (F1 점수)\n"
+        "Precision과 Recall의 조화평균.\n"
+        "비트 감지 정확도를 나타내는 종합 지표.\n\n"
+        "F = 2·P·R / (P+R)\n"
+        "허용 오차 ±70ms 이내를 '일치'로 판정.\n"
+        "  S ≥ 90%  /  A ≥ 80%  /  B ≥ 70%\n"
+        "  C ≥ 55%  /  D < 55%"
+    ),
+    "Precision": (
+        "Precision (정밀도)\n"
+        "앱이 감지한 비트 중 실제로 맞은 비율.\n\n"
+        "P = TP / (TP + FP)\n\n"
+        "낮으면 앱이 없는 비트를 많이 만들어낸 것 (오감지 과다)."
+    ),
+    "Recall": (
+        "Recall (재현율)\n"
+        "실제 비트 중 앱이 맞게 감지한 비율.\n\n"
+        "R = TP / (TP + FN)\n\n"
+        "낮으면 앱이 실제 비트를 많이 놓친 것 (누락 과다)."
+    ),
+    "커버리지": (
+        "커버리지 (Coverage)\n"
+        "앱 비트가 곡 전체 구간에 얼마나 고르게 분포하는지.\n\n"
+        "= (마지막 비트 시각 − 첫 비트 시각) / 곡 길이\n\n"
+        "낮으면 곡의 앞이나 뒤 구간에 비트가 없는 것."
+    ),
+    "TP (일치)": (
+        "True Positive (일치)\n"
+        "앱 비트와 GT 비트가 ±허용오차 이내에서 매칭된 수.\n"
+        "많을수록 좋음."
+    ),
+    "FP (오감지)": (
+        "False Positive (오감지)\n"
+        "앱이 감지했지만 GT 기준으로는 존재하지 않는 비트.\n"
+        "많으면 타임라인에 불필요한 이벤트가 많다는 뜻."
+    ),
+    "FN (누락)": (
+        "False Negative (누락)\n"
+        "GT에는 있지만 앱이 감지하지 못한 비트.\n"
+        "많으면 타임라인에 빠진 이벤트가 많다는 뜻."
+    ),
+    "대형갭": (
+        "대형갭 (Large Gap)\n"
+        "연속 비트 간격이 예상 박자 간격의 2배를 초과하는 횟수.\n\n"
+        "예: BPM 130이면 정상 간격 ≈ 461ms,\n"
+        "    922ms 초과 간격이 나타날 때마다 +1 카운트.\n\n"
+        "0이 이상적. 높으면 특정 구간에서 비트가 뚝 끊긴 것."
+    ),
+    "BPM (앱)": (
+        "BPM — 앱 타임라인 기준\n"
+        "앱이 생성한 타임라인의 비트 간격 중앙값으로 계산한 BPM.\n"
+        "(60 000ms / 중앙 간격ms)"
+    ),
+    "BPM (GT)": (
+        "BPM — Ground Truth 기준\n"
+        "Beat Transformer / madmom / librosa가 감지한\n"
+        "실제 비트 간격 중앙값으로 계산한 BPM."
+    ),
+    "BPM 오차": (
+        "BPM 오차\n"
+        "앱 BPM과 GT BPM의 절대 차이.\n\n"
+        "±2 BPM 이내면 정상,\n"
+        "5 이상이면 템포 자체가 맞지 않을 가능성이 높음."
+    ),
+}
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -692,6 +810,20 @@ class App(tk.Tk):
                                   font=("", 10), bg="#263238", fg="#b0bec5",
                                   justify="left", anchor="w")
         self.grade_sub.pack(side="left", fill="x", expand=True)
+        _grade_tip = tk.Label(self.grade_frame, text="?", bg="#263238", fg="#546e7a",
+                              font=("", 10, "bold"), cursor="question_arrow",
+                              padx=6)
+        _grade_tip.pack(side="right", pady=6)
+        _attach_tooltip(_grade_tip,
+            "종합 등급 (F-measure 기반)\n\n"
+            "  S  ≥ 90%   완벽에 가까운 정확도\n"
+            "  A  ≥ 80%   실사용에 충분한 수준\n"
+            "  B  ≥ 70%   약간의 오감지/누락 있음\n"
+            "  C  ≥ 55%   눈에 띄는 오류 다수\n"
+            "  D  < 55%   전면 재검토 필요\n\n"
+            "엔진별 기준이 달라 Beat Transformer 기준\n"
+            "S ≥ 90% / madmom S ≥ 87% / librosa S ≥ 68%"
+        )
 
         # 지표 카드들
         metrics_frame = tk.Frame(left, bg="#1a1a2e")
@@ -701,8 +833,15 @@ class App(tk.Tk):
             f = tk.Frame(parent, bg="#263238", bd=0, relief="flat")
             f.grid(row=row, column=col, columnspan=colspan,
                    sticky="nsew", padx=3, pady=3)
-            tk.Label(f, text=title, bg="#263238", fg="#78909c",
-                     font=("", 8)).pack(anchor="w", padx=6, pady=(4,0))
+            hdr = tk.Frame(f, bg="#263238")
+            hdr.pack(anchor="w", padx=6, pady=(4,0), fill="x")
+            tk.Label(hdr, text=title, bg="#263238", fg="#78909c",
+                     font=("", 8)).pack(side="left")
+            if title in _TIPS:
+                tip_lbl = tk.Label(hdr, text=" ?", bg="#263238", fg="#546e7a",
+                                   font=("", 8, "bold"), cursor="question_arrow")
+                tip_lbl.pack(side="left")
+                _attach_tooltip(tip_lbl, _TIPS[title])
             lbl = tk.Label(f, textvariable=var, bg="#263238", fg=color,
                            font=("", 15, "bold"))
             lbl.pack(anchor="w", padx=8, pady=(0,4))
@@ -738,8 +877,21 @@ class App(tk.Tk):
 
         advice_f = tk.Frame(left, bg="#37474f")
         advice_f.pack(fill="x", padx=8, pady=(0,8))
-        tk.Label(advice_f, text="권고", bg="#37474f", fg="#78909c",
-                 font=("",8)).pack(anchor="w", padx=6, pady=(3,0))
+        advice_hdr = tk.Frame(advice_f, bg="#37474f")
+        advice_hdr.pack(anchor="w", padx=6, pady=(3,0), fill="x")
+        tk.Label(advice_hdr, text="권고", bg="#37474f", fg="#78909c",
+                 font=("",8)).pack(side="left")
+        _adv_tip = tk.Label(advice_hdr, text=" ?", bg="#37474f", fg="#546e7a",
+                            font=("",8,"bold"), cursor="question_arrow")
+        _adv_tip.pack(side="left")
+        _attach_tooltip(_adv_tip,
+            "권고 메시지\n\n"
+            "분석 결과를 바탕으로 개선 방향을 제안합니다.\n"
+            "· Precision이 낮으면 → 오감지(FP) 줄이기\n"
+            "· Recall이 낮으면   → 누락(FN) 줄이기\n"
+            "· BPM 오차가 크면   → 템포 감지 로직 검토\n"
+            "· 대형갭이 많으면   → 갭 보정 로직 검토"
+        )
         tk.Label(advice_f, textvariable=self.v_advice, bg="#37474f", fg="#ffffff",
                  font=("",10), wraplength=280, justify="left").pack(
                  anchor="w", padx=8, pady=(0,6))
