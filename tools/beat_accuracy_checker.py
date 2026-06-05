@@ -278,12 +278,15 @@ def _median_bpm(beats_sec):
 # ──────────────────────────────────────────────
 
 def extract_music_id(filename):
+    """파일명에서 Music ID(숫자)를 추출. 못 찾으면 None 반환."""
     name = os.path.splitext(os.path.basename(filename))[0]
     m = re.search(r'timeline[_\-](\d+)', name)
     if m: return m.group(1)
+    # 파일명 전체가 숫자인 경우 (예: 923573155.mp3)
+    if re.fullmatch(r'\d+', name): return name
     m = re.search(r'(\d{5,})', name)
     if m: return m.group(1)
-    return name
+    return None
 
 def parse_timeline_binary(path):
     with open(path, "rb") as f:
@@ -1008,11 +1011,13 @@ class App(tk.Tk):
         p = self.audio_var.get().strip()
         if not p: self.audio_id_var.set("—"); return
         mid = extract_music_id(p)
-        self.audio_id_var.set(mid if mid != os.path.splitext(os.path.basename(p))[0] else "—")
+        self.audio_id_var.set(mid if mid else "—")
 
     def _update_bin_id(self, *_):
         p = self.bin_var.get().strip()
-        self.bin_id_var.set(extract_music_id(p) if p else "—")
+        if not p: self.bin_id_var.set("—"); return
+        mid = extract_music_id(p)
+        self.bin_id_var.set(mid if mid else "—")
 
     def _pick_audio(self):
         p = filedialog.askopenfilename(
@@ -1237,7 +1242,7 @@ class App(tk.Tk):
         version, frame_count, app_ms = parse_timeline_binary(bin_path)
         app_sec  = [t / 1000.0 for t in app_ms]
         app_st   = beat_stats(app_ms)
-        music_id = extract_music_id(bin_path)
+        music_id = extract_music_id(bin_path) or os.path.splitext(os.path.basename(bin_path))[0]
 
         def _lb():
             self._log(SEP, "gray")
