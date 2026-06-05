@@ -286,13 +286,20 @@ def compute_music_id(path: str) -> int:
     return _struct.unpack("<I", digest[:4])[0]
 
 def extract_music_id(filename):
-    """파일명에서 Music ID(숫자)를 추출. 못 찾으면 None 반환."""
+    """파일명에서 Music ID(숫자)를 추출. 음수(Android signed int32)도 unsigned로 변환."""
     name = os.path.splitext(os.path.basename(filename))[0]
-    m = re.search(r'timeline[_\-](\d+)', name)
-    if m: return m.group(1)
-    if re.fullmatch(r'\d+', name): return name
-    m = re.search(r'(\d{5,})', name)
-    if m: return m.group(1)
+
+    def _to_unsigned(val_str):
+        v = int(val_str)
+        if v < 0:
+            v = v + (1 << 32)
+        return str(v)
+
+    m = re.search(r'timeline[_\-](-?\d+)', name)
+    if m: return _to_unsigned(m.group(1))
+    if re.fullmatch(r'-?\d+', name): return _to_unsigned(name)
+    m = re.search(r'(-?\d{5,})', name)
+    if m: return _to_unsigned(m.group(1))
     return None
 
 def parse_timeline_binary(path):
@@ -685,9 +692,9 @@ class App(tk.Tk):
         self._build_ui()
 
     def _build_ui(self):
-        pad = dict(padx=8, pady=4)
+        pad = dict(padx=6, pady=3)
 
-        # ── 상단 엔진 상태 배너 ─────────────────────
+        # ── 상단 배너 ──────────────────────────────
         banner = tk.Frame(self, bg="#263238")
         banner.pack(fill="x")
         for txt, col in [
@@ -703,115 +710,168 @@ class App(tk.Tk):
             tk.Label(banner, text=txt, bg="#263238", fg=col,
                      font=("", 9, "bold")).pack(side="left", padx=10, pady=3)
 
-        # ── 음악 파일 목록 ──────────────────────────────
-        self._audio_items = {}  # iid -> {"path": str, "music_id": str, "bin_path": str}
-        fm = tk.LabelFrame(self, text="음악 파일 목록", **pad)
-        fm.pack(fill="x", **pad)
+        # ── 상태바 (하단 고정) ──────────────────────
+        self.status_var = tk.StringVar(value="음악 파일을 추가하고 [▶ 분석]을 누르세요.")
+        tk.Label(self, textvariable=self.status_var, anchor="w",
+                 relief="sunken", fg="#555").pack(fill="x", side="bottom")
 
-        btn_row = tk.Frame(fm)
-        btn_row.pack(fill="x", padx=4, pady=2)
-        tk.Button(btn_row, text="＋ 파일 추가", command=self._add_audio_files,
-                  bg="#1565c0", fg="white", font=("", 9, "bold")).pack(side="left", padx=4)
-        tk.Button(btn_row, text="－ 선택 제거", command=self._remove_audio_file,
-                  font=("", 9)).pack(side="left", padx=2)
+        # ── 하단 비트 타임라인 ─────────────────────
+        tl_frame = tk.LabelFrame(self, text="비트 타임라인",
+                                 bg="#1a1a2e", fg="#90a4ae")
+        tl_frame.pack(fill="x", side="bottom", padx=6, pady=(0, 2))
 
-        tree_frame = tk.Frame(fm)
-        tree_frame.pack(fill="x", padx=4, pady=(0, 4))
-        self._tree = ttk.Treeview(tree_frame,
-                                   columns=("name", "id", "match"),
-                                   show="headings", height=6, selectmode="browse")
-        self._tree.heading("name",  text="파일명")
-        self._tree.heading("id",    text="Music ID")
-        self._tree.heading("match", text="타임라인 매칭")
-        self._tree.column("name",  width=320, stretch=True)
-        self._tree.column("id",    width=130, stretch=False, anchor="center")
-        self._tree.column("match", width=220, stretch=True)
-        self._tree.tag_configure("matched",   foreground="#69f0ae")
-        self._tree.tag_configure("unmatched", foreground="#ef9a9a")
-        self._tree.tag_configure("pending",   foreground="#ffcc02")
-        sb = tk.Scrollbar(tree_frame, orient="vertical", command=self._tree.yview)
-        self._tree.configure(yscrollcommand=sb.set)
-        self._tree.pack(side="left", fill="x", expand=True)
-        sb.pack(side="right", fill="y")
-        self._tree.bind("<<TreeviewSelect>>", self._on_list_select)
+        tl_ctrl = tk.Frame(tl_frame, bg="#1a1a2e")
+        tl_ctrl.pack(fill="x", padx=6, pady=(3, 2))
+        legend_frame = tk.Frame(tl_ctrl, bg="#1a1a2e")
+        legend_frame.pack(side="left")
+        for lc, lt in [("#69f0ae", "■ 일치(TP)"), ("#ff5252", "■ 오감지(FP)"), ("#448aff", "■ 누락(FN)")]:
+            tk.Label(legend_frame, text=lt, bg="#1a1a2e", fg=lc,
+                     font=("", 8, "bold")).pack(side="left", padx=6)
+        tk.Label(tl_ctrl, text="  |", bg="#1a1a2e", fg="#37474f", font=("", 8)).pack(side="left")
+        tk.Label(tl_ctrl, text="시작(초):", bg="#1a1a2e", fg="#90a4ae",
+                 font=("", 8)).pack(side="left", padx=(8, 0))
+        self.zoom_s_var = tk.DoubleVar(value=0.0)
+        tk.Entry(tl_ctrl, textvariable=self.zoom_s_var, width=5,
+                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
+        tk.Label(tl_ctrl, text="끝(초):", bg="#1a1a2e", fg="#90a4ae",
+                 font=("", 8)).pack(side="left")
+        self.zoom_e_var = tk.DoubleVar(value=30.0)
+        tk.Entry(tl_ctrl, textvariable=self.zoom_e_var, width=5,
+                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
+        tk.Button(tl_ctrl, text="갱신", command=self._redraw_timeline,
+                  bg="#455a64", fg="white", font=("", 8), pady=1).pack(side="left", padx=4)
+        tk.Label(tl_ctrl, text="전체보기: 시작=0, 끝=곡길이",
+                 bg="#1a1a2e", fg="#546e7a", font=("", 7)).pack(side="left")
 
-        # ── 타임라인 바이너리 폴더 ──────────────────────
-        ff = tk.LabelFrame(self, text="타임라인 바이너리 폴더", **pad)
-        ff.pack(fill="x", **pad)
-        ff_inner = tk.Frame(ff)
-        ff_inner.pack(fill="x", padx=4, pady=2)
-        self._bin_folder_var = tk.StringVar()
-        tk.Entry(ff_inner, textvariable=self._bin_folder_var).pack(
-            side="left", fill="x", expand=True, padx=(0, 4))
-        tk.Button(ff_inner, text="폴더 선택", command=self._pick_bin_folder).pack(side="left", padx=2)
-        tk.Button(ff_inner, text="↺ 매칭 새로고침", command=self._refresh_matching,
-                  bg="#455a64", fg="white", font=("", 9)).pack(side="left", padx=4)
-        self._match_status_var = tk.StringVar(value="폴더를 선택하면 자동으로 매칭을 확인합니다.")
-        tk.Label(ff, textvariable=self._match_status_var,
-                 fg="#78909c", font=("", 8), anchor="w").pack(fill="x", padx=8, pady=(0, 4))
+        self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=120, highlightthickness=0)
+        self.tl_canvas.pack(fill="x", padx=4, pady=(0, 4))
+        self.tl_canvas.bind("<Configure>", lambda e: self._redraw_timeline())
 
-        # ── 설정 ───────────────────────────────────
-        fo = tk.LabelFrame(self, text="설정", **pad)
-        fo.pack(fill="x", **pad)
+        # ── 3열 메인 영역 ──────────────────────────
+        main = tk.Frame(self)
+        main.pack(fill="both", expand=True, padx=6, pady=4)
+        main.columnconfigure(0, weight=2, minsize=240)
+        main.columnconfigure(1, weight=3, minsize=280)
+        main.columnconfigure(2, weight=3, minsize=280)
+        main.rowconfigure(0, weight=1)
 
-        tk.Label(fo, text="Ground-truth 엔진:").grid(row=0, column=0, sticky="w", **pad)
+        # ══════════════════════════════════════════
+        # 1열: 설정 + 타임라인 폴더 + 음악 목록 + 버튼
+        # ══════════════════════════════════════════
+        col1 = tk.Frame(main)
+        col1.grid(row=0, column=0, sticky="nsew", padx=(0, 3))
+        col1.columnconfigure(0, weight=1)
+        col1.rowconfigure(2, weight=1)
+
+        # ── 설정 ──────────────────────────────────
+        fo = tk.LabelFrame(col1, text="설정", **pad)
+        fo.grid(row=0, column=0, sticky="ew", **pad)
+        fo.columnconfigure(1, weight=1)
+
+        tk.Label(fo, text="엔진:").grid(row=0, column=0, sticky="w", padx=4, pady=1)
         self.engine_var = tk.StringVar(value="beat_transformer")
-        for col, (label, val) in enumerate([
+        for r, (label, val) in enumerate([
             ("Beat Transformer (~91%)", "beat_transformer"),
             ("madmom (~87%)",           "madmom"),
             ("librosa (~68%)",          "librosa"),
-        ], 1):
+        ]):
             tk.Radiobutton(fo, text=label, variable=self.engine_var,
-                           value=val).grid(row=0, column=col, sticky="w", **pad)
+                           value=val).grid(row=r, column=1, sticky="w", padx=4, pady=1)
 
-        tk.Label(fo, text="허용 오차 (ms):").grid(row=1, column=0, sticky="w", **pad)
+        tk.Label(fo, text="허용 오차(ms):").grid(row=3, column=0, sticky="w", padx=4, pady=1)
         self.tol_var = tk.IntVar(value=70)
-        tk.Spinbox(fo, from_=20, to=200, increment=10,
-                   textvariable=self.tol_var, width=6).grid(row=1, column=1, sticky="w", **pad)
-        tk.Label(fo, text="업계 표준 70ms", fg="#555").grid(row=1, column=2, sticky="w", **pad)
+        frm_tol = tk.Frame(fo)
+        frm_tol.grid(row=3, column=1, sticky="w", padx=4, pady=1)
+        tk.Spinbox(frm_tol, from_=20, to=200, increment=10,
+                   textvariable=self.tol_var, width=6).pack(side="left")
+        tk.Label(frm_tol, text="  표준 70ms", fg="#666", font=("", 8)).pack(side="left")
 
-        tk.Label(fo, text="줌 시작 (초):").grid(row=1, column=3, sticky="w", **pad)
-        self.zoom_s_var = tk.DoubleVar(value=0.0)
-        tk.Entry(fo, textvariable=self.zoom_s_var, width=6).grid(row=1, column=4, sticky="w", **pad)
-        tk.Label(fo, text="줌 끝 (초):").grid(row=1, column=5, sticky="w", **pad)
-        self.zoom_e_var = tk.DoubleVar(value=30.0)
-        tk.Entry(fo, textvariable=self.zoom_e_var, width=6).grid(row=1, column=6, sticky="w", **pad)
-
-        tk.Label(fo, text="BPM 힌트 (librosa):").grid(row=1, column=7, sticky="w", **pad)
+        tk.Label(fo, text="BPM 힌트:").grid(row=4, column=0, sticky="w", padx=4, pady=1)
         self.bpm_hint_var = tk.DoubleVar(value=0.0)
-        tk.Entry(fo, textvariable=self.bpm_hint_var, width=6).grid(row=1, column=8, sticky="w", **pad)
+        tk.Entry(fo, textvariable=self.bpm_hint_var, width=7).grid(
+            row=4, column=1, sticky="w", padx=4, pady=1)
+
+        # ── 타임라인 바이너리 폴더 ────────────────
+        ff = tk.LabelFrame(col1, text="타임라인 바이너리 폴더", **pad)
+        ff.grid(row=1, column=0, sticky="ew", **pad)
+        ff.columnconfigure(0, weight=1)
+        ff_inner = tk.Frame(ff)
+        ff_inner.pack(fill="x", padx=4, pady=(2, 0))
+        self._bin_folder_var = tk.StringVar()
+        tk.Entry(ff_inner, textvariable=self._bin_folder_var).pack(
+            side="left", fill="x", expand=True, padx=(0, 4))
+        tk.Button(ff_inner, text="폴더 선택",
+                  command=self._pick_bin_folder).pack(side="left", padx=2)
+        tk.Button(ff_inner, text="↺", command=self._refresh_matching,
+                  bg="#455a64", fg="white", font=("", 9), width=2).pack(side="left", padx=2)
+        self._match_status_var = tk.StringVar(value="폴더를 선택하세요.")
+        tk.Label(ff, textvariable=self._match_status_var,
+                 fg="#78909c", font=("", 8), anchor="w").pack(fill="x", padx=6, pady=(1, 4))
+
+        # ── 음악 파일 목록 ─────────────────────────
+        self._audio_items = {}
+        fm = tk.LabelFrame(col1, text="음악 파일 목록", **pad)
+        fm.grid(row=2, column=0, sticky="nsew", **pad)
+        fm.rowconfigure(1, weight=1)
+        fm.columnconfigure(0, weight=1)
+
+        btn_row = tk.Frame(fm)
+        btn_row.grid(row=0, column=0, sticky="ew", padx=4, pady=2)
+        tk.Button(btn_row, text="＋ 추가", command=self._add_audio_files,
+                  bg="#1565c0", fg="white", font=("", 9, "bold")).pack(side="left", padx=2)
+        tk.Button(btn_row, text="－ 제거", command=self._remove_audio_file,
+                  font=("", 9)).pack(side="left", padx=2)
+
+        tree_wrap = tk.Frame(fm)
+        tree_wrap.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
+        tree_wrap.rowconfigure(0, weight=1)
+        tree_wrap.columnconfigure(0, weight=1)
+        self._tree = ttk.Treeview(tree_wrap,
+                                   columns=("name", "id", "match"),
+                                   show="headings", height=8, selectmode="browse")
+        self._tree.heading("name",  text="파일명")
+        self._tree.heading("id",    text="Music ID")
+        self._tree.heading("match", text="타임라인")
+        self._tree.column("name",  width=150, stretch=True)
+        self._tree.column("id",    width=95,  stretch=False, anchor="center")
+        self._tree.column("match", width=130, stretch=True)
+        self._tree.tag_configure("matched",   foreground="#69f0ae")
+        self._tree.tag_configure("unmatched", foreground="#ef9a9a")
+        self._tree.tag_configure("pending",   foreground="#ffcc02")
+        tree_sb = tk.Scrollbar(tree_wrap, orient="vertical", command=self._tree.yview)
+        self._tree.configure(yscrollcommand=tree_sb.set)
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        tree_sb.grid(row=0, column=1, sticky="ns")
+        self._tree.bind("<<TreeviewSelect>>", self._on_list_select)
 
         # ── 버튼 행 ───────────────────────────────
-        btn_frame = tk.Frame(self)
-        btn_frame.pack(pady=4)
-        self.run_btn = tk.Button(btn_frame, text="▶  분석 시작",
-                                 font=("", 11, "bold"), bg="#2e7d32", fg="white",
-                                 activebackground="#1b5e20", command=self._run, width=16)
-        self.run_btn.pack(side="left", padx=6)
-        self.map_btn = tk.Button(btn_frame, text="🗺  비트맵 (팝업)",
-                                 font=("", 11, "bold"), bg="#1565c0", fg="white",
+        btn_frame = tk.Frame(col1)
+        btn_frame.grid(row=3, column=0, pady=4)
+        self.run_btn = tk.Button(btn_frame, text="▶ 분석 시작",
+                                 font=("", 10, "bold"), bg="#2e7d32", fg="white",
+                                 activebackground="#1b5e20", command=self._run, width=12)
+        self.run_btn.pack(side="left", padx=4)
+        self.map_btn = tk.Button(btn_frame, text="🗺 비트맵",
+                                 font=("", 10, "bold"), bg="#1565c0", fg="white",
                                  activebackground="#0d47a1", command=self._show_beatmap,
-                                 width=16, state="disabled")
-        self.map_btn.pack(side="left", padx=6)
-        self.save_btn = tk.Button(btn_frame, text="💾  이미지 저장",
-                                  font=("", 11, "bold"), bg="#6a1b9a", fg="white",
+                                 width=9, state="disabled")
+        self.map_btn.pack(side="left", padx=4)
+        self.save_btn = tk.Button(btn_frame, text="💾 저장",
+                                  font=("", 10, "bold"), bg="#6a1b9a", fg="white",
                                   activebackground="#4a148c", command=self._save_beatmap,
-                                  width=16, state="disabled")
-        self.save_btn.pack(side="left", padx=6)
+                                  width=9, state="disabled")
+        self.save_btn.pack(side="left", padx=4)
 
-        # ── 결과 영역 (좌: 구조화 패널 / 우: 탭) ───
-        result_pane = tk.Frame(self)
-        result_pane.pack(fill="both", expand=True, padx=8, pady=4)
-        result_pane.columnconfigure(0, weight=2)
-        result_pane.columnconfigure(1, weight=3)
-        result_pane.rowconfigure(0, weight=1)
-
-        # ── 좌: 구조화 결과 카드 ────────────────────
-        left = tk.Frame(result_pane, bg="#1a1a2e", bd=1, relief="solid")
-        left.grid(row=0, column=0, sticky="nsew", padx=(0,4))
+        # ══════════════════════════════════════════
+        # 2열: 분석 결과
+        # ══════════════════════════════════════════
+        col2 = tk.Frame(main, bg="#1a1a2e", bd=1, relief="solid")
+        col2.grid(row=0, column=1, sticky="nsew", padx=3)
+        col2.rowconfigure(1, weight=1)
+        col2.columnconfigure(0, weight=1)
 
         # 등급 헤더
-        self.grade_frame = tk.Frame(left, bg="#263238")
+        self.grade_frame = tk.Frame(col2, bg="#263238")
         self.grade_frame.pack(fill="x")
         self.grade_label = tk.Label(self.grade_frame, text="—",
                                     font=("", 36, "bold"), width=3,
@@ -822,8 +882,7 @@ class App(tk.Tk):
                                   justify="left", anchor="w")
         self.grade_sub.pack(side="left", fill="x", expand=True)
         _grade_tip = tk.Label(self.grade_frame, text="?", bg="#263238", fg="#546e7a",
-                              font=("", 10, "bold"), cursor="question_arrow",
-                              padx=6)
+                              font=("", 10, "bold"), cursor="question_arrow", padx=6)
         _grade_tip.pack(side="right", pady=6)
         _attach_tooltip(_grade_tip,
             "종합 등급 (F-measure 기반)\n\n"
@@ -837,7 +896,7 @@ class App(tk.Tk):
         )
 
         # 지표 카드들
-        metrics_frame = tk.Frame(left, bg="#1a1a2e")
+        metrics_frame = tk.Frame(col2, bg="#1a1a2e")
         metrics_frame.pack(fill="both", expand=True, padx=8, pady=6)
 
         def _card(parent, row, col, title, var, color="#ffffff", colspan=1):
@@ -845,7 +904,7 @@ class App(tk.Tk):
             f.grid(row=row, column=col, columnspan=colspan,
                    sticky="nsew", padx=3, pady=3)
             hdr = tk.Frame(f, bg="#263238")
-            hdr.pack(anchor="w", padx=6, pady=(4,0), fill="x")
+            hdr.pack(anchor="w", padx=6, pady=(4, 0), fill="x")
             tk.Label(hdr, text=title, bg="#263238", fg="#78909c",
                      font=("", 8)).pack(side="left")
             if title in _TIPS:
@@ -853,9 +912,8 @@ class App(tk.Tk):
                                    font=("", 8, "bold"), cursor="question_arrow")
                 tip_lbl.pack(side="left")
                 _attach_tooltip(tip_lbl, _TIPS[title])
-            lbl = tk.Label(f, textvariable=var, bg="#263238", fg=color,
-                           font=("", 15, "bold"))
-            lbl.pack(anchor="w", padx=8, pady=(0,4))
+            tk.Label(f, textvariable=var, bg="#263238", fg=color,
+                     font=("", 15, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
             return f
 
         for c in range(3): metrics_frame.columnconfigure(c, weight=1)
@@ -886,14 +944,14 @@ class App(tk.Tk):
         _card(metrics_frame, 3, 1, "BPM (GT)",    self.v_bpm_g,"#ffffff")
         _card(metrics_frame, 3, 2, "BPM 오차",    self.v_bpm_e,"#ffcc02")
 
-        advice_f = tk.Frame(left, bg="#37474f")
-        advice_f.pack(fill="x", padx=8, pady=(0,8))
+        advice_f = tk.Frame(col2, bg="#37474f")
+        advice_f.pack(fill="x", padx=8, pady=(0, 8))
         advice_hdr = tk.Frame(advice_f, bg="#37474f")
-        advice_hdr.pack(anchor="w", padx=6, pady=(3,0), fill="x")
+        advice_hdr.pack(anchor="w", padx=6, pady=(3, 0), fill="x")
         tk.Label(advice_hdr, text="권고", bg="#37474f", fg="#78909c",
-                 font=("",8)).pack(side="left")
+                 font=("", 8)).pack(side="left")
         _adv_tip = tk.Label(advice_hdr, text=" ?", bg="#37474f", fg="#546e7a",
-                            font=("",8,"bold"), cursor="question_arrow")
+                            font=("", 8, "bold"), cursor="question_arrow")
         _adv_tip.pack(side="left")
         _attach_tooltip(_adv_tip,
             "권고 메시지\n\n"
@@ -904,75 +962,29 @@ class App(tk.Tk):
             "· 대형갭이 많으면   → 갭 보정 로직 검토"
         )
         tk.Label(advice_f, textvariable=self.v_advice, bg="#37474f", fg="#ffffff",
-                 font=("",10), wraplength=280, justify="left").pack(
-                 anchor="w", padx=8, pady=(0,6))
+                 font=("", 10), wraplength=260, justify="left").pack(
+                 anchor="w", padx=8, pady=(0, 6))
 
-        # ── 우: 로그 ────────────────────────────────
-        right = tk.Frame(result_pane, bg="#1a1a2e")
-        right.grid(row=0, column=1, sticky="nsew")
-        right.rowconfigure(0, weight=1)
-        right.columnconfigure(0, weight=1)
+        # ══════════════════════════════════════════
+        # 3열: 분석 로그
+        # ══════════════════════════════════════════
+        col3 = tk.Frame(main)
+        col3.grid(row=0, column=2, sticky="nsew", padx=(3, 0))
+        col3.rowconfigure(0, weight=1)
+        col3.columnconfigure(0, weight=1)
 
-        log_frame = tk.LabelFrame(right, text="분석 로그", bg="#1a1a2e", fg="#90a4ae")
+        log_frame = tk.LabelFrame(col3, text="분석 로그", bg="#1a1a2e", fg="#90a4ae")
         log_frame.grid(row=0, column=0, sticky="nsew")
+        log_frame.rowconfigure(0, weight=1)
+        log_frame.columnconfigure(0, weight=1)
         self.out = scrolledtext.ScrolledText(log_frame, font=("Courier", 9),
                                              state="disabled",
-                                             bg="#0d1117", fg="#7c8b9c",
-                                             height=8)
+                                             bg="#0d1117", fg="#7c8b9c")
         self.out.tag_config("green",  foreground="#69f0ae")
         self.out.tag_config("yellow", foreground="#ffcc02")
         self.out.tag_config("red",    foreground="#ef9a9a")
         self.out.tag_config("gray",   foreground="#455a64")
-        self.out.pack(fill="both", expand=True)
-
-        # ── 하단 비트 타임라인 (전체 너비) ────────────
-        tl_frame = tk.LabelFrame(self, text="비트 타임라인",
-                                 bg="#1a1a2e", fg="#90a4ae")
-        tl_frame.pack(fill="x", padx=8, pady=(0, 2))
-
-        # 범례 + 줌 컨트롤
-        tl_ctrl = tk.Frame(tl_frame, bg="#1a1a2e")
-        tl_ctrl.pack(fill="x", padx=6, pady=(3, 2))
-
-        # 좌측: 범례
-        legend_frame = tk.Frame(tl_ctrl, bg="#1a1a2e")
-        legend_frame.pack(side="left")
-        for color, text in [
-            ("#69f0ae", "■ 일치(TP)"),
-            ("#ff5252", "■ 오감지(FP)"),
-            ("#448aff", "■ 누락(FN)"),
-        ]:
-            tk.Label(legend_frame, text=text, bg="#1a1a2e", fg=color,
-                     font=("", 8, "bold")).pack(side="left", padx=6)
-
-        tk.Label(tl_ctrl, text="  |", bg="#1a1a2e", fg="#37474f",
-                 font=("",8)).pack(side="left")
-
-        # 우측: 줌 컨트롤
-        tk.Label(tl_ctrl, text="구간 시작(초):", bg="#1a1a2e", fg="#90a4ae",
-                 font=("",8)).pack(side="left", padx=(8,0))
-        self.zoom_s_var = tk.DoubleVar(value=0.0)
-        tk.Entry(tl_ctrl, textvariable=self.zoom_s_var, width=5,
-                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
-        tk.Label(tl_ctrl, text="끝(초):", bg="#1a1a2e", fg="#90a4ae",
-                 font=("",8)).pack(side="left")
-        self.zoom_e_var = tk.DoubleVar(value=30.0)
-        tk.Entry(tl_ctrl, textvariable=self.zoom_e_var, width=5,
-                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
-        tk.Button(tl_ctrl, text="갱신", command=self._redraw_timeline,
-                  bg="#455a64", fg="white", font=("",8), pady=1).pack(side="left", padx=4)
-        tk.Label(tl_ctrl, text="전체보기: 시작=0, 끝=곡길이",
-                 bg="#1a1a2e", fg="#546e7a", font=("",7)).pack(side="left")
-
-        # 타임라인 캔버스 (두 레인: GT + 앱)
-        self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=120,
-                                   highlightthickness=0)
-        self.tl_canvas.pack(fill="x", padx=4, pady=(0, 4))
-        self.tl_canvas.bind("<Configure>", lambda e: self._redraw_timeline())
-
-        self.status_var = tk.StringVar(value="파일을 선택하고 [분석 시작]을 누르세요.")
-        tk.Label(self, textvariable=self.status_var, anchor="w",
-                 relief="sunken", fg="#555").pack(fill="x", side="bottom")
+        self.out.grid(row=0, column=0, sticky="nsew")
 
     # ── 음악 파일 목록 관리 ────────────────────────
 
