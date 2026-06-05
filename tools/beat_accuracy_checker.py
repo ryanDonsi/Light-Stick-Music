@@ -18,7 +18,7 @@ import os
 import sys
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 # ──────────────────────────────────────────────
 # 의존 라이브러리 감지
@@ -703,51 +703,52 @@ class App(tk.Tk):
             tk.Label(banner, text=txt, bg="#263238", fg=col,
                      font=("", 9, "bold")).pack(side="left", padx=10, pady=3)
 
-        # ── Beat Transformer 경로 설정 ─────────────
-        fb = tk.LabelFrame(self, text="Beat Transformer 로컬 경로 (클론한 폴더)", **pad)
-        fb.pack(fill="x", **pad)
-        fb.columnconfigure(1, weight=1)
-        tk.Label(fb, text="클론 폴더:").grid(row=0, column=0, sticky="w", **pad)
-        self.bt_path_var = tk.StringVar(value=BT_LOCAL_PATH)
-        tk.Entry(fb, textvariable=self.bt_path_var).grid(row=0, column=1, sticky="ew", **pad)
-        tk.Button(fb, text="찾기", command=self._pick_bt_path, width=6).grid(row=0, column=2, **pad)
-        tk.Button(fb, text="적용", command=self._apply_bt_path,
-                  bg="#1565c0", fg="white", width=6).grid(row=0, column=3, **pad)
-        self.bt_status_var = tk.StringVar(
-            value="● 감지됨" if HAS_BT else "✗ 미감지 — 폴더 선택 후 [적용]")
-        tk.Label(fb, textvariable=self.bt_status_var,
-                 font=("", 9, "bold"),
-                 fg="#69f0ae" if HAS_BT else "#ef9a9a"
-                 ).grid(row=0, column=4, sticky="w", **pad)
-        tk.Label(fb, text="예) D:\\...\\Beat-Transformer",
-                 fg="#888", font=("", 8)).grid(row=0, column=5, sticky="w", **pad)
+        # ── 음악 파일 목록 ──────────────────────────────
+        self._audio_items = {}  # iid -> {"path": str, "music_id": str, "bin_path": str}
+        fm = tk.LabelFrame(self, text="음악 파일 목록", **pad)
+        fm.pack(fill="x", **pad)
 
-        # ── 파일 선택 ──────────────────────────────
-        ff = tk.LabelFrame(self, text="파일 선택", **pad)
+        btn_row = tk.Frame(fm)
+        btn_row.pack(fill="x", padx=4, pady=2)
+        tk.Button(btn_row, text="＋ 파일 추가", command=self._add_audio_files,
+                  bg="#1565c0", fg="white", font=("", 9, "bold")).pack(side="left", padx=4)
+        tk.Button(btn_row, text="－ 선택 제거", command=self._remove_audio_file,
+                  font=("", 9)).pack(side="left", padx=2)
+
+        tree_frame = tk.Frame(fm)
+        tree_frame.pack(fill="x", padx=4, pady=(0, 4))
+        self._tree = ttk.Treeview(tree_frame,
+                                   columns=("name", "id", "match"),
+                                   show="headings", height=6, selectmode="browse")
+        self._tree.heading("name",  text="파일명")
+        self._tree.heading("id",    text="Music ID")
+        self._tree.heading("match", text="타임라인 매칭")
+        self._tree.column("name",  width=320, stretch=True)
+        self._tree.column("id",    width=130, stretch=False, anchor="center")
+        self._tree.column("match", width=220, stretch=True)
+        self._tree.tag_configure("matched",   foreground="#69f0ae")
+        self._tree.tag_configure("unmatched", foreground="#ef9a9a")
+        self._tree.tag_configure("pending",   foreground="#ffcc02")
+        sb = tk.Scrollbar(tree_frame, orient="vertical", command=self._tree.yview)
+        self._tree.configure(yscrollcommand=sb.set)
+        self._tree.pack(side="left", fill="x", expand=True)
+        sb.pack(side="right", fill="y")
+        self._tree.bind("<<TreeviewSelect>>", self._on_list_select)
+
+        # ── 타임라인 바이너리 폴더 ──────────────────────
+        ff = tk.LabelFrame(self, text="타임라인 바이너리 폴더", **pad)
         ff.pack(fill="x", **pad)
-        ff.columnconfigure(1, weight=1)
-
-        tk.Label(ff, text="원곡 (MP3/WAV/FLAC):").grid(row=0, column=0, sticky="w", **pad)
-        self.audio_var = tk.StringVar()
-        tk.Entry(ff, textvariable=self.audio_var).grid(row=0, column=1, sticky="ew", **pad)
-        tk.Button(ff, text="찾기", command=self._pick_audio, width=6).grid(row=0, column=2, **pad)
-        tk.Label(ff, text="Music ID:").grid(row=0, column=3, sticky="w", **pad)
-        self.audio_id_var = tk.StringVar(value="—")
-        tk.Label(ff, textvariable=self.audio_id_var,
-                 font=("Courier", 10, "bold"), fg="#1565c0", width=14, anchor="w"
-                 ).grid(row=0, column=4, sticky="w", **pad)
-        self.audio_var.trace_add("write", self._update_audio_id)
-
-        tk.Label(ff, text="타임라인 바이너리:").grid(row=1, column=0, sticky="w", **pad)
-        self.bin_var = tk.StringVar()
-        tk.Entry(ff, textvariable=self.bin_var).grid(row=1, column=1, sticky="ew", **pad)
-        tk.Button(ff, text="찾기", command=self._pick_bin, width=6).grid(row=1, column=2, **pad)
-        tk.Label(ff, text="Music ID:").grid(row=1, column=3, sticky="w", **pad)
-        self.bin_id_var = tk.StringVar(value="—")
-        tk.Label(ff, textvariable=self.bin_id_var,
-                 font=("Courier", 10, "bold"), fg="#1565c0", width=14, anchor="w"
-                 ).grid(row=1, column=4, sticky="w", **pad)
-        self.bin_var.trace_add("write", self._update_bin_id)
+        ff_inner = tk.Frame(ff)
+        ff_inner.pack(fill="x", padx=4, pady=2)
+        self._bin_folder_var = tk.StringVar()
+        tk.Entry(ff_inner, textvariable=self._bin_folder_var).pack(
+            side="left", fill="x", expand=True, padx=(0, 4))
+        tk.Button(ff_inner, text="폴더 선택", command=self._pick_bin_folder).pack(side="left", padx=2)
+        tk.Button(ff_inner, text="↺ 매칭 새로고침", command=self._refresh_matching,
+                  bg="#455a64", fg="white", font=("", 9)).pack(side="left", padx=4)
+        self._match_status_var = tk.StringVar(value="폴더를 선택하면 자동으로 매칭을 확인합니다.")
+        tk.Label(ff, textvariable=self._match_status_var,
+                 fg="#78909c", font=("", 8), anchor="w").pack(fill="x", padx=8, pady=(0, 4))
 
         # ── 설정 ───────────────────────────────────
         fo = tk.LabelFrame(self, text="설정", **pad)
@@ -973,80 +974,118 @@ class App(tk.Tk):
         tk.Label(self, textvariable=self.status_var, anchor="w",
                  relief="sunken", fg="#555").pack(fill="x", side="bottom")
 
-    # ── ID 추출 ────────────────────────────────────
+    # ── 음악 파일 목록 관리 ────────────────────────
 
-    def _pick_bt_path(self):
-        p = filedialog.askdirectory(title="Beat-Transformer 클론 폴더 선택")
-        if p:
-            self.bt_path_var.set(p)
-
-    def _apply_bt_path(self):
-        path = self.bt_path_var.get().strip()
-        if not path or not os.path.isdir(path):
-            messagebox.showerror("오류", "유효한 폴더를 선택하세요."); return
-
-        ok = _try_load_bt(path)
-        if ok:
-            self.bt_status_var.set(f"● 감지됨  ({BT_LOCAL_PATH})")
-            messagebox.showinfo("성공",
-                f"Beat Transformer 경로 설정 완료!\n\n"
-                f"루트: {BT_LOCAL_PATH}\n"
-                f"checkpoint/: ✓\n"
-                f"code/: ✓\n\n"
-                f"이제 엔진에서 Beat Transformer (~91%) 를 선택하세요.")
-        else:
-            # 안내: checkpoint/ 와 code/ 가 있는 루트를 선택해야 함
-            ckpt = os.path.join(path, "checkpoint")
-            code = os.path.join(path, "code")
-            missing = []
-            if not os.path.isdir(ckpt): missing.append("checkpoint/  ← 없음")
-            if not os.path.isdir(code): missing.append("code/  ← 없음")
-            self.bt_status_var.set("✗ 경로 오류 — 루트 폴더를 선택하세요")
-            messagebox.showerror(
-                "경로 오류",
-                "Beat-Transformer 루트 폴더를 선택하세요.\n\n"
-                "올바른 구조:\n"
-                "  Beat-Transformer/      ← 이 폴더를 선택\n"
-                "  ├── checkpoint/\n"
-                "  ├── code/\n"
-                "  └── ...\n\n"
-                f"현재 선택: {path}\n"
-                + ("\n미발견:\n  " + "\n  ".join(missing) if missing else "")
-            )
-
-    def _update_audio_id(self, *_):
-        p = self.audio_var.get().strip()
-        if not p:
-            self.audio_id_var.set("—"); return
-        self.audio_id_var.set("계산 중…")
-        def _calc():
-            try:
-                mid = compute_music_id(p)
-                self.after(0, lambda v=str(mid): self.audio_id_var.set(v))
-            except Exception:
-                # 해시 실패 시 파일명에서 추출 시도
-                mid = extract_music_id(p)
-                self.after(0, lambda v=mid or "—": self.audio_id_var.set(v))
-        threading.Thread(target=_calc, daemon=True).start()
-
-    def _update_bin_id(self, *_):
-        p = self.bin_var.get().strip()
-        if not p: self.bin_id_var.set("—"); return
-        # 바이너리는 파일명에서 ID 추출 (SDK가 파일명에 ID를 포함시킴)
-        mid = extract_music_id(p)
-        self.bin_id_var.set(mid if mid else "—")
-
-    def _pick_audio(self):
-        p = filedialog.askopenfilename(
-            title="원곡 파일 선택",
+    def _add_audio_files(self):
+        paths = filedialog.askopenfilenames(
+            title="음악 파일 선택 (복수 선택 가능)",
             filetypes=[("Audio", "*.mp3 *.wav *.flac *.ogg *.m4a"), ("All", "*.*")])
-        if p: self.audio_var.set(p)
+        added = False
+        for p in paths:
+            if not p:
+                continue
+            if any(v["path"] == p for v in self._audio_items.values()):
+                continue
+            iid = self._tree.insert("", "end",
+                                    values=(os.path.basename(p), "계산 중…", "—"),
+                                    tags=("pending",))
+            self._audio_items[iid] = {"path": p, "music_id": "", "bin_path": ""}
+            threading.Thread(target=self._compute_id_for_item,
+                             args=(iid, p), daemon=True).start()
+            added = True
+        if added:
+            self._refresh_matching()
 
-    def _pick_bin(self):
-        p = filedialog.askopenfilename(
-            title="타임라인 바이너리 선택",
-            filetypes=[("Binary", "*.bin"), ("All", "*.*")])
-        if p: self.bin_var.set(p)
+    def _compute_id_for_item(self, iid, path):
+        try:
+            mid = str(compute_music_id(path))
+        except Exception:
+            mid = extract_music_id(path) or "—"
+        if iid not in self._audio_items:
+            return
+        self._audio_items[iid]["music_id"] = mid
+
+        def _update():
+            try:
+                vals = list(self._tree.item(iid, "values"))
+                vals[1] = mid
+                self._tree.item(iid, values=tuple(vals))
+            except Exception:
+                pass
+            self._refresh_matching()
+
+        self.after(0, _update)
+
+    def _remove_audio_file(self):
+        sel = self._tree.selection()
+        if not sel:
+            return
+        for iid in sel:
+            self._tree.delete(iid)
+            self._audio_items.pop(iid, None)
+        self._refresh_matching()
+
+    def _pick_bin_folder(self):
+        p = filedialog.askdirectory(title="타임라인 바이너리 폴더 선택")
+        if p:
+            self._bin_folder_var.set(p)
+            self._refresh_matching()
+
+    def _refresh_matching(self):
+        folder = self._bin_folder_var.get().strip()
+        # 폴더 없으면 전체 미매칭으로 초기화
+        bin_files = {}
+        if folder and os.path.isdir(folder):
+            for fname in os.listdir(folder):
+                if fname.lower().endswith(".bin"):
+                    mid = extract_music_id(fname)
+                    if mid:
+                        bin_files[mid] = os.path.join(folder, fname)
+
+        matched = 0
+        for iid, item in self._audio_items.items():
+            mid = item.get("music_id", "")
+            bin_path = bin_files.get(mid, "") if mid and mid != "계산 중…" else ""
+            item["bin_path"] = bin_path
+            if bin_path:
+                match_text = f"✓  {os.path.basename(bin_path)}"
+                tag = "matched"
+                matched += 1
+            elif not mid or mid == "계산 중…":
+                match_text = "—  ID 계산 중"
+                tag = "pending"
+            else:
+                match_text = "✗  미매칭"
+                tag = "unmatched"
+            try:
+                vals = list(self._tree.item(iid, "values"))
+                vals[2] = match_text
+                self._tree.item(iid, values=tuple(vals), tags=(tag,))
+            except Exception:
+                pass
+
+        total = len(self._audio_items)
+        if folder:
+            self._match_status_var.set(
+                f"총 {total}개 중 {matched}개 매칭됨  |  폴더: {folder}")
+        else:
+            self._match_status_var.set("폴더를 선택하면 자동으로 매칭을 확인합니다.")
+
+    def _on_list_select(self, event=None):
+        sel = self._tree.selection()
+        if not sel:
+            return
+        iid  = sel[0]
+        item = self._audio_items.get(iid, {})
+        name = os.path.basename(item.get("path", "")) or "—"
+        mid  = item.get("music_id", "—") or "—"
+        bin_p = item.get("bin_path", "")
+        if bin_p:
+            self.status_var.set(
+                f"선택: {name}  |  Music ID: {mid}  |  타임라인: {os.path.basename(bin_p)}")
+        else:
+            self.status_var.set(
+                f"선택: {name}  |  Music ID: {mid}  |  타임라인: 미매칭 (분석 불가)")
 
     # ── 로그 ──────────────────────────────────────
 
@@ -1207,12 +1246,19 @@ class App(tk.Tk):
     # ── 분석 ──────────────────────────────────────
 
     def _run(self):
-        audio = self.audio_var.get().strip()
-        binf  = self.bin_var.get().strip()
+        sel = self._tree.selection()
+        if not sel:
+            messagebox.showerror("오류", "음악 파일 목록에서 항목을 선택하세요."); return
+        iid   = sel[0]
+        item  = self._audio_items.get(iid, {})
+        audio = item.get("path", "").strip()
+        binf  = item.get("bin_path", "").strip()
         if not audio or not os.path.isfile(audio):
-            messagebox.showerror("오류", "원곡 파일을 선택하세요."); return
+            messagebox.showerror("오류", "유효한 음악 파일을 선택하세요."); return
         if not binf or not os.path.isfile(binf):
-            messagebox.showerror("오류", "타임라인 바이너리를 선택하세요."); return
+            messagebox.showerror("오류",
+                "매칭되는 타임라인 바이너리가 없습니다.\n"
+                "타임라인 폴더를 설정하고 매칭을 확인하세요."); return
 
         preferred = self.engine_var.get()
         engine    = best_available_engine(preferred)
