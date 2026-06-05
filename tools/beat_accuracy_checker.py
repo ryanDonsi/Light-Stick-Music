@@ -875,23 +875,19 @@ class App(tk.Tk):
         self._tree.column("bt",      width=60,  stretch=False, anchor="center")
         self._tree.column("madmom",  width=60,  stretch=False, anchor="center")
         self._tree.column("librosa", width=60,  stretch=False, anchor="center")
-        # Treeview 기본 스타일: 진회색
+        # Treeview 기본 스타일: 배경 흰색, 기본 글자 진회색
         _ts = ttk.Style()
         _ts.configure("Treeview",
-                       foreground="#546e7a", background="#1a1a2e",
-                       fieldbackground="#1a1a2e", rowheight=24)
+                       foreground="#546e7a", rowheight=24)
         _ts.configure("Treeview.Heading",
-                       foreground="#90a4ae", background="#263238", relief="flat")
-        _ts.map("Treeview",
-                background=[("selected", "#1e3a5f")],
-                foreground=[("selected", "#e0e0e0")])
-        # 매칭 상태 태그
+                       foreground="#546e7a", relief="flat")
+        # 매칭 상태 태그 (파일명/ID/타임라인 컬럼용 행 색상)
         self._tree.tag_configure("matched",   foreground="#546e7a")
-        self._tree.tag_configure("unmatched", foreground="#b71c1c")
-        self._tree.tag_configure("pending",   foreground="#ffcc02")
-        # 등급별 태그 (분석 후 행 전체에 적용)
-        for _g, _c in [("S", "#69f0ae"), ("A", "#82b1ff"),
-                        ("B", "#ffcc02"), ("C", "#ff8c42"), ("D", "#ef9a9a")]:
+        self._tree.tag_configure("unmatched", foreground="#546e7a")
+        self._tree.tag_configure("pending",   foreground="#546e7a")
+        # 등급별 태그 (분석 결과가 있을 때 행 전체에 적용)
+        for _g, _c in [("S", "#00897b"), ("A", "#1976d2"),
+                        ("B", "#f9a825"), ("C", "#e65100"), ("D", "#c62828")]:
             self._tree.tag_configure(f"grade_{_g}", foreground=_c)
         tree_sb = tk.Scrollbar(tree_wrap, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=tree_sb.set)
