@@ -310,6 +310,12 @@ def compute_music_id(path: str) -> int:
     digest = hashlib.sha256(data).digest()
     return _struct.unpack("<I", digest[:4])[0]
 
+def _to_signed_display(val: int) -> str:
+    """unsigned int32 값을 Android signed int32 표기로 변환 (표시 전용)."""
+    if val >= (1 << 31):
+        val -= (1 << 32)
+    return str(val)
+
 def extract_music_id(filename):
     """파일명에서 Music ID(숫자)를 추출. 음수(Android signed int32)도 unsigned로 변환."""
     name = os.path.splitext(os.path.basename(filename))[0]
@@ -1084,12 +1090,13 @@ class App(tk.Tk):
             mid = extract_music_id(path) or "—"
         if iid not in self._audio_items:
             return
-        self._audio_items[iid]["music_id"] = mid
+        self._audio_items[iid]["music_id"] = mid  # unsigned (매칭용)
+        disp_mid = _to_signed_display(int(mid)) if mid.lstrip("-").isdigit() else mid
 
         def _update():
             try:
                 vals = list(self._tree.item(iid, "values"))
-                vals[1] = mid
+                vals[1] = disp_mid
                 self._tree.item(iid, values=tuple(vals))
             except Exception:
                 pass
@@ -1486,8 +1493,10 @@ class App(tk.Tk):
         except Exception:
             audio_hash_id = extract_music_id(audio_path) or "—"
 
-        # Music ID 헤더 갱신
-        self.after(0, lambda b=bin_id, h=audio_hash_id:
+        # Music ID 헤더 갱신 (표시는 signed int32)
+        _disp_bin  = _to_signed_display(int(bin_id))       if bin_id.lstrip("-").isdigit()       else bin_id
+        _disp_hash = _to_signed_display(int(audio_hash_id)) if audio_hash_id.lstrip("-").isdigit() else audio_hash_id
+        self.after(0, lambda b=_disp_bin, h=_disp_hash:
                    self.v_song_id.set(f"Music ID: {b}" +
                                       (f"  (mp3 hash: {h})" if b != h else "")))
 
