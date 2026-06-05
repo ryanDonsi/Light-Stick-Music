@@ -22,8 +22,9 @@ object AutoTimelineConfig {
      * 10  : BeatDetectorV10 (downbeat + timeSignature 지원)
      * 11  : BeatDetectorV2 = V11
      * 12  : BeatDetectorV3 = V12 (Fix 1~5: MinBeatMs↑, CombFilter, MultiBandFlux, AdaptiveTh, ElliDP)
+     * 13  : BeatDetectorV4 = V13 (Fix A~E: 위상보정36ms, 다중씨드BPM, Onset강도필터, 밀도상한, Mean정규화)
      */
-    const val BEAT_DETECTOR_VERSION = 12
+    const val BEAT_DETECTOR_VERSION = 13
 
     /**
      * 섹션 감지기 버전 — v2 에서 SectionDetectorRouter 를 통해 적용된다.

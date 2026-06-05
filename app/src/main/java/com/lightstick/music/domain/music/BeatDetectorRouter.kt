@@ -90,6 +90,29 @@ object BeatDetectorRouter {
             )
         }
 
+        13 -> { // BeatDetectorV4 = V13 (Fix A~E: 위상보정, 다중씨드BPM, Onset필터, 밀도제어, Mean정규화)
+            val r = BeatDetectorV4.detect(lowEnv, midEnv, fullEnv,
+                BeatDetectorV4.Params(
+                    hopMs             = hopMs,
+                    minBeatMs         = minBeatMs.coerceAtLeast(375L),
+                    maxBeatMs         = maxBeatMs.coerceAtMost(1000L),
+                    minPeakDistanceMs = 120L,
+                    onsetSmoothWindow = 3,
+                    peakThresholdK    = 0.22f,
+                    minPeakAbs        = 0.04f,
+                    snapToleranceMs   = 130L,
+                    chainToleranceMs  = 150L,
+                    minChainCount     = 3,
+                    continuityBonus   = 0.08f
+                ))
+            BeatInfo(
+                beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
+                beatMs      = r.beatMs,
+                beatsPerBar = r.timeSignature.beatsPerBar,
+                downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
+            )
+        }
+
         else -> { // 11 (BeatDetectorV2 = V11)
             val r = BeatDetectorV2.detect(lowEnv, midEnv, fullEnv,
                 BeatDetectorV2.Params(
