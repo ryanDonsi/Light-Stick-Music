@@ -472,7 +472,7 @@ def build_beatmap_figure(
     fig.suptitle(
         f"Beat Map  —  {audio_name}   Music ID: {music_id}\n"
         f"F-measure {f_score*100:.1f}%  (등급 {grade})  |  "
-        f"BPM 앱 {bpm_app:.1f} / GT {bpm_ref:.1f}  |  "
+        f"BPM 앱 {bpm_app:.1f} / {engine_name} {bpm_ref:.1f}  |  "
         f"허용 오차 ±{tol_ms}ms  |  엔진: {engine_name}",
         color="white", fontsize=11, y=0.98
     )
@@ -481,7 +481,7 @@ def build_beatmap_figure(
     legend_patches = [
         mpatches.Patch(color=C_TP, label=f"TP  일치  ({len(tp_est)}개)"),
         mpatches.Patch(color=C_FP, label=f"FP  앱 오감지  ({len(fp_est)}개)"),
-        mpatches.Patch(color=C_FN, label=f"FN  GT 누락  ({len(fn_ref)}개)"),
+        mpatches.Patch(color=C_FN, label=f"FN  {engine_name} 누락  ({len(fn_ref)}개)"),
     ]
     fig.legend(handles=legend_patches, loc="upper right",
                fontsize=9, framealpha=0.3, labelcolor="white",
@@ -506,9 +506,9 @@ def build_beatmap_figure(
     ax_wave.set_ylabel("진폭", color="#90a4ae", fontsize=8)
 
     # ── [2] 전체 비트맵 (피아노롤 스타일) ──────────
-    ax_full.set_title("전체 비트맵  (위: GT / 아래: 앱)", color="#90a4ae", fontsize=9, loc="left")
+    ax_full.set_title(f"전체 비트맵  (위: {engine_name} / 아래: 앱)", color="#90a4ae", fontsize=9, loc="left")
     _draw_beat_lanes(ax_full, ref_sec, app_sec, tp_est, fp_est, fn_ref,
-                     0, duration_sec, C_TP, C_FP, C_FN, C_GRID)
+                     0, duration_sec, C_TP, C_FP, C_FN, C_GRID, engine_name=engine_name)
 
     # 줌 범위 기본값: 처음 30초
     if zoom_start is None: zoom_start = 0.0
@@ -522,19 +522,19 @@ def build_beatmap_figure(
     )
     _draw_beat_lanes(ax_zoom, ref_sec, app_sec, tp_est, fp_est, fn_ref,
                      zoom_start, zoom_end, C_TP, C_FP, C_FN, C_GRID,
-                     show_ms_label=True)
+                     show_ms_label=True, engine_name=engine_name)
 
     # ── [4] 비트 인터벌 히스토그램 ────────────────
     ax_hist.set_title("비트 간격 분포  (ms)", color="#90a4ae", fontsize=9, loc="left")
     ref_iv  = np.diff(np.array(ref_sec)) * 1000
     app_iv  = np.diff(np.array(app_sec)) * 1000
     bins    = np.arange(200, 1001, 20)
-    ax_hist.hist(ref_iv,  bins=bins, color=C_FN, alpha=0.6, label=f"GT  중앙 {np.median(ref_iv):.0f}ms")
+    ax_hist.hist(ref_iv,  bins=bins, color=C_FN, alpha=0.6, label=f"{engine_name}  중앙 {np.median(ref_iv):.0f}ms")
     ax_hist.hist(app_iv,  bins=bins, color=C_TP, alpha=0.6, label=f"앱  중앙 {np.median(app_iv):.0f}ms")
     # BPM 수직선
     if bpm_ref > 0:
         ax_hist.axvline(60_000/bpm_ref, color=C_FN, linestyle="--", linewidth=1.2,
-                        label=f"GT BPM {bpm_ref:.1f}")
+                        label=f"{engine_name} BPM {bpm_ref:.1f}")
     if bpm_app > 0:
         ax_hist.axvline(60_000/bpm_app, color=C_TP, linestyle="--", linewidth=1.2,
                         label=f"앱 BPM {bpm_app:.1f}")
@@ -551,12 +551,12 @@ def build_beatmap_figure(
 
 def _draw_beat_lanes(ax, ref_sec, app_sec, tp_est, fp_est, fn_ref,
                      t_start, t_end, C_TP, C_FP, C_FN, C_GRID,
-                     show_ms_label=False):
+                     show_ms_label=False, engine_name="GT"):
     """GT 레인(위)과 앱 레인(아래)에 비트를 그린다."""
     ax.set_xlim(t_start, t_end)
     ax.set_ylim(0, 2.4)
     ax.set_yticks([0.6, 1.8])
-    ax.set_yticklabels(["앱", "GT"], color="#90a4ae", fontsize=8)
+    ax.set_yticklabels(["앱", engine_name], color="#90a4ae", fontsize=8)
     ax.set_xlabel("시간 (초)", color="#90a4ae", fontsize=8)
     ax.axhline(1.2, color=C_GRID, linewidth=0.5)
 
@@ -948,6 +948,17 @@ class App(tk.Tk):
                  bg="#1e272e", fg="#546e7a", font=("", 8),
                  anchor="w").pack(anchor="w")
 
+        # 엔진 선택기 (분석된 엔진 탭)
+        self._eng_sel_outer = tk.Frame(results_frame, bg="#1e272e")
+        self._eng_sel_outer.pack(fill="x")
+        tk.Label(self._eng_sel_outer, text="엔진:", bg="#1e272e", fg="#78909c",
+                 font=("", 8)).pack(side="left", padx=(10, 4), pady=4)
+        self._eng_sel_inner = tk.Frame(self._eng_sel_outer, bg="#1e272e")
+        self._eng_sel_inner.pack(side="left", fill="x", expand=True)
+        self._sel_engine_var = tk.StringVar(value="")
+        tk.Label(self._eng_sel_inner, text="(분석 전)",
+                 bg="#1e272e", fg="#546e7a", font=("", 8)).pack(side="left")
+
         # 등급 헤더
         self.grade_frame = tk.Frame(results_frame, bg="#263238")
         self.grade_frame.pack(fill="x")
@@ -1277,6 +1288,148 @@ class App(tk.Tk):
             self.status_var.set(
                 f"선택: {name}  |  Music ID: {mid}  |  타임라인: 미매칭 (분석 불가)")
 
+        # 엔진 선택기 재구성 + 첫 번째 결과 복원
+        self._show_engine_selector(iid)
+
+    def _show_engine_selector(self, iid):
+        """선택된 항목의 분석 엔진 목록으로 라디오버튼을 재구성한다."""
+        for w in self._eng_sel_inner.winfo_children():
+            w.destroy()
+
+        item = self._audio_items.get(iid, {})
+        results = item.get("results", {})
+        analyzed = [eng for eng in ("beat_transformer", "madmom", "librosa")
+                    if eng in results]
+
+        if not analyzed:
+            tk.Label(self._eng_sel_inner, text="(분석 전)",
+                     bg="#1e272e", fg="#546e7a", font=("", 8)).pack(side="left")
+            # 곡 이름/ID만 갱신
+            name = os.path.splitext(os.path.basename(item.get("path", "")))[0] or "—"
+            mid  = item.get("music_id", "")
+            disp = _to_signed_display(int(mid)) if mid.lstrip("-").isdigit() else (mid or "—")
+            self.v_song_title.set(name)
+            self.v_song_id.set(f"Music ID: {disp}")
+            return
+
+        _grade_order = ["S", "A", "B", "C", "D", "!"]
+        best_eng = max(analyzed,
+                       key=lambda e: -_grade_order.index(results[e].get("grade", "!"))
+                                     if results[e].get("grade") in _grade_order else 99,
+                       default=analyzed[0])
+
+        for eng in analyzed:
+            r = results[eng]
+            label = f"{ENGINE_INFO[eng][0]}  {r.get('grade','?')} ({r.get('f_score',0)*100:.0f}%)"
+            rb = tk.Radiobutton(
+                self._eng_sel_inner, text=label,
+                variable=self._sel_engine_var, value=eng,
+                bg="#1e272e", fg="#cfd8dc", selectcolor="#37474f",
+                activebackground="#1e272e", font=("", 8),
+                command=lambda e=eng, i=iid: self._load_result_for_engine(i, e)
+            )
+            rb.pack(side="left", padx=4, pady=2)
+
+        self._sel_engine_var.set(best_eng)
+        self._load_result_for_engine(iid, best_eng)
+
+    def _load_result_for_engine(self, iid, engine):
+        """beat_analysis_records.json에서 해당 항목+엔진 결과를 로드하여 UI에 복원한다."""
+        item = self._audio_items.get(iid, {})
+        if not item:
+            return
+
+        music_id = item.get("music_id", "")
+        eng_name = ENGINE_INFO.get(engine, (engine,))[0]
+        disp_mid = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else (music_id or "—")
+
+        # 곡 정보
+        name = os.path.splitext(os.path.basename(item.get("path", "")))[0] or "—"
+        self.v_song_title.set(name)
+        self.v_song_id.set(f"Music ID: {disp_mid}")
+
+        # records.json 에서 상세 데이터 로드
+        records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
+        record = None
+        try:
+            with open(records_path, encoding="utf-8") as f_:
+                records = json.load(f_)
+            record = next((rec for rec in records
+                           if rec.get("_key") == f"{music_id}_{engine}"), None)
+        except Exception:
+            pass
+
+        if record:
+            s     = record.get("summary", {})
+            beats = record.get("beats", {})
+
+            f_val    = s.get("f_measure", 0)
+            p_val    = s.get("precision", 0)
+            r_val    = s.get("recall", 0)
+            tp       = s.get("tp", 0)
+            fp_cnt   = s.get("fp", 0)
+            fn       = s.get("fn", 0)
+            bpm_app  = s.get("bpm_app", 0)
+            bpm_ref  = s.get("bpm_gt", 0)
+            bpm_err  = (abs(bpm_app - bpm_ref) / bpm_ref * 100) if bpm_ref > 0 else 0
+            dur      = record.get("duration_sec", 0)
+            tol_ms   = record.get("tolerance_ms", 70)
+            grade    = s.get("grade", "—")
+
+            app_ms   = beats.get("app_ms", [])
+            ref_ms   = beats.get("gt_ms", [])
+            tp_est   = beats.get("tp_sec", [])
+            fp_est   = beats.get("fp_sec", [])
+            fn_ref   = beats.get("fn_sec", [])
+
+            app_sec  = [t / 1000.0 for t in app_ms]
+            ref_sec  = [t / 1000.0 for t in ref_ms]
+
+            cov_pct  = min(100.0, (app_sec[-1] if app_sec else 0) / dur * 100) \
+                       if dur > 0 else 0
+            gaps = 0
+            if len(app_ms) >= 2:
+                ivs  = [app_ms[i+1] - app_ms[i] for i in range(len(app_ms)-1)]
+                gaps = sum(1 for iv in ivs if iv > 600)
+
+            advice = {"S": "서비스 적용 가능 수준입니다.",
+                      "A": "대부분의 K-pop에서 정상 동작합니다.",
+                      "B": "BPM은 정확하나 비트 타이밍 개선이 필요합니다.",
+                      "C": "Ellis DP / Adaptive Threshold 튜닝을 권장합니다."
+                      }.get(grade, "BPM 감지 로직부터 재검토가 필요합니다.")
+
+            g, g_color, verdict = grade_info(f_val, engine)
+            self._set_grade(g, g_color, f"{verdict}\n엔진: {eng_name}  |  Music ID: {disp_mid}")
+            self._update_cards(f_val, p_val, r_val, tp, fp_cnt, fn,
+                               bpm_app, bpm_ref, bpm_err, cov_pct, gaps, advice)
+
+            self._last_result = dict(
+                ref_sec=ref_sec, app_sec=app_sec,
+                tp_est=tp_est, fp_est=fp_est, fn_ref=fn_ref,
+                waveform=None, wav_sr=0,
+                duration_sec=dur,
+                f_score=f_val, bpm_app=bpm_app, bpm_ref=bpm_ref,
+                engine_name=eng_name,
+                audio_name=os.path.basename(item.get("path", "")),
+                music_id=music_id, tol_ms=tol_ms,
+            )
+            self.zoom_s_var.set(0.0)
+            self.zoom_e_var.set(round(dur, 1))
+            self.after(100, self._redraw_timeline)
+            if HAS_MPL:
+                self.map_btn.config(state="normal")
+                self.save_btn.config(state="normal")
+
+        else:
+            # records.json 없을 때: 저장된 grade/f_score만 표시
+            eng_results = item.get("results", {}).get(engine, {})
+            if eng_results:
+                f_val  = eng_results.get("f_score", 0)
+                grade  = eng_results.get("grade", "—")
+                g, g_color, verdict = grade_info(f_val, engine)
+                self._set_grade(g, g_color, f"{verdict}\n엔진: {eng_name}  |  Music ID: {disp_mid}")
+                self.v_f.set(f"{f_val*100:.1f}%")
+
     def _save_result_to_item(self, audio_path, engine, grade, f_score):
         """분석 결과를 해당 항목에 저장하고 Treeview 컬럼을 갱신한다."""
         _grade_order = ["S", "A", "B", "C", "D", "!"]
@@ -1552,9 +1705,10 @@ class App(tk.Tk):
 
         # ── 레인 라벨 ──
         # GT 레인
+        eng_label = (self._last_result or {}).get("engine_name", "GT 엔진")
         c.create_rectangle(0, TICK_H, LABEL_W - 2, SEP_Y, fill="#0d1b2a", outline="")
         c.create_text(LABEL_W // 2, (TICK_H + SEP_Y) // 2 - 8,
-                      text="GT 엔진", fill="#82b1ff", font=("", 8, "bold"), anchor="center")
+                      text=eng_label, fill="#82b1ff", font=("", 8, "bold"), anchor="center")
         c.create_text(LABEL_W // 2, (TICK_H + SEP_Y) // 2 + 6,
                       text="(분석 기준)", fill="#546e7a", font=("", 7), anchor="center")
 
