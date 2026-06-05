@@ -1361,6 +1361,102 @@ class App(tk.Tk):
             f"\n전체 분석 완료 — {total}개 처리", "green"))
         self.after(0, self._save_state)
 
+    # ── 진단 데이터 내보내기 ──────────────────────
+
+    def _export_analysis_record(self, *, audio_path, bin_path, engine, eng_name,
+                                 tol_ms, music_id, duration_sec,
+                                 app_ms, ref_ms, tp_est, fp_est, fn_ref,
+                                 f, p, r, tp, fp_cnt, fn,
+                                 bpm_app, bpm_ref, grade):
+        """분석 결과를 beat_analysis_records.json 에 누적 저장한다."""
+        import datetime
+
+        records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
+
+        # 기존 레코드 로드
+        try:
+            with open(records_path, encoding="utf-8") as f_:
+                records = json.load(f_)
+        except Exception:
+            records = []
+
+        # 인접 오차 분포: 각 앱 비트마다 가장 가까운 GT 비트와의 오차(ms)
+        ref_arr = sorted(ref_ms)
+        offset_errors = []
+        for a in sorted(app_ms):
+            if not ref_arr:
+                break
+            closest = min(ref_arr, key=lambda g: abs(g - a))
+            offset_errors.append(round(a - closest, 1))
+
+        # FP 오차 (오감지 비트들의 GT 대비 오차)
+        fp_errors = []
+        for a in sorted(fp_est):
+            a_ms = int(a * 1000)
+            if ref_arr:
+                closest = min(ref_arr, key=lambda g: abs(g - a_ms))
+                fp_errors.append(round(a_ms - closest, 1))
+
+        # 키: (music_id, engine) 조합으로 기존 레코드 덮어쓰기
+        key = f"{music_id}_{engine}"
+        records = [rec for rec in records if rec.get("_key") != key]
+
+        record = {
+            "_key":           key,
+            "timestamp":      datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "audio_file":     os.path.basename(audio_path),
+            "bin_file":       os.path.basename(bin_path),
+            "music_id":       _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id,
+            "engine":         engine,
+            "engine_name":    eng_name,
+            "tolerance_ms":   tol_ms,
+            "duration_sec":   round(duration_sec, 3),
+
+            # 요약 지표
+            "summary": {
+                "grade":      grade,
+                "f_measure":  round(f, 4),
+                "precision":  round(p, 4),
+                "recall":     round(r, 4),
+                "tp":         tp,
+                "fp":         fp_cnt,
+                "fn":         fn,
+                "bpm_app":    round(bpm_app, 2),
+                "bpm_gt":     round(bpm_ref, 2),
+                "bpm_error":  round(abs(bpm_app - bpm_ref), 2),
+                "beat_count_app": len(app_ms),
+                "beat_count_gt":  len(ref_ms),
+            },
+
+            # 전체 비트 타임스탬프 (ms)
+            "beats": {
+                "app_ms":     sorted(app_ms),
+                "gt_ms":      sorted(ref_ms),
+                "tp_sec":     sorted(round(t, 4) for t in tp_est),
+                "fp_sec":     sorted(round(t, 4) for t in fp_est),
+                "fn_sec":     sorted(round(t, 4) for t in fn_ref),
+            },
+
+            # 오차 분포 (비트 개선 진단용)
+            "offset_errors_ms": offset_errors,   # 앱 비트 - 가장 가까운 GT 비트 (전체)
+            "fp_offset_ms":     fp_errors,        # FP 비트들의 GT 대비 오차
+            "error_stats": {
+                "mean_offset_ms":   round(sum(abs(e) for e in offset_errors) / len(offset_errors), 2) if offset_errors else 0,
+                "median_offset_ms": round(sorted(abs(e) for e in offset_errors)[len(offset_errors)//2], 2) if offset_errors else 0,
+                "within_tol_pct":   round(sum(1 for e in offset_errors if abs(e) <= tol_ms) / len(offset_errors) * 100, 1) if offset_errors else 0,
+            },
+        }
+
+        records.append(record)
+
+        try:
+            with open(records_path, "w", encoding="utf-8") as f_:
+                json.dump(records, f_, ensure_ascii=False, indent=2)
+            self.after(0, lambda: self._log(
+                f"  진단 데이터 저장: beat_analysis_records.json  ({len(records)}건 누적)", "gray"))
+        except Exception as e_:
+            self.after(0, lambda m=str(e_): self._log(f"  [진단 저장 실패] {m}", "yellow"))
+
     # ── 로그 ──────────────────────────────────────
 
     def _log(self, text, tag=None):
@@ -1693,6 +1789,18 @@ class App(tk.Tk):
             engine_name=eng_name,
             audio_name=os.path.basename(audio_path),
             music_id=music_id, tol_ms=tol_ms,
+        )
+
+        # 진단 데이터 저장
+        self._export_analysis_record(
+            audio_path=audio_path, bin_path=bin_path,
+            engine=engine, eng_name=eng_name, tol_ms=tol_ms,
+            music_id=music_id, duration_sec=duration_sec,
+            app_ms=app_ms, ref_ms=ref_ms,
+            tp_est=tp_est, fp_est=fp_est, fn_ref=fn_ref,
+            f=f, p=p, r=r, tp=tp, fp_cnt=fp_cnt, fn=fn,
+            bpm_app=app_st.get('bpm', 0), bpm_ref=ref_bpm,
+            grade=grade,
         )
         # 비트 타임라인 그리기 (전체 기본)
         def _draw():
