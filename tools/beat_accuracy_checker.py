@@ -883,7 +883,7 @@ class App(tk.Tk):
                        foreground="#546e7a", relief="flat")
         # 매칭 상태 태그 (파일명/ID/타임라인 컬럼용 행 색상)
         self._tree.tag_configure("matched",   foreground="#546e7a")
-        self._tree.tag_configure("unmatched", foreground="#546e7a")
+        self._tree.tag_configure("unmatched", foreground="#c62828")
         self._tree.tag_configure("pending",   foreground="#546e7a")
         # 등급별 태그 (분석 결과가 있을 때 행 전체에 적용)
         for _g, _c in [("S", "#00897b"), ("A", "#1976d2"),
