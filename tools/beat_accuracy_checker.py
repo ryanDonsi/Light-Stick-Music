@@ -926,6 +926,22 @@ class App(tk.Tk):
         results_frame.rowconfigure(1, weight=1)
         results_frame.columnconfigure(0, weight=1)
 
+        # 곡 정보 헤더
+        song_info_frame = tk.Frame(results_frame, bg="#1e272e")
+        song_info_frame.pack(fill="x")
+        tk.Label(song_info_frame, text="🎵", bg="#1e272e", fg="#546e7a",
+                 font=("", 11)).pack(side="left", padx=(10, 4), pady=6)
+        song_info_inner = tk.Frame(song_info_frame, bg="#1e272e")
+        song_info_inner.pack(side="left", fill="x", expand=True, pady=4)
+        self.v_song_title = tk.StringVar(value="—")
+        self.v_song_id    = tk.StringVar(value="—")
+        tk.Label(song_info_inner, textvariable=self.v_song_title,
+                 bg="#1e272e", fg="#cfd8dc", font=("", 11, "bold"),
+                 anchor="w").pack(anchor="w")
+        tk.Label(song_info_inner, textvariable=self.v_song_id,
+                 bg="#1e272e", fg="#546e7a", font=("", 8),
+                 anchor="w").pack(anchor="w")
+
         # 등급 헤더
         self.grade_frame = tk.Frame(results_frame, bg="#263238")
         self.grade_frame.pack(fill="x")
@@ -1453,6 +1469,10 @@ class App(tk.Tk):
         SEP2 = "═" * 62
         eng_name, eng_acc, _ = ENGINE_INFO[engine]
 
+        # ─ 곡 정보 헤더 갱신 ─
+        _song_name = os.path.splitext(os.path.basename(audio_path))[0]
+        self.after(0, lambda n=_song_name: self.v_song_title.set(n))
+
         # ① 바이너리
         self.after(0, lambda: self._log("[ 1/4 ]  타임라인 바이너리 파싱…", "gray"))
         version, frame_count, app_ms = parse_timeline_binary(bin_path)
@@ -1465,6 +1485,11 @@ class App(tk.Tk):
             audio_hash_id = str(compute_music_id(audio_path))
         except Exception:
             audio_hash_id = extract_music_id(audio_path) or "—"
+
+        # Music ID 헤더 갱신
+        self.after(0, lambda b=bin_id, h=audio_hash_id:
+                   self.v_song_id.set(f"Music ID: {b}" +
+                                      (f"  (mp3 hash: {h})" if b != h else "")))
 
         music_id = bin_id   # 바이너리 파일명 기준 ID
 
