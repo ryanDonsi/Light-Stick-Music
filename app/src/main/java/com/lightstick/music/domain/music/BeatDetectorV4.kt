@@ -9,27 +9,25 @@ import kotlin.math.roundToLong
 import kotlin.math.sqrt
 
 /**
- * BeatDetectorV4
+ * BeatDetectorV4 (Rev 2)
  *
- * BeatDetectorV3 기반 + librosa beat_accuracy 분석 결과 반영 (22곡 데이터셋):
+ * BeatDetectorV3 기반 + librosa beat_accuracy 분석 결과 반영:
  *
- * Fix A — Onset 위상 보정 (ONSET_PHASE_ADVANCE_MS = 36ms)
- *          분석 결과 앱 비트가 GT 대비 36ms 체계적 지연 발생 → onset 피크 시점 보정
+ * Fix A — 전체 비트 일괄 위상 보정 (최종 단계에서 36ms 앞당김)
+ *          V4 Rev1 실패 원인: DP에만 적용 → segment 비트가 override → 효과 없음
+ *          수정: detect() 마지막에 모든 비트에 일괄 적용
  *
- * Fix B — 글로벌 BPM 다중 씨드 투표
- *          분석 결과 59%의 곡에서 BPM 오차 >10, 옥타브 오류 패턴 확인
- *          여러 시작 BPM 씨드로 autocorr 후 comb-filter 점수로 최적 선택
+ * Fix B — 글로벌 BPM 다중 씨드 comb-filter 투표 (BPM 오차 17% 개선 확인, 유지)
  *
- * Fix C — Onset 강도 기반 비트 필터링
- *          분석 결과 FP의 66%가 GT에서 100ms 이상 이격 (spurious 감지)
- *          최종 비트 목록에서 onset 강도 < 중앙값 * ONSET_FILTER_RATIO 인 비트 제거
+ * Fix C — FILL 비트만 onset 강도 필터링 (실제 감지 비트는 유지)
+ *          V4 Rev1 실패 원인: 실제 감지 비트도 제거 → 구간 공백 발생
+ *          수정: confidence <= FILL_CONFIDENCE 인 채움 비트만 필터
  *
- * Fix D — 글로벌 BPM 기반 비트 밀도 상한 제어
- *          분석 결과 앱이 평균 21% 더 많은 비트 생성
- *          예상 비트 수 * DENSITY_TOLERANCE_RATIO 초과 시 confidence 낮은 비트 제거
+ * Fix D — 글로벌 BPM 기반 비트 밀도 상한 제어 (125%로 완화)
  *
- * Fix E — localNormalize를 localMax 대신 localMean 기반으로 변경
- *          librosa onset_strength 의 배경 제거 방식과 동일
+ * Fix E — 글로벌 ODF: 배경 제거 후 0-1 정규화 (coerceIn 4f → 1f 수정)
+ *          V4 Rev1 실패 원인: coerceIn(0f,4f) → ODF 최대 4배 증폭 → DP 위상 161ms 오차
+ *          수정: (src[i] - localMean).coerceAtLeast(0f) / localPeak 로 0-1 정규화
  */
 object BeatDetectorV4 {
 
@@ -42,11 +40,11 @@ object BeatDetectorV4 {
     private val BPM_SEED_MS = longArrayOf(375L, 430L, 480L, 500L, 545L, 600L, 667L, 750L)
     // 375=160, 430=140, 480=125, 500=120, 545=110, 600=100, 667=90, 750=80 BPM
 
-    // ── Fix C: onset 강도 필터 ────────────────────────────────────────────────
-    private const val ONSET_FILTER_RATIO = 0.35f    // 중앙값의 35% 미만 → 제거
+    // ── Fix C: FILL 비트 onset 강도 필터 ────────────────────────────────────────
+    private const val ONSET_FILTER_RATIO = 0.30f    // FILL 비트 중 ODF 중앙값의 30% 미만 → 제거
 
     // ── Fix D: 비트 밀도 상한 ─────────────────────────────────────────────────
-    private const val DENSITY_TOLERANCE_RATIO = 1.15f  // 예상 비트 수의 115% 이내
+    private const val DENSITY_TOLERANCE_RATIO = 1.25f  // 예상 비트 수의 125% 이내 (완화)
 
     // ── V3 상수 유지 ─────────────────────────────────────────────────────────
     private const val HARMONIC_FOLD_HALF_RATIO  = 0.45f
@@ -225,8 +223,8 @@ object BeatDetectorV4 {
         // 글로벌 멀티밴드 ODF
         val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)
 
-        // Fix A: onset 위상 보정 적용한 DP
-        val dpTimes = dpBeatTrackerWithPhaseCorrection(globalOdf, finalBeatMs, params.hopMs, durationMs)
+        // Ellis DP (위상 보정은 아래에서 일괄 적용)
+        val dpTimes = dpBeatTracker(globalOdf, finalBeatMs, params.hopMs, durationMs)
 
         // DP + 실제 비트 병합 (실제 비트 우선)
         val bucketMs  = (finalBeatMs / 4L).coerceAtLeast(1L)
@@ -295,15 +293,21 @@ object BeatDetectorV4 {
         val timeSignature = detectTimeSignature(globalOdf, finalBeatMs, params.hopMs)
         Log.d(TAG, "V4 timeSignature=${timeSignature.type}")
 
-        val downbeatMs = detectDownbeatEnhanced(
-            densityControlled.map { it.timeMs }, low, finalBeatMs, timeSignature.beatsPerBar, params.hopMs)
-        val downbeatOffsetMs = (downbeatMs - (densityControlled.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
+        // Fix A: 전체 비트에 일괄 위상 보정 (DP·segment 비트 모두 36ms 앞당김)
+        val phaseAdjusted = densityControlled.map { b ->
+            b.copy(timeMs = (b.timeMs - ONSET_PHASE_ADVANCE_MS).coerceAtLeast(0L))
+        }
 
-        Log.d(TAG, "V4 detect OK source=$finalSource beats=${densityControlled.size} " +
-            "beatMs=$finalBeatMs timeSignature=${timeSignature.type} downbeatOffset=${downbeatOffsetMs}ms")
+        val downbeatMs = detectDownbeatEnhanced(
+            phaseAdjusted.map { it.timeMs }, low, finalBeatMs, timeSignature.beatsPerBar, params.hopMs)
+        val downbeatOffsetMs = (downbeatMs - (phaseAdjusted.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
+
+        Log.d(TAG, "V4 detect OK source=$finalSource beats=${phaseAdjusted.size} " +
+            "beatMs=$finalBeatMs timeSignature=${timeSignature.type} downbeatOffset=${downbeatOffsetMs}ms " +
+            "phaseAdv=${ONSET_PHASE_ADVANCE_MS}ms")
 
         return DetectResult(
-            beats            = densityControlled,
+            beats            = phaseAdjusted,
             beatMs           = finalBeatMs,
             source           = finalSource,
             reason           = "ok",
@@ -314,10 +318,10 @@ object BeatDetectorV4 {
     }
 
     // =========================================================================
-    // Fix A: onset 위상 보정 포함 Ellis DP
+    // Ellis DP Beat Tracker (V3와 동일, Fix A 위상 보정은 detect() 마지막에 일괄 적용)
     // =========================================================================
 
-    private fun dpBeatTrackerWithPhaseCorrection(
+    private fun dpBeatTracker(
         odf: List<Float>,
         targetPeriodMs: Long,
         hopMs: Long,
@@ -355,11 +359,7 @@ object BeatDetectorV4 {
             beats.add(t.toLong() * hopMs)
             val p = prev[t]; if (p < 0 || p == t) break; t = p; iter++
         }
-
-        // Fix A: 위상 보정 — 36ms 앞당김
-        return beats.reversed().map { ms ->
-            (ms - ONSET_PHASE_ADVANCE_MS).coerceAtLeast(0L)
-        }.toLongArray()
+        return beats.reversed().toLongArray()
     }
 
     // =========================================================================
@@ -424,20 +424,20 @@ object BeatDetectorV4 {
             val frame = (beat.timeMs / hopMs).toInt().coerceIn(0, odf.lastIndex)
             odf[frame]
         }
-        val sorted   = strengths.sorted()
-        val median   = sorted[sorted.size / 2]
+        val sorted    = strengths.sorted()
+        val median    = sorted[sorted.size / 2]
         val threshold = median * ONSET_FILTER_RATIO
 
-        // 실제 감지 비트 중 강도가 낮은 것 제거, FILL 비트는 유지
+        // FILL 비트(채움 비트)만 강도 필터 적용 — 실제 감지 비트는 절대 제거하지 않음
         val filtered = beats.filter { beat ->
-            if (beat.confidence <= FILL_CONFIDENCE) return@filter true  // 채움 비트 유지
+            if (beat.confidence > FILL_CONFIDENCE) return@filter true  // 실제 감지 비트 항상 유지
             val frame = (beat.timeMs / hopMs).toInt().coerceIn(0, odf.lastIndex)
             odf[frame] >= threshold
         }
 
         val removed = beats.size - filtered.size
         if (removed > 0) {
-            Log.d(TAG, "V4 onsetFilter: removed $removed/${beats.size} low-strength beats (th=${String.format("%.3f", threshold)})")
+            Log.d(TAG, "V4 onsetFilter: removed $removed FILL beats (th=${String.format("%.3f", threshold)})")
         }
         return filtered
     }
@@ -603,18 +603,28 @@ object BeatDetectorV4 {
     }
 
     // =========================================================================
-    // Fix E: localNormalizeMean — localMax 대신 localMean 기반 (librosa 방식)
+    // Fix E: localNormalizeMean — 배경 평균 제거 후 피크 기준 0-1 정규화 (librosa 방식)
+    // 배경(localMean)을 빼서 배경 레벨 변화에 강건하게 만들고, localMax 로 0-1 범위 유지
     // =========================================================================
 
     private fun localNormalizeMean(src: List<Float>, windowFrames: Int): List<Float> {
         if (src.isEmpty()) return emptyList()
         val out = ArrayList<Float>(src.size)
+        // 1단계: 배경 평균 제거
+        val bgRemoved = ArrayList<Float>(src.size)
         for (i in src.indices) {
             val lo = max(0, i - windowFrames); val hi = min(src.lastIndex, i + windowFrames)
             var localMean = 0f; var cnt = 0
             for (j in lo..hi) { localMean += src[j]; cnt++ }
             localMean = if (cnt > 0) localMean / cnt else 0f
-            out.add(if (localMean > 1e-6f) (src[i] / localMean).coerceIn(0f, 4f) else 0f)
+            bgRemoved.add((src[i] - localMean).coerceAtLeast(0f))
+        }
+        // 2단계: 로컬 최대값으로 0-1 정규화
+        for (i in bgRemoved.indices) {
+            val lo = max(0, i - windowFrames); val hi = min(bgRemoved.lastIndex, i + windowFrames)
+            var localMax = 0f
+            for (j in lo..hi) if (bgRemoved[j] > localMax) localMax = bgRemoved[j]
+            out.add(if (localMax > 1e-6f) (bgRemoved[i] / localMax).coerceIn(0f, 1f) else 0f)
         }
         return out
     }
