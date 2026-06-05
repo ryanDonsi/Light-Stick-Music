@@ -896,43 +896,14 @@ class App(tk.Tk):
                  font=("",10), wraplength=280, justify="left").pack(
                  anchor="w", padx=8, pady=(0,6))
 
-        # ── 우: 비트 타임라인 + 로그 탭 ────────────
+        # ── 우: 로그 ────────────────────────────────
         right = tk.Frame(result_pane, bg="#1a1a2e")
         right.grid(row=0, column=1, sticky="nsew")
-        right.rowconfigure(1, weight=1)
+        right.rowconfigure(0, weight=1)
         right.columnconfigure(0, weight=1)
 
-        # 비트 타임라인 캔버스 (처음부터 끝까지)
-        tl_frame = tk.LabelFrame(right, text="비트 타임라인  (초록=일치 / 빨강=오감지 / 파랑=누락)",
-                                 bg="#1a1a2e", fg="#90a4ae")
-        tl_frame.grid(row=0, column=0, sticky="ew", pady=(0,4))
-
-        # 줌 컨트롤
-        zoom_ctrl = tk.Frame(tl_frame, bg="#1a1a2e")
-        zoom_ctrl.pack(fill="x", padx=4, pady=2)
-        tk.Label(zoom_ctrl, text="구간 시작(초):", bg="#1a1a2e", fg="#90a4ae",
-                 font=("",8)).pack(side="left")
-        self.zoom_s_var = tk.DoubleVar(value=0.0)
-        tk.Entry(zoom_ctrl, textvariable=self.zoom_s_var, width=5,
-                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
-        tk.Label(zoom_ctrl, text="끝(초):", bg="#1a1a2e", fg="#90a4ae",
-                 font=("",8)).pack(side="left")
-        self.zoom_e_var = tk.DoubleVar(value=30.0)
-        tk.Entry(zoom_ctrl, textvariable=self.zoom_e_var, width=5,
-                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
-        tk.Button(zoom_ctrl, text="갱신", command=self._redraw_timeline,
-                  bg="#455a64", fg="white", font=("",8), pady=1).pack(side="left", padx=4)
-        tk.Label(zoom_ctrl, text="(전체보기: 시작=0, 끝=곡길이)",
-                 bg="#1a1a2e", fg="#546e7a", font=("",7)).pack(side="left")
-
-        self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=90,
-                                   highlightthickness=0)
-        self.tl_canvas.pack(fill="x", padx=4, pady=(0,4))
-        self.tl_canvas.bind("<Configure>", lambda e: self._redraw_timeline())
-
-        # 로그
         log_frame = tk.LabelFrame(right, text="분석 로그", bg="#1a1a2e", fg="#90a4ae")
-        log_frame.grid(row=1, column=0, sticky="nsew")
+        log_frame.grid(row=0, column=0, sticky="nsew")
         self.out = scrolledtext.ScrolledText(log_frame, font=("Courier", 9),
                                              state="disabled",
                                              bg="#0d1117", fg="#7c8b9c",
@@ -942,6 +913,51 @@ class App(tk.Tk):
         self.out.tag_config("red",    foreground="#ef9a9a")
         self.out.tag_config("gray",   foreground="#455a64")
         self.out.pack(fill="both", expand=True)
+
+        # ── 하단 비트 타임라인 (전체 너비) ────────────
+        tl_frame = tk.LabelFrame(self, text="비트 타임라인",
+                                 bg="#1a1a2e", fg="#90a4ae")
+        tl_frame.pack(fill="x", padx=8, pady=(0, 2))
+
+        # 범례 + 줌 컨트롤
+        tl_ctrl = tk.Frame(tl_frame, bg="#1a1a2e")
+        tl_ctrl.pack(fill="x", padx=6, pady=(3, 2))
+
+        # 좌측: 범례
+        legend_frame = tk.Frame(tl_ctrl, bg="#1a1a2e")
+        legend_frame.pack(side="left")
+        for color, text in [
+            ("#69f0ae", "■ 일치(TP)"),
+            ("#ff5252", "■ 오감지(FP)"),
+            ("#448aff", "■ 누락(FN)"),
+        ]:
+            tk.Label(legend_frame, text=text, bg="#1a1a2e", fg=color,
+                     font=("", 8, "bold")).pack(side="left", padx=6)
+
+        tk.Label(tl_ctrl, text="  |", bg="#1a1a2e", fg="#37474f",
+                 font=("",8)).pack(side="left")
+
+        # 우측: 줌 컨트롤
+        tk.Label(tl_ctrl, text="구간 시작(초):", bg="#1a1a2e", fg="#90a4ae",
+                 font=("",8)).pack(side="left", padx=(8,0))
+        self.zoom_s_var = tk.DoubleVar(value=0.0)
+        tk.Entry(tl_ctrl, textvariable=self.zoom_s_var, width=5,
+                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
+        tk.Label(tl_ctrl, text="끝(초):", bg="#1a1a2e", fg="#90a4ae",
+                 font=("",8)).pack(side="left")
+        self.zoom_e_var = tk.DoubleVar(value=30.0)
+        tk.Entry(tl_ctrl, textvariable=self.zoom_e_var, width=5,
+                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
+        tk.Button(tl_ctrl, text="갱신", command=self._redraw_timeline,
+                  bg="#455a64", fg="white", font=("",8), pady=1).pack(side="left", padx=4)
+        tk.Label(tl_ctrl, text="전체보기: 시작=0, 끝=곡길이",
+                 bg="#1a1a2e", fg="#546e7a", font=("",7)).pack(side="left")
+
+        # 타임라인 캔버스 (두 레인: GT + 앱)
+        self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=120,
+                                   highlightthickness=0)
+        self.tl_canvas.pack(fill="x", padx=4, pady=(0, 4))
+        self.tl_canvas.bind("<Configure>", lambda e: self._redraw_timeline())
 
         self.status_var = tk.StringVar(value="파일을 선택하고 [분석 시작]을 누르세요.")
         tk.Label(self, textvariable=self.status_var, anchor="w",
@@ -1066,9 +1082,9 @@ class App(tk.Tk):
                             ref_sec, app_sec, duration_sec,
                             z_start, z_end):
         """
-        캔버스에 비트 타임라인을 그린다.
-        위 레인: GT (파랑=FN, 초록=TP)
-        아래 레인: 앱 (초록=TP, 빨강=FP)
+        캔버스에 두 레인 비트 타임라인을 그린다.
+          위 레인 : GT 엔진 분석 결과  — 초록=TP(일치), 파랑=FN(누락)
+          아래 레인: 앱 타임라인 결과  — 초록=TP(일치), 빨강=FP(오감지)
         """
         c = self.tl_canvas
         c.delete("all")
@@ -1079,59 +1095,92 @@ class App(tk.Tk):
 
         span = max(z_end - z_start, 0.001)
 
-        def tx(t):   # 시각 → x 픽셀
-            return int((t - z_start) / span * W)
+        LABEL_W = 110   # 좌측 레인 라벨 영역 너비
+        TICK_H  = 16    # 상단 시간 눈금 영역 높이
+        SEP_Y   = H // 2  # 레인 구분선 y
+        PAD     = 4
 
-        PAD   = 6
-        MID   = H // 2
-        GT_Y  = MID - PAD        # GT 레인 중심
-        APP_Y = MID + PAD        # 앱 레인 중심
-        H_BAR = (H // 2) - PAD * 2
+        # 비트 막대 영역
+        GT_TOP    = TICK_H + PAD
+        GT_BOT    = SEP_Y - PAD
+        APP_TOP   = SEP_Y + PAD
+        APP_BOT   = H - PAD
 
-        # 레인 구분선
-        c.create_line(0, MID, W, MID, fill="#263238", width=1)
-
-        # 레인 라벨
-        c.create_text(3, GT_Y,  anchor="w", text="GT ",
-                      fill="#82b1ff", font=("", 7))
-        c.create_text(3, APP_Y, anchor="w", text="앱 ",
-                      fill="#69f0ae", font=("", 7))
+        def tx(t):
+            return int(LABEL_W + (t - z_start) / span * (W - LABEL_W))
 
         in_range = lambda t: z_start <= t <= z_end
 
-        # GT 레인: FN=파랑, TP=초록
-        for t in fn_ref:
-            if in_range(t):
-                x = tx(t)
-                c.create_rectangle(x-1, GT_Y - H_BAR, x+1, GT_Y,
-                                   fill="#448aff", outline="")
-        for t in tp_est:
-            if in_range(t):
-                x = tx(t)
-                c.create_rectangle(x-1, GT_Y - H_BAR, x+1, GT_Y,
-                                   fill="#69f0ae", outline="")
+        # ── 배경 레인 ──
+        c.create_rectangle(0, TICK_H, W, SEP_Y,   fill="#0a1520", outline="")
+        c.create_rectangle(0, SEP_Y,  W, H,        fill="#100e1a", outline="")
 
-        # 앱 레인: TP=초록, FP=빨강
-        for t in tp_est:
-            if in_range(t):
-                x = tx(t)
-                c.create_rectangle(x-1, APP_Y, x+1, APP_Y + H_BAR,
-                                   fill="#69f0ae", outline="")
-        for t in fp_est:
-            if in_range(t):
-                x = tx(t)
-                c.create_rectangle(x-1, APP_Y, x+1, APP_Y + H_BAR,
-                                   fill="#ff5252", outline="")
+        # ── 레인 구분선 ──
+        c.create_line(0, SEP_Y, W, SEP_Y, fill="#263238", width=2)
+        c.create_line(LABEL_W, TICK_H, LABEL_W, H, fill="#1e2d3a", width=1, dash=(3,3))
 
-        # 시간 눈금 (10초 간격)
-        tick_interval = max(1, int(span / 10))
+        # ── 레인 라벨 ──
+        # GT 레인
+        c.create_rectangle(0, TICK_H, LABEL_W - 2, SEP_Y, fill="#0d1b2a", outline="")
+        c.create_text(LABEL_W // 2, (TICK_H + SEP_Y) // 2 - 8,
+                      text="GT 엔진", fill="#82b1ff", font=("", 8, "bold"), anchor="center")
+        c.create_text(LABEL_W // 2, (TICK_H + SEP_Y) // 2 + 6,
+                      text="(분석 기준)", fill="#546e7a", font=("", 7), anchor="center")
+
+        # 앱 레인
+        c.create_rectangle(0, SEP_Y, LABEL_W - 2, H, fill="#0d1a0d", outline="")
+        c.create_text(LABEL_W // 2, (SEP_Y + H) // 2 - 8,
+                      text="앱 타임라인", fill="#69f0ae", font=("", 8, "bold"), anchor="center")
+        c.create_text(LABEL_W // 2, (SEP_Y + H) // 2 + 6,
+                      text="(.bin 파일)", fill="#546e7a", font=("", 7), anchor="center")
+
+        # ── 시간 눈금 ──
+        target_ticks = max(5, (W - LABEL_W) // 60)
+        raw = span / target_ticks
+        for base in [1, 2, 5, 10, 15, 30, 60, 120, 300]:
+            if base >= raw:
+                tick_interval = base
+                break
+        else:
+            tick_interval = int(raw / 60 + 1) * 60
+
         t = int(z_start / tick_interval) * tick_interval
-        while t <= z_end:
+        while t <= z_end + tick_interval:
+            if t < z_start:
+                t += tick_interval; continue
             x = tx(t)
-            c.create_line(x, 0, x, H, fill="#1e3a4a", width=1)
-            c.create_text(x + 2, 2, anchor="nw", text=f"{t}s",
-                          fill="#37474f", font=("", 7))
+            if x < LABEL_W:
+                t += tick_interval; continue
+            c.create_line(x, TICK_H, x, H, fill="#1a2a38", width=1)
+            mins, secs = divmod(int(t), 60)
+            label = f"{mins}:{secs:02d}" if mins else f"{secs}s"
+            c.create_text(x + 2, 2, anchor="nw", text=label,
+                          fill="#455a64", font=("", 7))
             t += tick_interval
+
+        # ── GT 레인 비트 막대 ──
+        for t in fn_ref:   # 누락 — 파랑
+            if in_range(t):
+                x = tx(t)
+                c.create_rectangle(x-1, GT_TOP, x+1, GT_BOT,
+                                   fill="#448aff", outline="")
+        for t in tp_est:   # 일치 — 초록
+            if in_range(t):
+                x = tx(t)
+                c.create_rectangle(x-1, GT_TOP, x+1, GT_BOT,
+                                   fill="#69f0ae", outline="")
+
+        # ── 앱 레인 비트 막대 ──
+        for t in tp_est:   # 일치 — 초록
+            if in_range(t):
+                x = tx(t)
+                c.create_rectangle(x-1, APP_TOP, x+1, APP_BOT,
+                                   fill="#69f0ae", outline="")
+        for t in fp_est:   # 오감지 — 빨강
+            if in_range(t):
+                x = tx(t)
+                c.create_rectangle(x-1, APP_TOP, x+1, APP_BOT,
+                                   fill="#ff5252", outline="")
 
     # ── 분석 ──────────────────────────────────────
 
