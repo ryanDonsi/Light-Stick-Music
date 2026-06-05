@@ -43,32 +43,74 @@ except ImportError:
 
 # Beat Transformer
 HAS_BT = False
-BT_LOCAL_PATH = ""   # 로컬 클론 경로 (GUI에서 설정)
+BT_LOCAL_PATH = ""
+_script_dir   = os.path.dirname(os.path.abspath(__file__))
+_BT_CONF_FILE = os.path.join(_script_dir, ".bt_path")   # 경로 저장 파일
 
 def _try_load_bt(local_path=""):
-    """
-    Beat Transformer 경로 검증.
-    패키지 임포트 대신 checkpoint/ 폴더 존재 여부로 판단.
-    (이 레포는 pip 패키지가 아니라 스크립트 모음이라 임포트 불가)
-    """
+    """checkpoint/ + code/ 두 폴더가 있으면 유효한 Beat-Transformer 루트로 판단."""
     global HAS_BT, BT_LOCAL_PATH
-    # 루트 또는 상위 폴더에 checkpoint/ 가 있으면 유효
     for check_root in [local_path,
                        os.path.dirname(local_path) if local_path else ""]:
         if not check_root or not os.path.isdir(check_root):
             continue
-        ckpt = os.path.join(check_root, "checkpoint")
-        code = os.path.join(check_root, "code")
-        if os.path.isdir(ckpt) and os.path.isdir(code):
+        if (os.path.isdir(os.path.join(check_root, "checkpoint")) and
+                os.path.isdir(os.path.join(check_root, "code"))):
             BT_LOCAL_PATH = check_root
             HAS_BT = True
             return True
-    HAS_BT = False
     return False
 
-# 시작 시 자동 감지 (tools/Beat-Transformer 에 클론했을 경우)
-_script_dir = os.path.dirname(os.path.abspath(__file__))
-_try_load_bt(os.path.join(_script_dir, "Beat-Transformer"))
+def _save_bt_path(path):
+    try:
+        with open(_BT_CONF_FILE, "w", encoding="utf-8") as f:
+            f.write(path)
+    except Exception:
+        pass
+
+def _load_bt_path():
+    try:
+        with open(_BT_CONF_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+def _auto_detect_bt():
+    """
+    여러 위치를 순서대로 탐색해 Beat-Transformer 폴더를 자동 감지한다.
+    1) 이전 세션에서 저장한 경로 (.bt_path)
+    2) 스크립트와 같은 폴더 (tools/Beat-Transformer)
+    3) 스크립트 상위 폴더들 (프로젝트 루트 등)
+    4) 현재 드라이브 루트 직하위 (C:\Beat-Transformer 등)
+    """
+    candidates = []
+
+    # 1. 저장된 경로
+    saved = _load_bt_path()
+    if saved:
+        candidates.append(saved)
+
+    # 2. 스크립트 기준 상대 경로
+    for rel in ["Beat-Transformer", "beat-transformer", "beat_transformer"]:
+        candidates.append(os.path.join(_script_dir, rel))
+        candidates.append(os.path.join(_script_dir, "..", rel))
+        candidates.append(os.path.join(_script_dir, "..", "..", rel))
+
+    # 3. 드라이브 루트 직하위 (Windows C:\ D:\ 등)
+    import string
+    for drv in string.ascii_uppercase:
+        root = f"{drv}:\\"
+        if os.path.isdir(root):
+            for rel in ["Beat-Transformer", "beat-transformer"]:
+                candidates.append(os.path.join(root, rel))
+
+    for path in candidates:
+        if _try_load_bt(path):
+            _save_bt_path(BT_LOCAL_PATH)   # 다음 실행을 위해 저장
+            return True
+    return False
+
+_auto_detect_bt()
 
 # madmom
 HAS_MADMOM = False
