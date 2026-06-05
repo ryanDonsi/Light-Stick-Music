@@ -277,12 +277,19 @@ def _median_bpm(beats_sec):
 # 바이너리 파서
 # ──────────────────────────────────────────────
 
+def compute_music_id(path: str) -> int:
+    """SDK와 동일한 알고리즘: SHA-256 앞 4바이트를 Little Endian u32로 변환."""
+    import hashlib, struct as _struct
+    with open(path, "rb") as f:
+        data = f.read()
+    digest = hashlib.sha256(data).digest()
+    return _struct.unpack("<I", digest[:4])[0]
+
 def extract_music_id(filename):
     """파일명에서 Music ID(숫자)를 추출. 못 찾으면 None 반환."""
     name = os.path.splitext(os.path.basename(filename))[0]
     m = re.search(r'timeline[_\-](\d+)', name)
     if m: return m.group(1)
-    # 파일명 전체가 숫자인 경우 (예: 923573155.mp3)
     if re.fullmatch(r'\d+', name): return name
     m = re.search(r'(\d{5,})', name)
     if m: return m.group(1)
@@ -1009,13 +1016,23 @@ class App(tk.Tk):
 
     def _update_audio_id(self, *_):
         p = self.audio_var.get().strip()
-        if not p: self.audio_id_var.set("—"); return
-        mid = extract_music_id(p)
-        self.audio_id_var.set(mid if mid else "—")
+        if not p:
+            self.audio_id_var.set("—"); return
+        self.audio_id_var.set("계산 중…")
+        def _calc():
+            try:
+                mid = compute_music_id(p)
+                self.after(0, lambda v=str(mid): self.audio_id_var.set(v))
+            except Exception:
+                # 해시 실패 시 파일명에서 추출 시도
+                mid = extract_music_id(p)
+                self.after(0, lambda v=mid or "—": self.audio_id_var.set(v))
+        threading.Thread(target=_calc, daemon=True).start()
 
     def _update_bin_id(self, *_):
         p = self.bin_var.get().strip()
         if not p: self.bin_id_var.set("—"); return
+        # 바이너리는 파일명에서 ID 추출 (SDK가 파일명에 ID를 포함시킴)
         mid = extract_music_id(p)
         self.bin_id_var.set(mid if mid else "—")
 
@@ -1243,12 +1260,21 @@ class App(tk.Tk):
         version, frame_count, app_ms = parse_timeline_binary(bin_path)
         app_sec  = [t / 1000.0 for t in app_ms]
         app_st   = beat_stats(app_ms)
-        music_id = extract_music_id(bin_path) or os.path.splitext(os.path.basename(bin_path))[0]
+        bin_id   = extract_music_id(bin_path) or os.path.splitext(os.path.basename(bin_path))[0]
+
+        # 오디오 해시 기반 Music ID (SDK 동일 알고리즘)
+        try:
+            audio_hash_id = str(compute_music_id(audio_path))
+        except Exception:
+            audio_hash_id = extract_music_id(audio_path) or "—"
+
+        music_id = bin_id   # 바이너리 파일명 기준 ID
 
         def _lb():
             self._log(SEP, "gray")
             self._log(f"  바이너리   : {os.path.basename(bin_path)}")
-            self._log(f"  Music ID   : {music_id}", "blue")
+            self._log(f"  Music ID (bin) : {bin_id}  |  Music ID (mp3 hash) : {audio_hash_id}",
+                      "yellow" if bin_id != audio_hash_id else "green")
             self._log(f"  포맷 버전  : {version}")
             self._log(f"  총 프레임  : {frame_count}  (파싱: {len(app_ms)})")
             self._log(f"  감지 BPM   : {app_st.get('bpm',0):.1f}")
@@ -1279,6 +1305,7 @@ class App(tk.Tk):
         def _lr():
             self._log(SEP, "gray")
             self._log(f"  원곡       : {os.path.basename(audio_path)}")
+            self._log(f"  Music ID   : {audio_hash_id}  (SHA-256 앞 4바이트, SDK 동일)", "green")
             self._log(f"  길이       : {duration_sec:.1f} 초")
             self._log(f"  엔진       : {eng_name}  ({eng_acc})", "green")
             self._log(f"  GT BPM     : {ref_bpm:.1f}")
