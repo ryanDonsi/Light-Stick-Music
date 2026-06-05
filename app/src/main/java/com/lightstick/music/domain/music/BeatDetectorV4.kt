@@ -318,7 +318,16 @@ object BeatDetectorV4 {
     }
 
     // =========================================================================
-    // Ellis DP Beat Tracker (V3와 동일, Fix A 위상 보정은 detect() 마지막에 일괄 적용)
+    // Ellis DP Beat Tracker — librosa beat_track 알고리즘 참조 (Ellis 2007)
+    //
+    // 핵심 차이점:
+    //   1) Gaussian local scoring: localscore[t] = conv(odf, gaussWin)[t]
+    //      librosa: exp(-0.5*(arange(-fpb,fpb+1)*32.0/fpb)^2)
+    //      tempo-adaptive 창 너비 → 비트 주변 onset을 부드럽게 집계
+    //   2) tightness = 100 (librosa default)
+    //      penalty = tightness * (log(lag/period))^2
+    //      기존 alpha=0.9는 너무 느슨함 → 100으로 교체
+    //   3) 엣지 비트 trimming: onset strength 낮은 앞뒤 비트 제거
     // =========================================================================
 
     private fun dpBeatTracker(
@@ -328,38 +337,81 @@ object BeatDetectorV4 {
         durationMs: Long
     ): LongArray {
         if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
-        val n = odf.size
-        val targetFrames = (targetPeriodMs / hopMs).toInt().coerceAtLeast(1)
-        val alpha = 0.9f
+        val n            = odf.size
+        val fpb          = (targetPeriodMs / hopMs).toInt().coerceAtLeast(1)  // frames per beat
+        val tightness    = 100.0f  // librosa default
 
-        val score = FloatArray(n) { Float.NEGATIVE_INFINITY }
-        val prev  = IntArray(n)  { -1 }
-
-        val initEnd = (targetFrames * 2).coerceAtMost(n - 1)
-        for (i in 0..initEnd) score[i] = odf[i]
-
-        for (t in 1 until n) {
-            val searchLo = max(0, t - (targetFrames * 2.0f).toInt())
-            val searchHi = max(0, t - (targetFrames * 0.5f).toInt())
-            for (p in searchLo..searchHi) {
-                if (score[p] == Float.NEGATIVE_INFINITY) continue
-                val lag = (t - p).toFloat()
-                val logRatio = ln(lag / targetFrames)
-                val penalty  = alpha * logRatio * logRatio
-                val cand     = score[p] - penalty
-                if (cand > score[t]) { score[t] = cand; prev[t] = p }
+        // ── 1) Gaussian local scoring ─────────────────────────────────────────
+        // localscore[t] = Σ_k gaussian[k] * odf[t - K/2 + k]
+        // gaussian[i] = exp(-0.5 * (i * 32.0 / fpb)^2),  i ∈ [-fpb, fpb]
+        val gaussHalf  = fpb
+        val gaussSize  = gaussHalf * 2 + 1
+        val gaussWin   = FloatArray(gaussSize) { k ->
+            val i = (k - gaussHalf).toFloat()
+            val x = i * 32.0f / fpb
+            kotlin.math.exp(-0.5f * x * x)
+        }
+        val localscore = FloatArray(n)
+        for (t in 0 until n) {
+            var s = 0f
+            for (k in 0 until gaussSize) {
+                val idx = t - gaussHalf + k
+                if (idx in 0 until n) s += gaussWin[k] * odf[idx]
             }
-            if (score[t] != Float.NEGATIVE_INFINITY) score[t] += odf[t]
+            localscore[t] = s
         }
 
-        var t = score.indices.maxByOrNull { score[it] } ?: return LongArray(0)
+        // ── 2) DP with tightness=100 ─────────────────────────────────────────
+        // score[t] = max_p { score[p] - tightness*(log(t-p) - log(fpb))^2 } + localscore[t]
+        val cumscore = FloatArray(n) { Float.NEGATIVE_INFINITY }
+        val prev     = IntArray(n)  { -1 }
+
+        val searchHalfRange = fpb * 2
+        for (t in 0 until n) {
+            val searchLo = max(0, t - searchHalfRange)
+            val searchHi = max(0, t - (fpb / 2).coerceAtLeast(1))
+            var bestScore = Float.NEGATIVE_INFINITY
+            for (p in searchLo..searchHi) {
+                if (cumscore[p] == Float.NEGATIVE_INFINITY && p > 0) continue
+                val pScore   = if (p == 0) 0f else cumscore[p]
+                val lag      = (t - p).toFloat().coerceAtLeast(1f)
+                val logRatio = ln(lag / fpb)
+                val penalty  = tightness * logRatio * logRatio
+                val cand     = pScore - penalty
+                if (cand > bestScore) { bestScore = cand; prev[t] = p }
+            }
+            cumscore[t] = if (bestScore == Float.NEGATIVE_INFINITY) localscore[t]
+                          else bestScore + localscore[t]
+        }
+
+        // ── 3) Backtrack ─────────────────────────────────────────────────────
+        var t    = cumscore.indices.maxByOrNull { cumscore[it] } ?: return LongArray(0)
         val beats = mutableListOf<Long>()
         var iter  = 0
-        while (t >= 0 && iter < n) {
+        while (t > 0 && iter < n) {
             beats.add(t.toLong() * hopMs)
             val p = prev[t]; if (p < 0 || p == t) break; t = p; iter++
         }
-        return beats.reversed().toLongArray()
+
+        // ── 4) 엣지 trimming: localscore 낮은 앞뒤 비트 제거 (librosa trim=true) ─
+        val result = beats.reversed().toLongArray()
+        if (result.size < 2) return result
+        val scoreRms = kotlin.math.sqrt(localscore.map { it * it }.average().toFloat())
+        val trimTh   = 0.5f * scoreRms
+        var startIdx = 0
+        while (startIdx < result.size) {
+            val f = (result[startIdx] / hopMs).toInt().coerceIn(0, n - 1)
+            if (localscore[f] >= trimTh) break
+            startIdx++
+        }
+        var endIdx = result.size - 1
+        while (endIdx > startIdx) {
+            val f = (result[endIdx] / hopMs).toInt().coerceIn(0, n - 1)
+            if (localscore[f] >= trimTh) break
+            endIdx--
+        }
+        return if (startIdx > endIdx) result
+               else result.sliceArray(startIdx..endIdx)
     }
 
     // =========================================================================
@@ -391,15 +443,29 @@ object BeatDetectorV4 {
 
         if (candidates.isEmpty()) return singleBeatMs
 
-        // comb-filter 점수 기준 최적 후보 선택
-        val best = candidates.maxByOrNull { it.second }?.first ?: singleBeatMs ?: return null
+        // log-normal prior: 120 BPM(500ms) 중심, std=1 octave (librosa 방식)
+        // logprior = -0.5 * ((log2(bpm) - log2(startBpm)) / stdOctave)^2
+        // bpm = 60000ms / beatMs 이므로 beatMs 기준으로 변환
+        val startBpmMs = 500L  // 120 BPM
+        val stdOctave  = 1.0f  // 1 octave std
+        fun logNormalPrior(beatMs: Long): Float {
+            val ratio = ln(beatMs.toFloat() / startBpmMs) / ln(2f)  // log2 비율
+            return -0.5f * (ratio / stdOctave) * (ratio / stdOctave)
+        }
 
-        // autocorr 결과와 크게 다르지 않으면 autocorr 우선 (이미 잘 동작하는 경우)
+        // comb-filter 점수 + log-normal prior 합산
+        val scored = candidates.map { (ms, combScore) ->
+            val normComb = combScore  // 이미 상대 점수
+            ms to (normComb + logNormalPrior(ms) * 0.15f)  // prior 가중치 0.15
+        }
+        val best = scored.maxByOrNull { it.second }?.first ?: singleBeatMs ?: return null
+
+        // autocorr 결과와 크게 다르지 않으면 autocorr 우선
         return if (singleBeatMs != null &&
             abs(best - singleBeatMs).toFloat() / singleBeatMs.toFloat() < 0.08f) {
             singleBeatMs
         } else {
-            Log.d(TAG, "V4 multiSeedBpm: single=${singleBeatMs}ms → multiSeed=${best}ms")
+            Log.d(TAG, "V4 multiSeedBpm: single=${singleBeatMs}ms → multiSeed+prior=${best}ms")
             best
         }
     }
