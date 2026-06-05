@@ -168,33 +168,38 @@ def detect_beats_beat_transformer(audio_path):
 def detect_beats_madmom(audio_path):
     """
     madmom DBNBeatTracker.
-    MP3는 ffmpeg 없이 못 읽으므로 librosa로 먼저 WAV로 변환 후 넘긴다.
+    우선 ffmpeg(직접)로 시도, 실패 시 librosa → WAV 변환으로 폴백.
     """
-    import tempfile, shutil
+    import tempfile
     from madmom.features.beats import DBNBeatTrackingProcessor, RNNBeatProcessor
 
-    # MP3/M4A 등 → librosa로 로드 → 임시 WAV 저장
-    ext = os.path.splitext(audio_path)[1].lower()
-    if ext not in (".wav",) and HAS_LIBROSA:
-        y, sr = librosa.load(audio_path, sr=44100, mono=True)
-        tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-        tmp_wav.close()
-        import soundfile as sf
-        sf.write(tmp_wav.name, y, sr)
-        work_path = tmp_wav.name
-        cleanup = True
-    else:
-        work_path = audio_path
-        cleanup   = False
-
-    try:
-        act   = RNNBeatProcessor()(work_path)
+    def _run(path):
+        act   = RNNBeatProcessor()(path)
         beats = DBNBeatTrackingProcessor(fps=100)(act)
-    finally:
-        if cleanup and os.path.isfile(work_path):
-            os.unlink(work_path)
+        return sorted(float(b) for b in beats)
 
-    beats_sec = sorted(float(b) for b in beats)
+    # 1차: ffmpeg 경유 직접 로드 (madmom 기본)
+    try:
+        beats_sec = _run(audio_path)
+        return beats_sec, _median_bpm(beats_sec)
+    except Exception as e_direct:
+        if not HAS_LIBROSA:
+            raise RuntimeError(
+                f"madmom 오디오 로드 실패: {e_direct}\n"
+                "ffmpeg 설치 또는 pip install librosa 필요"
+            ) from e_direct
+
+    # 2차: librosa → 임시 WAV 변환 폴백
+    import soundfile as sf
+    y, sr = librosa.load(audio_path, sr=44100, mono=True)
+    tmp   = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    tmp.close()
+    sf.write(tmp.name, y, sr)
+    try:
+        beats_sec = _run(tmp.name)
+    finally:
+        if os.path.isfile(tmp.name):
+            os.unlink(tmp.name)
     return beats_sec, _median_bpm(beats_sec)
 
 def detect_beats_librosa(audio_path, bpm_hint=0.0):
@@ -605,17 +610,6 @@ class App(tk.Tk):
         self.bpm_hint_var = tk.DoubleVar(value=0.0)
         tk.Entry(fo, textvariable=self.bpm_hint_var, width=6).grid(row=1, column=8, sticky="w", **pad)
 
-        # ── 등급 패널 ─────────────────────────────
-        self.grade_frame = tk.Frame(self, bd=2, relief="groove", bg="#263238")
-        self.grade_frame.pack(fill="x", padx=8, pady=2)
-        self.grade_label  = tk.Label(self.grade_frame, text=" — ",
-                                     font=("", 30, "bold"), width=3, bg="#263238", fg="white")
-        self.grade_label.pack(side="left", padx=14, pady=4)
-        self.grade_detail = tk.Label(self.grade_frame, text="분석 전",
-                                     font=("", 11), justify="left", anchor="w",
-                                     bg="#263238", fg="#cfd8dc")
-        self.grade_detail.pack(side="left", fill="x", expand=True)
-
         # ── 버튼 행 ───────────────────────────────
         btn_frame = tk.Frame(self)
         btn_frame.pack(pady=4)
@@ -623,7 +617,7 @@ class App(tk.Tk):
                                  font=("", 11, "bold"), bg="#2e7d32", fg="white",
                                  activebackground="#1b5e20", command=self._run, width=16)
         self.run_btn.pack(side="left", padx=6)
-        self.map_btn = tk.Button(btn_frame, text="🗺  비트맵 보기",
+        self.map_btn = tk.Button(btn_frame, text="🗺  비트맵 (팝업)",
                                  font=("", 11, "bold"), bg="#1565c0", fg="white",
                                  activebackground="#0d47a1", command=self._show_beatmap,
                                  width=16, state="disabled")
@@ -634,17 +628,125 @@ class App(tk.Tk):
                                   width=16, state="disabled")
         self.save_btn.pack(side="left", padx=6)
 
-        # ── 로그 ──────────────────────────────────
-        fout = tk.LabelFrame(self, text="상세 결과", **pad)
-        fout.pack(fill="both", expand=True, **pad)
-        self.out = scrolledtext.ScrolledText(fout, font=("Courier", 9), state="disabled",
-                                             bg="#1e1e1e", fg="#d4d4d4")
+        # ── 결과 영역 (좌: 구조화 패널 / 우: 탭) ───
+        result_pane = tk.Frame(self)
+        result_pane.pack(fill="both", expand=True, padx=8, pady=4)
+        result_pane.columnconfigure(0, weight=2)
+        result_pane.columnconfigure(1, weight=3)
+        result_pane.rowconfigure(0, weight=1)
+
+        # ── 좌: 구조화 결과 카드 ────────────────────
+        left = tk.Frame(result_pane, bg="#1a1a2e", bd=1, relief="solid")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0,4))
+
+        # 등급 헤더
+        self.grade_frame = tk.Frame(left, bg="#263238")
+        self.grade_frame.pack(fill="x")
+        self.grade_label = tk.Label(self.grade_frame, text="—",
+                                    font=("", 36, "bold"), width=3,
+                                    bg="#263238", fg="white")
+        self.grade_label.pack(side="left", padx=12, pady=6)
+        self.grade_sub = tk.Label(self.grade_frame, text="분석 전",
+                                  font=("", 10), bg="#263238", fg="#b0bec5",
+                                  justify="left", anchor="w")
+        self.grade_sub.pack(side="left", fill="x", expand=True)
+
+        # 지표 카드들
+        metrics_frame = tk.Frame(left, bg="#1a1a2e")
+        metrics_frame.pack(fill="both", expand=True, padx=8, pady=6)
+
+        def _card(parent, row, col, title, var, color="#ffffff", colspan=1):
+            f = tk.Frame(parent, bg="#263238", bd=0, relief="flat")
+            f.grid(row=row, column=col, columnspan=colspan,
+                   sticky="nsew", padx=3, pady=3)
+            tk.Label(f, text=title, bg="#263238", fg="#78909c",
+                     font=("", 8)).pack(anchor="w", padx=6, pady=(4,0))
+            lbl = tk.Label(f, textvariable=var, bg="#263238", fg=color,
+                           font=("", 15, "bold"))
+            lbl.pack(anchor="w", padx=8, pady=(0,4))
+            return f
+
+        for c in range(3): metrics_frame.columnconfigure(c, weight=1)
+        for r in range(5): metrics_frame.rowconfigure(r, weight=1)
+
+        self.v_f      = tk.StringVar(value="—")
+        self.v_p      = tk.StringVar(value="—")
+        self.v_r      = tk.StringVar(value="—")
+        self.v_tp     = tk.StringVar(value="—")
+        self.v_fp     = tk.StringVar(value="—")
+        self.v_fn     = tk.StringVar(value="—")
+        self.v_bpm_a  = tk.StringVar(value="—")
+        self.v_bpm_g  = tk.StringVar(value="—")
+        self.v_bpm_e  = tk.StringVar(value="—")
+        self.v_cov    = tk.StringVar(value="—")
+        self.v_gaps   = tk.StringVar(value="—")
+        self.v_advice = tk.StringVar(value="파일을 선택하고 분석을 시작하세요.")
+
+        _card(metrics_frame, 0, 0, "F-measure",  self.v_f,    "#69f0ae", colspan=2)
+        _card(metrics_frame, 0, 2, "커버리지",    self.v_cov,  "#82b1ff")
+        _card(metrics_frame, 1, 0, "Precision",  self.v_p,    "#b3e5fc")
+        _card(metrics_frame, 1, 1, "Recall",     self.v_r,    "#b3e5fc")
+        _card(metrics_frame, 1, 2, "대형갭",      self.v_gaps, "#ffcc02")
+        _card(metrics_frame, 2, 0, "TP (일치)",   self.v_tp,   "#69f0ae")
+        _card(metrics_frame, 2, 1, "FP (오감지)", self.v_fp,   "#ef9a9a")
+        _card(metrics_frame, 2, 2, "FN (누락)",   self.v_fn,   "#82b1ff")
+        _card(metrics_frame, 3, 0, "BPM (앱)",    self.v_bpm_a,"#ffffff")
+        _card(metrics_frame, 3, 1, "BPM (GT)",    self.v_bpm_g,"#ffffff")
+        _card(metrics_frame, 3, 2, "BPM 오차",    self.v_bpm_e,"#ffcc02")
+
+        advice_f = tk.Frame(left, bg="#37474f")
+        advice_f.pack(fill="x", padx=8, pady=(0,8))
+        tk.Label(advice_f, text="권고", bg="#37474f", fg="#78909c",
+                 font=("",8)).pack(anchor="w", padx=6, pady=(3,0))
+        tk.Label(advice_f, textvariable=self.v_advice, bg="#37474f", fg="#ffffff",
+                 font=("",10), wraplength=280, justify="left").pack(
+                 anchor="w", padx=8, pady=(0,6))
+
+        # ── 우: 비트 타임라인 + 로그 탭 ────────────
+        right = tk.Frame(result_pane, bg="#1a1a2e")
+        right.grid(row=0, column=1, sticky="nsew")
+        right.rowconfigure(1, weight=1)
+        right.columnconfigure(0, weight=1)
+
+        # 비트 타임라인 캔버스 (처음부터 끝까지)
+        tl_frame = tk.LabelFrame(right, text="비트 타임라인  (초록=일치 / 빨강=오감지 / 파랑=누락)",
+                                 bg="#1a1a2e", fg="#90a4ae")
+        tl_frame.grid(row=0, column=0, sticky="ew", pady=(0,4))
+
+        # 줌 컨트롤
+        zoom_ctrl = tk.Frame(tl_frame, bg="#1a1a2e")
+        zoom_ctrl.pack(fill="x", padx=4, pady=2)
+        tk.Label(zoom_ctrl, text="구간 시작(초):", bg="#1a1a2e", fg="#90a4ae",
+                 font=("",8)).pack(side="left")
+        self.zoom_s_var = tk.DoubleVar(value=0.0)
+        tk.Entry(zoom_ctrl, textvariable=self.zoom_s_var, width=5,
+                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
+        tk.Label(zoom_ctrl, text="끝(초):", bg="#1a1a2e", fg="#90a4ae",
+                 font=("",8)).pack(side="left")
+        self.zoom_e_var = tk.DoubleVar(value=30.0)
+        tk.Entry(zoom_ctrl, textvariable=self.zoom_e_var, width=5,
+                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
+        tk.Button(zoom_ctrl, text="갱신", command=self._redraw_timeline,
+                  bg="#455a64", fg="white", font=("",8), pady=1).pack(side="left", padx=4)
+        tk.Label(zoom_ctrl, text="(전체보기: 시작=0, 끝=곡길이)",
+                 bg="#1a1a2e", fg="#546e7a", font=("",7)).pack(side="left")
+
+        self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=90,
+                                   highlightthickness=0)
+        self.tl_canvas.pack(fill="x", padx=4, pady=(0,4))
+        self.tl_canvas.bind("<Configure>", lambda e: self._redraw_timeline())
+
+        # 로그
+        log_frame = tk.LabelFrame(right, text="분석 로그", bg="#1a1a2e", fg="#90a4ae")
+        log_frame.grid(row=1, column=0, sticky="nsew")
+        self.out = scrolledtext.ScrolledText(log_frame, font=("Courier", 9),
+                                             state="disabled",
+                                             bg="#0d1117", fg="#7c8b9c",
+                                             height=8)
         self.out.tag_config("green",  foreground="#69f0ae")
-        self.out.tag_config("blue",   foreground="#82b1ff")
         self.out.tag_config("yellow", foreground="#ffcc02")
         self.out.tag_config("red",    foreground="#ef9a9a")
-        self.out.tag_config("gray",   foreground="#9e9e9e")
-        self.out.tag_config("bold",   font=("Courier", 9, "bold"))
+        self.out.tag_config("gray",   foreground="#455a64")
         self.out.pack(fill="both", expand=True)
 
         self.status_var = tk.StringVar(value="파일을 선택하고 [분석 시작]을 누르세요.")
@@ -730,7 +832,112 @@ class App(tk.Tk):
     def _set_grade(self, grade, color, detail):
         self.grade_frame.config(bg=color)
         self.grade_label.config(text=grade, fg="white", bg=color)
-        self.grade_detail.config(text=detail, fg="white", bg=color)
+        self.grade_sub.config(text=detail, bg=color)
+
+    def _update_cards(self, f, p, r, tp, fp_cnt, fn,
+                      bpm_app, bpm_ref, bpm_err, cov_pct, gaps, advice):
+        def pct(v): return f"{v*100:.1f}%"
+        self.v_f.set(pct(f))
+        self.v_p.set(pct(p))
+        self.v_r.set(pct(r))
+        self.v_tp.set(str(tp))
+        self.v_fp.set(str(fp_cnt))
+        self.v_fn.set(str(fn))
+        self.v_bpm_a.set(f"{bpm_app:.1f}")
+        self.v_bpm_g.set(f"{bpm_ref:.1f}")
+        self.v_bpm_e.set(f"{bpm_err:.1f}%")
+        self.v_cov.set(f"{cov_pct:.1f}%")
+        self.v_gaps.set(f"{gaps}개")
+        self.v_advice.set(advice)
+
+    def _redraw_timeline(self):
+        """비트 타임라인 캔버스를 현재 _last_result 기준으로 다시 그린다."""
+        if not self._last_result:
+            return
+        r = self._last_result
+        try:
+            z_s = float(self.zoom_s_var.get())
+            z_e = float(self.zoom_e_var.get())
+        except Exception:
+            z_s, z_e = 0.0, r["duration_sec"]
+        if z_e <= z_s:
+            z_e = z_s + 1.0
+        self._draw_beat_timeline(
+            r["tp_est"], r["fp_est"], r["fn_ref"],
+            r["ref_sec"], r["app_sec"],
+            r["duration_sec"], z_s, z_e
+        )
+
+    def _draw_beat_timeline(self, tp_est, fp_est, fn_ref,
+                            ref_sec, app_sec, duration_sec,
+                            z_start, z_end):
+        """
+        캔버스에 비트 타임라인을 그린다.
+        위 레인: GT (파랑=FN, 초록=TP)
+        아래 레인: 앱 (초록=TP, 빨강=FP)
+        """
+        c = self.tl_canvas
+        c.delete("all")
+        W = c.winfo_width()
+        H = c.winfo_height()
+        if W < 10 or H < 10:
+            return
+
+        span = max(z_end - z_start, 0.001)
+
+        def tx(t):   # 시각 → x 픽셀
+            return int((t - z_start) / span * W)
+
+        PAD   = 6
+        MID   = H // 2
+        GT_Y  = MID - PAD        # GT 레인 중심
+        APP_Y = MID + PAD        # 앱 레인 중심
+        H_BAR = (H // 2) - PAD * 2
+
+        # 레인 구분선
+        c.create_line(0, MID, W, MID, fill="#263238", width=1)
+
+        # 레인 라벨
+        c.create_text(3, GT_Y,  anchor="w", text="GT ",
+                      fill="#82b1ff", font=("", 7))
+        c.create_text(3, APP_Y, anchor="w", text="앱 ",
+                      fill="#69f0ae", font=("", 7))
+
+        in_range = lambda t: z_start <= t <= z_end
+
+        # GT 레인: FN=파랑, TP=초록
+        for t in fn_ref:
+            if in_range(t):
+                x = tx(t)
+                c.create_rectangle(x-1, GT_Y - H_BAR, x+1, GT_Y,
+                                   fill="#448aff", outline="")
+        for t in tp_est:
+            if in_range(t):
+                x = tx(t)
+                c.create_rectangle(x-1, GT_Y - H_BAR, x+1, GT_Y,
+                                   fill="#69f0ae", outline="")
+
+        # 앱 레인: TP=초록, FP=빨강
+        for t in tp_est:
+            if in_range(t):
+                x = tx(t)
+                c.create_rectangle(x-1, APP_Y, x+1, APP_Y + H_BAR,
+                                   fill="#69f0ae", outline="")
+        for t in fp_est:
+            if in_range(t):
+                x = tx(t)
+                c.create_rectangle(x-1, APP_Y, x+1, APP_Y + H_BAR,
+                                   fill="#ff5252", outline="")
+
+        # 시간 눈금 (10초 간격)
+        tick_interval = max(1, int(span / 10))
+        t = int(z_start / tick_interval) * tick_interval
+        while t <= z_end:
+            x = tx(t)
+            c.create_line(x, 0, x, H, fill="#1e3a4a", width=1)
+            c.create_text(x + 2, 2, anchor="nw", text=f"{t}s",
+                          fill="#37474f", font=("", 7))
+            t += tick_interval
 
     # ── 분석 ──────────────────────────────────────
 
@@ -845,43 +1052,26 @@ class App(tk.Tk):
                    if duration_sec > 0 else 0
         grade, g_color, verdict = grade_info(f, engine)
 
-        bar = "█" * round(f * 50) + "░" * (50 - round(f * 50))
         advice = {"S":"서비스 적용 가능 수준입니다.",
                   "A":"대부분의 K-pop에서 정상 동작합니다.",
                   "B":"BPM은 정확하나 비트 타이밍 개선이 필요합니다.",
                   "C":"Ellis DP / Adaptive Threshold 튜닝을 권장합니다."
                   }.get(grade, "BPM 감지 로직부터 재검토가 필요합니다.")
 
-        def _lr2():
-            self._log(SEP2, "gray")
-            self._log("  ▣  정확도 결과", "bold")
-            self._log(SEP2, "gray")
-            g_tag = "green" if grade in ("S","A") else ("yellow" if grade == "B" else "red")
-            self._log(f"  등급       :  {grade}   {verdict}", g_tag)
-            self._log(f"  F-measure  : {f*100:5.1f}%   [{bar}]", g_tag)
-            self._log(f"  Precision  : {p*100:5.1f}%   (앱 비트 중 GT 일치)")
-            self._log(f"  Recall     : {r*100:5.1f}%   (GT 비트 중 앱이 맞힘)")
-            self._log(f"  TP / FP / FN : {tp} / {fp_cnt} / {fn}")
-            self._log("")
-            self._log(f"  BPM (앱)   : {app_st.get('bpm',0):.1f}")
-            self._log(f"  BPM (GT)   : {ref_bpm:.1f}")
-            self._log(f"  BPM 오차   : {bpm_err:.1f}%",
-                      "green" if bpm_err < 5 else ("yellow" if bpm_err < 15 else "red"))
-            self._log(f"  커버리지   : {cov_pct:.1f}%",
-                      "green" if cov_pct > 95 else "yellow")
-            self._log(f"\n  권고: {advice}", g_tag)
-            self._log(SEP2, "gray")
-            self._log("   S ≥85%  A 75~85%  B 60~75%  C 45~60%  D <45%", "gray")
-            self._log(SEP2, "gray")
-        self.after(0, _lr2)
-
-        self.after(0, lambda: self._set_grade(
-            grade, g_color,
-            f"F-measure {f*100:.1f}%  |  BPM 앱 {app_st.get('bpm',0):.1f} / GT {ref_bpm:.1f}"
-            f"  |  엔진: {eng_name}\n"
-            f"Precision {p*100:.1f}%  /  Recall {r*100:.1f}%  /  커버리지 {cov_pct:.1f}%\n"
-            f"{verdict} — {advice}"
-        ))
+        def _update_ui():
+            self._set_grade(
+                grade, g_color,
+                f"{verdict}\n엔진: {eng_name}  |  Music ID: {music_id}"
+            )
+            self._update_cards(
+                f, p, r, tp, fp_cnt, fn,
+                app_st.get('bpm',0), ref_bpm, bpm_err, cov_pct,
+                app_st.get('gaps_600',0), advice
+            )
+            # 로그에는 핵심 수치만
+            self._log(f"완료 — F={f*100:.1f}%  P={p*100:.1f}%  R={r*100:.1f}%"
+                      f"  BPM 앱{app_st.get('bpm',0):.0f}/GT{ref_bpm:.0f}", "green")
+        self.after(0, _update_ui)
 
         # 결과 캐시
         self._last_result = dict(
@@ -894,12 +1084,15 @@ class App(tk.Tk):
             audio_name=os.path.basename(audio_path),
             music_id=music_id, tol_ms=tol_ms,
         )
+        # 비트 타임라인 그리기 (전체 기본)
+        def _draw():
+            self.zoom_e_var.set(round(duration_sec, 1))
+            self._redraw_timeline()
+        self.after(200, _draw)   # 캔버스 레이아웃 완성 후 실행
+
         if HAS_MPL:
             self.after(0, lambda: self.map_btn.config(state="normal"))
             self.after(0, lambda: self.save_btn.config(state="normal"))
-        else:
-            self.after(0, lambda: self._log(
-                "\n  ※ matplotlib 미설치 — 비트맵 불가 (pip install matplotlib)", "yellow"))
 
     # ── 비트맵 창 ─────────────────────────────────
 
