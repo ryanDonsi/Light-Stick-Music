@@ -37,14 +37,15 @@ def main():
         import librosa
     except ImportError as e:
         print(f"[bt_infer] 필수 패키지 없음: {e}", file=sys.stderr)
-        print("pip install torch torchaudio librosa numpy einops", file=sys.stderr)
+        print("pip install torch torchaudio librosa numpy", file=sys.stderr)
         sys.exit(1)
 
     # ── Beat Transformer 모델 로드 ──────────────────
     try:
-        from DilatedTransformer import DilatedTransformer
-    except ImportError:
-        print("[bt_infer] DilatedTransformer 임포트 실패. --code_dir 를 확인하세요.", file=sys.stderr)
+        from DilatedTransformer import Demixed_DilatedTransformerModel
+    except ImportError as e:
+        print(f"[bt_infer] DilatedTransformer 임포트 실패: {e}", file=sys.stderr)
+        print(f"  --code_dir 경로를 확인하세요: {args.code_dir}", file=sys.stderr)
         sys.exit(1)
 
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu"
@@ -61,15 +62,14 @@ def main():
         sys.exit(1)
 
     print(f"[bt_infer] 체크포인트 로드: {ckpt_file}")
-    state = torch.load(ckpt_file, map_location=device)
+    state = torch.load(ckpt_file, map_location=device, weights_only=False)
 
-    # 모델 하이퍼파라미터 기본값 (Beat Transformer 논문 기준)
-    model = DilatedTransformer(
-        attn_len=5, instr=1, ntoken=2,
+    # 체크포인트는 instr=5 (5-stem demixed) 로 학습됨
+    model = Demixed_DilatedTransformerModel(
+        attn_len=5, instr=5, ntoken=2,
         dmodel=256, nhead=8, d_hid=1024,
         nlayers=9, norm_first=True
     )
-    # state_dict 키 처리 (module. prefix 제거)
     sd = state.get("state_dict", state)
     sd = {k.replace("module.", ""): v for k, v in sd.items()}
     model.load_state_dict(sd, strict=False)
@@ -81,46 +81,35 @@ def main():
     print(f"[bt_infer] 오디오 로드: {args.audio}")
     y, sr = librosa.load(args.audio, sr=22050, mono=True)
 
-    # 3-band log-mel spectrogram (Beat Transformer 입력 형식)
+    # 128-mel log spectrogram (모델 입력 형식: (batch, instr, time, melbin=128))
     hop_length = 512   # ~23ms @ 22050 Hz
 
-    def log_mel(y, n_mels, fmin, fmax):
-        S = librosa.feature.melspectrogram(
-            y=y, sr=sr, n_fft=2048, hop_length=hop_length,
-            n_mels=n_mels, fmin=fmin, fmax=fmax, power=2.0)
-        return librosa.power_to_db(S, ref=np.max)
+    S = librosa.feature.melspectrogram(
+        y=y, sr=sr, n_fft=2048, hop_length=hop_length,
+        n_mels=128, fmin=20, fmax=11025, power=2.0
+    )
+    spec_mono = librosa.power_to_db(S, ref=np.max)  # (128, T)
+    spec_mono = spec_mono.T  # (T, 128)
 
-    spec_low  = log_mel(y, n_mels=24, fmin=20,   fmax=300)
-    spec_mid  = log_mel(y, n_mels=24, fmin=300,  fmax=3000)
-    spec_high = log_mel(y, n_mels=24, fmin=3000, fmax=11025)
-
-    # (3, n_mels, T) → (1, 3, n_mels, T)
-    spec = np.stack([spec_low, spec_mid, spec_high], axis=0)
-    spec = torch.tensor(spec, dtype=torch.float32).unsqueeze(0).to(device)
+    # 단일 오디오를 5개 채널로 복제 (demixed 5-stem 대체)
+    # shape: (1, 5, T, 128)
+    spec = np.stack([spec_mono] * 5, axis=0)  # (5, T, 128)
+    spec = torch.tensor(spec, dtype=torch.float32).unsqueeze(0).to(device)  # (1, 5, T, 128)
 
     # ── 추론 ──────────────────────────────────────
     print("[bt_infer] 추론 실행 중…")
     with torch.no_grad():
-        output = model(spec)
+        output, _ = model(spec)  # output: (1, T, 2)
 
-    # output: (1, T, 2) — [beat_act, downbeat_act] 또는 (1, 2, T)
-    if output.dim() == 3:
-        if output.shape[-1] == 2:
-            beat_act     = output[0, :, 0].cpu().numpy()
-            downbeat_act = output[0, :, 1].cpu().numpy()
-        else:
-            beat_act     = output[0, 0, :].cpu().numpy()
-            downbeat_act = output[0, 1, :].cpu().numpy()
-    else:
-        beat_act = output[0].cpu().numpy()
-        downbeat_act = beat_act
+    beat_act     = output[0, :, 0].cpu().numpy()
+    downbeat_act = output[0, :, 1].cpu().numpy()
 
     # ── Peak picking ───────────────────────────────
     from scipy.signal import find_peaks
 
-    hop_sec    = hop_length / sr
-    min_dist   = max(1, int(0.25 / hop_sec))   # 최소 250ms
-    threshold  = 0.3
+    hop_sec  = hop_length / sr
+    min_dist = max(1, int(0.25 / hop_sec))   # 최소 250ms
+    threshold = 0.3
 
     beat_peaks, _     = find_peaks(beat_act,     height=threshold, distance=min_dist)
     downbeat_peaks, _ = find_peaks(downbeat_act, height=threshold, distance=min_dist)
