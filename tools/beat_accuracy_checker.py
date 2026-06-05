@@ -16,6 +16,7 @@ import struct
 import re
 import os
 import sys
+import json
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -714,6 +715,8 @@ _TIPS = {
 
 
 class App(tk.Tk):
+    _STATE_FILE = os.path.join(os.path.dirname(__file__), ".beat_checker_state.json")
+
     def __init__(self):
         super().__init__()
         self.title("Beat Accuracy Checker")
@@ -721,6 +724,7 @@ class App(tk.Tk):
         self.minsize(820, 680)
         self._last_result = None   # 비트맵 재렌더용 캐시
         self._build_ui()
+        self._load_state()
 
     def _build_ui(self):
         pad = dict(padx=6, pady=3)
@@ -1082,6 +1086,7 @@ class App(tk.Tk):
             added = True
         if added:
             self._refresh_matching()
+            self._save_state()
 
     def _compute_id_for_item(self, iid, path):
         try:
@@ -1112,12 +1117,110 @@ class App(tk.Tk):
             self._tree.delete(iid)
             self._audio_items.pop(iid, None)
         self._refresh_matching()
+        self._save_state()
+
+    # ── 상태 저장 / 불러오기 ──────────────────────
+
+    def _save_state(self):
+        state = {
+            "bin_folder": self._bin_folder_var.get(),
+            "items": [
+                {
+                    "path":     item["path"],
+                    "music_id": item.get("music_id", ""),
+                    "results":  item.get("results", {}),
+                }
+                for item in self._audio_items.values()
+                if os.path.isfile(item.get("path", ""))
+            ],
+        }
+        try:
+            with open(self._STATE_FILE, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _load_state(self):
+        if not os.path.isfile(self._STATE_FILE):
+            return
+        try:
+            with open(self._STATE_FILE, encoding="utf-8") as f:
+                state = json.load(f)
+        except Exception:
+            return
+
+        bin_folder = state.get("bin_folder", "")
+        if bin_folder:
+            self._bin_folder_var.set(bin_folder)
+
+        for entry in state.get("items", []):
+            path = entry.get("path", "")
+            if not path or not os.path.isfile(path):
+                continue
+            if any(v["path"] == path for v in self._audio_items.values()):
+                continue
+
+            mid     = entry.get("music_id", "")
+            results = entry.get("results", {})
+            disp_mid = _to_signed_display(int(mid)) if mid.lstrip("-").isdigit() else (mid or "—")
+
+            # 등급 태그 결정
+            _grade_order = ["S", "A", "B", "C", "D", "!"]
+            best = max(
+                (r["grade"] for r in results.values() if r.get("grade") in _grade_order),
+                key=lambda g: -_grade_order.index(g),
+                default=None
+            )
+
+            # 엔진 컬럼 값 복원
+            def _eng_label(engine):
+                r = results.get(engine)
+                if not r:
+                    return "미분석"
+                return f"{r['grade']} {r['f_score']*100:.0f}%"
+
+            iid = self._tree.insert("", "end",
+                values=(os.path.basename(path), disp_mid, "—",
+                        _eng_label("beat_transformer"),
+                        _eng_label("madmom"),
+                        _eng_label("librosa")),
+                tags=("pending",))
+            self._audio_items[iid] = {
+                "path": path, "music_id": mid,
+                "bin_path": "", "results": results,
+            }
+
+            # 복원 후 태그 갱신은 매칭 후 처리
+            if best:
+                self._tree.item(iid, tags=("pending", f"grade_{best}"))
+
+        if self._audio_items:
+            self._refresh_matching()
+
+    def _reset_analysis_results(self):
+        """바이너리 폴더 변경 시 모든 항목의 분석 결과를 초기화한다."""
+        for iid, item in self._audio_items.items():
+            item["results"] = {}
+            try:
+                vals = list(self._tree.item(iid, "values"))
+                while len(vals) < 6:
+                    vals.append("미분석")
+                vals[3] = "미분석"
+                vals[4] = "미분석"
+                vals[5] = "미분석"
+                self._tree.item(iid, values=tuple(vals))
+            except Exception:
+                pass
 
     def _pick_bin_folder(self):
         p = filedialog.askdirectory(title="타임라인 바이너리 폴더 선택")
         if p:
+            old = self._bin_folder_var.get().strip()
             self._bin_folder_var.set(p)
+            if p != old:
+                self._reset_analysis_results()
             self._refresh_matching()
+            self._save_state()
 
     def _refresh_matching(self):
         folder = self._bin_folder_var.get().strip()
@@ -1260,6 +1363,7 @@ class App(tk.Tk):
             f"전체 분석 완료 — {t}개 처리"))
         self.after(0, lambda: self._log(
             f"\n전체 분석 완료 — {total}개 처리", "green"))
+        self.after(0, self._save_state)
 
     # ── 로그 ──────────────────────────────────────
 
@@ -1470,6 +1574,7 @@ class App(tk.Tk):
             self.after(0, lambda: self.run_btn.config(state="normal"))
             self.after(0, lambda: self.run_all_btn.config(state="normal"))
             self.after(0, lambda: self.status_var.set("완료"))
+            self.after(0, self._save_state)
 
     def _do_analyze(self, audio_path, bin_path, engine, tol_ms, bpm_hint):
         SEP  = "─" * 62
