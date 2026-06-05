@@ -827,14 +827,20 @@ class App(tk.Tk):
         tree_wrap.rowconfigure(0, weight=1)
         tree_wrap.columnconfigure(0, weight=1)
         self._tree = ttk.Treeview(tree_wrap,
-                                   columns=("name", "id", "match"),
+                                   columns=("name", "id", "match", "bt", "madmom", "librosa"),
                                    show="headings", height=8, selectmode="browse")
-        self._tree.heading("name",  text="파일명")
-        self._tree.heading("id",    text="Music ID")
-        self._tree.heading("match", text="타임라인")
-        self._tree.column("name",  width=150, stretch=True)
-        self._tree.column("id",    width=95,  stretch=False, anchor="center")
-        self._tree.column("match", width=130, stretch=True)
+        self._tree.heading("name",    text="파일명")
+        self._tree.heading("id",      text="Music ID")
+        self._tree.heading("match",   text="타임라인")
+        self._tree.heading("bt",      text="BT")
+        self._tree.heading("madmom",  text="madmom")
+        self._tree.heading("librosa", text="librosa")
+        self._tree.column("name",    width=130, stretch=True)
+        self._tree.column("id",      width=90,  stretch=False, anchor="center")
+        self._tree.column("match",   width=110, stretch=True)
+        self._tree.column("bt",      width=60,  stretch=False, anchor="center")
+        self._tree.column("madmom",  width=60,  stretch=False, anchor="center")
+        self._tree.column("librosa", width=60,  stretch=False, anchor="center")
         self._tree.tag_configure("matched",   foreground="#69f0ae")
         self._tree.tag_configure("unmatched", foreground="#ef9a9a")
         self._tree.tag_configure("pending",   foreground="#ffcc02")
@@ -847,20 +853,24 @@ class App(tk.Tk):
         # ── 버튼 행 ───────────────────────────────
         btn_frame = tk.Frame(col1)
         btn_frame.grid(row=3, column=0, pady=4)
-        self.run_btn = tk.Button(btn_frame, text="▶ 분석 시작",
+        self.run_btn = tk.Button(btn_frame, text="▶ 분석",
                                  font=("", 10, "bold"), bg="#2e7d32", fg="white",
-                                 activebackground="#1b5e20", command=self._run, width=12)
-        self.run_btn.pack(side="left", padx=4)
+                                 activebackground="#1b5e20", command=self._run, width=8)
+        self.run_btn.pack(side="left", padx=2)
+        self.run_all_btn = tk.Button(btn_frame, text="▶▶ 전체 분석",
+                                     font=("", 10, "bold"), bg="#1b5e20", fg="white",
+                                     activebackground="#0a3d10", command=self._run_all, width=11)
+        self.run_all_btn.pack(side="left", padx=2)
         self.map_btn = tk.Button(btn_frame, text="🗺 비트맵",
                                  font=("", 10, "bold"), bg="#1565c0", fg="white",
                                  activebackground="#0d47a1", command=self._show_beatmap,
-                                 width=9, state="disabled")
-        self.map_btn.pack(side="left", padx=4)
+                                 width=8, state="disabled")
+        self.map_btn.pack(side="left", padx=2)
         self.save_btn = tk.Button(btn_frame, text="💾 저장",
                                   font=("", 10, "bold"), bg="#6a1b9a", fg="white",
                                   activebackground="#4a148c", command=self._save_beatmap,
-                                  width=9, state="disabled")
-        self.save_btn.pack(side="left", padx=4)
+                                  width=7, state="disabled")
+        self.save_btn.pack(side="left", padx=2)
 
         # ══════════════════════════════════════════
         # 2열: 분석 결과
@@ -999,9 +1009,11 @@ class App(tk.Tk):
             if any(v["path"] == p for v in self._audio_items.values()):
                 continue
             iid = self._tree.insert("", "end",
-                                    values=(os.path.basename(p), "계산 중…", "—"),
+                                    values=(os.path.basename(p), "계산 중…", "—",
+                                            "미분석", "미분석", "미분석"),
                                     tags=("pending",))
-            self._audio_items[iid] = {"path": p, "music_id": "", "bin_path": ""}
+            self._audio_items[iid] = {"path": p, "music_id": "", "bin_path": "",
+                                      "results": {}}
             threading.Thread(target=self._compute_id_for_item,
                              args=(iid, p), daemon=True).start()
             added = True
@@ -1071,6 +1083,9 @@ class App(tk.Tk):
                 tag = "unmatched"
             try:
                 vals = list(self._tree.item(iid, "values"))
+                # 컬럼이 6개 미만이면 패딩
+                while len(vals) < 6:
+                    vals.append("미분석")
                 vals[2] = match_text
                 self._tree.item(iid, values=tuple(vals), tags=(tag,))
             except Exception:
@@ -1098,6 +1113,79 @@ class App(tk.Tk):
         else:
             self.status_var.set(
                 f"선택: {name}  |  Music ID: {mid}  |  타임라인: 미매칭 (분석 불가)")
+
+    def _save_result_to_item(self, audio_path, engine, grade, f_score):
+        """분석 결과를 해당 항목에 저장하고 Treeview 컬럼을 갱신한다."""
+        col_idx = {"beat_transformer": 3, "madmom": 4, "librosa": 5}
+        label = f"{grade} {f_score*100:.0f}%"
+        for iid, item in self._audio_items.items():
+            if item.get("path") == audio_path:
+                item.setdefault("results", {})[engine] = {
+                    "grade": grade, "f_score": f_score}
+                try:
+                    vals = list(self._tree.item(iid, "values"))
+                    while len(vals) < 6:
+                        vals.append("미분석")
+                    vals[col_idx[engine]] = label
+                    self._tree.item(iid, values=tuple(vals))
+                except Exception:
+                    pass
+                break
+
+    def _run_all(self):
+        """타임라인이 매칭된 모든 항목을 현재 엔진으로 순차 분석한다."""
+        preferred = self.engine_var.get()
+        engine    = best_available_engine(preferred)
+        if engine == "none":
+            messagebox.showerror("라이브러리 없음",
+                "분석 엔진 없음.\npip install librosa 설치 후 재시작하세요."); return
+        if engine != preferred:
+            if not messagebox.askyesno("엔진 변경",
+                f"{ENGINE_INFO[preferred][0]} 미설치\n"
+                f"→ {ENGINE_INFO[engine][0]} 으로 대체하여 전체 분석할까요?"):
+                return
+
+        targets = [(iid, item) for iid, item in self._audio_items.items()
+                   if item.get("bin_path") and os.path.isfile(item["bin_path"])
+                   and os.path.isfile(item.get("path", ""))]
+        if not targets:
+            messagebox.showinfo("알림", "타임라인이 매칭된 파일이 없습니다."); return
+
+        self.run_btn.config(state="disabled")
+        self.run_all_btn.config(state="disabled")
+        self.map_btn.config(state="disabled")
+        self.save_btn.config(state="disabled")
+        self._clear_log()
+        self._log(f"전체 분석 시작 — {len(targets)}개 파일 / 엔진: {ENGINE_INFO[engine][0]}", "green")
+
+        threading.Thread(
+            target=self._run_all_thread,
+            args=(targets, engine, self.tol_var.get(), self.bpm_hint_var.get()),
+            daemon=True
+        ).start()
+
+    def _run_all_thread(self, targets, engine, tol_ms, bpm_hint):
+        total = len(targets)
+        for idx, (iid, item) in enumerate(targets, 1):
+            audio = item["path"]
+            binf  = item["bin_path"]
+            name  = os.path.basename(audio)
+            self.after(0, lambda n=name, i=idx, t=total:
+                       self.status_var.set(f"전체 분석 [{i}/{t}]  {n}"))
+            try:
+                self._do_analyze(audio, binf, engine, tol_ms, bpm_hint)
+            except Exception as e:
+                import traceback
+                tb  = traceback.format_exc()
+                msg = str(e)
+                self.after(0, lambda n=name, m=msg, tb=tb:
+                           self._log(f"\n[오류] {n}: {m}\n{tb}", "red"))
+        self.after(0, lambda: self.run_btn.config(state="normal"))
+        self.after(0, lambda: self.run_all_btn.config(state="normal"))
+        self.after(0, lambda t=total: self.status_var.set(
+            f"전체 분석 완료 — {t}개 처리"))
+        self.after(0, lambda: self._log(
+            f"\n전체 분석 완료 — {total}개 처리", "green"))
 
     # ── 로그 ──────────────────────────────────────
 
@@ -1306,6 +1394,7 @@ class App(tk.Tk):
             self.after(0, lambda m=msg: self._set_grade("!", "#b71c1c", f"오류: {m}"))
         finally:
             self.after(0, lambda: self.run_btn.config(state="normal"))
+            self.after(0, lambda: self.run_all_btn.config(state="normal"))
             self.after(0, lambda: self.status_var.set("완료"))
 
     def _do_analyze(self, audio_path, bin_path, engine, tol_ms, bpm_hint):
@@ -1402,9 +1491,10 @@ class App(tk.Tk):
                 app_st.get('bpm',0), ref_bpm, bpm_err, cov_pct,
                 app_st.get('gaps_600',0), advice
             )
-            # 로그에는 핵심 수치만
             self._log(f"완료 — F={f*100:.1f}%  P={p*100:.1f}%  R={r*100:.1f}%"
                       f"  BPM 앱{app_st.get('bpm',0):.0f}/GT{ref_bpm:.0f}", "green")
+            # 목록 결과 업데이트
+            self._save_result_to_item(audio_path, engine, grade, f)
         self.after(0, _update_ui)
 
         # 결과 캐시
