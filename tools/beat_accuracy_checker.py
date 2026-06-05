@@ -1225,9 +1225,10 @@ class App(tk.Tk):
             self._do_analyze(audio, binf, engine, tol_ms, bpm_hint)
         except Exception as e:
             import traceback
-            tb = traceback.format_exc()
-            self.after(0, lambda: self._log(f"\n[오류] {e}\n{tb}", "red"))
-            self.after(0, lambda: self._set_grade("!", "#b71c1c", f"오류: {e}"))
+            tb  = traceback.format_exc()
+            msg = str(e)
+            self.after(0, lambda m=msg, t=tb: self._log(f"\n[오류] {m}\n{t}", "red"))
+            self.after(0, lambda m=msg: self._set_grade("!", "#b71c1c", f"오류: {m}"))
         finally:
             self.after(0, lambda: self.run_btn.config(state="normal"))
             self.after(0, lambda: self.status_var.set("완료"))
