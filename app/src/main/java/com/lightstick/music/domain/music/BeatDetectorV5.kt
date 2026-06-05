@@ -47,7 +47,7 @@ object BeatDetectorV5 {
 
     // half-tempo 체크: autocorr[halfLag] / autocorr[bestLag] >= 이 값이면 빠른 템포 선택
     // prior 가 느린 BPM 쪽으로 과도하게 치우쳐 TOMBOY/Stars 등 140+ BPM 곡에서 반박자 오류 방지
-    private const val HALF_TEMPO_RATIO = 0.55f
+    private const val HALF_TEMPO_RATIO = 0.45f
 
     // DP 실패 판단 기준: 예상 비트 수의 25% 미만이면 fallback
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -389,7 +389,7 @@ object BeatDetectorV5 {
         val fullFlux = computeOdf(full.take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
         val combined = ArrayList<Float>(n)
         for (i in 0 until n) {
-            combined += lowFlux[i] * 1.4f + midFlux[i] * 1.2f + fullFlux[i] * 0.8f
+            combined += lowFlux[i] * 1.0f + midFlux[i] * 1.8f + fullFlux[i] * 0.8f
         }
         return localNormalizeMean(combined, GLOBAL_NORM_WINDOW)
     }
