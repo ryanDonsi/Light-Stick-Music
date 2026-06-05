@@ -113,6 +113,23 @@ object BeatDetectorRouter {
             )
         }
 
+        14 -> { // BeatDetectorV5 = V14 (Dense BPM autocorr + log-normal prior + Global DP only)
+            val r = BeatDetectorV5.detect(lowEnv, midEnv, fullEnv,
+                BeatDetectorV5.Params(
+                    hopMs             = hopMs,
+                    minBeatMs         = minBeatMs.coerceAtLeast(375L),
+                    maxBeatMs         = maxBeatMs.coerceAtMost(1000L),
+                    minPeakDistanceMs = 120L,
+                    onsetSmoothWindow = 3
+                ))
+            BeatInfo(
+                beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
+                beatMs      = r.beatMs,
+                beatsPerBar = r.timeSignature.beatsPerBar,
+                downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
+            )
+        }
+
         else -> { // 11 (BeatDetectorV2 = V11)
             val r = BeatDetectorV2.detect(lowEnv, midEnv, fullEnv,
                 BeatDetectorV2.Params(
