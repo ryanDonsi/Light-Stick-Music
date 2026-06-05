@@ -45,6 +45,10 @@ object BeatDetectorV5 {
     private const val PRIOR_CENTER_MS  = 500L
     private const val PRIOR_STD_OCTAVE = 1.0f
 
+    // half-tempo 체크: autocorr[halfLag] / autocorr[bestLag] >= 이 값이면 빠른 템포 선택
+    // prior 가 느린 BPM 쪽으로 과도하게 치우쳐 TOMBOY/Stars 등 140+ BPM 곡에서 반박자 오류 방지
+    private const val HALF_TEMPO_RATIO = 0.55f
+
     // DP 실패 판단 기준: 예상 비트 수의 25% 미만이면 fallback
     private const val DP_MIN_BEAT_RATIO = 0.25f
 
@@ -117,14 +121,18 @@ object BeatDetectorV5 {
         // ── 1. Multi-band flux ODF ────────────────────────────────────────────
         val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)
 
-        // ── 2. Dense BPM 추정 (librosa 방식) ──────────────────────────────────
-        //    전체 lag 연속 스윕 + log-normal prior, harmonic folding 없음
+        // ── 2. Dense BPM 추정 (librosa 방식) + half-tempo 체크 ────────────────
         val beatMs = estimateBpmDense(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs)
                      ?: 500L
         Log.d(TAG, "V5 beatMs=$beatMs (${60_000L / beatMs} BPM) durationMs=$durationMs")
 
-        // ── 3. Global DP (전곡 단위, 위상 일관성 보장) ────────────────────────
-        val dpTimes = dpBeatTracker(globalOdf, beatMs, params.hopMs, durationMs)
+        // ── 3. 위상 추정 (comb-phase) — DP 앵커로 사용 ───────────────────────
+        //    DP가 잘못된 위상에 수렴하는 문제(Dynamite 등) 방지
+        val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
+        Log.d(TAG, "V5 phaseMs=$phaseMs")
+
+        // ── 4. Global DP (전곡 단위, 위상 앵커 주입) ─────────────────────────
+        val dpTimes = dpBeatTracker(globalOdf, beatMs, params.hopMs, durationMs, anchorMs = phaseMs)
         Log.d(TAG, "V5 dpTimes=${dpTimes.size}")
 
         // DP 품질 검증
@@ -187,35 +195,69 @@ object BeatDetectorV5 {
         val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
         if (odf.size <= maxLag + 2) return null
 
+        val acVals    = FloatArray(maxLag + 1)
         var bestScore = Float.NEGATIVE_INFINITY
         var bestLag   = -1
 
         for (lag in minLag..maxLag) {
-            // autocorrelation at lag
             var sum = 0f; var count = 0
-            for (i in 0 until odf.size - lag) {
-                sum += odf[i] * odf[i + lag]; count++
-            }
+            for (i in 0 until odf.size - lag) { sum += odf[i] * odf[i + lag]; count++ }
             if (count == 0) continue
             val acVal = sum / count
+            acVals[lag] = acVal
 
-            // log-normal prior (librosa: exp(-0.5*(log2(bpm/prior_bpm)/std)^2))
-            // bpm = 60000/lagMs → log2(bpm/120) = log2(500/lagMs) = -log2(lagMs/500)
-            val lagMs = lag * hopMs
-            val logRatio = ln(lagMs.toFloat() / PRIOR_CENTER_MS) / ln(2f)  // log2(lagMs/500)
-            val prior = exp(-0.5f * (logRatio / PRIOR_STD_OCTAVE) * (logRatio / PRIOR_STD_OCTAVE))
+            // log-normal prior: exp(-0.5*(log2(lagMs/500ms)/1octave)^2)
+            val lagMs    = lag * hopMs
+            val logRatio = ln(lagMs.toFloat() / PRIOR_CENTER_MS) / ln(2f)
+            val prior    = exp(-0.5f * (logRatio / PRIOR_STD_OCTAVE) * (logRatio / PRIOR_STD_OCTAVE))
 
             val score = acVal * prior
-            if (score > bestScore) {
-                bestScore = score
-                bestLag   = lag
-            }
+            if (score > bestScore) { bestScore = score; bestLag = lag }
         }
 
         if (bestLag <= 0) return null
+
+        // ── half-tempo 체크 ──────────────────────────────────────────────────
+        // prior 가 낮은 BPM(긴 주기)을 선호하는 경향이 있어 140+ BPM 곡에서 반박자 오류 발생
+        // ex) TOMBOY GT=147.7 BPM (406ms) → prior 편향으로 75 BPM (800ms) 선택됨
+        // halfLag의 autocorr 가 bestLag의 55% 이상이면 빠른 템포(halfLag) 선택
+        val halfLag = bestLag / 2
+        if (halfLag >= minLag) {
+            val halfAc = acVals[halfLag]
+            val bestAc = acVals[bestLag]
+            if (bestAc > 0f && halfAc / bestAc >= HALF_TEMPO_RATIO) {
+                val halfMs = halfLag * hopMs
+                Log.d(TAG, "V5 halfTempoCheck: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
+                    " → ${halfMs}ms(${60_000L/halfMs}BPM)  ratio=${halfAc/bestAc}")
+                return halfMs
+            }
+        }
+
         val resultMs = bestLag * hopMs
         Log.d(TAG, "V5 estimateBpmDense: ${resultMs}ms (${60_000L / resultMs} BPM)")
         return resultMs
+    }
+
+    // =========================================================================
+    // 위상 추정 — comb-phase scoring
+    //
+    // 모든 가능한 위상(0..fpb-1)에 대해 해당 위상으로 grid를 놓았을 때
+    // ODF 합계를 계산하고 최대 위상을 반환한다.
+    //
+    // 이 함수로 얻은 phaseMs 를 DP 앵커로 사용하면 Dynamite 류의
+    // "BPM은 맞지만 위상 완전 오류" 문제를 방지한다.
+    // =========================================================================
+
+    private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
+        val fpb = max(1, (beatMs / hopMs).toInt())
+        if (odf.size < fpb * 2) return 0L
+        var bestPhase = 0; var bestScore = Float.NEGATIVE_INFINITY
+        for (ph in 0 until fpb) {
+            var score = 0f; var f = ph
+            while (f < odf.size) { score += odf[f]; f += fpb }
+            if (score > bestScore) { bestScore = score; bestPhase = ph }
+        }
+        return bestPhase.toLong() * hopMs
     }
 
     // =========================================================================
@@ -233,12 +275,14 @@ object BeatDetectorV5 {
         odf: List<Float>,
         targetPeriodMs: Long,
         hopMs: Long,
-        durationMs: Long
+        durationMs: Long,
+        anchorMs: Long = 0L   // 위상 앵커: estimatePhaseFromOdf 결과를 주입하여 위상 오류 방지
     ): LongArray {
         if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
-        val n         = odf.size
-        val fpb       = (targetPeriodMs / hopMs).toInt().coerceAtLeast(1)
-        val tightness = 100.0f
+        val n            = odf.size
+        val fpb          = (targetPeriodMs / hopMs).toInt().coerceAtLeast(1)
+        val tightness    = 100.0f
+        val anchorFrame  = if (anchorMs > 0L) (anchorMs / hopMs).toInt().coerceIn(0, n - 1) else -1
 
         // ── Gaussian local scoring ──────────────────────────────────────────
         val gaussHalf = fpb
@@ -258,6 +302,9 @@ object BeatDetectorV5 {
         }
 
         // ── DP ──────────────────────────────────────────────────────────────
+        // p == 0 또는 p == anchorFrame 이면 "자유 시작" 으로 pScore = 0 취급
+        // → anchorFrame(comb-phase 추정 위상)에서 chain 을 시작할 수 있어
+        //   전역 DP 가 잘못된 위상에 수렴하는 문제를 방지한다
         val cumscore = FloatArray(n) { Float.NEGATIVE_INFINITY }
         val prev     = IntArray(n)  { -1 }
         val searchRange = fpb * 2
@@ -267,8 +314,9 @@ object BeatDetectorV5 {
             val pHi = max(0, t - max(1, fpb / 2))
             var bestVal = Float.NEGATIVE_INFINITY
             for (p in pLo..pHi) {
-                if (cumscore[p] == Float.NEGATIVE_INFINITY && p > 0) continue
-                val pScore   = if (p == 0) 0f else cumscore[p]
+                val isFreeStart = (p == 0 || p == anchorFrame)
+                if (cumscore[p] == Float.NEGATIVE_INFINITY && !isFreeStart) continue
+                val pScore   = if (isFreeStart) 0f else cumscore[p]
                 val lag      = (t - p).toFloat().coerceAtLeast(1f)
                 val logRatio = ln(lag / fpb)
                 val penalty  = tightness * logRatio * logRatio
@@ -319,8 +367,9 @@ object BeatDetectorV5 {
             val e = min(n, s + segFrames)
             if (e - s < 8) continue
 
-            val odf     = computeMultiBandFluxOdf(low.subList(s, e), mid.subList(s, e), full.subList(s, e), params)
-            val segTimes = dpBeatTracker(odf, beatMs, params.hopMs, (e - s).toLong() * params.hopMs)
+            val odf      = computeMultiBandFluxOdf(low.subList(s, e), mid.subList(s, e), full.subList(s, e), params)
+            val segPhase = estimatePhaseFromOdf(odf, beatMs, params.hopMs)
+            val segTimes = dpBeatTracker(odf, beatMs, params.hopMs, (e - s).toLong() * params.hopMs, anchorMs = segPhase)
             val offset   = s.toLong() * params.hopMs
             segTimes.forEach { result += TimedBeat(offset + it, FILL_CONFIDENCE) }
         }
