@@ -806,9 +806,13 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Beat Accuracy Checker")
+        self.geometry("1440x900")
         self.resizable(True, True)
-        self.minsize(820, 680)
-        self._last_result = None   # 비트맵 재렌더용 캐시
+        self.minsize(1100, 720)
+        self._last_result = None           # 비트맵 재렌더용 캐시
+        self._card_widgets = {}            # engine → widget dict
+        self._selected_card_engine = ""   # 현재 선택된 카드 엔진
+        self.engine_var = tk.StringVar(value="beat_transformer")  # 호환용
         self._build_ui()
         self._load_state()
 
@@ -888,28 +892,18 @@ class App(tk.Tk):
         fo.grid(row=0, column=0, sticky="ew", **pad)
         fo.columnconfigure(1, weight=1)
 
-        tk.Label(fo, text="엔진:").grid(row=0, column=0, sticky="w", padx=4, pady=1)
-        self.engine_var = tk.StringVar(value="beat_transformer")
-        for r, (label, val) in enumerate([
-            ("Beat Transformer (~91%)", "beat_transformer"),
-            ("madmom (~87%)",           "madmom"),
-            ("librosa (~68%)",          "librosa"),
-        ]):
-            tk.Radiobutton(fo, text=label, variable=self.engine_var,
-                           value=val).grid(row=r, column=1, sticky="w", padx=4, pady=1)
-
-        tk.Label(fo, text="허용 오차(ms):").grid(row=3, column=0, sticky="w", padx=4, pady=1)
+        tk.Label(fo, text="허용 오차(ms):").grid(row=0, column=0, sticky="w", padx=4, pady=1)
         self.tol_var = tk.IntVar(value=70)
         frm_tol = tk.Frame(fo)
-        frm_tol.grid(row=3, column=1, sticky="w", padx=4, pady=1)
+        frm_tol.grid(row=0, column=1, sticky="w", padx=4, pady=1)
         tk.Spinbox(frm_tol, from_=20, to=200, increment=10,
                    textvariable=self.tol_var, width=6).pack(side="left")
         tk.Label(frm_tol, text="  표준 70ms", fg="#666", font=("", 8)).pack(side="left")
 
-        tk.Label(fo, text="BPM 힌트:").grid(row=4, column=0, sticky="w", padx=4, pady=1)
+        tk.Label(fo, text="BPM 힌트:").grid(row=1, column=0, sticky="w", padx=4, pady=1)
         self.bpm_hint_var = tk.DoubleVar(value=0.0)
         tk.Entry(fo, textvariable=self.bpm_hint_var, width=7).grid(
-            row=4, column=1, sticky="w", padx=4, pady=1)
+            row=1, column=1, sticky="w", padx=4, pady=1)
 
         # ── 타임라인 바이너리 폴더 ────────────────
         ff = tk.LabelFrame(col1, text="타임라인 바이너리 폴더", **pad)
@@ -1012,13 +1006,13 @@ class App(tk.Tk):
         col2.rowconfigure(0, weight=3)
         col2.rowconfigure(1, weight=2)
 
-        # 2열 1행: 분석 결과
+        # 2열 1행: 분석 결과 (3 엔진 카드 + 상세 지표)
         results_frame = tk.Frame(col2, bg="#1a1a2e", bd=1, relief="solid")
         results_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 3))
-        results_frame.rowconfigure(1, weight=1)
+        results_frame.rowconfigure(2, weight=1)
         results_frame.columnconfigure(0, weight=1)
 
-        # 곡 정보 헤더
+        # ── 곡 정보 헤더 ──────────────────────────
         song_info_frame = tk.Frame(results_frame, bg="#1e272e")
         song_info_frame.pack(fill="x")
         tk.Label(song_info_frame, text="🎵", bg="#1e272e", fg="#546e7a",
@@ -1034,45 +1028,55 @@ class App(tk.Tk):
                  bg="#1e272e", fg="#546e7a", font=("", 8),
                  anchor="w").pack(anchor="w")
 
-        # 엔진 선택기 (분석된 엔진 탭)
-        self._eng_sel_outer = tk.Frame(results_frame, bg="#1e272e")
-        self._eng_sel_outer.pack(fill="x")
-        tk.Label(self._eng_sel_outer, text="엔진:", bg="#1e272e", fg="#78909c",
-                 font=("", 8)).pack(side="left", padx=(10, 4), pady=4)
-        self._eng_sel_inner = tk.Frame(self._eng_sel_outer, bg="#1e272e")
-        self._eng_sel_inner.pack(side="left", fill="x", expand=True)
-        self._sel_engine_var = tk.StringVar(value="")
-        tk.Label(self._eng_sel_inner, text="(분석 전)",
-                 bg="#1e272e", fg="#546e7a", font=("", 8)).pack(side="left")
+        # ── 엔진 카드 3개 ──────────────────────────
+        cards_outer = tk.Frame(results_frame, bg="#1a1a2e")
+        cards_outer.pack(fill="x", padx=4, pady=(4, 2))
+        for _ci in range(3):
+            cards_outer.columnconfigure(_ci, weight=1)
 
-        # 등급 헤더
-        self.grade_frame = tk.Frame(results_frame, bg="#263238")
-        self.grade_frame.pack(fill="x")
-        self.grade_label = tk.Label(self.grade_frame, text="—",
-                                    font=("", 36, "bold"), width=3,
-                                    bg="#263238", fg="white")
-        self.grade_label.pack(side="left", padx=12, pady=6)
-        self.grade_sub = tk.Label(self.grade_frame, text="분석 전",
-                                  font=("", 10), bg="#263238", fg="#b0bec5",
-                                  justify="left", anchor="w")
-        self.grade_sub.pack(side="left", fill="x", expand=True)
-        _grade_tip = tk.Label(self.grade_frame, text="?", bg="#263238", fg="#546e7a",
-                              font=("", 10, "bold"), cursor="question_arrow", padx=6)
-        _grade_tip.pack(side="right", pady=6)
-        _attach_tooltip(_grade_tip,
-            "종합 등급 (F-measure 기반)\n\n"
-            "  S  ≥ 90%   완벽에 가까운 정확도\n"
-            "  A  ≥ 80%   실사용에 충분한 수준\n"
-            "  B  ≥ 70%   약간의 오감지/누락 있음\n"
-            "  C  ≥ 55%   눈에 띄는 오류 다수\n"
-            "  D  < 55%   전면 재검토 필요\n\n"
-            "엔진별 기준이 달라 Beat Transformer 기준\n"
-            "S ≥ 90% / madmom S ≥ 87% / librosa S ≥ 68%"
-        )
+        for col_i, eng in enumerate(("beat_transformer", "madmom", "librosa")):
+            eng_label, eng_acc, eng_color = ENGINE_INFO[eng]
+            card = tk.Frame(cards_outer, bg="#263238", bd=2, relief="groove",
+                            cursor="hand2")
+            card.grid(row=0, column=col_i, sticky="nsew", padx=3, pady=2)
+            card.columnconfigure(0, weight=1)
 
-        # 지표 카드들
+            hdr = tk.Frame(card, bg=eng_color)
+            hdr.grid(row=0, column=0, sticky="ew")
+            tk.Label(hdr, text=f"{eng_label}  {eng_acc}", bg=eng_color, fg="white",
+                     font=("", 8, "bold"), anchor="w").pack(padx=6, pady=(4, 3), anchor="w")
+
+            grade_f = tk.Frame(card, bg="#263238")
+            grade_f.grid(row=1, column=0, sticky="ew")
+            grade_lbl = tk.Label(grade_f, text="—", bg="#263238", fg="#546e7a",
+                                  font=("", 22, "bold"), width=3)
+            grade_lbl.pack(side="left", padx=(8, 2), pady=2)
+            grade_sub = tk.Label(grade_f, text="미분석", bg="#263238", fg="#78909c",
+                                  font=("", 8), justify="left", anchor="w", wraplength=150)
+            grade_sub.pack(side="left", fill="x", expand=True, padx=(0, 4))
+
+            stats_f = tk.Frame(card, bg="#263238")
+            stats_f.grid(row=2, column=0, sticky="ew")
+            f_var   = tk.StringVar(value="F: —")
+            bpm_var = tk.StringVar(value="BPM: —")
+            tk.Label(stats_f, textvariable=f_var, bg="#263238", fg="#69f0ae",
+                     font=("", 10, "bold"), anchor="w").pack(fill="x", padx=8, pady=(2, 0))
+            tk.Label(stats_f, textvariable=bpm_var, bg="#263238", fg="#b0bec5",
+                     font=("", 8), anchor="w").pack(fill="x", padx=8, pady=(0, 6))
+
+            for w in [card, hdr, grade_f, grade_lbl, grade_sub, stats_f]:
+                w.bind("<Button-1>",
+                       lambda e, _eng=eng: self._select_engine_card(_eng))
+
+            self._card_widgets[eng] = {
+                "frame": card, "hdr": hdr,
+                "grade_lbl": grade_lbl, "grade_f": grade_f, "grade_sub": grade_sub,
+                "f_var": f_var, "bpm_var": bpm_var,
+            }
+
+        # ── 상세 지표 (선택된 카드 기준) ──────────
         metrics_frame = tk.Frame(results_frame, bg="#1a1a2e")
-        metrics_frame.pack(fill="both", expand=True, padx=8, pady=6)
+        metrics_frame.pack(fill="both", expand=True, padx=8, pady=4)
 
         def _card(parent, row, col, title, var, color="#ffffff", colspan=1):
             f = tk.Frame(parent, bg="#263238", bd=0, relief="flat")
@@ -1092,7 +1096,7 @@ class App(tk.Tk):
             return f
 
         for c in range(3): metrics_frame.columnconfigure(c, weight=1)
-        for r in range(5): metrics_frame.rowconfigure(r, weight=1)
+        for r in range(4): metrics_frame.rowconfigure(r, weight=1)
 
         self.v_f      = tk.StringVar(value="—")
         self.v_p      = tk.StringVar(value="—")
@@ -1120,7 +1124,7 @@ class App(tk.Tk):
         _card(metrics_frame, 3, 2, "BPM 오차",    self.v_bpm_e,"#ffcc02")
 
         advice_f = tk.Frame(results_frame, bg="#37474f")
-        advice_f.pack(fill="x", padx=8, pady=(0, 8))
+        advice_f.pack(fill="x", padx=8, pady=(0, 6))
         advice_hdr = tk.Frame(advice_f, bg="#37474f")
         advice_hdr.pack(anchor="w", padx=6, pady=(3, 0), fill="x")
         tk.Label(advice_hdr, text="권고", bg="#37474f", fg="#78909c",
@@ -1137,7 +1141,7 @@ class App(tk.Tk):
             "· 대형갭이 많으면   → 갭 보정 로직 검토"
         )
         tk.Label(advice_f, textvariable=self.v_advice, bg="#37474f", fg="#ffffff",
-                 font=("", 10), wraplength=260, justify="left").pack(
+                 font=("", 10), wraplength=300, justify="left").pack(
                  anchor="w", padx=8, pady=(0, 6))
 
         # ══════════════════════════════════════════
@@ -1373,51 +1377,93 @@ class App(tk.Tk):
         else:
             self.status_var.set(
                 f"선택: {name}  |  Music ID: {mid}  |  타임라인: 미매칭 (분석 불가)")
+        self._update_engine_cards(iid)
 
-        # 엔진 선택기 재구성 + 첫 번째 결과 복원
-        self._show_engine_selector(iid)
-
-    def _show_engine_selector(self, iid):
-        """선택된 항목의 분석 엔진 목록으로 라디오버튼을 재구성한다."""
-        for w in self._eng_sel_inner.winfo_children():
-            w.destroy()
-
+    def _update_engine_cards(self, iid):
+        """3개 엔진 카드를 현재 iid의 분석 결과로 갱신한다."""
         item = self._audio_items.get(iid, {})
         results = item.get("results", {})
-        analyzed = [eng for eng in ("beat_transformer", "madmom", "librosa")
-                    if eng in results]
+        music_id = item.get("music_id", "")
 
-        if not analyzed:
-            tk.Label(self._eng_sel_inner, text="(분석 전)",
-                     bg="#1e272e", fg="#546e7a", font=("", 8)).pack(side="left")
-            # 곡 이름/ID만 갱신
-            name = os.path.splitext(os.path.basename(item.get("path", "")))[0] or "—"
-            mid  = item.get("music_id", "")
-            disp = _to_signed_display(int(mid)) if mid.lstrip("-").isdigit() else (mid or "—")
-            self.v_song_title.set(name)
-            self.v_song_id.set(f"Music ID: {disp}")
+        name = os.path.splitext(os.path.basename(item.get("path", "")))[0] or "—"
+        mid  = music_id
+        disp = _to_signed_display(int(mid)) if mid.lstrip("-").isdigit() else (mid or "—")
+        self.v_song_title.set(name)
+        self.v_song_id.set(f"Music ID: {disp}")
+
+        # records.json에서 상세 데이터 로드
+        records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
+        records_map = {}
+        try:
+            with open(records_path, encoding="utf-8") as _f:
+                for rec in json.load(_f):
+                    records_map[rec.get("_key", "")] = rec
+        except Exception:
+            pass
+
+        best_f   = -1.0
+        best_eng = ""
+
+        for eng, cw in self._card_widgets.items():
+            rec = records_map.get(f"{music_id}_{eng}") if music_id else None
+            if rec:
+                s       = rec.get("summary", {})
+                grade   = s.get("grade", "—")
+                f_val   = s.get("f_measure", 0)
+                bpm_app = s.get("bpm_app", 0)
+                bpm_ref = s.get("bpm_gt", 0)
+                bpm_err = abs(bpm_app - bpm_ref) / bpm_ref * 100 if bpm_ref > 0 else 0
+                _, g_color, verdict = grade_info(f_val, eng)
+                cw["grade_f"].config(bg=g_color)
+                cw["grade_lbl"].config(text=grade, fg="white", bg=g_color)
+                cw["grade_sub"].config(text=verdict, fg="white", bg=g_color)
+                cw["f_var"].set(f"F: {f_val*100:.1f}%")
+                cw["bpm_var"].set(f"앱 {bpm_app:.1f} / GT {bpm_ref:.1f}  ({bpm_err:.1f}%오차)")
+                if f_val > best_f:
+                    best_f   = f_val
+                    best_eng = eng
+            else:
+                r = results.get(eng)
+                if r:
+                    grade  = r.get("grade", "—")
+                    f_val  = r.get("f_score", 0)
+                    _, g_color, verdict = grade_info(f_val, eng)
+                    cw["grade_f"].config(bg=g_color)
+                    cw["grade_lbl"].config(text=grade, fg="white", bg=g_color)
+                    cw["grade_sub"].config(text=verdict, fg="white", bg=g_color)
+                    cw["f_var"].set(f"F: {f_val*100:.1f}%")
+                    cw["bpm_var"].set("BPM: —")
+                    if f_val > best_f:
+                        best_f   = f_val
+                        best_eng = eng
+                else:
+                    cw["grade_f"].config(bg="#263238")
+                    cw["grade_lbl"].config(text="—", fg="#546e7a", bg="#263238")
+                    cw["grade_sub"].config(text="미분석", fg="#78909c", bg="#263238")
+                    cw["f_var"].set("F: —")
+                    cw["bpm_var"].set("BPM: —")
+
+        if best_eng:
+            self._select_engine_card(best_eng, iid)
+        else:
+            # 아직 분석 전 — 카드 테두리 초기화
+            for cw in self._card_widgets.values():
+                cw["frame"].config(relief="groove", bd=2)
+
+    def _select_engine_card(self, engine, iid=None):
+        """카드를 선택하여 강조하고 상세 지표 + 타임라인을 갱신한다."""
+        if iid is None:
+            sel = self._tree.selection()
+            iid = sel[0] if sel else None
+        if not iid:
             return
-
-        _grade_order = ["S", "A", "B", "C", "D", "!"]
-        best_eng = max(analyzed,
-                       key=lambda e: -_grade_order.index(results[e].get("grade", "!"))
-                                     if results[e].get("grade") in _grade_order else 99,
-                       default=analyzed[0])
-
-        for eng in analyzed:
-            r = results[eng]
-            label = f"{ENGINE_INFO[eng][0]}  {r.get('grade','?')} ({r.get('f_score',0)*100:.0f}%)"
-            rb = tk.Radiobutton(
-                self._eng_sel_inner, text=label,
-                variable=self._sel_engine_var, value=eng,
-                bg="#1e272e", fg="#cfd8dc", selectcolor="#37474f",
-                activebackground="#1e272e", font=("", 8),
-                command=lambda e=eng, i=iid: self._load_result_for_engine(i, e)
-            )
-            rb.pack(side="left", padx=4, pady=2)
-
-        self._sel_engine_var.set(best_eng)
-        self._load_result_for_engine(iid, best_eng)
+        self._selected_card_engine = engine
+        for eng, cw in self._card_widgets.items():
+            if eng == engine:
+                cw["frame"].config(relief="solid", bd=3)
+            else:
+                cw["frame"].config(relief="groove", bd=2)
+        self._load_result_for_engine(iid, engine)
 
     def _load_result_for_engine(self, iid, engine):
         """beat_analysis_records.json에서 해당 항목+엔진 결과를 로드하여 UI에 복원한다."""
@@ -1484,8 +1530,6 @@ class App(tk.Tk):
                       "C": "Ellis DP / Adaptive Threshold 튜닝을 권장합니다."
                       }.get(grade, "BPM 감지 로직부터 재검토가 필요합니다.")
 
-            g, g_color, verdict = grade_info(f_val, engine)
-            self._set_grade(g, g_color, f"{verdict}\n엔진: {eng_name}  |  Music ID: {disp_mid}")
             self._update_cards(f_val, p_val, r_val, tp, fp_cnt, fn,
                                bpm_app, bpm_ref, bpm_err, cov_pct, gaps, advice)
 
@@ -1511,9 +1555,6 @@ class App(tk.Tk):
             eng_results = item.get("results", {}).get(engine, {})
             if eng_results:
                 f_val  = eng_results.get("f_score", 0)
-                grade  = eng_results.get("grade", "—")
-                g, g_color, verdict = grade_info(f_val, engine)
-                self._set_grade(g, g_color, f"{verdict}\n엔진: {eng_name}  |  Music ID: {disp_mid}")
                 self.v_f.set(f"{f_val*100:.1f}%")
 
     def _save_result_to_item(self, audio_path, engine, grade, f_score):
@@ -1545,17 +1586,12 @@ class App(tk.Tk):
                 break
 
     def _run_all(self):
-        """타임라인이 매칭된 모든 항목을 현재 엔진으로 순차 분석한다."""
-        preferred = self.engine_var.get()
-        engine    = best_available_engine(preferred)
-        if engine == "none":
+        """타임라인이 매칭된 모든 항목을 3종 엔진으로 순차 분석한다."""
+        engines = [e for e in ("beat_transformer", "madmom", "librosa")
+                   if best_available_engine(e) == e]
+        if not engines:
             messagebox.showerror("라이브러리 없음",
                 "분석 엔진 없음.\npip install librosa 설치 후 재시작하세요."); return
-        if engine != preferred:
-            if not messagebox.askyesno("엔진 변경",
-                f"{ENGINE_INFO[preferred][0]} 미설치\n"
-                f"→ {ENGINE_INFO[engine][0]} 으로 대체하여 전체 분석할까요?"):
-                return
 
         targets = [(iid, item) for iid, item in self._audio_items.items()
                    if item.get("bin_path") and os.path.isfile(item["bin_path"])
@@ -1568,30 +1604,33 @@ class App(tk.Tk):
         self.map_btn.config(state="disabled")
         self.save_btn.config(state="disabled")
         self._clear_log()
-        self._log(f"전체 분석 시작 — {len(targets)}개 파일 / 엔진: {ENGINE_INFO[engine][0]}", "green")
+        eng_names = " / ".join(ENGINE_INFO[e][0] for e in engines)
+        self._log(f"전체 분석 시작 — {len(targets)}개 파일 / 엔진: {eng_names}", "green")
 
         threading.Thread(
             target=self._run_all_thread,
-            args=(targets, engine, self.tol_var.get(), self.bpm_hint_var.get()),
+            args=(targets, engines, self.tol_var.get(), self.bpm_hint_var.get()),
             daemon=True
         ).start()
 
-    def _run_all_thread(self, targets, engine, tol_ms, bpm_hint):
+    def _run_all_thread(self, targets, engines, tol_ms, bpm_hint):
         total = len(targets)
         for idx, (iid, item) in enumerate(targets, 1):
             audio = item["path"]
             binf  = item["bin_path"]
             name  = os.path.basename(audio)
-            self.after(0, lambda n=name, i=idx, t=total:
-                       self.status_var.set(f"전체 분석 [{i}/{t}]  {n}"))
-            try:
-                self._do_analyze(audio, binf, engine, tol_ms, bpm_hint)
-            except Exception as e:
-                import traceback
-                tb  = traceback.format_exc()
-                msg = str(e)
-                self.after(0, lambda n=name, m=msg, tb=tb:
-                           self._log(f"\n[오류] {n}: {m}\n{tb}", "red"))
+            for engine in engines:
+                eng_lbl = ENGINE_INFO[engine][0]
+                self.after(0, lambda n=name, i=idx, t=total, el=eng_lbl:
+                           self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  ({el})"))
+                try:
+                    self._do_analyze(audio, binf, engine, tol_ms, bpm_hint)
+                except Exception as e:
+                    import traceback
+                    tb  = traceback.format_exc()
+                    msg = str(e)
+                    self.after(0, lambda n=name, el=eng_lbl, m=msg, tb=tb:
+                               self._log(f"\n[오류] {n} ({el}): {m}\n{tb}", "red"))
         self.after(0, lambda: self.run_btn.config(state="normal"))
         self.after(0, lambda: self.run_all_btn.config(state="normal"))
         self.after(0, lambda t=total: self.status_var.set(
@@ -1710,9 +1749,7 @@ class App(tk.Tk):
         self.out.config(state="disabled")
 
     def _set_grade(self, grade, color, detail):
-        self.grade_frame.config(bg=color)
-        self.grade_label.config(text=grade, fg="white", bg=color)
-        self.grade_sub.config(text=detail, bg=color)
+        pass  # 등급 표시는 엔진 카드로 이전됨
 
     def _update_cards(self, f, p, r, tp, fp_cnt, fn,
                       bpm_app, bpm_ref, bpm_err, cov_pct, gaps, advice):
@@ -1870,43 +1907,41 @@ class App(tk.Tk):
                 "매칭되는 타임라인 바이너리가 없습니다.\n"
                 "타임라인 폴더를 설정하고 매칭을 확인하세요."); return
 
-        preferred = self.engine_var.get()
-        engine    = best_available_engine(preferred)
-        if engine == "none":
+        engines = [e for e in ("beat_transformer", "madmom", "librosa")
+                   if best_available_engine(e) == e]
+        if not engines:
             messagebox.showerror("라이브러리 없음",
                 "분석 엔진 없음.\npip install librosa 설치 후 재시작하세요."); return
-        if engine != preferred:
-            messagebox.showwarning("엔진 변경",
-                f"{ENGINE_INFO[preferred][0]} 미설치\n→ {ENGINE_INFO[engine][0]} 으로 대체")
 
         self._clear_log()
-        self._set_grade("…", "#455a64", "분석 중…")
         self.run_btn.config(state="disabled")
         self.map_btn.config(state="disabled")
         self.save_btn.config(state="disabled")
         self._last_result = None
-        self.status_var.set(f"분석 중… 엔진: {ENGINE_INFO[engine][0]}")
+        eng_names = " / ".join(ENGINE_INFO[e][0] for e in engines)
+        self.status_var.set(f"분석 중… 엔진: {eng_names}")
 
         threading.Thread(
             target=self._analyze_thread,
-            args=(audio, binf, engine, self.tol_var.get(), self.bpm_hint_var.get()),
+            args=(audio, binf, engines, self.tol_var.get(), self.bpm_hint_var.get()),
             daemon=True
         ).start()
 
-    def _analyze_thread(self, audio, binf, engine, tol_ms, bpm_hint):
-        try:
-            self._do_analyze(audio, binf, engine, tol_ms, bpm_hint)
-        except Exception as e:
-            import traceback
-            tb  = traceback.format_exc()
-            msg = str(e)
-            self.after(0, lambda m=msg, t=tb: self._log(f"\n[오류] {m}\n{t}", "red"))
-            self.after(0, lambda m=msg: self._set_grade("!", "#b71c1c", f"오류: {m}"))
-        finally:
-            self.after(0, lambda: self.run_btn.config(state="normal"))
-            self.after(0, lambda: self.run_all_btn.config(state="normal"))
-            self.after(0, lambda: self.status_var.set("완료"))
-            self.after(0, self._save_state)
+    def _analyze_thread(self, audio, binf, engines, tol_ms, bpm_hint):
+        for engine in engines:
+            try:
+                self._do_analyze(audio, binf, engine, tol_ms, bpm_hint)
+            except Exception as e:
+                import traceback
+                tb       = traceback.format_exc()
+                msg      = str(e)
+                eng_name = ENGINE_INFO.get(engine, (engine,))[0]
+                self.after(0, lambda n=eng_name, m=msg, t=tb:
+                           self._log(f"\n[오류] {n}: {m}\n{t}", "red"))
+        self.after(0, lambda: self.run_btn.config(state="normal"))
+        self.after(0, lambda: self.run_all_btn.config(state="normal"))
+        self.after(0, lambda: self.status_var.set("완료"))
+        self.after(0, self._save_state)
 
     def _do_analyze(self, audio_path, bin_path, engine, tol_ms, bpm_hint):
         SEP  = "─" * 62
@@ -2027,19 +2062,19 @@ class App(tk.Tk):
                   }.get(grade, "BPM 감지 로직부터 재검토가 필요합니다.")
 
         def _update_ui():
-            self._set_grade(
-                grade, g_color,
-                f"{verdict}\n엔진: {eng_name}  |  Music ID: {music_id}"
-            )
-            self._update_cards(
-                f, p, r, tp, fp_cnt, fn,
-                app_st.get('bpm',0), ref_bpm, bpm_err, cov_pct,
-                app_st.get('gaps_600',0), advice
-            )
+            if self._selected_card_engine == engine or not self._selected_card_engine:
+                self._update_cards(
+                    f, p, r, tp, fp_cnt, fn,
+                    app_st.get('bpm',0), ref_bpm, bpm_err, cov_pct,
+                    app_st.get('gaps_600',0), advice
+                )
             self._log(f"완료 — F={f*100:.1f}%  P={p*100:.1f}%  R={r*100:.1f}%"
                       f"  BPM 앱{app_st.get('bpm',0):.0f}/GT{ref_bpm:.0f}", "green")
-            # 목록 결과 업데이트
             self._save_result_to_item(audio_path, engine, grade, f)
+            # 카드 갱신 (분석 완료 후 즉시 반영)
+            sel = self._tree.selection()
+            if sel:
+                self._update_engine_cards(sel[0])
         self.after(0, _update_ui)
 
         # 결과 캐시
