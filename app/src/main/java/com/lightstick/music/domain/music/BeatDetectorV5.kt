@@ -46,8 +46,13 @@ object BeatDetectorV5 {
     private const val PRIOR_STD_OCTAVE = 1.0f
 
     // half-tempo 체크: autocorr[halfLag] / autocorr[bestLag] >= 이 값이면 빠른 템포 선택
-    // prior 가 느린 BPM 쪽으로 과도하게 치우쳐 TOMBOY/Stars 등 140+ BPM 곡에서 반박자 오류 방지
-    private const val HALF_TEMPO_RATIO = 0.45f
+    // halfLag = bestLag/2 (더 빠른 BPM) 방향 체크
+    private const val HALF_TEMPO_RATIO   = 0.55f
+
+    // double-tempo 체크: autocorr[doubleLag] / autocorr[bestLag] >= 이 값이면 느린 템포 선택
+    // prior 가 빠른 BPM(짧은 주기)을 과도하게 선호해 Stars(66→136 BPM), TOMBOY(75→150 BPM) 등
+    // 2배 오검출이 발생하는 문제 방지
+    private const val DOUBLE_TEMPO_RATIO = 0.40f
 
     // DP 실패 판단 기준: 예상 비트 수의 25% 미만이면 fallback
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -217,14 +222,28 @@ object BeatDetectorV5 {
 
         if (bestLag <= 0) return null
 
-        // ── half-tempo 체크 ──────────────────────────────────────────────────
-        // prior 가 낮은 BPM(긴 주기)을 선호하는 경향이 있어 140+ BPM 곡에서 반박자 오류 발생
-        // ex) TOMBOY GT=147.7 BPM (406ms) → prior 편향으로 75 BPM (800ms) 선택됨
-        // halfLag의 autocorr 가 bestLag의 55% 이상이면 빠른 템포(halfLag) 선택
+        val bestAc = acVals[bestLag]
+
+        // ── double-tempo 체크 (느린 방향) ────────────────────────────────────
+        // prior 가 빠른 BPM(짧은 주기)을 선호해 Stars(66→136), TOMBOY(75→150) 등
+        // 2배 오검출이 발생할 때, doubleLag(= 절반 BPM)의 autocorr 가 충분히 강하면
+        // 더 느린 템포를 선택한다.
+        val doubleLag = bestLag * 2
+        if (doubleLag <= maxLag) {
+            val doubleAc = acVals[doubleLag]
+            if (bestAc > 0f && doubleAc / bestAc >= DOUBLE_TEMPO_RATIO) {
+                val doubleMs = doubleLag * hopMs
+                Log.d(TAG, "V5 doubleTempoCheck: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
+                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM)  ratio=${doubleAc/bestAc}")
+                return doubleMs
+            }
+        }
+
+        // ── half-tempo 체크 (빠른 방향) ─────────────────────────────────────
+        // IYKYK(80→160 BPM) 등 prior 가 느린 BPM 쪽으로 치우칠 때 방지
         val halfLag = bestLag / 2
         if (halfLag >= minLag) {
             val halfAc = acVals[halfLag]
-            val bestAc = acVals[bestLag]
             if (bestAc > 0f && halfAc / bestAc >= HALF_TEMPO_RATIO) {
                 val halfMs = halfLag * hopMs
                 Log.d(TAG, "V5 halfTempoCheck: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
