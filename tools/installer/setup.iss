@@ -34,8 +34,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "바탕화면에 아이콘 만들기"; GroupDescription: "추가 아이콘:"; Flags: unchecked
 
 [Files]
-; 메인 실행 파일
-Source: "{#DistDir}\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; onedir 빌드 결과물 전체 (torch·madmom 등 모든 라이브러리 포함)
+Source: "{#DistDir}\BeatAccuracyChecker\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; beat_analysis_records.json (있으면 포함, 없으면 무시)
 Source: "{#ToolsDir}\beat_analysis_records.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist

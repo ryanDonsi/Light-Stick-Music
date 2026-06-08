@@ -22,7 +22,7 @@ echo.
 cd /d "%TOOLS_DIR%"
 
 pyinstaller beat_accuracy_checker.py ^
-  --onefile ^
+  --onedir ^
   --windowed ^
   --name "BeatAccuracyChecker" ^
   --distpath "%DIST_DIR%" ^

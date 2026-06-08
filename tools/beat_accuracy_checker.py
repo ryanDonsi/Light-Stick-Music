@@ -22,6 +22,51 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 # ──────────────────────────────────────────────
+# 스플래시 화면 — 무거운 패키지 로드 전 즉시 표시
+# ──────────────────────────────────────────────
+
+def _show_splash():
+    """앱 로딩 중 스플래시 창을 별도 스레드 없이 표시하고 위젯을 반환한다."""
+    splash = tk.Tk()
+    splash.title("")
+    splash.resizable(False, False)
+    splash.overrideredirect(True)          # 타이틀바 제거
+    splash.configure(bg="#1e272e")
+
+    w, h = 380, 160
+    sw, sh = splash.winfo_screenwidth(), splash.winfo_screenheight()
+    splash.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
+
+    tk.Label(splash, text="Beat Accuracy Checker",
+             bg="#1e272e", fg="#ecf0f1", font=("", 16, "bold")).pack(pady=(28, 4))
+    tk.Label(splash, text="라이브러리를 불러오는 중입니다...",
+             bg="#1e272e", fg="#78909c", font=("", 10)).pack()
+
+    bar_frame = tk.Frame(splash, bg="#1e272e")
+    bar_frame.pack(pady=20)
+    canvas = tk.Canvas(bar_frame, width=300, height=8, bg="#37474f",
+                       highlightthickness=0, bd=0)
+    canvas.pack()
+    bar = canvas.create_rectangle(0, 0, 0, 8, fill="#42a5f5", outline="")
+
+    # 진행 바 애니메이션
+    _splash_state = {"pos": 0, "running": True}
+
+    def _animate():
+        if not _splash_state["running"]:
+            return
+        p = _splash_state["pos"]
+        canvas.coords(bar, 0, 0, p, 8)
+        _splash_state["pos"] = (p + 3) % 304
+        splash.after(16, _animate)
+
+    _animate()
+    splash.update()
+    return splash, _splash_state
+
+_splash_root, _splash_state = _show_splash()
+
+# ──────────────────────────────────────────────
 # 의존 라이브러리 감지
 # ──────────────────────────────────────────────
 
@@ -2030,7 +2075,15 @@ class App(tk.Tk):
 
 if __name__ == "__main__":
     if not HAS_NUMPY:
+        _splash_state["running"] = False
+        _splash_root.destroy()
         print("numpy가 필요합니다: pip install numpy"); sys.exit(1)
     if not (HAS_BT or HAS_MADMOM or HAS_LIBROSA):
+        _splash_state["running"] = False
+        _splash_root.destroy()
         print("분석 엔진 없음. pip install librosa 설치 후 재시작하세요."); sys.exit(1)
+
+    # 스플래시 닫고 메인 앱 시작
+    _splash_state["running"] = False
+    _splash_root.destroy()
     App().mainloop()
