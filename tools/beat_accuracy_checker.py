@@ -70,8 +70,14 @@ except ImportError:
 # Beat Transformer
 HAS_BT = False
 BT_LOCAL_PATH = ""
-_script_dir   = os.path.dirname(os.path.abspath(__file__))
-_BT_CONF_FILE = os.path.join(_script_dir, ".bt_path")   # 경로 저장 파일
+_is_frozen  = getattr(sys, "frozen", False)
+# exe 실행 시: exe가 있는 폴더(Beat-Transformer 탐색·설정 저장용)
+# 스크립트 실행 시: 스크립트가 있는 폴더
+_exe_dir    = os.path.dirname(sys.executable) if _is_frozen else os.path.dirname(os.path.abspath(__file__))
+# frozen 시 번들 내 임시 폴더(bt_infer.py 등 포함), 아니면 스크립트 폴더
+_bundle_dir = sys._MEIPASS if _is_frozen else _exe_dir
+_script_dir = _exe_dir
+_BT_CONF_FILE = os.path.join(_exe_dir, ".bt_path")   # 경로 저장 파일
 
 def _try_load_bt(local_path=""):
     """checkpoint/ + code/ 두 폴더가 있으면 유효한 Beat-Transformer 루트로 판단."""
@@ -104,25 +110,29 @@ def _load_bt_path():
 def _auto_detect_bt():
     """
     여러 위치를 순서대로 탐색해 Beat-Transformer 폴더를 자동 감지한다.
-    1) 이전 세션에서 저장한 경로 (.bt_path)
-    2) 스크립트와 같은 폴더 (tools/Beat-Transformer)
-    3) 스크립트 상위 폴더들 (프로젝트 루트 등)
+    frozen exe 배포판: exe 옆 Beat-Transformer/ 폴더가 항상 1순위
+    1) exe/스크립트와 같은 폴더 (배포판 고정 위치)
+    2) 이전 세션에서 저장한 경로 (.bt_path)
+    3) 스크립트 상위 폴더들 (개발 환경)
     4) 현재 드라이브 루트 직하위 (C:\\Beat-Transformer 등)
     """
     candidates = []
 
-    # 1. 저장된 경로
+    # 1. exe/스크립트 기준 고정 위치 (배포판 우선)
+    for rel in ["Beat-Transformer", "beat-transformer", "beat_transformer"]:
+        candidates.append(os.path.join(_exe_dir, rel))
+
+    # 2. 저장된 경로
     saved = _load_bt_path()
     if saved:
         candidates.append(saved)
 
-    # 2. 스크립트 기준 상대 경로
+    # 3. 스크립트 상위 폴더 (개발 환경)
     for rel in ["Beat-Transformer", "beat-transformer", "beat_transformer"]:
-        candidates.append(os.path.join(_script_dir, rel))
         candidates.append(os.path.join(_script_dir, "..", rel))
         candidates.append(os.path.join(_script_dir, "..", "..", rel))
 
-    # 3. 드라이브 루트 직하위 (Windows C:\ D:\ 등)
+    # 4. 드라이브 루트 직하위 (Windows C:\ D:\ 등)
     import string
     for drv in string.ascii_uppercase:
         root = f"{drv}:\\"
@@ -183,55 +193,59 @@ def best_available_engine(preferred: str) -> str:
 def detect_beats_beat_transformer(audio_path):
     """
     Beat Transformer 비트 감지.
-    bt_infer.py 래퍼를 subprocess로 호출 → JSON 파싱.
+    - frozen exe: bt_infer.run_inference() 를 직접 호출 (subprocess 없음)
+    - 스크립트: bt_infer.py subprocess 호출 (기존 방식 유지)
     """
-    import subprocess, json, tempfile
-
-    # bt_infer.py 위치: beat_accuracy_checker.py 와 같은 폴더
-    script_dir  = os.path.dirname(os.path.abspath(__file__))
-    infer_script = os.path.join(script_dir, "bt_infer.py")
-
-    if not os.path.isfile(infer_script):
-        raise RuntimeError(f"bt_infer.py 없음: {infer_script}")
-
-    # checkpoint 폴더 탐색
-    bt_root = BT_LOCAL_PATH or os.path.join(script_dir, "Beat-Transformer")
+    bt_root  = BT_LOCAL_PATH or os.path.join(_exe_dir, "Beat-Transformer")
     ckpt_dir = os.path.join(bt_root, "checkpoint")
+    code_dir = os.path.join(bt_root, "code")
+
     if not os.path.isdir(ckpt_dir):
         raise RuntimeError(
             f"checkpoint 폴더 없음: {ckpt_dir}\n"
-            "GUI에서 Beat-Transformer 클론 폴더를 지정하고 [적용]을 누르세요."
+            "Beat-Transformer 폴더가 exe와 같은 위치에 있는지 확인하세요."
         )
 
-    code_dir = os.path.join(bt_root, "code")
-
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tf:
-        out_path = tf.name
-    try:
-        cmd = [
-            sys.executable, infer_script,
-            "--audio",      audio_path,
-            "--checkpoint", ckpt_dir,
-            "--out",        out_path,
-            "--code_dir",   code_dir,
-        ]
-        print(f"[BT] 실행: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-        if result.stdout: print(result.stdout)
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"bt_infer.py 실패 (exit {result.returncode}):\n{result.stderr[-1000:]}\n\n"
-                "pip install torch torchaudio librosa einops scipy 설치 후 재시도하세요."
-            )
-        with open(out_path) as f:
-            data = json.load(f)
-        beats_sec = sorted(float(b) for b in data.get("beats", []))
+    if _is_frozen:
+        # frozen exe: bt_infer 를 번들에서 직접 임포트하여 호출
+        import importlib.util, types
+        infer_py = os.path.join(_bundle_dir, "bt_infer.py")
+        spec = importlib.util.spec_from_file_location("bt_infer", infer_py)
+        bt_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bt_mod)
+        beats_sec, bpm = bt_mod.run_inference(audio_path, ckpt_dir, code_dir)
         if not beats_sec:
-            raise RuntimeError("비트가 감지되지 않았습니다. 모델 출력을 확인하세요.")
-        return beats_sec, _median_bpm(beats_sec)
-    finally:
-        if os.path.isfile(out_path):
-            os.unlink(out_path)
+            raise RuntimeError("비트가 감지되지 않았습니다.")
+        return beats_sec, bpm
+    else:
+        # 스크립트 실행: subprocess 방식 유지
+        import subprocess, json, tempfile
+        infer_script = os.path.join(_bundle_dir, "bt_infer.py")
+        if not os.path.isfile(infer_script):
+            raise RuntimeError(f"bt_infer.py 없음: {infer_script}")
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tf:
+            out_path = tf.name
+        try:
+            cmd = [sys.executable, infer_script,
+                   "--audio", audio_path, "--checkpoint", ckpt_dir,
+                   "--out", out_path, "--code_dir", code_dir]
+            print(f"[BT] 실행: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            if result.stdout: print(result.stdout)
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"bt_infer.py 실패 (exit {result.returncode}):\n{result.stderr[-1000:]}\n\n"
+                    "pip install torch torchaudio librosa einops scipy 설치 후 재시도하세요."
+                )
+            with open(out_path) as f:
+                data = json.load(f)
+            beats_sec = sorted(float(b) for b in data.get("beats", []))
+            if not beats_sec:
+                raise RuntimeError("비트가 감지되지 않았습니다.")
+            return beats_sec, _median_bpm(beats_sec)
+        finally:
+            if os.path.isfile(out_path):
+                os.unlink(out_path)
 
 def detect_beats_madmom(audio_path):
     """

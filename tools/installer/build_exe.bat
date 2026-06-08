@@ -16,6 +16,7 @@ set INNO_SETUP="C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 
 :: ── 1단계: PyInstaller ─────────────────────────────
 echo [1/2] PyInstaller로 EXE 빌드 중...
+echo       (torch + madmom 포함으로 수 분 소요될 수 있습니다)
 echo.
 
 cd /d "%TOOLS_DIR%"
@@ -27,14 +28,22 @@ pyinstaller beat_accuracy_checker.py ^
   --distpath "%DIST_DIR%" ^
   --workpath "%BUILD_DIR%\pyinstaller_work" ^
   --specpath "%BUILD_DIR%" ^
-  --hidden-import librosa ^
-  --hidden-import soundfile ^
+  --add-data "bt_infer.py;." ^
+  --collect-all librosa ^
+  --collect-all soundfile ^
+  --collect-all torch ^
+  --collect-all torchaudio ^
+  --collect-all madmom ^
+  --collect-all einops ^
+  --collect-all scipy ^
   --hidden-import matplotlib.backends.backend_tkagg ^
   --hidden-import sklearn.utils._cython_blas ^
   --hidden-import sklearn.neighbors._typedefs ^
-  --hidden-import sklearn.utils.sparsetools ^
-  --collect-data librosa ^
-  --collect-data soundfile
+  --hidden-import madmom.features.beats ^
+  --hidden-import madmom.audio.signal ^
+  --hidden-import madmom.ml.rnn ^
+  --hidden-import torch ^
+  --hidden-import torchaudio
 
 if errorlevel 1 (
     echo.

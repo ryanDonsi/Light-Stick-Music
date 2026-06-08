@@ -125,5 +125,76 @@ def main():
     print(f"[bt_infer] 저장: {args.out}")
 
 
+def run_inference(audio_path: str, checkpoint_dir: str, code_dir: str = "", device: str = "cpu"):
+    """
+    beat_accuracy_checker.py 에서 frozen exe 환경에서 직접 호출하는 진입점.
+    subprocess 없이 동일한 프로세스 안에서 추론 후 (beats_sec, bpm) 를 반환한다.
+    """
+    import json, tempfile, sys as _sys
+
+    if code_dir and code_dir not in _sys.path:
+        _sys.path.insert(0, code_dir)
+
+    try:
+        import torch
+        import numpy as np
+        import librosa
+    except ImportError as e:
+        raise RuntimeError(f"필수 패키지 없음: {e}")
+
+    try:
+        from DilatedTransformer import Demixed_DilatedTransformerModel
+    except ImportError as e:
+        raise RuntimeError(f"DilatedTransformer 임포트 실패: {e}\n  code_dir={code_dir}")
+
+    _device = torch.device(device if (torch.cuda.is_available() or device == "cpu") else "cpu")
+
+    ckpt_file = None
+    for fname in sorted(os.listdir(checkpoint_dir)):
+        if fname.endswith(".pt") or fname.endswith(".pth"):
+            ckpt_file = os.path.join(checkpoint_dir, fname)
+            break
+    if ckpt_file is None:
+        raise RuntimeError(f"checkpoint 파일(.pt/.pth) 없음: {checkpoint_dir}")
+
+    state = torch.load(ckpt_file, map_location=_device, weights_only=False)
+    model = Demixed_DilatedTransformerModel(
+        attn_len=5, instr=5, ntoken=2,
+        dmodel=256, nhead=8, d_hid=1024,
+        nlayers=9, norm_first=True
+    )
+    sd = state.get("state_dict", state)
+    sd = {k.replace("module.", ""): v for k, v in sd.items()}
+    model.load_state_dict(sd, strict=False)
+    model.to(_device).eval()
+
+    y, sr = librosa.load(audio_path, sr=22050, mono=True)
+    hop_length = 512
+    S    = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=2048, hop_length=hop_length,
+                                          n_mels=128, fmin=20, fmax=11025, power=2.0)
+    spec_mono = librosa.power_to_db(S, ref=np.max).T
+    spec = torch.tensor(np.stack([spec_mono] * 5, axis=0), dtype=torch.float32
+                        ).unsqueeze(0).to(_device)
+
+    with torch.no_grad():
+        output, _ = model(spec)
+
+    beat_act = output[0, :, 0].cpu().numpy()
+
+    from scipy.signal import find_peaks
+    hop_sec  = hop_length / sr
+    min_dist = max(1, int(0.25 / hop_sec))
+    beat_peaks, _ = find_peaks(beat_act, height=0.3, distance=min_dist)
+    beats_sec = sorted(float(i * hop_sec) for i in beat_peaks)
+
+    bpm = 0.0
+    if len(beats_sec) >= 2:
+        intervals = [beats_sec[i+1] - beats_sec[i] for i in range(len(beats_sec)-1)]
+        median_interval = sorted(intervals)[len(intervals)//2]
+        bpm = 60.0 / median_interval if median_interval > 0 else 0.0
+
+    return beats_sec, bpm
+
+
 if __name__ == "__main__":
     main()
