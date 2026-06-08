@@ -390,6 +390,13 @@ def compute_music_id(path: str) -> int:
     digest = hashlib.sha256(data).digest()
     return _struct.unpack("<I", digest[:4])[0]
 
+def _fmt_sec(sec: float) -> str:
+    """초(float)를 mm:ss 형식 문자열로 변환."""
+    sec = max(0.0, sec)
+    m   = int(sec) // 60
+    s   = int(sec) % 60
+    return f"{m:02d}:{s:02d}"
+
 def _to_signed_display(val: int) -> str:
     """unsigned int32 값을 Android signed int32 표기로 변환 (표시 전용)."""
     if val >= (1 << 31):
@@ -595,7 +602,7 @@ def build_beatmap_figure(
 
     # ── [3] 줌 비트맵 ─────────────────────────────
     ax_zoom.set_title(
-        f"줌 비트맵  ({zoom_start:.0f}s ~ {zoom_end:.0f}s)  "
+        f"줌 비트맵  ({_fmt_sec(zoom_start)} ~ {_fmt_sec(zoom_end)})  "
         "— 비트 간격·오차를 상세히 확인",
         color="#90a4ae", fontsize=9, loc="left"
     )
@@ -842,12 +849,12 @@ class App(tk.Tk):
             tk.Label(legend_frame, text=lt, bg="#1a1a2e", fg=lc,
                      font=("", 8, "bold")).pack(side="left", padx=6)
         tk.Label(tl_ctrl, text="  |", bg="#1a1a2e", fg="#37474f", font=("", 8)).pack(side="left")
-        tk.Label(tl_ctrl, text="시작(초):", bg="#1a1a2e", fg="#90a4ae",
+        tk.Label(tl_ctrl, text="시작(초/mm:ss):", bg="#1a1a2e", fg="#90a4ae",
                  font=("", 8)).pack(side="left", padx=(8, 0))
         self.zoom_s_var = tk.DoubleVar(value=0.0)
         tk.Entry(tl_ctrl, textvariable=self.zoom_s_var, width=5,
                  bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
-        tk.Label(tl_ctrl, text="끝(초):", bg="#1a1a2e", fg="#90a4ae",
+        tk.Label(tl_ctrl, text="끝(초/mm:ss):", bg="#1a1a2e", fg="#90a4ae",
                  font=("", 8)).pack(side="left")
         self.zoom_e_var = tk.DoubleVar(value=30.0)
         tk.Entry(tl_ctrl, textvariable=self.zoom_e_var, width=5,
@@ -1991,7 +1998,7 @@ class App(tk.Tk):
             self._log(SEP, "gray")
             self._log(f"  원곡       : {os.path.basename(audio_path)}")
             self._log(f"  Music ID   : {audio_hash_id}  (SHA-256 앞 4바이트, SDK 동일)", "green")
-            self._log(f"  길이       : {duration_sec:.1f} 초")
+            self._log(f"  길이       : {_fmt_sec(duration_sec)}")
             self._log(f"  엔진       : {eng_name}  ({eng_acc})", "green")
             self._log(f"  GT BPM     : {ref_bpm:.1f}")
             self._log(f"  GT 비트 수 : {len(ref_sec)}개")
