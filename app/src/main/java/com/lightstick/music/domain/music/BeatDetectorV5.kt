@@ -50,9 +50,9 @@ object BeatDetectorV5 {
     private const val HALF_TEMPO_RATIO   = 0.55f
 
     // double-tempo 체크: autocorr[doubleLag] / autocorr[bestLag] >= 이 값이면 느린 템포 선택
-    // prior 가 빠른 BPM(짧은 주기)을 과도하게 선호해 Stars(66→136 BPM), TOMBOY(75→150 BPM) 등
-    // 2배 오검출이 발생하는 문제 방지
-    private const val DOUBLE_TEMPO_RATIO = 0.40f
+    // 0.40 → 너무 낮아서 120 BPM 곡들이 60 BPM으로 오검출됨 (Dynamite 등 대규모 역행)
+    // madmom DBN 방식 도입 전까지 비활성화 수준(0.90)으로 유지
+    private const val DOUBLE_TEMPO_RATIO = 0.90f
 
     // DP 실패 판단 기준: 예상 비트 수의 25% 미만이면 fallback
     private const val DP_MIN_BEAT_RATIO = 0.25f
