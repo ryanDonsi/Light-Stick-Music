@@ -240,11 +240,18 @@ object BeatDetectorV5 {
         }
 
         // ── HMM Forward (Viterbi-max 근사, log 도메인) ──────────────────────
-        // 초기 분포: Uniform — prior 는 comb-filter 단계에서만 적용
-        val LOG_ZERO       = -1e9f
-        val logInitUnif    = -ln(numIntv.toFloat())
-        var logFwd         = FloatArray(totalStates) { LOG_ZERO }
-        for (ii in 0 until numIntv) logFwd[intvStartState[ii]] = logInitUnif
+        // 초기 분포: 약한 log-Gaussian prior (σ=1.2, center=120 BPM)
+        //   - 느린곡(66-78 BPM)의 octave 오류를 막되 과도하게 당기지 않도록 넓은 sigma
+        val LOG_ZERO           = -1e9f
+        val logInitUnif        = -ln(numIntv.toFloat())
+        val dbnPriorCenter     = ln(120f)
+        val dbnPriorSigmaX2    = 2f * 1.2f * 1.2f
+        var logFwd             = FloatArray(totalStates) { LOG_ZERO }
+        for (ii in 0 until numIntv) {
+            val bpm   = 60_000f / (intervals[ii].toFloat() * hopMs.toFloat())
+            val diff  = ln(bpm) - dbnPriorCenter
+            logFwd[intvStartState[ii]] = logInitUnif - (diff * diff) / dbnPriorSigmaX2
+        }
 
         val intvBeatAccum = FloatArray(numIntv)  // accumulated beat-start probability per interval
 
@@ -313,7 +320,7 @@ object BeatDetectorV5 {
         //   - DBN 은 unbiased uniform 으로 실행, 후처리에서만 gentle push
         //   - 0.5x 오류(downbeat 쏠림) 보정용
         val LOG_BPM_CENTER  = ln(120f)
-        val LOG_BPM_SX2     = 2f * 0.8f * 0.8f  // 2σ²
+        val LOG_BPM_SX2     = 2f * 1.5f * 1.5f  // 2σ²
 
         fun combPriorScore(beatMs: Long, fpb: Int): Float {
             val raw   = combFilterScore(odf, beatMs, hopMs) * fpb.toFloat() / n.toFloat()
@@ -328,7 +335,7 @@ object BeatDetectorV5 {
         var bestCorrMs  = resultMs
         var bestCorrPBS = combPriorScore(resultMs, fpbResult)
 
-        val harmRatios  = floatArrayOf(0.5f, 2f/3f, 0.75f, 4f/3f, 1.5f, 2.0f)
+        val harmRatios  = floatArrayOf(0.5f, 2f/3f, 4f/3f, 1.5f, 2.0f)
         for (r in harmRatios) {
             val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt()
                              .coerceAtLeast(1)
