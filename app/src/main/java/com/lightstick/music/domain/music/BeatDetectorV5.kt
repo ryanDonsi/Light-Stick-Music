@@ -203,19 +203,20 @@ object BeatDetectorV5 {
     ): Long {
         val minInterval = max(1, (minBeatMs / hopMs).toInt())
         val maxInterval = max(minInterval + 1, (maxBeatMs / hopMs).toInt())
-        val intervals   = (minInterval..maxInterval).toIntArray()
+        val intervals   = IntArray(maxInterval - minInterval + 1) { minInterval + it }
         val numIntv     = intervals.size
         if (numIntv == 0 || odf.size < minInterval * 2) return minBeatMs
 
         // ── 상태 공간 구축 ──────────────────────────────────────────────────
-        val totalStates     = intervals.sumOf { it }
+        val totalStates     = intervals.sum()
         val stateIntv       = IntArray(totalStates)
         val statePos        = IntArray(totalStates)
         val stateIntvIdx    = IntArray(totalStates)
         val intvStartState  = IntArray(numIntv)
 
         var s = 0
-        for ((ii, intv) in intervals.withIndex()) {
+        for (ii in 0 until numIntv) {
+            val intv = intervals[ii]
             intvStartState[ii] = s
             for (p in 0 until intv) {
                 stateIntv[s]    = intv
@@ -227,12 +228,14 @@ object BeatDetectorV5 {
 
         // ── 박자 경계 로그 전이 확률 사전 계산 ─────────────────────────────
         val bbLogTrans = Array(numIntv) { fromII ->
-            val fi = intervals[fromII].toFloat()
+            val fi  = intervals[fromII].toFloat()
             val raw = FloatArray(numIntv) { toII ->
                 -transitionLambda * abs(intervals[toII].toFloat() / fi - 1f)
             }
-            val maxR  = raw.max()!!
-            val logZ  = maxR + ln(raw.sumOf { exp((it - maxR).toDouble()) }.toFloat())
+            val maxR = raw.max()
+            var sumE = 0.0
+            for (v in raw) sumE += exp((v - maxR).toDouble())
+            val logZ = maxR + ln(sumE.toFloat())
             FloatArray(numIntv) { toII -> raw[toII] - logZ }
         }
 
@@ -259,9 +262,8 @@ object BeatDetectorV5 {
                 val logObs = if (p == 0) logBeat else logNonBeat
 
                 val logPrev = if (p > 0) {
-                    logFwd[st - 1]            // 위상 내부 전이 (확률 1.0)
+                    logFwd[st - 1]
                 } else {
-                    // 박자 경계: 모든 interval 의 마지막 상태에서 전이
                     val toII   = stateIntvIdx[st]
                     var maxVal = LOG_ZERO
                     for (fromII in 0 until numIntv) {
@@ -275,7 +277,7 @@ object BeatDetectorV5 {
             }
 
             // 언더플로 방지 정규화
-            val peak = logFwdNew.max() ?: LOG_ZERO
+            val peak = logFwdNew.max()
             if (peak > LOG_ZERO) for (i in logFwdNew.indices) {
                 if (logFwdNew[i] > LOG_ZERO) logFwdNew[i] -= peak
             }
@@ -288,7 +290,8 @@ object BeatDetectorV5 {
             val ii = stateIntvIdx[st]
             if (logFwd[st] > intvScore[ii]) intvScore[ii] = logFwd[st]
         }
-        val bestII   = intvScore.indices.maxByOrNull { intvScore[it] } ?: 0
+        var bestII = 0
+        for (ii in 1 until numIntv) if (intvScore[ii] > intvScore[bestII]) bestII = ii
         val resultMs = intervals[bestII].toLong() * hopMs
         Log.d(TAG, "V5 dbnTempo: ${resultMs}ms (${60_000L / resultMs} BPM)")
         return resultMs
