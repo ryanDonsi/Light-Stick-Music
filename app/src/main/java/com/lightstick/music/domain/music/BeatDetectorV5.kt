@@ -245,6 +245,8 @@ object BeatDetectorV5 {
         val logInitUnif = -ln(numIntv.toFloat())
         for (ii in 0 until numIntv) logFwd[intvStartState[ii]] = logInitUnif
 
+        val intvBeatAccum = FloatArray(numIntv)  // accumulated beat-start probability per interval
+
         val n = odf.size
         for (t in 0 until n) {
             val act        = odf[t].coerceIn(1e-6f, 1f - 1e-6f)
@@ -282,16 +284,19 @@ object BeatDetectorV5 {
                 if (logFwdNew[i] > LOG_ZERO) logFwdNew[i] -= peak
             }
             logFwd = logFwdNew
+
+            // 박자 시작 상태의 확률을 누적 (전 프레임에 걸쳐 합산)
+            for (ii in 0 until numIntv) {
+                val bss = intvStartState[ii]
+                if (logFwd[bss] > LOG_ZERO) {
+                    intvBeatAccum[ii] += exp(logFwd[bss].toDouble()).toFloat()
+                }
+            }
         }
 
-        // ── 최종 상태에서 최적 tempo 추출 ──────────────────────────────────
-        val intvScore = FloatArray(numIntv)
-        for (st in 0 until totalStates) {
-            val ii = stateIntvIdx[st]
-            if (logFwd[st] > intvScore[ii]) intvScore[ii] = logFwd[st]
-        }
+        // ── 누적 박자 확률 기반 최적 tempo 추출 ──────────────────────────────
         var bestII = 0
-        for (ii in 1 until numIntv) if (intvScore[ii] > intvScore[bestII]) bestII = ii
+        for (ii in 1 until numIntv) if (intvBeatAccum[ii] > intvBeatAccum[bestII]) bestII = ii
         val resultMs = intervals[bestII].toLong() * hopMs
         Log.d(TAG, "V5 dbnTempo: ${resultMs}ms (${60_000L / resultMs} BPM)")
         return resultMs
