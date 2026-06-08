@@ -1948,21 +1948,44 @@ class App(tk.Tk):
             self._log(f"  이상 인터벌: {app_st.get('anomaly_pct',0):.1f}%")
         self.after(0, _lb)
 
-        # ② Ground-truth
-        self.after(0, lambda: self._log(f"\n[ 2/4 ]  Ground-truth 감지… ({eng_name} {eng_acc})", "gray"))
-        if engine == "beat_transformer":
-            ref_sec, ref_bpm = detect_beats_beat_transformer(audio_path)
-        elif engine == "madmom":
-            ref_sec, ref_bpm = detect_beats_madmom(audio_path)
-        else:
-            ref_sec, ref_bpm = detect_beats_librosa(audio_path, bpm_hint)
+        # ② Ground-truth — 캐시 우선 사용 (GT는 오디오가 변하지 않으면 재실행 불필요)
+        records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
+        cached_gt_ms  = None
+        cached_gt_bpm = None
+        try:
+            with open(records_path, encoding="utf-8") as _f:
+                _recs = json.load(_f)
+            _cached = next((r for r in _recs
+                            if r.get("_key") == f"{audio_hash_id}_{engine}"), None)
+            if _cached:
+                _gt_beats = _cached.get("beats", {}).get("gt_ms")
+                _gt_bpm   = _cached.get("summary", {}).get("bpm_gt")
+                if _gt_beats and _gt_bpm:
+                    cached_gt_ms  = _gt_beats
+                    cached_gt_bpm = _gt_bpm
+        except Exception:
+            pass
 
-        ref_ms = [int(t * 1000) for t in ref_sec]
-        ref_st = beat_stats(ref_ms)
+        if cached_gt_ms is not None:
+            self.after(0, lambda: self._log(
+                f"\n[ 2/4 ]  Ground-truth 캐시 사용 ({eng_name} — 재분석 생략)", "gray"))
+            ref_ms  = cached_gt_ms
+            ref_bpm = cached_gt_bpm
+        else:
+            self.after(0, lambda: self._log(f"\n[ 2/4 ]  Ground-truth 감지… ({eng_name} {eng_acc})", "gray"))
+            if engine == "beat_transformer":
+                ref_sec, ref_bpm = detect_beats_beat_transformer(audio_path)
+            elif engine == "madmom":
+                ref_sec, ref_bpm = detect_beats_madmom(audio_path)
+            else:
+                ref_sec, ref_bpm = detect_beats_librosa(audio_path, bpm_hint)
+            ref_ms = [int(t * 1000) for t in ref_sec]
+        ref_sec = [t / 1000.0 for t in ref_ms]  # 통합: 이후 코드는 ref_sec 사용
+        ref_st  = beat_stats(ref_ms)
         try:
             duration_sec = get_audio_duration(audio_path)
         except Exception:
-            duration_sec = ref_sec[-1] + 1.0 if ref_sec else 0.0
+            duration_sec = ref_ms[-1] / 1000.0 + 1.0 if ref_ms else 0.0
 
         def _lr():
             self._log(SEP, "gray")
