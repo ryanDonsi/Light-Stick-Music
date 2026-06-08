@@ -313,24 +313,31 @@ object BeatDetectorV5 {
             if (intvBeatAccum[ii] / cntI > intvBeatAccum[bestII] / cntB) bestII = ii
         }
 
-        // ── 옥타브 보정: comb-filter 로 2x BPM 비교 ─────────────────────────
-        // detected BPM 이 실제의 0.5x 인 경우, 2x BPM comb score ≥ detected score 임
-        val resultMs = intervals[bestII].toLong() * hopMs
-        val halfMs   = resultMs / 2
-        if (halfMs >= minBeatMs) {
-            val sCurrent = combFilterScore(odf, resultMs, hopMs)
-            val sDouble  = combFilterScore(odf, halfMs,   hopMs)
-            // 2x BPM 의 per-beat 정규화 comb score 가 current 보다 높으면 교체
-            val fpbCurr  = max(1, (resultMs / hopMs).toInt()).toFloat()
-            val fpbHalf  = max(1, (halfMs   / hopMs).toInt()).toFloat()
-            if (sDouble / fpbHalf >= sCurrent / fpbCurr * 0.90f) {
-                Log.d(TAG, "V5 dbnTempo octave fix: ${resultMs}ms→${halfMs}ms")
-                return halfMs
+        // ── 하모닉 옥타브 보정: 하모닉 배율별 comb-filter per-beat score 비교 ──
+        // prior 가 잘못된 방향으로 밀었거나 downbeat 쏠림이 있을 때 수정
+        // 검사 배율: 0.5x, 2/3x, 3/4x, 4/3x, 3/2x, 2x
+        val resultMs    = intervals[bestII].toLong() * hopMs
+        val fpbResult   = max(1, (resultMs / hopMs).toInt()).toFloat()
+        var bestCorrMs  = resultMs
+        var bestCorrPBS = combFilterScore(odf, resultMs, hopMs) / fpbResult  // per-beat score
+
+        val harmRatios  = floatArrayOf(0.5f, 2f/3f, 0.75f, 4f/3f, 1.5f, 2.0f)
+        for (r in harmRatios) {
+            val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt()
+                             .coerceAtLeast(1)
+            val cMs = frames.toLong() * hopMs
+            if (cMs < minBeatMs || cMs > maxBeatMs) continue
+            val pbs = combFilterScore(odf, cMs, hopMs) / frames.toFloat()
+            if (pbs > bestCorrPBS) {
+                bestCorrPBS = pbs
+                bestCorrMs  = cMs
             }
         }
 
-        Log.d(TAG, "V5 dbnTempo: ${resultMs}ms (${60_000L / resultMs} BPM)")
-        return resultMs
+        if (bestCorrMs != resultMs)
+            Log.d(TAG, "V5 dbnTempo harmonic fix: ${resultMs}ms→${bestCorrMs}ms (${60_000L/resultMs}→${60_000L/bestCorrMs} BPM)")
+        Log.d(TAG, "V5 dbnTempo: ${bestCorrMs}ms (${60_000L / bestCorrMs} BPM)")
+        return bestCorrMs
     }
 
     // 옥타브 보정용: 최적 위상에서의 comb filter ODF 합 반환
