@@ -240,19 +240,11 @@ object BeatDetectorV5 {
         }
 
         // ── HMM Forward (Viterbi-max 근사, log 도메인) ──────────────────────
-        // 초기 분포: log-Gaussian prior in log-BPM space (center=120BPM, sigma=0.4)
-        // → 60 BPM 대비 120 BPM 에 e^1.5 ≈ 4.5x 가중치, 0.5x 옥타브 오류 억제
-        val LOG_ZERO      = -1e9f
-        val logBpmCenter  = ln(120f)
-        val logBpmSigmaX2 = 2f * 0.4f * 0.4f   // 2σ²
-        var logFwd        = FloatArray(totalStates) { LOG_ZERO }
-        for (ii in 0 until numIntv) {
-            val bpm      = 60_000f / (intervals[ii].toFloat() * hopMs.toFloat())
-            val logBpm   = ln(bpm)
-            val diff     = logBpm - logBpmCenter
-            val logPrior = -(diff * diff) / logBpmSigmaX2
-            logFwd[intvStartState[ii]] = logPrior
-        }
+        // 초기 분포: Uniform — prior 는 comb-filter 단계에서만 적용
+        val LOG_ZERO       = -1e9f
+        val logInitUnif    = -ln(numIntv.toFloat())
+        var logFwd         = FloatArray(totalStates) { LOG_ZERO }
+        for (ii in 0 until numIntv) logFwd[intvStartState[ii]] = logInitUnif
 
         val intvBeatAccum = FloatArray(numIntv)  // accumulated beat-start probability per interval
 
@@ -313,13 +305,28 @@ object BeatDetectorV5 {
             if (intvBeatAccum[ii] / cntI > intvBeatAccum[bestII] / cntB) bestII = ii
         }
 
-        // ── 하모닉 옥타브 보정: 하모닉 배율별 comb-filter per-beat score 비교 ──
-        // prior 가 잘못된 방향으로 밀었거나 downbeat 쏠림이 있을 때 수정
-        // 검사 배율: 0.5x, 2/3x, 3/4x, 4/3x, 3/2x, 2x
+        // ── 하모닉 옥타브 보정 ────────────────────────────────────────────────
+        // 정규화: combScore × fpb / n = 그리드 포인트당 평균 ODF (grid-point average)
+        //   - / fpb 는 버그: 2x interval 이 항상 유리해짐
+        //   - × fpb / n 는 전체 그리드 수로 나눠 공정한 비교 가능
+        // prior: comb score 에 log-Gaussian(center=120BPM, σ=0.8) 가중치 적용
+        //   - DBN 은 unbiased uniform 으로 실행, 후처리에서만 gentle push
+        //   - 0.5x 오류(downbeat 쏠림) 보정용
+        val LOG_BPM_CENTER  = ln(120f)
+        val LOG_BPM_SX2     = 2f * 0.8f * 0.8f  // 2σ²
+
+        fun combPriorScore(beatMs: Long, fpb: Int): Float {
+            val raw   = combFilterScore(odf, beatMs, hopMs) * fpb.toFloat() / n.toFloat()
+            val bpm   = 60_000f / beatMs.toFloat()
+            val d     = ln(bpm) - LOG_BPM_CENTER
+            val prior = exp(-(d * d) / LOG_BPM_SX2.toDouble()).toFloat()
+            return raw * prior
+        }
+
         val resultMs    = intervals[bestII].toLong() * hopMs
-        val fpbResult   = max(1, (resultMs / hopMs).toInt()).toFloat()
+        val fpbResult   = max(1, (resultMs / hopMs).toInt())
         var bestCorrMs  = resultMs
-        var bestCorrPBS = combFilterScore(odf, resultMs, hopMs) / fpbResult  // per-beat score
+        var bestCorrPBS = combPriorScore(resultMs, fpbResult)
 
         val harmRatios  = floatArrayOf(0.5f, 2f/3f, 0.75f, 4f/3f, 1.5f, 2.0f)
         for (r in harmRatios) {
@@ -327,7 +334,7 @@ object BeatDetectorV5 {
                              .coerceAtLeast(1)
             val cMs = frames.toLong() * hopMs
             if (cMs < minBeatMs || cMs > maxBeatMs) continue
-            val pbs = combFilterScore(odf, cMs, hopMs) / frames.toFloat()
+            val pbs = combPriorScore(cMs, frames)
             if (pbs > bestCorrPBS) {
                 bestCorrPBS = pbs
                 bestCorrMs  = cMs
