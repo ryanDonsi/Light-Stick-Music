@@ -240,10 +240,19 @@ object BeatDetectorV5 {
         }
 
         // ── HMM Forward (Viterbi-max 근사, log 도메인) ──────────────────────
-        val LOG_ZERO    = -1e9f
-        var logFwd      = FloatArray(totalStates) { LOG_ZERO }
-        val logInitUnif = -ln(numIntv.toFloat())
-        for (ii in 0 until numIntv) logFwd[intvStartState[ii]] = logInitUnif
+        // 초기 분포: log-Gaussian prior in log-BPM space (center=120BPM, sigma=0.4)
+        // → 60 BPM 대비 120 BPM 에 e^1.5 ≈ 4.5x 가중치, 0.5x 옥타브 오류 억제
+        val LOG_ZERO      = -1e9f
+        val logBpmCenter  = ln(120f)
+        val logBpmSigmaX2 = 2f * 0.4f * 0.4f   // 2σ²
+        var logFwd        = FloatArray(totalStates) { LOG_ZERO }
+        for (ii in 0 until numIntv) {
+            val bpm      = 60_000f / (intervals[ii].toFloat() * hopMs.toFloat())
+            val logBpm   = ln(bpm)
+            val diff     = logBpm - logBpmCenter
+            val logPrior = -(diff * diff) / logBpmSigmaX2
+            logFwd[intvStartState[ii]] = logPrior
+        }
 
         val intvBeatAccum = FloatArray(numIntv)  // accumulated beat-start probability per interval
 
@@ -294,12 +303,47 @@ object BeatDetectorV5 {
             }
         }
 
-        // ── 누적 박자 확률 기반 최적 tempo 추출 ──────────────────────────────
+        // ── per-beat 정규화 후 최적 tempo 추출 ──────────────────────────────
+        // 각 interval 의 기대 박자 수(n/interval)로 나눠 평균 확률로 비교
+        // → 느린 interval 이 총 누적값이 높아도 평균이 낮으면 탈락
         var bestII = 0
-        for (ii in 1 until numIntv) if (intvBeatAccum[ii] > intvBeatAccum[bestII]) bestII = ii
+        for (ii in 1 until numIntv) {
+            val cntI = (n.toFloat() / intervals[ii]).coerceAtLeast(1f)
+            val cntB = (n.toFloat() / intervals[bestII]).coerceAtLeast(1f)
+            if (intvBeatAccum[ii] / cntI > intvBeatAccum[bestII] / cntB) bestII = ii
+        }
+
+        // ── 옥타브 보정: comb-filter 로 2x BPM 비교 ─────────────────────────
+        // detected BPM 이 실제의 0.5x 인 경우, 2x BPM comb score ≥ detected score 임
         val resultMs = intervals[bestII].toLong() * hopMs
+        val halfMs   = resultMs / 2
+        if (halfMs >= minBeatMs) {
+            val sCurrent = combFilterScore(odf, resultMs, hopMs)
+            val sDouble  = combFilterScore(odf, halfMs,   hopMs)
+            // 2x BPM 의 per-beat 정규화 comb score 가 current 보다 높으면 교체
+            val fpbCurr  = max(1, (resultMs / hopMs).toInt()).toFloat()
+            val fpbHalf  = max(1, (halfMs   / hopMs).toInt()).toFloat()
+            if (sDouble / fpbHalf >= sCurrent / fpbCurr * 0.90f) {
+                Log.d(TAG, "V5 dbnTempo octave fix: ${resultMs}ms→${halfMs}ms")
+                return halfMs
+            }
+        }
+
         Log.d(TAG, "V5 dbnTempo: ${resultMs}ms (${60_000L / resultMs} BPM)")
         return resultMs
+    }
+
+    // 옥타브 보정용: 최적 위상에서의 comb filter ODF 합 반환
+    private fun combFilterScore(odf: List<Float>, beatMs: Long, hopMs: Long): Float {
+        val fpb = max(1, (beatMs / hopMs).toInt())
+        if (odf.size < fpb * 2) return 0f
+        var best = Float.NEGATIVE_INFINITY
+        for (ph in 0 until fpb) {
+            var score = 0f; var f = ph
+            while (f < odf.size) { score += odf[f]; f += fpb }
+            if (score > best) best = score
+        }
+        return best
     }
 
     // =========================================================================
