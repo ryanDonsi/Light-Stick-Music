@@ -806,9 +806,9 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Beat Accuracy Checker")
-        self.geometry("1440x900")
+        self.geometry("1920x1080")
         self.resizable(True, True)
-        self.minsize(1100, 720)
+        self.minsize(1280, 800)
         self._last_result = None           # 비트맵 재렌더용 캐시
         self._card_widgets = {}            # engine → widget dict
         self._selected_card_engine = ""   # 현재 선택된 카드 엔진
@@ -875,8 +875,8 @@ class App(tk.Tk):
         # ── 2열 메인 영역 ──────────────────────────
         main = tk.Frame(self)
         main.pack(fill="both", expand=True, padx=6, pady=4)
-        main.columnconfigure(0, weight=2, minsize=240)
-        main.columnconfigure(1, weight=4, minsize=400)
+        main.columnconfigure(0, weight=1, minsize=180)
+        main.columnconfigure(1, weight=5, minsize=700)
         main.rowconfigure(0, weight=1)
 
         # ══════════════════════════════════════════
@@ -1006,143 +1006,135 @@ class App(tk.Tk):
         col2.rowconfigure(0, weight=3)
         col2.rowconfigure(1, weight=2)
 
-        # 2열 1행: 분석 결과 (3 엔진 카드 + 상세 지표)
+        # 2열 1행: 분석 결과 — 엔진별 풀 상세 카드 3개
         results_frame = tk.Frame(col2, bg="#1a1a2e", bd=1, relief="solid")
         results_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 3))
-        results_frame.rowconfigure(2, weight=1)
         results_frame.columnconfigure(0, weight=1)
+        results_frame.rowconfigure(1, weight=1)
 
         # ── 곡 정보 헤더 ──────────────────────────
         song_info_frame = tk.Frame(results_frame, bg="#1e272e")
-        song_info_frame.pack(fill="x")
+        song_info_frame.grid(row=0, column=0, sticky="ew")
         tk.Label(song_info_frame, text="🎵", bg="#1e272e", fg="#546e7a",
-                 font=("", 11)).pack(side="left", padx=(10, 4), pady=6)
+                 font=("", 11)).pack(side="left", padx=(10, 4), pady=5)
         song_info_inner = tk.Frame(song_info_frame, bg="#1e272e")
-        song_info_inner.pack(side="left", fill="x", expand=True, pady=4)
+        song_info_inner.pack(side="left", fill="x", expand=True, pady=3)
         self.v_song_title = tk.StringVar(value="—")
         self.v_song_id    = tk.StringVar(value="—")
         tk.Label(song_info_inner, textvariable=self.v_song_title,
-                 bg="#1e272e", fg="#cfd8dc", font=("", 11, "bold"),
-                 anchor="w").pack(anchor="w")
+                 bg="#1e272e", fg="#cfd8dc", font=("", 11, "bold"), anchor="w").pack(anchor="w")
         tk.Label(song_info_inner, textvariable=self.v_song_id,
-                 bg="#1e272e", fg="#546e7a", font=("", 8),
-                 anchor="w").pack(anchor="w")
+                 bg="#1e272e", fg="#546e7a", font=("", 8), anchor="w").pack(anchor="w")
 
-        # ── 엔진 카드 3개 ──────────────────────────
+        # ── 엔진 카드 3개 (풀 상세) ──────────────
         cards_outer = tk.Frame(results_frame, bg="#1a1a2e")
-        cards_outer.pack(fill="x", padx=4, pady=(4, 2))
+        cards_outer.grid(row=1, column=0, sticky="nsew", padx=4, pady=(4, 4))
         for _ci in range(3):
             cards_outer.columnconfigure(_ci, weight=1)
+        cards_outer.rowconfigure(0, weight=1)
+
+        # 카드 내부 mini-metric 헬퍼
+        def _mrow(parent, bg):
+            f = tk.Frame(parent, bg=bg)
+            f.pack(fill="x", padx=0, pady=0)
+            return f
+
+        def _mmetric(parent, label, var, fg_color, bg, tip_key=None):
+            cell = tk.Frame(parent, bg=bg)
+            cell.pack(side="left", fill="both", expand=True, padx=2, pady=1)
+            hf = tk.Frame(cell, bg=bg)
+            hf.pack(anchor="w", fill="x", padx=4, pady=(3, 0))
+            tk.Label(hf, text=label, bg=bg, fg="#78909c", font=("", 7)).pack(side="left")
+            if tip_key and tip_key in _TIPS:
+                tl = tk.Label(hf, text="?", bg=bg, fg="#37474f",
+                              font=("", 6, "bold"), cursor="question_arrow")
+                tl.pack(side="left", padx=(2, 0))
+                _attach_tooltip(tl, _TIPS[tip_key])
+            tk.Label(cell, textvariable=var, bg=bg, fg=fg_color,
+                     font=("", 12, "bold"), anchor="w").pack(anchor="w", padx=4, pady=(0, 3))
+            return cell
 
         for col_i, eng in enumerate(("beat_transformer", "madmom", "librosa")):
             eng_label, eng_acc, eng_color = ENGINE_INFO[eng]
-            card = tk.Frame(cards_outer, bg="#263238", bd=2, relief="groove",
-                            cursor="hand2")
+            CARD_BG  = "#1e2836"
+            CELL_BG  = "#263238"
+
+            card = tk.Frame(cards_outer, bg=CARD_BG, bd=2, relief="groove", cursor="hand2")
             card.grid(row=0, column=col_i, sticky="nsew", padx=3, pady=2)
             card.columnconfigure(0, weight=1)
+            card.rowconfigure(2, weight=1)   # metrics 영역이 늘어남
 
+            # 헤더
             hdr = tk.Frame(card, bg=eng_color)
             hdr.grid(row=0, column=0, sticky="ew")
             tk.Label(hdr, text=f"{eng_label}  {eng_acc}", bg=eng_color, fg="white",
-                     font=("", 8, "bold"), anchor="w").pack(padx=6, pady=(4, 3), anchor="w")
+                     font=("", 9, "bold"), anchor="w").pack(padx=8, pady=(5, 4), anchor="w")
 
-            grade_f = tk.Frame(card, bg="#263238")
+            # 등급 행
+            grade_f = tk.Frame(card, bg=eng_color)
             grade_f.grid(row=1, column=0, sticky="ew")
-            grade_lbl = tk.Label(grade_f, text="—", bg="#263238", fg="#546e7a",
-                                  font=("", 22, "bold"), width=3)
-            grade_lbl.pack(side="left", padx=(8, 2), pady=2)
-            grade_sub = tk.Label(grade_f, text="미분석", bg="#263238", fg="#78909c",
-                                  font=("", 8), justify="left", anchor="w", wraplength=150)
-            grade_sub.pack(side="left", fill="x", expand=True, padx=(0, 4))
+            grade_lbl = tk.Label(grade_f, text="—", bg=eng_color, fg="white",
+                                  font=("", 30, "bold"), width=3)
+            grade_lbl.pack(side="left", padx=(8, 4), pady=4)
+            grade_sub = tk.Label(grade_f, text="미분석", bg=eng_color, fg="white",
+                                  font=("", 9), justify="left", anchor="w", wraplength=200)
+            grade_sub.pack(side="left", fill="x", expand=True, padx=(0, 6))
 
-            stats_f = tk.Frame(card, bg="#263238")
-            stats_f.grid(row=2, column=0, sticky="ew")
-            f_var   = tk.StringVar(value="F: —")
-            bpm_var = tk.StringVar(value="BPM: —")
-            tk.Label(stats_f, textvariable=f_var, bg="#263238", fg="#69f0ae",
-                     font=("", 10, "bold"), anchor="w").pack(fill="x", padx=8, pady=(2, 0))
-            tk.Label(stats_f, textvariable=bpm_var, bg="#263238", fg="#b0bec5",
-                     font=("", 8), anchor="w").pack(fill="x", padx=8, pady=(0, 6))
+            # 지표 영역
+            metrics_body = tk.Frame(card, bg=CARD_BG)
+            metrics_body.grid(row=2, column=0, sticky="nsew", padx=2, pady=2)
+            metrics_body.columnconfigure(0, weight=1)
 
-            for w in [card, hdr, grade_f, grade_lbl, grade_sub, stats_f]:
-                w.bind("<Button-1>",
-                       lambda e, _eng=eng: self._select_engine_card(_eng))
+            # StringVar 생성
+            v_f    = tk.StringVar(value="—")
+            v_p    = tk.StringVar(value="—")
+            v_r    = tk.StringVar(value="—")
+            v_cov  = tk.StringVar(value="—")
+            v_tp   = tk.StringVar(value="—")
+            v_fp   = tk.StringVar(value="—")
+            v_fn   = tk.StringVar(value="—")
+            v_bpm_a = tk.StringVar(value="—")
+            v_bpm_g = tk.StringVar(value="—")
+            v_bpm_e = tk.StringVar(value="—")
+            v_gaps  = tk.StringVar(value="—")
+
+            # 행 1: F-measure + 커버리지
+            r1 = tk.Frame(metrics_body, bg=CARD_BG)
+            r1.pack(fill="x", pady=(2, 0))
+            _mmetric(r1, "F-measure", v_f,    "#69f0ae", CELL_BG, "F-measure")
+            _mmetric(r1, "커버리지",   v_cov,  "#82b1ff", CELL_BG, "커버리지")
+            # 행 2: Precision + Recall + 대형갭
+            r2 = tk.Frame(metrics_body, bg=CARD_BG)
+            r2.pack(fill="x")
+            _mmetric(r2, "Precision", v_p,    "#b3e5fc", CELL_BG, "Precision")
+            _mmetric(r2, "Recall",    v_r,    "#b3e5fc", CELL_BG, "Recall")
+            _mmetric(r2, "대형갭",    v_gaps, "#ffcc02", CELL_BG, "대형갭")
+            # 행 3: TP + FP + FN
+            r3 = tk.Frame(metrics_body, bg=CARD_BG)
+            r3.pack(fill="x")
+            _mmetric(r3, "TP (일치)",   v_tp, "#69f0ae", CELL_BG, "TP (일치)")
+            _mmetric(r3, "FP (오감지)", v_fp, "#ef9a9a", CELL_BG, "FP (오감지)")
+            _mmetric(r3, "FN (누락)",   v_fn, "#82b1ff", CELL_BG, "FN (누락)")
+            # 행 4: BPM 앱 + GT + 오차
+            r4 = tk.Frame(metrics_body, bg=CARD_BG)
+            r4.pack(fill="x", pady=(0, 2))
+            _mmetric(r4, "BPM (앱)",  v_bpm_a, "#ffffff", CELL_BG, "BPM (앱)")
+            _mmetric(r4, "BPM (GT)", v_bpm_g, "#ffffff", CELL_BG, "BPM (GT)")
+            _mmetric(r4, "BPM 오차", v_bpm_e, "#ffcc02", CELL_BG, "BPM 오차")
+
+            # 클릭 바인딩
+            for w in [card, hdr, grade_f, grade_lbl, grade_sub, metrics_body]:
+                w.bind("<Button-1>", lambda e, _eng=eng: self._select_engine_card(_eng))
 
             self._card_widgets[eng] = {
                 "frame": card, "hdr": hdr,
                 "grade_lbl": grade_lbl, "grade_f": grade_f, "grade_sub": grade_sub,
-                "f_var": f_var, "bpm_var": bpm_var,
+                "eng_color": eng_color,
+                "v_f": v_f, "v_p": v_p, "v_r": v_r, "v_cov": v_cov,
+                "v_tp": v_tp, "v_fp": v_fp, "v_fn": v_fn,
+                "v_bpm_a": v_bpm_a, "v_bpm_g": v_bpm_g, "v_bpm_e": v_bpm_e,
+                "v_gaps": v_gaps,
             }
-
-        # ── 상세 지표 (선택된 카드 기준) ──────────
-        metrics_frame = tk.Frame(results_frame, bg="#1a1a2e")
-        metrics_frame.pack(fill="both", expand=True, padx=8, pady=4)
-
-        def _card(parent, row, col, title, var, color="#ffffff", colspan=1):
-            f = tk.Frame(parent, bg="#263238", bd=0, relief="flat")
-            f.grid(row=row, column=col, columnspan=colspan,
-                   sticky="nsew", padx=3, pady=3)
-            hdr = tk.Frame(f, bg="#263238")
-            hdr.pack(anchor="w", padx=6, pady=(4, 0), fill="x")
-            tk.Label(hdr, text=title, bg="#263238", fg="#78909c",
-                     font=("", 8)).pack(side="left")
-            if title in _TIPS:
-                tip_lbl = tk.Label(hdr, text=" ?", bg="#263238", fg="#546e7a",
-                                   font=("", 8, "bold"), cursor="question_arrow")
-                tip_lbl.pack(side="left")
-                _attach_tooltip(tip_lbl, _TIPS[title])
-            tk.Label(f, textvariable=var, bg="#263238", fg=color,
-                     font=("", 15, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
-            return f
-
-        for c in range(3): metrics_frame.columnconfigure(c, weight=1)
-        for r in range(4): metrics_frame.rowconfigure(r, weight=1)
-
-        self.v_f      = tk.StringVar(value="—")
-        self.v_p      = tk.StringVar(value="—")
-        self.v_r      = tk.StringVar(value="—")
-        self.v_tp     = tk.StringVar(value="—")
-        self.v_fp     = tk.StringVar(value="—")
-        self.v_fn     = tk.StringVar(value="—")
-        self.v_bpm_a  = tk.StringVar(value="—")
-        self.v_bpm_g  = tk.StringVar(value="—")
-        self.v_bpm_e  = tk.StringVar(value="—")
-        self.v_cov    = tk.StringVar(value="—")
-        self.v_gaps   = tk.StringVar(value="—")
-        self.v_advice = tk.StringVar(value="파일을 선택하고 분석을 시작하세요.")
-
-        _card(metrics_frame, 0, 0, "F-measure",  self.v_f,    "#69f0ae", colspan=2)
-        _card(metrics_frame, 0, 2, "커버리지",    self.v_cov,  "#82b1ff")
-        _card(metrics_frame, 1, 0, "Precision",  self.v_p,    "#b3e5fc")
-        _card(metrics_frame, 1, 1, "Recall",     self.v_r,    "#b3e5fc")
-        _card(metrics_frame, 1, 2, "대형갭",      self.v_gaps, "#ffcc02")
-        _card(metrics_frame, 2, 0, "TP (일치)",   self.v_tp,   "#69f0ae")
-        _card(metrics_frame, 2, 1, "FP (오감지)", self.v_fp,   "#ef9a9a")
-        _card(metrics_frame, 2, 2, "FN (누락)",   self.v_fn,   "#82b1ff")
-        _card(metrics_frame, 3, 0, "BPM (앱)",    self.v_bpm_a,"#ffffff")
-        _card(metrics_frame, 3, 1, "BPM (GT)",    self.v_bpm_g,"#ffffff")
-        _card(metrics_frame, 3, 2, "BPM 오차",    self.v_bpm_e,"#ffcc02")
-
-        advice_f = tk.Frame(results_frame, bg="#37474f")
-        advice_f.pack(fill="x", padx=8, pady=(0, 6))
-        advice_hdr = tk.Frame(advice_f, bg="#37474f")
-        advice_hdr.pack(anchor="w", padx=6, pady=(3, 0), fill="x")
-        tk.Label(advice_hdr, text="권고", bg="#37474f", fg="#78909c",
-                 font=("", 8)).pack(side="left")
-        _adv_tip = tk.Label(advice_hdr, text=" ?", bg="#37474f", fg="#546e7a",
-                            font=("", 8, "bold"), cursor="question_arrow")
-        _adv_tip.pack(side="left")
-        _attach_tooltip(_adv_tip,
-            "권고 메시지\n\n"
-            "분석 결과를 바탕으로 개선 방향을 제안합니다.\n"
-            "· Precision이 낮으면 → 오감지(FP) 줄이기\n"
-            "· Recall이 낮으면   → 누락(FN) 줄이기\n"
-            "· BPM 오차가 크면   → 템포 감지 로직 검토\n"
-            "· 대형갭이 많으면   → 갭 보정 로직 검토"
-        )
-        tk.Label(advice_f, textvariable=self.v_advice, bg="#37474f", fg="#ffffff",
-                 font=("", 10), wraplength=300, justify="left").pack(
-                 anchor="w", padx=8, pady=(0, 6))
 
         # ══════════════════════════════════════════
         # 2열 2행: 분석 로그
@@ -1405,6 +1397,7 @@ class App(tk.Tk):
         best_eng = ""
 
         for eng, cw in self._card_widgets.items():
+            eng_color = cw["eng_color"]
             rec = records_map.get(f"{music_id}_{eng}") if music_id else None
             if rec:
                 s       = rec.get("summary", {})
@@ -1417,31 +1410,44 @@ class App(tk.Tk):
                 cw["grade_f"].config(bg=g_color)
                 cw["grade_lbl"].config(text=grade, fg="white", bg=g_color)
                 cw["grade_sub"].config(text=verdict, fg="white", bg=g_color)
-                cw["f_var"].set(f"F: {f_val*100:.1f}%")
-                cw["bpm_var"].set(f"앱 {bpm_app:.1f} / GT {bpm_ref:.1f}  ({bpm_err:.1f}%오차)")
+                # coverage 계산
+                dur = rec.get("duration_sec", 0)
+                app_ms_list = rec.get("beats", {}).get("app_ms", [])
+                cov = min(100.0, app_ms_list[-1] / 1000.0 / dur * 100) \
+                      if dur > 0 and app_ms_list else 0.0
+                # 대형갭 계산
+                gaps_cnt = 0
+                if len(app_ms_list) >= 2:
+                    ivs = [app_ms_list[i+1] - app_ms_list[i]
+                           for i in range(len(app_ms_list) - 1)]
+                    gaps_cnt = sum(1 for iv in ivs if iv > 600)
+                self._update_cards(eng, f_val,
+                                   s.get("precision", 0), s.get("recall", 0),
+                                   s.get("tp", 0), s.get("fp", 0), s.get("fn", 0),
+                                   bpm_app, bpm_ref, bpm_err, cov, gaps_cnt)
                 if f_val > best_f:
                     best_f   = f_val
                     best_eng = eng
             else:
                 r = results.get(eng)
                 if r:
-                    grade  = r.get("grade", "—")
-                    f_val  = r.get("f_score", 0)
+                    grade = r.get("grade", "—")
+                    f_val = r.get("f_score", 0)
                     _, g_color, verdict = grade_info(f_val, eng)
                     cw["grade_f"].config(bg=g_color)
                     cw["grade_lbl"].config(text=grade, fg="white", bg=g_color)
                     cw["grade_sub"].config(text=verdict, fg="white", bg=g_color)
-                    cw["f_var"].set(f"F: {f_val*100:.1f}%")
-                    cw["bpm_var"].set("BPM: —")
+                    cw["v_f"].set(f"{f_val*100:.1f}%")
                     if f_val > best_f:
                         best_f   = f_val
                         best_eng = eng
                 else:
-                    cw["grade_f"].config(bg="#263238")
-                    cw["grade_lbl"].config(text="—", fg="#546e7a", bg="#263238")
-                    cw["grade_sub"].config(text="미분석", fg="#78909c", bg="#263238")
-                    cw["f_var"].set("F: —")
-                    cw["bpm_var"].set("BPM: —")
+                    cw["grade_f"].config(bg=eng_color)
+                    cw["grade_lbl"].config(text="—", fg="white", bg=eng_color)
+                    cw["grade_sub"].config(text="미분석", fg="white", bg=eng_color)
+                    for vk in ("v_f","v_p","v_r","v_cov","v_tp","v_fp","v_fn",
+                               "v_bpm_a","v_bpm_g","v_bpm_e","v_gaps"):
+                        cw[vk].set("—")
 
         if best_eng:
             self._select_engine_card(best_eng, iid)
@@ -1530,8 +1536,8 @@ class App(tk.Tk):
                       "C": "Ellis DP / Adaptive Threshold 튜닝을 권장합니다."
                       }.get(grade, "BPM 감지 로직부터 재검토가 필요합니다.")
 
-            self._update_cards(f_val, p_val, r_val, tp, fp_cnt, fn,
-                               bpm_app, bpm_ref, bpm_err, cov_pct, gaps, advice)
+            self._update_cards(engine, f_val, p_val, r_val, tp, fp_cnt, fn,
+                               bpm_app, bpm_ref, bpm_err, cov_pct, gaps)
 
             self._last_result = dict(
                 ref_sec=ref_sec, app_sec=app_sec,
@@ -1555,7 +1561,9 @@ class App(tk.Tk):
             eng_results = item.get("results", {}).get(engine, {})
             if eng_results:
                 f_val  = eng_results.get("f_score", 0)
-                self.v_f.set(f"{f_val*100:.1f}%")
+                cw = self._card_widgets.get(engine)
+                if cw:
+                    cw["v_f"].set(f"{f_val*100:.1f}%")
 
     def _save_result_to_item(self, audio_path, engine, grade, f_score):
         """분석 결과를 해당 항목에 저장하고 Treeview 컬럼을 갱신한다."""
@@ -1751,21 +1759,23 @@ class App(tk.Tk):
     def _set_grade(self, grade, color, detail):
         pass  # 등급 표시는 엔진 카드로 이전됨
 
-    def _update_cards(self, f, p, r, tp, fp_cnt, fn,
-                      bpm_app, bpm_ref, bpm_err, cov_pct, gaps, advice):
+    def _update_cards(self, engine, f, p, r, tp, fp_cnt, fn,
+                      bpm_app, bpm_ref, bpm_err, cov_pct, gaps):
+        cw = self._card_widgets.get(engine)
+        if not cw:
+            return
         def pct(v): return f"{v*100:.1f}%"
-        self.v_f.set(pct(f))
-        self.v_p.set(pct(p))
-        self.v_r.set(pct(r))
-        self.v_tp.set(str(tp))
-        self.v_fp.set(str(fp_cnt))
-        self.v_fn.set(str(fn))
-        self.v_bpm_a.set(f"{bpm_app:.1f}")
-        self.v_bpm_g.set(f"{bpm_ref:.1f}")
-        self.v_bpm_e.set(f"{bpm_err:.1f}%")
-        self.v_cov.set(f"{cov_pct:.1f}%")
-        self.v_gaps.set(f"{gaps}개")
-        self.v_advice.set(advice)
+        cw["v_f"].set(pct(f))
+        cw["v_p"].set(pct(p))
+        cw["v_r"].set(pct(r))
+        cw["v_tp"].set(str(tp))
+        cw["v_fp"].set(str(fp_cnt))
+        cw["v_fn"].set(str(fn))
+        cw["v_bpm_a"].set(f"{bpm_app:.1f}")
+        cw["v_bpm_g"].set(f"{bpm_ref:.1f}")
+        cw["v_bpm_e"].set(f"{bpm_err:.1f}%")
+        cw["v_cov"].set(f"{cov_pct:.1f}%")
+        cw["v_gaps"].set(f"{gaps}개")
 
     def _redraw_timeline(self):
         """비트 타임라인 캔버스를 현재 _last_result 기준으로 다시 그린다."""
@@ -2062,16 +2072,15 @@ class App(tk.Tk):
                   }.get(grade, "BPM 감지 로직부터 재검토가 필요합니다.")
 
         def _update_ui():
-            if self._selected_card_engine == engine or not self._selected_card_engine:
-                self._update_cards(
-                    f, p, r, tp, fp_cnt, fn,
-                    app_st.get('bpm',0), ref_bpm, bpm_err, cov_pct,
-                    app_st.get('gaps_600',0), advice
-                )
+            self._update_cards(
+                engine, f, p, r, tp, fp_cnt, fn,
+                app_st.get('bpm', 0), ref_bpm, bpm_err, cov_pct,
+                app_st.get('gaps_600', 0)
+            )
             self._log(f"완료 — F={f*100:.1f}%  P={p*100:.1f}%  R={r*100:.1f}%"
                       f"  BPM 앱{app_st.get('bpm',0):.0f}/GT{ref_bpm:.0f}", "green")
             self._save_result_to_item(audio_path, engine, grade, f)
-            # 카드 갱신 (분석 완료 후 즉시 반영)
+            # 카드 등급 즉시 반영
             sel = self._tree.selection()
             if sel:
                 self._update_engine_cards(sel[0])
