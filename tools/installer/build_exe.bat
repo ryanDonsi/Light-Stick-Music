@@ -28,7 +28,7 @@ pyinstaller beat_accuracy_checker.py ^
   --distpath "%DIST_DIR%" ^
   --workpath "%BUILD_DIR%\pyinstaller_work" ^
   --specpath "%BUILD_DIR%" ^
-  --add-data "bt_infer.py;." ^
+  --add-data "%TOOLS_DIR%bt_infer.py;." ^
   --collect-all librosa ^
   --collect-all soundfile ^
   --collect-all torch ^
