@@ -41,18 +41,9 @@ object BeatDetectorV5 {
     private const val DOWNBEAT_W_BAR_COMB    = 0.30f
     private const val DOWNBEAT_W_CONSISTENCY = 0.20f
 
-    // log-normal prior 중심: 120 BPM (500ms), std: 1 octave (librosa default)
-    private const val PRIOR_CENTER_MS  = 500L
-    private const val PRIOR_STD_OCTAVE = 1.0f
-
-    // half-tempo 체크: autocorr[halfLag] / autocorr[bestLag] >= 이 값이면 빠른 템포 선택
-    // halfLag = bestLag/2 (더 빠른 BPM) 방향 체크
-    private const val HALF_TEMPO_RATIO   = 0.55f
-
-    // double-tempo 체크: autocorr[doubleLag] / autocorr[bestLag] >= 이 값이면 느린 템포 선택
-    // 0.40 → 너무 낮아서 120 BPM 곡들이 60 BPM으로 오검출됨 (Dynamite 등 대규모 역행)
-    // madmom DBN 방식 도입 전까지 비활성화 수준(0.90)으로 유지
-    private const val DOUBLE_TEMPO_RATIO = 0.90f
+    // DBN 템포 추정 파라미터 (dbnEstimateTempo 에서 사용)
+    private const val DBN_TRANSITION_LAMBDA  = 100f  // 템포 변경 패널티 (높을수록 안정)
+    private const val DBN_OBSERVATION_LAMBDA = 8     // 박자 존 폭 = 1/8 (madmom 기본값 1/16보다 넓게)
 
     // DP 실패 판단 기준: 예상 비트 수의 25% 미만이면 fallback
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -126,9 +117,11 @@ object BeatDetectorV5 {
         // ── 1. Multi-band flux ODF ────────────────────────────────────────────
         val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)
 
-        // ── 2. Dense BPM 추정 (librosa 방식) + half-tempo 체크 ────────────────
-        val beatMs = estimateBpmDense(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs)
-                     ?: 500L
+        // ── 2. DBN 템포 추정 (madmom DBNBeatTracker 방식) ────────────────────
+        //    autocorrelation + prior 대신 HMM Forward 알고리즘으로 (tempo, phase) 동시 추정
+        //    → 2×/0.5× BPM 오류를 구조적으로 방지
+        val beatMs = dbnEstimateTempo(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs,
+                                      DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA)
         Log.d(TAG, "V5 beatMs=$beatMs (${60_000L / beatMs} BPM) durationMs=$durationMs")
 
         // ── 3. 위상 추정 (comb-phase) — DP 앵커로 사용 ───────────────────────
@@ -179,81 +172,125 @@ object BeatDetectorV5 {
     }
 
     // =========================================================================
-    // Dense BPM 추정 — librosa beat_track 방식
+    // DBN 템포 추정 — madmom DBNBeatTrackingProcessor 핵심 알고리즘 이식
     //
-    // autocorr[lag] = mean(odf[i] * odf[i+lag])
-    // prior[lag]    = exp(-0.5 * (log2(lag*hopMs / PRIOR_CENTER_MS) / STD)^2)
-    // score[lag]    = autocorr[lag] * prior[lag]   ← librosa: ac_df * logprior
-    // best lag      = argmax(score)
+    // autocorrelation + prior 방식의 근본 문제인 2×/0.5× BPM 오류를
+    // HMM Forward 알고리즘으로 구조적으로 해소한다.
     //
-    // harmonic folding 없음 → prior 가 자연스럽게 octave 해소
-    // 모든 lag 를 1 프레임 단위로 스윕 → 비표준 BPM 도 정확히 탐지
+    // 상태 공간:
+    //   각 후보 템포 interval i 에 대해 i 개의 위상 상태 (0..i-1) 존재
+    //   전체 상태 수 = sum(minInterval..maxInterval) ≈ 1,100 (20ms hop 기준)
+    //
+    // 전이 모델:
+    //   위상 내부: state(p, i) → state(p+1, i)  확률 1.0 (결정론적)
+    //   박자 경계: state(last, i) → state(0, j)  ∝ exp(-λ × |j/i - 1|)
+    //              → 템포 변경에 지수 패널티 → 2×/0.5× 점프 구조적 억제
+    //
+    // 관측 모델:
+    //   박자 위치(p=0): log(odf[t])
+    //   비박자 위치:    log((1-odf[t]) / (obsLambda-1))
+    //
+    // 복잡도: O(n × S) = O(12,000 × 1,100) ≈ 13M ops → 20ms 이하
     // =========================================================================
 
-    private fun estimateBpmDense(
+    private fun dbnEstimateTempo(
         odf: List<Float>,
         hopMs: Long,
         minBeatMs: Long,
-        maxBeatMs: Long
-    ): Long? {
-        val minLag = max(1, (minBeatMs / hopMs).toInt())
-        val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
-        if (odf.size <= maxLag + 2) return null
+        maxBeatMs: Long,
+        transitionLambda: Float = 100f,
+        observationLambda: Int  = 8       // madmom default 16 → 우리 ODF 는 피크 폭이 넓어 8 사용
+    ): Long {
+        val minInterval = max(1, (minBeatMs / hopMs).toInt())
+        val maxInterval = max(minInterval + 1, (maxBeatMs / hopMs).toInt())
+        val intervals   = (minInterval..maxInterval).toIntArray()
+        val numIntv     = intervals.size
+        if (numIntv == 0 || odf.size < minInterval * 2) return minBeatMs
 
-        val acVals    = FloatArray(maxLag + 1)
-        var bestScore = Float.NEGATIVE_INFINITY
-        var bestLag   = -1
+        // ── 상태 공간 구축 ──────────────────────────────────────────────────
+        val totalStates     = intervals.sumOf { it }
+        val stateIntv       = IntArray(totalStates)
+        val statePos        = IntArray(totalStates)
+        val stateIntvIdx    = IntArray(totalStates)
+        val intvStartState  = IntArray(numIntv)
 
-        for (lag in minLag..maxLag) {
-            var sum = 0f; var count = 0
-            for (i in 0 until odf.size - lag) { sum += odf[i] * odf[i + lag]; count++ }
-            if (count == 0) continue
-            val acVal = sum / count
-            acVals[lag] = acVal
-
-            // log-normal prior: exp(-0.5*(log2(lagMs/500ms)/1octave)^2)
-            val lagMs    = lag * hopMs
-            val logRatio = ln(lagMs.toFloat() / PRIOR_CENTER_MS) / ln(2f)
-            val prior    = exp(-0.5f * (logRatio / PRIOR_STD_OCTAVE) * (logRatio / PRIOR_STD_OCTAVE))
-
-            val score = acVal * prior
-            if (score > bestScore) { bestScore = score; bestLag = lag }
-        }
-
-        if (bestLag <= 0) return null
-
-        val bestAc = acVals[bestLag]
-
-        // ── double-tempo 체크 (느린 방향) ────────────────────────────────────
-        // prior 가 빠른 BPM(짧은 주기)을 선호해 Stars(66→136), TOMBOY(75→150) 등
-        // 2배 오검출이 발생할 때, doubleLag(= 절반 BPM)의 autocorr 가 충분히 강하면
-        // 더 느린 템포를 선택한다.
-        val doubleLag = bestLag * 2
-        if (doubleLag <= maxLag) {
-            val doubleAc = acVals[doubleLag]
-            if (bestAc > 0f && doubleAc / bestAc >= DOUBLE_TEMPO_RATIO) {
-                val doubleMs = doubleLag * hopMs
-                Log.d(TAG, "V5 doubleTempoCheck: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
-                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM)  ratio=${doubleAc/bestAc}")
-                return doubleMs
+        var s = 0
+        for ((ii, intv) in intervals.withIndex()) {
+            intvStartState[ii] = s
+            for (p in 0 until intv) {
+                stateIntv[s]    = intv
+                statePos[s]     = p
+                stateIntvIdx[s] = ii
+                s++
             }
         }
 
-        // ── half-tempo 체크 (빠른 방향) ─────────────────────────────────────
-        // IYKYK(80→160 BPM) 등 prior 가 느린 BPM 쪽으로 치우칠 때 방지
-        val halfLag = bestLag / 2
-        if (halfLag >= minLag) {
-            val halfAc = acVals[halfLag]
-            if (bestAc > 0f && halfAc / bestAc >= HALF_TEMPO_RATIO) {
-                val halfMs = halfLag * hopMs
-                Log.d(TAG, "V5 halfTempoCheck: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
-                    " → ${halfMs}ms(${60_000L/halfMs}BPM)  ratio=${halfAc/bestAc}")
-                return halfMs
+        // ── 박자 경계 로그 전이 확률 사전 계산 ─────────────────────────────
+        val bbLogTrans = Array(numIntv) { fromII ->
+            val fi = intervals[fromII].toFloat()
+            val raw = FloatArray(numIntv) { toII ->
+                -transitionLambda * abs(intervals[toII].toFloat() / fi - 1f)
             }
+            val maxR  = raw.max()!!
+            val logZ  = maxR + ln(raw.sumOf { exp((it - maxR).toDouble()) }.toFloat())
+            FloatArray(numIntv) { toII -> raw[toII] - logZ }
         }
 
-        val resultMs = bestLag * hopMs
-        Log.d(TAG, "V5 estimateBpmDense: ${resultMs}ms (${60_000L / resultMs} BPM)")
+        // ── HMM Forward (Viterbi-max 근사, log 도메인) ──────────────────────
+        val LOG_ZERO    = -1e9f
+        var logFwd      = FloatArray(totalStates) { LOG_ZERO }
+        val logInitUnif = -ln(numIntv.toFloat())
+        for (ii in 0 until numIntv) logFwd[intvStartState[ii]] = logInitUnif
+
+        val n = odf.size
+        for (t in 0 until n) {
+            val act        = odf[t].coerceIn(1e-6f, 1f - 1e-6f)
+            val logBeat    = ln(act)
+            val logNonBeat = ln((1f - act) / (observationLambda - 1).toFloat())
+
+            // 각 interval 의 마지막 상태 log 확률 캐싱 (박자 경계 계산용)
+            val lastLogFwd = FloatArray(numIntv) { ii ->
+                logFwd[intvStartState[ii] + intervals[ii] - 1]
+            }
+
+            val logFwdNew = FloatArray(totalStates) { LOG_ZERO }
+            for (st in 0 until totalStates) {
+                val p      = statePos[st]
+                val logObs = if (p == 0) logBeat else logNonBeat
+
+                val logPrev = if (p > 0) {
+                    logFwd[st - 1]            // 위상 내부 전이 (확률 1.0)
+                } else {
+                    // 박자 경계: 모든 interval 의 마지막 상태에서 전이
+                    val toII   = stateIntvIdx[st]
+                    var maxVal = LOG_ZERO
+                    for (fromII in 0 until numIntv) {
+                        val cand = lastLogFwd[fromII] + bbLogTrans[fromII][toII]
+                        if (cand > maxVal) maxVal = cand
+                    }
+                    maxVal
+                }
+
+                if (logPrev > LOG_ZERO) logFwdNew[st] = logPrev + logObs
+            }
+
+            // 언더플로 방지 정규화
+            val peak = logFwdNew.max() ?: LOG_ZERO
+            if (peak > LOG_ZERO) for (i in logFwdNew.indices) {
+                if (logFwdNew[i] > LOG_ZERO) logFwdNew[i] -= peak
+            }
+            logFwd = logFwdNew
+        }
+
+        // ── 최종 상태에서 최적 tempo 추출 ──────────────────────────────────
+        val intvScore = FloatArray(numIntv)
+        for (st in 0 until totalStates) {
+            val ii = stateIntvIdx[st]
+            if (logFwd[st] > intvScore[ii]) intvScore[ii] = logFwd[st]
+        }
+        val bestII   = intvScore.indices.maxByOrNull { intvScore[it] } ?: 0
+        val resultMs = intervals[bestII].toLong() * hopMs
+        Log.d(TAG, "V5 dbnTempo: ${resultMs}ms (${60_000L / resultMs} BPM)")
         return resultMs
     }
 
