@@ -23,8 +23,8 @@ WizardStyle=modern
 ; 2GB 이상 인스톨러 지원
 DiskSpanning=no
 LicenseFile=
-; 아이콘 (있으면 적용)
-; SetupIconFile=icon.ico
+SetupIconFile=icon.ico
+UninstallDisplayIcon={app}\BeatAccuracyChecker.exe
 
 [Languages]
 Name: "korean";  MessagesFile: "compiler:Languages\Korean.isl"

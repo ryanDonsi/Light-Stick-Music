@@ -26,38 +26,58 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 # ──────────────────────────────────────────────
 
 def _show_splash():
-    """앱 로딩 중 스플래시 창을 별도 스레드 없이 표시하고 위젯을 반환한다."""
+    """앱 로딩 중 스플래시 창을 즉시 표시하고 위젯을 반환한다."""
     splash = tk.Tk()
     splash.title("")
     splash.resizable(False, False)
-    splash.overrideredirect(True)          # 타이틀바 제거
+    splash.overrideredirect(True)
     splash.configure(bg="#1e272e")
 
-    w, h = 380, 160
+    # 스플래시 이미지 경로 (installer/ 폴더 또는 번들 내부)
+    _is_frozen = getattr(sys, "frozen", False)
+    _img_base  = sys._MEIPASS if _is_frozen else os.path.join(os.path.dirname(os.path.abspath(__file__)), "installer")
+    splash_img_path = os.path.join(_img_base, "splash.png")
+
+    W, H = 480, 200
+    try:
+        from PIL import Image as _PILImage, ImageTk as _PILImageTk
+        pil_img = _PILImage.open(splash_img_path).resize((W, H))
+        tk_img  = _PILImageTk.PhotoImage(pil_img)
+        lbl_img = tk.Label(splash, image=tk_img, bd=0)
+        lbl_img.image = tk_img   # 참조 유지
+        lbl_img.pack()
+        use_image = True
+    except Exception:
+        use_image = False
+
+    if not use_image:
+        splash.configure(bg="#1e272e")
+        W, H = 380, 160
+        tk.Label(splash, text="Beat Accuracy Checker",
+                 bg="#1e272e", fg="#ecf0f1", font=("", 16, "bold")).pack(pady=(28, 4))
+        tk.Label(splash, text="라이브러리를 불러오는 중입니다...",
+                 bg="#1e272e", fg="#78909c", font=("", 10)).pack()
+
     sw, sh = splash.winfo_screenwidth(), splash.winfo_screenheight()
-    splash.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
+    splash.geometry(f"{W}x{H}+{(sw-W)//2}+{(sh-H)//2}")
 
-    tk.Label(splash, text="Beat Accuracy Checker",
-             bg="#1e272e", fg="#ecf0f1", font=("", 16, "bold")).pack(pady=(28, 4))
-    tk.Label(splash, text="라이브러리를 불러오는 중입니다...",
-             bg="#1e272e", fg="#78909c", font=("", 10)).pack()
-
-    bar_frame = tk.Frame(splash, bg="#1e272e")
-    bar_frame.pack(pady=20)
-    canvas = tk.Canvas(bar_frame, width=300, height=8, bg="#37474f",
+    # 진행 바 (이미지 위 오버레이 or 별도 프레임)
+    bar_frame = tk.Frame(splash, bg="#1e272e" if not use_image else "#37474f")
+    bar_frame.place(x=28, y=H-22, width=W-56, height=6)
+    canvas = tk.Canvas(bar_frame, width=W-56, height=6, bg="#37474f",
                        highlightthickness=0, bd=0)
     canvas.pack()
-    bar = canvas.create_rectangle(0, 0, 0, 8, fill="#42a5f5", outline="")
+    bar = canvas.create_rectangle(0, 0, 0, 6, fill="#42a5f5", outline="")
 
-    # 진행 바 애니메이션
     _splash_state = {"pos": 0, "running": True}
+    bar_w = W - 56
 
     def _animate():
         if not _splash_state["running"]:
             return
         p = _splash_state["pos"]
-        canvas.coords(bar, 0, 0, p, 8)
-        _splash_state["pos"] = (p + 3) % 304
+        canvas.coords(bar, 0, 0, p, 6)
+        _splash_state["pos"] = (p + 4) % (bar_w + 4)
         splash.after(16, _animate)
 
     _animate()

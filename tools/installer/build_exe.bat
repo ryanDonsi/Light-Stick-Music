@@ -29,6 +29,8 @@ pyinstaller beat_accuracy_checker.py ^
   --workpath "%BUILD_DIR%\pyinstaller_work" ^
   --specpath "%BUILD_DIR%" ^
   --add-data "%TOOLS_DIR%bt_infer.py;." ^
+  --add-data "%SCRIPT_DIR%splash.png;." ^
+  --icon "%SCRIPT_DIR%icon.ico" ^
   --collect-all librosa ^
   --collect-all soundfile ^
   --collect-all torch ^
@@ -81,4 +83,7 @@ echo ================================================
 echo  완료!
 echo  인스톨러: %SCRIPT_DIR%output\BeatAccuracyChecker_Setup.exe
 echo ================================================
+echo.
+echo [진단] Beat Transformer / madmom 미지원 문제가 있다면:
+echo        build_debug.bat 을 실행하면 콘솔 창에 오류 메시지가 출력됩니다.
 pause
