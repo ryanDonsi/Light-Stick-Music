@@ -235,8 +235,8 @@ except ImportError:
 
 ENGINE_INFO = {
     "beat_transformer": ("Beat Transformer", "~91%", "#1b5e20"),
-    "madmom"          : ("madmom DBNBeatTracker", "~87%", "#0d47a1"),
-    "librosa"         : ("librosa beat_track",    "~68%", "#e65100"),
+    "madmom"          : ("madmom",           "~87%", "#0d47a1"),
+    "librosa"         : ("librosa",          "~68%", "#e65100"),
 }
 
 def best_available_engine(preferred: str) -> str:
