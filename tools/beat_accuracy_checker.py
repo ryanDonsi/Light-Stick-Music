@@ -1813,16 +1813,19 @@ class App(tk.Tk):
         self._draw_beat_timeline(
             r["tp_est"], r["fp_est"], r["fn_ref"],
             r["ref_sec"], r["app_sec"],
-            r["duration_sec"], z_s, z_e
+            r["duration_sec"], z_s, z_e,
+            waveform=r.get("waveform"), wav_sr=r.get("wav_sr", 0)
         )
 
     def _draw_beat_timeline(self, tp_est, fp_est, fn_ref,
                             ref_sec, app_sec, duration_sec,
-                            z_start, z_end):
+                            z_start, z_end,
+                            waveform=None, wav_sr=0):
         """
-        캔버스에 두 레인 비트 타임라인을 그린다.
-          위 레인 : GT 엔진 분석 결과  — 초록=TP(일치), 파랑=FN(누락)
-          아래 레인: 앱 타임라인 결과  — 초록=TP(일치), 빨강=FP(오감지)
+        캔버스에 3-레인 비트 타임라인을 그린다.
+          파형 레인: Waveform (GT 위)
+          GT 레인  : GT 엔진 분석 결과  — 초록=TP(일치), 파랑=FN(누락)
+          앱 레인  : 앱 타임라인 결과   — 초록=TP(일치), 빨강=FP(오감지)
         """
         c = self.tl_canvas
         c.delete("all")
@@ -1835,14 +1838,20 @@ class App(tk.Tk):
 
         LABEL_W = 110   # 좌측 레인 라벨 영역 너비
         TICK_H  = 16    # 상단 시간 눈금 영역 높이
-        SEP_Y   = H // 2  # 레인 구분선 y
         PAD     = 4
 
-        # 비트 막대 영역
-        GT_TOP    = TICK_H + PAD
-        GT_BOT    = SEP_Y - PAD
-        APP_TOP   = SEP_Y + PAD
-        APP_BOT   = H - PAD
+        # 3-레인 Y 분할: 파형(상단 35%) | GT(중간 32.5%) | 앱(하단 32.5%)
+        WAVE_BOT = TICK_H + int((H - TICK_H) * 0.35)
+        SEP1_Y   = WAVE_BOT
+        GT_BOT   = SEP1_Y + int((H - TICK_H) * 0.325)
+        SEP2_Y   = GT_BOT
+        APP_TOP  = SEP2_Y + PAD
+        APP_BOT  = H - PAD
+
+        WAVE_TOP = TICK_H + PAD
+        WAVE_MID = (WAVE_TOP + WAVE_BOT) // 2
+        GT_TOP   = SEP1_Y + PAD
+        GT_MID   = (GT_TOP + GT_BOT - PAD) // 2
 
         def tx(t):
             return int(LABEL_W + (t - z_start) / span * (W - LABEL_W))
@@ -1850,27 +1859,35 @@ class App(tk.Tk):
         in_range = lambda t: z_start <= t <= z_end
 
         # ── 배경 레인 ──
-        c.create_rectangle(0, TICK_H, W, SEP_Y,   fill="#0a1520", outline="")
-        c.create_rectangle(0, SEP_Y,  W, H,        fill="#100e1a", outline="")
+        c.create_rectangle(0, TICK_H,  W, SEP1_Y, fill="#0d1117", outline="")
+        c.create_rectangle(0, SEP1_Y,  W, SEP2_Y, fill="#0a1520", outline="")
+        c.create_rectangle(0, SEP2_Y,  W, H,      fill="#100e1a", outline="")
 
         # ── 레인 구분선 ──
-        c.create_line(0, SEP_Y, W, SEP_Y, fill="#263238", width=2)
+        c.create_line(0, SEP1_Y, W, SEP1_Y, fill="#263238", width=2)
+        c.create_line(0, SEP2_Y, W, SEP2_Y, fill="#263238", width=2)
         c.create_line(LABEL_W, TICK_H, LABEL_W, H, fill="#1e2d3a", width=1, dash=(3,3))
 
         # ── 레인 라벨 ──
-        # GT 레인
         eng_label = (self._last_result or {}).get("engine_name", "GT 엔진")
-        c.create_rectangle(0, TICK_H, LABEL_W - 2, SEP_Y, fill="#0d1b2a", outline="")
-        c.create_text(LABEL_W // 2, (TICK_H + SEP_Y) // 2 - 8,
+
+        # 파형 레인 라벨
+        c.create_rectangle(0, TICK_H, LABEL_W - 2, SEP1_Y, fill="#111318", outline="")
+        c.create_text(LABEL_W // 2, WAVE_MID,
+                      text="파형", fill="#b0bec5", font=("", 8, "bold"), anchor="center")
+
+        # GT 레인 라벨
+        c.create_rectangle(0, SEP1_Y, LABEL_W - 2, SEP2_Y, fill="#0d1b2a", outline="")
+        c.create_text(LABEL_W // 2, GT_MID - 6,
                       text=eng_label, fill="#82b1ff", font=("", 8, "bold"), anchor="center")
-        c.create_text(LABEL_W // 2, (TICK_H + SEP_Y) // 2 + 6,
+        c.create_text(LABEL_W // 2, GT_MID + 7,
                       text="(분석 기준)", fill="#546e7a", font=("", 7), anchor="center")
 
-        # 앱 레인
-        c.create_rectangle(0, SEP_Y, LABEL_W - 2, H, fill="#0d1a0d", outline="")
-        c.create_text(LABEL_W // 2, (SEP_Y + H) // 2 - 8,
+        # 앱 레인 라벨
+        c.create_rectangle(0, SEP2_Y, LABEL_W - 2, H, fill="#0d1a0d", outline="")
+        c.create_text(LABEL_W // 2, (SEP2_Y + H) // 2 - 6,
                       text="앱 타임라인", fill="#69f0ae", font=("", 8, "bold"), anchor="center")
-        c.create_text(LABEL_W // 2, (SEP_Y + H) // 2 + 6,
+        c.create_text(LABEL_W // 2, (SEP2_Y + H) // 2 + 7,
                       text="(.bin 파일)", fill="#546e7a", font=("", 7), anchor="center")
 
         # ── 시간 눈금 ──
@@ -1897,16 +1914,39 @@ class App(tk.Tk):
                           fill="#455a64", font=("", 7))
             t += tick_interval
 
+        # ── 파형 레인 ──
+        if waveform is not None and wav_sr > 0 and duration_sec > 0:
+            total_samples = len(waveform)
+            s_start = max(0, int(z_start / duration_sec * total_samples))
+            s_end   = min(total_samples, int(z_end / duration_sec * total_samples))
+            seg = waveform[s_start:s_end]
+            if len(seg) > 1:
+                draw_w = max(1, W - LABEL_W)
+                if len(seg) > draw_w * 2:
+                    step = len(seg) // (draw_w * 2)
+                    seg  = seg[::step]
+                peak = float(np.max(np.abs(seg))) or 1.0
+                half_h = max(1, (WAVE_BOT - WAVE_TOP) // 2 - PAD)
+                pts = []
+                for i, v in enumerate(seg):
+                    px = LABEL_W + int(i / (len(seg) - 1) * (W - LABEL_W))
+                    py = WAVE_MID - int(v / peak * half_h)
+                    pts.append((px, py))
+                # 선이 최소 2점 이상일 때만 그리기
+                if len(pts) >= 2:
+                    flat = [coord for p in pts for coord in p]
+                    c.create_line(*flat, fill="#78909c", width=1, smooth=False)
+
         # ── GT 레인 비트 막대 ──
         for t in fn_ref:   # 누락 — 파랑
             if in_range(t):
                 x = tx(t)
-                c.create_rectangle(x-1, GT_TOP, x+1, GT_BOT,
+                c.create_rectangle(x-1, GT_TOP, x+1, GT_BOT - PAD,
                                    fill="#448aff", outline="")
         for t in tp_est:   # 일치 — 초록
             if in_range(t):
                 x = tx(t)
-                c.create_rectangle(x-1, GT_TOP, x+1, GT_BOT,
+                c.create_rectangle(x-1, GT_TOP, x+1, GT_BOT - PAD,
                                    fill="#69f0ae", outline="")
 
         # ── 앱 레인 비트 막대 ──
