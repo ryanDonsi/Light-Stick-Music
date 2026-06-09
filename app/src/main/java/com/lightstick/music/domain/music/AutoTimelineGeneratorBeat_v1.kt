@@ -36,21 +36,12 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
     }
 
 
-    data class Palette(
-        val c1: LSColor,
-        val c2: LSColor,
-        val c3: LSColor,
-        val c4: LSColor,
-        val c5: LSColor,
-        val white: LSColor,
-        val black: LSColor,
-        val size: Int
-    )
 
     // ──────────────────────────────────────────────────────────────
     // generate
     // ──────────────────────────────────────────────────────────────
 
+    @Suppress("UNUSED_PARAMETER")
     override fun generate(
         musicPath: String,
         musicId: Int,
@@ -59,9 +50,6 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
         val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
         val t0Total  = System.currentTimeMillis()
         Log.d(TAG, "v1 [PERF] generate() start file=$fileName musicId=$musicId")
-
-        val pSize   = paletteSize.coerceIn(3, 5)
-        val palette = buildPalette(musicId, pSize)
 
         // ── 1. 오디오 디코딩 ──────────────────────────────────────────
         val t0Decode = System.currentTimeMillis()
@@ -77,11 +65,11 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
 
         // ── 2. 비트 감지 ──────────────────────────────────────────────
         val t0Beat    = System.currentTimeMillis()
-        val v11Result = BeatDetectorV2.detect(
+        val v11Result = BeatDetectorV3.detect(
             lowEnv  = lowEnv,
             midEnv  = midEnv,
             fullEnv = fullEnv,
-            params  = BeatDetectorV2.Params(
+            params  = BeatDetectorV3.Params(
                 hopMs             = HOP_MS,
                 minBeatMs         = MIN_BEAT_MS,
                 maxBeatMs         = 1200L,
@@ -126,7 +114,7 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
 
         // ── 3. 타임라인 빌드 ──────────────────────────────────────────
         val t0Build = System.currentTimeMillis()
-        val frames = buildTimeline(v11Result.beats, globalBeatMs, beatsPerBar, durationMs, palette, musicId)
+        val frames = buildTimeline(v11Result.beats, globalBeatMs, beatsPerBar, durationMs)
         Log.d(TAG, "v1 [PERF] build=${System.currentTimeMillis() - t0Build}ms frames=${frames.size}")
         Log.d(TAG, "v1 [PERF] total=${System.currentTimeMillis() - t0Total}ms  file=$fileName durationMs=$durationMs")
         return frames.sortedBy { it.first }
@@ -137,16 +125,12 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
     // ──────────────────────────────────────────────────────────────
 
     private fun buildTimeline(
-        beats: List<BeatDetectorV2.TimedBeat>,
+        beats: List<BeatDetectorV3.TimedBeat>,
         beatMs: Long,
         beatsPerBar: Int,
-        durationMs: Long,
-        palette: Palette,
-        musicId: Int
+        durationMs: Long
     ): List<Pair<Long, ByteArray>> {
-        val frames      = ArrayList<Pair<Long, ByteArray>>()
-        val firstBeatMs = beats.firstOrNull()?.timeMs ?: 0L
-        val barMs       = beatMs * beatsPerBar.coerceAtLeast(1)
+        val frames = ArrayList<Pair<Long, ByteArray>>()
         var rangeSkip   = 0
 
         // 1/4박자마다 ON(fade=100) → 100ms 후 동일 컬러 fade=60 으로 감쇄
@@ -171,61 +155,6 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
 
         Log.d(TAG, "v1 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size}")
         return frames.sortedBy { it.first }
-    }
-
-    // ──────────────────────────────────────────────────────────────
-    // Color
-    // ──────────────────────────────────────────────────────────────
-
-    private fun colorForBar(
-        musicId: Int,
-        palette: Palette,
-        barMs: Long,
-        firstBeatMs: Long,
-        tMs: Long
-    ): LSColor {
-        val colorArray = arrayOf(palette.c1, palette.c2, palette.c3, palette.c4, palette.c5, palette.white)
-        val startOffset = ((musicId and 0x7FFFFFFF) % colorArray.size)
-        val elapsed     = (tMs - firstBeatMs).coerceAtLeast(0L)
-        val barIndex    = if (barMs > 0L) (elapsed / barMs).toInt() else 0
-        return colorArray[(startOffset + barIndex) % colorArray.size]
-    }
-
-    private fun buildPalette(seed: Int, paletteSize: Int): Palette {
-        val rawHue  = (((seed.toLong() * 2654435761L) ushr 8) and 0x7FFFFFFFL).toInt()
-        val baseHue = (((rawHue % 360) + 360) % 360).toFloat()
-        return Palette(
-            c1    = hsvToColor(baseHue,                     1.00f, 1.00f),
-            c2    = hsvToColor(wrap360(baseHue +  60f),     1.00f, 1.00f),
-            c3    = hsvToColor(wrap360(baseHue -  60f),     0.85f, 0.95f),
-            c4    = hsvToColor(wrap360(baseHue - 120f),     1.00f, 1.00f),
-            c5    = hsvToColor(wrap360(baseHue + 120f),     0.90f, 0.95f),
-            white = LSColor(255, 255, 255),
-            black = LSColor(0, 0, 0),
-            size  = paletteSize
-        )
-    }
-
-    private fun wrap360(h: Float) = ((h % 360f) + 360f) % 360f
-
-    private fun hsvToColor(h: Float, s: Float, v: Float): LSColor {
-        val hh = ((h % 360f) + 360f) % 360f
-        val c  = v * s
-        val x  = c * (1f - abs((hh / 60f) % 2f - 1f))
-        val m  = v - c
-        val (rf, gf, bf) = when {
-            hh < 60f  -> Triple(c, x, 0f)
-            hh < 120f -> Triple(x, c, 0f)
-            hh < 180f -> Triple(0f, c, x)
-            hh < 240f -> Triple(0f, x, c)
-            hh < 300f -> Triple(x, 0f, c)
-            else      -> Triple(c, 0f, x)
-        }
-        return LSColor(
-            ((rf + m) * 255f).toInt().coerceIn(0, 255),
-            ((gf + m) * 255f).toInt().coerceIn(0, 255),
-            ((bf + m) * 255f).toInt().coerceIn(0, 255)
-        )
     }
 
     // ──────────────────────────────────────────────────────────────
