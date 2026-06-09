@@ -27,9 +27,9 @@ object BeatDetectorV2 {
 
     private const val TAG = "AutoTimeline"
 
-    // SuperFlux 파라미터
+    // SuperFlux 파라미터 (madmom 기본값과 동일)
     private const val FFT_SIZE         = 2048
-    private const val HOP_MS           = 20L     // 20ms hop — DBN 효율 vs ODF 품질 균형
+    private const val HOP_MS           = 10L     // madmom fps=100 → 10ms hop
     private const val LOG_LAMBDA       = 1000f
     private const val MAX_FILTER_WIDTH = 1       // ±1 bin (사용됨: ±1 bin max filter)
 
@@ -37,8 +37,9 @@ object BeatDetectorV2 {
     private const val DBN_TRANSITION_LAMBDA  = 100f
     private const val DBN_OBSERVATION_LAMBDA = 16
 
-    // 하모닉 보정 비율 (0.5=2배 빠른 BPM 검출, 4/3=4:3 비율 오류, 2.0=절반 BPM 검출 — 슬로우 케이팝 대응)
-    private val HARM_RATIOS = floatArrayOf(0.5f, 4f / 3f, 2.0f)
+    // 하모닉 보정 비율: 0.5=절반 주기(2배 BPM), 2/3=2/3 주기(3/2 BPM), 3/4=3/4 주기(4/3 BPM),
+    //                   4/3=4/3 주기(3/4 BPM), 2.0=2배 주기(절반 BPM)
+    private val HARM_RATIOS = floatArrayOf(0.5f, 2f / 3f, 0.75f, 4f / 3f, 2.0f)
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -69,8 +70,8 @@ object BeatDetectorV2 {
     enum class BeatSource { LOW, MID, FULL, LOW_MID, MID_FULL, LOW_FULL }
 
     data class Params(
-        val minBeatMs: Long = 375L,
-        val maxBeatMs: Long = 1000L,
+        val minBeatMs: Long = 280L,   // madmom min_bpm=55 → ~1090ms, max_bpm=215 → ~280ms
+        val maxBeatMs: Long = 1100L,
         val minPeakDistanceMs: Long = 120L
     )
 
@@ -365,15 +366,11 @@ object BeatDetectorV2 {
             FloatArray(numIntv) { toII -> raw[toII] - logZ }
         }
 
-        val LOG_ZERO       = -1e9f
-        val logInitUnif    = -ln(numIntv.toFloat())
-        val dbnPriorCenter = ln(120f)
-        val dbnPriorSx2    = 2f * 2.5f * 2.5f  // 넓은 prior — 60~70 BPM 슬로우 곡도 정상 검출
+        val LOG_ZERO    = -1e9f
+        val logInitUnif = -ln(numIntv.toFloat())  // madmom: uniform initial distribution
         var logFwd = FloatArray(totalStates) { LOG_ZERO }
         for (ii in 0 until numIntv) {
-            val bpm  = 60_000f / (intervals[ii].toFloat() * hopMs.toFloat())
-            val diff = ln(bpm) - dbnPriorCenter
-            logFwd[intvStartState[ii]] = logInitUnif - (diff * diff) / dbnPriorSx2
+            logFwd[intvStartState[ii]] = logInitUnif  // 균등 초기 prior — madmom과 동일
         }
 
         val intvBeatAccum = FloatArray(numIntv)
@@ -426,7 +423,7 @@ object BeatDetectorV2 {
         }
 
         val LOG_BPM_CENTER = ln(120f)
-        val LOG_BPM_SX2    = 2f * 2.5f * 2.5f  // 넓은 prior — dbnPriorSx2와 통일
+        val LOG_BPM_SX2    = 2f * 0.8f * 0.8f  // σ=0.8 (log-BPM) — 옥타브 오류 방지용 좁은 prior
 
         fun combPriorScore(beatMs: Long): Float {
             val fpb = max(1, (beatMs / hopMs).toInt())
