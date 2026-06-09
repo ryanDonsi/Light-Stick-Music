@@ -1916,31 +1916,32 @@ class App(tk.Tk):
                           fill="#455a64", font=("", 7))
             t += tick_interval
 
-        # ── 파형 레인 ──
+        # ── 파형 레인 — 픽셀 컬럼당 min/max 수직선 방식 ──
         if waveform is not None and wav_sr > 0 and duration_sec > 0:
             total_samples = len(waveform)
             s_start = max(0, int(z_start / duration_sec * total_samples))
             s_end   = min(total_samples, int(z_end / duration_sec * total_samples))
             seg = waveform[s_start:s_end]
-            if len(seg) > 1:
-                # 화면 픽셀 수에 맞게 다운샘플 (최대 draw_w 포인트)
+            n_seg = len(seg)
+            if n_seg > 1:
                 draw_w = max(2, W - LABEL_W)
-                if len(seg) > draw_w:
-                    step = max(1, len(seg) // draw_w)
-                    seg  = seg[::step]
-                n_pts  = len(seg)
-                peak   = float(np.max(np.abs(seg))) if np.any(seg) else 1.0
+                half_h = max(2, (WAVE_BOT - WAVE_TOP) // 2 - PAD)
+                peak = float(max(abs(float(seg.max())), abs(float(seg.min()))))
                 if peak < 1e-9:
                     peak = 1.0
-                half_h = max(1, (WAVE_BOT - WAVE_TOP) // 2 - PAD)
-                # Tkinter create_line은 좌표 리스트를 직접 받음 — *unpack 금지(인자 수 한계)
-                coords = []
-                for i in range(n_pts):
-                    px = LABEL_W + int(i * (draw_w - 1) / (n_pts - 1))
-                    py = WAVE_MID - int(float(seg[i]) / peak * half_h)
-                    coords.append(px)
-                    coords.append(py)
-                c.create_line(coords, fill="#78909c", width=1)
+                # 각 픽셀 컬럼에 대해 해당 구간의 min/max 수직선 그리기
+                for x_off in range(draw_w):
+                    i0 = int(x_off       * n_seg / draw_w)
+                    i1 = int((x_off + 1) * n_seg / draw_w)
+                    if i1 <= i0:
+                        i1 = i0 + 1
+                    chunk = seg[i0:min(i1, n_seg)]
+                    if len(chunk) == 0:
+                        continue
+                    y_hi = WAVE_MID - int(float(chunk.max()) / peak * half_h)
+                    y_lo = WAVE_MID - int(float(chunk.min()) / peak * half_h)
+                    px = LABEL_W + x_off
+                    c.create_line(px, y_hi, px, y_lo, fill="#78909c")
 
         # ── GT 레인 비트 막대 ──
         for t in fn_ref:   # 누락 — 파랑
