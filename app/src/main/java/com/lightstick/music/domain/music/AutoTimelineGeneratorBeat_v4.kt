@@ -10,6 +10,7 @@ import com.lightstick.types.LSEffectPayload
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToLong
 import kotlin.math.sqrt
 
 /**
@@ -120,6 +121,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         // ── 2. Beat detection ──────────────────────────────────────────
         val detectorVer   = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val t0Beat        = System.currentTimeMillis()
+        @Suppress("ConstantConditionIf")
         val beatInfo: BeatDetectorRouter.BeatInfo = if (detectorVer <= 2) {
             val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
             BeatDetectorRouter.detectPcm(detectorVer, monoSamples, sampleRate, MIN_BEAT_MS, MAX_BEAT_MS)
@@ -171,7 +173,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
 
         // ── 6. Frame building (V8 규칙) ───────────────────────────
         val t0Build    = System.currentTimeMillis()
-        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), HOP_MS, MIN_TRAILING_SILENCE_MS)
+        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray())
             .coerceIn(0L, durationMs)
 
         val frames = buildFramesFromSections(
@@ -495,7 +497,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
                 }
 
                 if (!skipRepeat) {
-                    put(t, buildPayload(effectiveEngine, fg, bg, section.beatMs, beatPeriod,
+                    put(t, buildPayload(effectiveEngine, fg, bgNonNull, section.beatMs, beatPeriod,
                         beatRandomDelay ?: 0, rotateTransit = beatRotateTransit))
                 }
 
@@ -547,7 +549,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
                 val fillCount = ((gap + beatMs / 2L) / beatMs).toInt() - 1
                 if (fillCount > 0) {
                     val step = gap / (fillCount + 1).toLong()
-                    for (k in 1..fillCount) { val interp = prev + step * k; if (interp < sectionEndMs) out += interp }
+                    for (k in 1..fillCount) { val interpT = prev + step * k; if (interpT < sectionEndMs) out += interpT }
                 }
             }
             out += cur
@@ -567,7 +569,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
      */
     private fun beatInBar(tMs: Long, downbeatMs: Long, globalBeatMs: Long, beatsPerBar: Int): Int {
         if (globalBeatMs <= 0L || beatsPerBar <= 0) return 0
-        val steps = Math.round((tMs - downbeatMs).toDouble() / globalBeatMs.toDouble())
+        val steps = ((tMs - downbeatMs).toDouble() / globalBeatMs.toDouble()).roundToLong()
         return (((steps % beatsPerBar) + beatsPerBar) % beatsPerBar).toInt()
     }
 
@@ -733,9 +735,9 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         return selected.sortedBy { it.first }.map { it.first.coerceIn(0L, durationMs) }
     }
 
-    private fun detectLastMusicEndMs(frames: FloatArray, hopMs: Long, minTrailingSilenceMs: Long): Long {
+    private fun detectLastMusicEndMs(frames: FloatArray): Long {
         if (frames.isEmpty()) return 0L
-        val totalMs = frames.size * hopMs
+        val totalMs = frames.size * HOP_MS
         val smooth = FloatArray(frames.size)
         for (i in frames.indices) {
             var sum = 0f; var cnt = 0
@@ -746,7 +748,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         for (i in smooth.indices.reversed()) {
             if (smooth[i] >= threshold) {
                 val lastActiveMs = (i + 1) * hopMs
-                return if (totalMs - lastActiveMs >= minTrailingSilenceMs) lastActiveMs else totalMs
+                return if (totalMs - lastActiveMs >= MIN_TRAILING_SILENCE_MS) lastActiveMs else totalMs
             }
         }
         return totalMs
@@ -939,14 +941,15 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
 
     private fun normalize(src: List<Float>): List<Float> {
         if (src.isEmpty()) return emptyList()
-        val smooth = movingAverage(src, 5)
+        val smooth = movingAverage(src)
         val mx = smooth.maxOrNull() ?: 0f
         if (mx <= 1e-6f) return List(smooth.size) { 0f }
         return smooth.map { (it / mx).coerceIn(0f, 1f) }
     }
 
-    private fun movingAverage(src: List<Float>, window: Int): List<Float> {
-        if (src.isEmpty() || window <= 1) return src
+    private fun movingAverage(src: List<Float>): List<Float> {
+        val window = 5
+        if (src.isEmpty()) return src
         val out = ArrayList<Float>(src.size); val half = window / 2
         for (i in src.indices) {
             var sum = 0f; var cnt = 0
