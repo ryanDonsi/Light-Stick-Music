@@ -102,10 +102,16 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         musicPath: String, musicId: Int, paletteSize: Int
     ): Pair<List<Pair<Long, ByteArray>>, List<SectionMeta>> {
 
-        Log.d(TAG, "v4 start file=$musicPath musicId=$musicId detector=BeatDetectorV2+SectionDetectorV2")
+        val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
+        val t0Total  = System.currentTimeMillis()
+        Log.d(TAG, "v4 [PERF] start file=$fileName musicId=$musicId")
 
         val palette    = buildPalette(musicId)
+
+        // ── 1. 오디오 디코딩 ──────────────────────────────────────────
+        val t0Decode = System.currentTimeMillis()
         val (lowEnv, midEnv, fullEnv, highEnv) = decodeAllEnvelopes(musicPath)
+        Log.d(TAG, "v4 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size}")
 
         if (lowEnv.isEmpty()) {
             Log.w(TAG, "v4 env empty"); return Pair(emptyList(), emptyList())
@@ -113,7 +119,8 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        // ── 1. Beat detection (BeatDetectorV2 고정) ───────────────
+        // ── 2. Beat detection (BeatDetectorV2 고정) ──────────────────
+        val t0Beat     = System.currentTimeMillis()
         val beatResult = BeatDetectorV2.detect(lowEnv, midEnv, fullEnv,
             BeatDetectorV2.Params(
                 hopMs             = HOP_MS,
@@ -138,18 +145,19 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         if (beatTimesMs.isEmpty()) {
             Log.w(TAG, "v4 beat detect FAIL"); return Pair(emptyList(), emptyList())
         }
-        Log.d(TAG, "v4 beats=${beatTimesMs.size} beatMs=$globalBeatMs")
+        Log.d(TAG, "v4 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs beats=${beatTimesMs.size}")
 
-        // ── 2. Section detection (SectionDetectorV2 고정) ─────────
+        // ── 3. Section detection (SectionDetectorV2 고정) ────────────
+        val t0Section        = System.currentTimeMillis()
         val detectedSections = SectionDetectorV2().detect(
             lowEnv     = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beats      = beatInfoBeats,
             beatMs     = globalBeatMs, durationMs = durationMs, hopMs = HOP_MS,
             beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
         )
-        Log.d(TAG, "v4 sections=${detectedSections.size}")
+        Log.d(TAG, "v4 [PERF] sectionDetect=${System.currentTimeMillis() - t0Section}ms sections=${detectedSections.size}")
 
-        // ── 3. Music style + climax ───────────────────────────────
+        // ── 4. Music style + climax ───────────────────────────────
         val styleResult  = MusicStyleClassifier.classify(
             lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beatMs = globalBeatMs, beats = beatInfoBeats, hopMs = HOP_MS
@@ -167,10 +175,11 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
                             else detectClimaxPeakMoments(fullEnv, durationMs, globalBeatMs)
         Log.d(TAG, "v4 style=$musicStyle balladMode=$isBalladMode climax=${climaxMoments.size}")
 
-        // ── 4. Convert → V8Section with FgEngine assignment ───────
+        // ── 5. Convert → V8Section with FgEngine assignment ───────
         val v8Sections = convertToV8Sections(detectedSections, globalBeatMs, climaxMoments, isBalladMode)
 
-        // ── 5. Frame building (V8 규칙) ───────────────────────────
+        // ── 6. Frame building (V8 규칙) ───────────────────────────
+        val t0Build    = System.currentTimeMillis()
         val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), HOP_MS, MIN_TRAILING_SILENCE_MS)
             .coerceIn(0L, durationMs)
 
@@ -185,7 +194,8 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
             downbeatMs      = downbeatMs,
             beatsPerBar     = beatsPerBar
         )
-        Log.d(TAG, "v4 frames=${frames.size}")
+        Log.d(TAG, "v4 [PERF] build=${System.currentTimeMillis() - t0Build}ms frames=${frames.size}")
+        Log.d(TAG, "v4 [PERF] total=${System.currentTimeMillis() - t0Total}ms  file=$fileName durationMs=$durationMs")
 
         // ── 6. SectionMeta for overlay ────────────────────────────
         val sectionMetas = detectedSections.mapIndexed { idx, s ->

@@ -57,13 +57,16 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
         paletteSize: Int
     ): List<Pair<Long, ByteArray>> {
         val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
-        Log.d(TAG, "v1 generate() start file=$fileName musicId=$musicId paletteSize=$paletteSize")
+        val t0Total  = System.currentTimeMillis()
+        Log.d(TAG, "v1 [PERF] generate() start file=$fileName musicId=$musicId")
 
         val pSize   = paletteSize.coerceIn(3, 5)
         val palette = buildPalette(musicId, pSize)
 
-        // [PERF] 단일 패스 디코딩 — MediaCodec 1회로 low/mid/full 동시 추출
+        // ── 1. 오디오 디코딩 ──────────────────────────────────────────
+        val t0Decode = System.currentTimeMillis()
         val (lowEnv, midEnv, fullEnv) = decodeAllEnvelopes(musicPath, HOP_MS.toInt())
+        Log.d(TAG, "v1 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size}")
 
         if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
             Log.w(TAG, "v1 env empty -> return empty")
@@ -72,7 +75,8 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        Log.d(TAG, "v1 BeatDetect start file=$fileName musicId=$musicId durationMs=$durationMs")
+        // ── 2. 비트 감지 ──────────────────────────────────────────────
+        val t0Beat    = System.currentTimeMillis()
         val v11Result = BeatDetectorV2.detect(
             lowEnv  = lowEnv,
             midEnv  = midEnv,
@@ -93,10 +97,8 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
         )
 
         val globalBeatMs = v11Result.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
-
-        val beatsPerBar = v11Result.timeSignature.beatsPerBar
-        Log.d(TAG, "v1 BeatDetectorV2 beatMs=$globalBeatMs beats=${v11Result.beats.size} " +
-            "timeSig=${v11Result.timeSignature.type} beatsPerBar=$beatsPerBar")
+        val beatsPerBar  = v11Result.timeSignature.beatsPerBar
+        Log.d(TAG, "v1 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs beats=${v11Result.beats.size} timeSig=${v11Result.timeSignature.type}")
 
         if (v11Result.beats.isNotEmpty()) {
             val first = v11Result.beats.take(12).joinToString(" ") { "${it.timeMs}" }
@@ -122,8 +124,11 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
                 Log.w(TAG, "v1 [A] V11_gaps[$fileName](≥${gapTh}ms): ${bigGaps.take(5).joinToString(" | ")}")
         }
 
+        // ── 3. 타임라인 빌드 ──────────────────────────────────────────
+        val t0Build = System.currentTimeMillis()
         val frames = buildTimeline(v11Result.beats, globalBeatMs, beatsPerBar, durationMs, palette, musicId)
-        Log.d(TAG, "v1 frames(final)=${frames.size}")
+        Log.d(TAG, "v1 [PERF] build=${System.currentTimeMillis() - t0Build}ms frames=${frames.size}")
+        Log.d(TAG, "v1 [PERF] total=${System.currentTimeMillis() - t0Total}ms  file=$fileName durationMs=$durationMs")
         return frames.sortedBy { it.first }
     }
 
