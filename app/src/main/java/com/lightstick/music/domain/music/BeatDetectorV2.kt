@@ -40,7 +40,7 @@ object BeatDetectorV2 {
     private const val PRIOR_STD_OCTAVE      = 1.0f
 
     // half-tempo 체크 임계값 (일반 모드만 사용)
-    private const val HALF_TEMPO_RATIO = 0.45f
+    private const val HALF_TEMPO_RATIO = 0.60f
 
     // 발라드 감지: ODF 활성 프레임 비율 + 저역 에너지 비율
     private const val BALLAD_ACTIVE_DENSITY_MAX = 0.25f  // ODF > 0.3 프레임 비율
