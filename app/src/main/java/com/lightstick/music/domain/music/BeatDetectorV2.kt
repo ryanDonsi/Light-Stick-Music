@@ -1,5 +1,8 @@
 package com.lightstick.music.domain.music
 
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.util.Log
 import org.jtransforms.fft.FloatFFT_1D
 import kotlin.math.*
@@ -8,16 +11,13 @@ import kotlin.math.*
  * BeatDetectorV2 — madmom 풀 파이프라인 (SuperFlux ODF + DBN HMM + Ellis DP)
  *
  * ODF:
- *   PCM → STFT (Hanning, FFT_SIZE=2048, hop=20ms)
- *   → log magnitude: log(1 + 1000|X|)
+ *   PCM 디코딩과 동시에 STFT 계산 (madmom 스트리밍 방식 — PCM 배열을 메모리에 쌓지 않음)
+ *   ring buffer (FFT_SIZE) → Hanning windowed FFT → log magnitude: log(1 + 1000|X|)
  *   → 이전 프레임에 ±1 bin max filter 적용
  *   → positive spectral flux = SuperFlux ODF (Böck & Widmer, 2013)
  *
  * BPM + 위상:
  *   DBN HMM Forward (Viterbi-max 근사, madmom DBNBeatTrackingProcessor 방식)
- *   상태 공간: (tempo_interval × beat_phase)
- *   전이: tempo 변경에 지수 패널티(λ=100), beat_phase 결정론적 전진
- *   관측: log(odf[t]) at beat, log((1-odf[t])/(λ_obs-1)) at non-beat
  *   observationLambda=16 (madmom 기본값, SuperFlux 피크 선명도에 적합)
  *
  * Beat 출력:
@@ -31,22 +31,22 @@ object BeatDetectorV2 {
     private const val FFT_SIZE         = 2048
     private const val HOP_MS           = 20L     // 20ms hop — DBN 효율 vs ODF 품질 균형
     private const val LOG_LAMBDA       = 1000f
-    private const val MAX_FILTER_WIDTH = 1       // ±1 bin
+    private const val MAX_FILTER_WIDTH = 1       // ±1 bin (사용됨: ±1 bin max filter)
 
     // DBN 파라미터 (madmom DBNBeatTrackingProcessor 기본값)
     private const val DBN_TRANSITION_LAMBDA  = 100f
-    private const val DBN_OBSERVATION_LAMBDA = 16   // madmom 기본값 (SuperFlux 피크 선명)
+    private const val DBN_OBSERVATION_LAMBDA = 16
 
-    // 하모닉 보정 비율 (V5 와 동일)
+    // 하모닉 보정 비율
     private val HARM_RATIOS = floatArrayOf(0.5f, 4f / 3f)
 
-    private const val FILL_CONFIDENCE  = 0.20f
+    private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
 
-    private const val TIME_SIG_THREE_RATIO  = 1.20f
-    private const val TIME_SIG_SIX_RATIO    = 1.25f
-    private const val DOWNBEAT_W_LOW_ENERGY = 0.50f
-    private const val DOWNBEAT_W_BAR_COMB   = 0.30f
+    private const val TIME_SIG_THREE_RATIO   = 1.20f
+    private const val TIME_SIG_SIX_RATIO     = 1.25f
+    private const val DOWNBEAT_W_LOW_ENERGY  = 0.50f
+    private const val DOWNBEAT_W_BAR_COMB    = 0.30f
     private const val DOWNBEAT_W_CONSISTENCY = 0.20f
 
     data class TimedBeat(val timeMs: Long, val confidence: Float)
@@ -87,38 +87,32 @@ object BeatDetectorV2 {
     }
 
     // =========================================================================
-    // Public entry point — PCM 입력
+    // Public entry point — 파일 경로 입력 (madmom 스트리밍 방식)
     // =========================================================================
 
     fun detect(
-        monoSamples: FloatArray,
-        sampleRate: Int,
+        musicPath: String,
         params: Params = Params()
     ): DetectResult {
-        if (monoSamples.isEmpty() || sampleRate <= 0) {
+        // ── 1. 스트리밍 디코딩 + SuperFlux ODF 동시 계산 ─────────────────
+        val (odf, hopMs, durationMs) = streamingOdf(musicPath)
+        if (odf.isEmpty()) {
             return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
-
-        val hopSamples = max(1, (sampleRate * HOP_MS / 1000).toInt())
-        val hopMs      = hopSamples * 1000L / sampleRate
-        val durationMs = monoSamples.size.toLong() * 1000L / sampleRate
-
-        // ── 1. SuperFlux ODF ──────────────────────────────────────────────────
-        val odf = superFluxOdf(monoSamples, hopSamples)
         Log.d(TAG, "V2 SuperFlux odf frames=${odf.size} hopMs=$hopMs durationMs=$durationMs")
 
-        // ── 2. DBN HMM 템포 추정 (madmom DBNBeatTrackingProcessor) ───────────
+        // ── 2. DBN HMM 템포 추정 ─────────────────────────────────────────
         val beatMs = dbnEstimateTempo(
             odf, hopMs, params.minBeatMs, params.maxBeatMs,
             DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA
         )
         Log.d(TAG, "V2 beatMs=$beatMs (${60_000L / beatMs} BPM)")
 
-        // ── 3. 위상 추정 (comb-phase) ─────────────────────────────────────────
+        // ── 3. 위상 추정 (comb-phase) ──────────────────────────────────────
         val phaseMs = estimatePhaseFromOdf(odf, beatMs, hopMs)
         Log.d(TAG, "V2 phaseMs=$phaseMs")
 
-        // ── 4. Global Ellis DP ────────────────────────────────────────────────
+        // ── 4. Global Ellis DP ────────────────────────────────────────────
         val dpTimes = dpBeatTracker(odf, beatMs, hopMs, durationMs, anchorMs = phaseMs)
         Log.d(TAG, "V2 dpTimes=${dpTimes.size}")
 
@@ -132,7 +126,7 @@ object BeatDetectorV2 {
             reason = "dp"
         } else {
             Log.w(TAG, "V2 DP insufficient (${dpTimes.size}/$expectedBeats) → segment fallback")
-            beats  = fallbackSegmentBeats(monoSamples, hopSamples, hopMs, beatMs, durationMs)
+            beats  = fallbackSegmentBeats(odf, hopMs, beatMs, durationMs)
             reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
         }
 
@@ -159,80 +153,169 @@ object BeatDetectorV2 {
     }
 
     // =========================================================================
-    // madmom SuperFlux ODF
+    // 스트리밍 SuperFlux ODF — 디코딩과 STFT를 단일 패스로 처리
     //
-    //   frame t: Hanning-windowed FFT → log magnitude: log(1 + λ|X[k]|)
-    //   flux[t] = Σ max(0, logMag[t][k] - max(logMag[t-1][k-1..k+1]))
-    //
-    // 슬라이딩 2-프레임으로 메모리 최소화
+    // madmom과 동일한 방식:
+    //   ring buffer(FFT_SIZE) 유지 → hopSamples마다 FFT 계산
+    //   PCM 배열을 메모리에 쌓지 않으므로 메모리 사용량 최소화
     // =========================================================================
 
-    private fun superFluxOdf(samples: FloatArray, hopSamples: Int): List<Float> {
-        val numBins   = FFT_SIZE / 2 + 1
-        val numFrames = if (samples.size >= FFT_SIZE)
-            (samples.size - FFT_SIZE) / hopSamples + 1 else 0
-        if (numFrames == 0) return emptyList()
+    private data class OdfResult(val odf: List<Float>, val hopMs: Long, val durationMs: Long)
 
-        val fft = FloatFFT_1D(FFT_SIZE.toLong())
-        val hannWindow = FloatArray(FFT_SIZE) { i ->
-            (0.5 * (1.0 - cos(2.0 * PI * i / (FFT_SIZE - 1)))).toFloat()
-        }
-
-        val fftBuf    = FloatArray(FFT_SIZE)
-        val curLogMag = FloatArray(numBins)
-        val prevLogMag = FloatArray(numBins)
-        val odf = ArrayList<Float>(numFrames)
-
-        for (t in 0 until numFrames) {
-            val start = t * hopSamples
-            for (i in 0 until FFT_SIZE) {
-                fftBuf[i] = (if (start + i < samples.size) samples[start + i] else 0f) * hannWindow[i]
-            }
-            fft.realForward(fftBuf)
-
-            // JTransforms realForward packing:
-            //   fftBuf[0] = Re(DC), fftBuf[1] = Re(Nyquist)
-            //   fftBuf[2k], fftBuf[2k+1] = Re(k), Im(k)  for k=1..N/2-1
-            curLogMag[0]          = ln(1f + LOG_LAMBDA * abs(fftBuf[0]))
-            curLogMag[numBins - 1] = ln(1f + LOG_LAMBDA * abs(fftBuf[1]))
-            for (k in 1 until numBins - 1) {
-                val re = fftBuf[2 * k]; val im = fftBuf[2 * k + 1]
-                curLogMag[k] = ln(1f + LOG_LAMBDA * sqrt(re * re + im * im))
-            }
-
-            if (t == 0) {
-                odf.add(0f)
-            } else {
-                var flux = 0f
-                for (k in 0 until numBins) {
-                    var prevMax = prevLogMag[k]
-                    if (k > 0 && prevLogMag[k - 1] > prevMax) prevMax = prevLogMag[k - 1]
-                    if (k < numBins - 1 && prevLogMag[k + 1] > prevMax) prevMax = prevLogMag[k + 1]
-                    val diff = curLogMag[k] - prevMax
-                    if (diff > 0f) flux += diff
+    private fun streamingOdf(musicPath: String): OdfResult {
+        val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
+        return try {
+            extractor.setDataSource(musicPath)
+            var trackIndex = -1; var format: MediaFormat? = null
+            for (i in 0 until extractor.trackCount) {
+                val f = extractor.getTrackFormat(i)
+                if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
+                    trackIndex = i; format = f; break
                 }
-                odf.add(flux)
             }
-            curLogMag.copyInto(prevLogMag)
-        }
+            if (trackIndex < 0 || format == null) {
+                extractor.release()
+                return OdfResult(emptyList(), HOP_MS, 0L)
+            }
+            extractor.selectTrack(trackIndex)
 
-        // 전역 정규화 → [0, 1]
-        val maxVal = odf.maxOrNull() ?: 1f
-        return if (maxVal > 1e-6f) odf.map { it / maxVal } else odf
+            val mime         = format.getString(MediaFormat.KEY_MIME)!!
+            val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            val hopSamples   = max(1, (sampleRate * HOP_MS / 1000).toInt())
+            val hopMs        = hopSamples * 1000L / sampleRate
+            val stepBytes    = channelCount * 2
+
+            // FFT / ODF 상태
+            val fft        = FloatFFT_1D(FFT_SIZE.toLong())
+            val hannWindow = FloatArray(FFT_SIZE) { i ->
+                (0.5 * (1.0 - cos(2.0 * PI * i / (FFT_SIZE - 1)))).toFloat()
+            }
+            val numBins    = FFT_SIZE / 2 + 1
+            val fftBuf     = FloatArray(FFT_SIZE)
+            val curLogMag  = FloatArray(numBins)
+            val prevLogMag = FloatArray(numBins)
+            val odf        = ArrayList<Float>()
+
+            // ring buffer — 마지막 FFT_SIZE 샘플을 순환 저장
+            val ringBuf    = FloatArray(FFT_SIZE)
+            var ringHead   = 0               // 다음 쓰기 위치
+            var totalSamples         = 0L
+            var samplesUntilNextFrame = FFT_SIZE  // 첫 프레임은 FFT_SIZE 샘플 필요
+
+            codec = MediaCodec.createDecoderByType(mime)
+            codec.configure(format, null, null, 0); codec.start()
+            val bufferInfo  = MediaCodec.BufferInfo()
+            var sawInputEOS = false; var sawOutputEOS = false
+
+            while (!sawOutputEOS) {
+                if (!sawInputEOS) {
+                    val inIdx = codec.dequeueInputBuffer(10_000)
+                    if (inIdx >= 0) {
+                        val buf = codec.getInputBuffer(inIdx)!!; buf.clear()
+                        val sz = extractor.readSampleData(buf, 0)
+                        if (sz < 0) {
+                            codec.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            sawInputEOS = true
+                        } else {
+                            codec.queueInputBuffer(inIdx, 0, sz, extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+
+                val outIdx = codec.dequeueOutputBuffer(bufferInfo, 10_000)
+                when {
+                    outIdx >= 0 -> {
+                        val buf = codec.getOutputBuffer(outIdx)
+                        if (buf != null && bufferInfo.size > 0) {
+                            buf.position(bufferInfo.offset)
+                            buf.limit(bufferInfo.offset + bufferInfo.size)
+                            val chunk = ByteArray(bufferInfo.size); buf.get(chunk)
+
+                            var byteIdx = 0
+                            while (byteIdx + stepBytes <= chunk.size) {
+                                // 스테레오 → 모노 다운믹스
+                                var monoSum = 0f
+                                for (c in 0 until channelCount) {
+                                    val lo = chunk[byteIdx + c * 2].toInt() and 0xFF
+                                    val hi = chunk[byteIdx + c * 2 + 1].toInt()
+                                    monoSum += (hi shl 8 or lo).toShort().toFloat()
+                                }
+                                val mono = monoSum / channelCount / 32768f
+
+                                // ring buffer에 저장
+                                ringBuf[ringHead] = mono
+                                ringHead = (ringHead + 1) % FFT_SIZE
+                                totalSamples++
+                                samplesUntilNextFrame--
+
+                                if (samplesUntilNextFrame <= 0) {
+                                    samplesUntilNextFrame = hopSamples
+
+                                    // ring buffer에서 현재 윈도우 추출 + Hanning 적용
+                                    val oldest = ringHead  // ringHead가 가장 오래된 샘플 위치
+                                    for (i in 0 until FFT_SIZE) {
+                                        fftBuf[i] = ringBuf[(oldest + i) % FFT_SIZE] * hannWindow[i]
+                                    }
+                                    fft.realForward(fftBuf)
+
+                                    // log magnitude
+                                    curLogMag[0]           = ln(1f + LOG_LAMBDA * abs(fftBuf[0]))
+                                    curLogMag[numBins - 1] = ln(1f + LOG_LAMBDA * abs(fftBuf[1]))
+                                    for (k in 1 until numBins - 1) {
+                                        val re = fftBuf[2 * k]; val im = fftBuf[2 * k + 1]
+                                        curLogMag[k] = ln(1f + LOG_LAMBDA * sqrt(re * re + im * im))
+                                    }
+
+                                    if (odf.isEmpty()) {
+                                        odf.add(0f)  // 첫 프레임은 이전 프레임 없음
+                                    } else {
+                                        // SuperFlux: ±MAX_FILTER_WIDTH bin max filter 후 positive flux
+                                        var flux = 0f
+                                        for (k in 0 until numBins) {
+                                            var prevMax = prevLogMag[k]
+                                            if (k > 0 && prevLogMag[k - 1] > prevMax) prevMax = prevLogMag[k - 1]
+                                            if (k < numBins - 1 && prevLogMag[k + 1] > prevMax) prevMax = prevLogMag[k + 1]
+                                            val diff = curLogMag[k] - prevMax
+                                            if (diff > 0f) flux += diff
+                                        }
+                                        odf.add(flux)
+                                    }
+                                    curLogMag.copyInto(prevLogMag)
+                                }
+                                byteIdx += stepBytes
+                            }
+                        }
+                        codec.releaseOutputBuffer(outIdx, false)
+                        if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0)
+                            sawOutputEOS = true
+                    }
+                    outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
+                }
+            }
+
+            codec.stop(); codec.release(); extractor.release()
+
+            val durationMs = totalSamples * 1000L / sampleRate
+
+            // 전역 정규화 → [0, 1]
+            val maxVal = odf.maxOrNull() ?: 1f
+            val normOdf = if (maxVal > 1e-6f) odf.map { it / maxVal } else odf
+
+            OdfResult(normOdf, hopMs, durationMs)
+        } catch (t: Throwable) {
+            Log.e(TAG, "V2 streamingOdf fail: ${t.message}")
+            try { codec?.stop() }     catch (_: Throwable) {}
+            try { codec?.release() }  catch (_: Throwable) {}
+            try { extractor.release() } catch (_: Throwable) {}
+            OdfResult(emptyList(), HOP_MS, 0L)
+        }
     }
 
     // =========================================================================
     // DBN 템포 추정 — madmom DBNBeatTrackingProcessor 핵심 알고리즘
-    //
-    // 상태 공간: (tempo_interval i, beat_phase p), p ∈ [0, i)
-    // 전이 모델:
-    //   위상 전진: (i, p) → (i, p+1)       확률 1.0
-    //   박자 경계: (i, i-1) → (j, 0)       ∝ exp(-λ × |j/i - 1|)
-    // 관측 모델:
-    //   p == 0: log(odf[t])
-    //   p  > 0: log((1 - odf[t]) / (obsLambda - 1))
-    //
-    // V5의 dbnEstimateTempo와 동일 로직, observationLambda=16 (madmom 기본값)
     // =========================================================================
 
     private fun dbnEstimateTempo(
@@ -274,15 +357,15 @@ object BeatDetectorV2 {
             FloatArray(numIntv) { toII -> raw[toII] - logZ }
         }
 
-        val LOG_ZERO        = -1e9f
-        val logInitUnif     = -ln(numIntv.toFloat())
-        val dbnPriorCenter  = ln(120f)
-        val dbnPriorSigmaX2 = 2f * 1.2f * 1.2f
+        val LOG_ZERO       = -1e9f
+        val logInitUnif    = -ln(numIntv.toFloat())
+        val dbnPriorCenter = ln(120f)
+        val dbnPriorSx2    = 2f * 1.2f * 1.2f
         var logFwd = FloatArray(totalStates) { LOG_ZERO }
         for (ii in 0 until numIntv) {
             val bpm  = 60_000f / (intervals[ii].toFloat() * hopMs.toFloat())
             val diff = ln(bpm) - dbnPriorCenter
-            logFwd[intvStartState[ii]] = logInitUnif - (diff * diff) / dbnPriorSigmaX2
+            logFwd[intvStartState[ii]] = logInitUnif - (diff * diff) / dbnPriorSx2
         }
 
         val intvBeatAccum = FloatArray(numIntv)
@@ -334,7 +417,6 @@ object BeatDetectorV2 {
             if (intvBeatAccum[ii] / cntI > intvBeatAccum[bestII] / cntB) bestII = ii
         }
 
-        // 하모닉 옥타브 보정 (V5 와 동일: 0.5x, 4/3x)
         val LOG_BPM_CENTER = ln(120f)
         val LOG_BPM_SX2    = 2f * 1.5f * 1.5f
 
@@ -389,7 +471,7 @@ object BeatDetectorV2 {
     }
 
     // =========================================================================
-    // Ellis DP Beat Tracker (V5 와 동일)
+    // Ellis DP Beat Tracker
     // =========================================================================
 
     private fun dpBeatTracker(
@@ -450,34 +532,29 @@ object BeatDetectorV2 {
         val result = beats.reversed().toLongArray()
         if (result.size < 2) return result
         val rms = sqrt(localscore.map { it * it }.average().toFloat()); val trimTh = 0.5f * rms
-        var s = 0
-        while (s < result.size && localscore[(result[s] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) s++
+        var ss = 0
+        while (ss < result.size && localscore[(result[ss] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) ss++
         var e = result.size - 1
-        while (e > s && localscore[(result[e] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) e--
-        return if (s > e) result else result.sliceArray(s..e)
+        while (e > ss && localscore[(result[e] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) e--
+        return if (ss > e) result else result.sliceArray(ss..e)
     }
 
     // =========================================================================
-    // Fallback — 세그먼트 단위 DP
+    // Fallback — ODF 세그먼트 단위 DP (PCM 불필요, ODF subList 사용)
     // =========================================================================
 
     private fun fallbackSegmentBeats(
-        samples: FloatArray, hopSamples: Int, hopMs: Long, beatMs: Long, durationMs: Long
+        odf: List<Float>, hopMs: Long, beatMs: Long, durationMs: Long
     ): List<TimedBeat> {
-        val segmentMs   = 20_000L
-        val segFrames   = (segmentMs / hopMs).toInt().coerceAtLeast(1)
-        val totalFrames = if (samples.size >= FFT_SIZE)
-            (samples.size - FFT_SIZE) / hopSamples + 1 else 0
-        val result = ArrayList<TimedBeat>()
-
-        var segIdx = 0
-        while (segIdx * segFrames < totalFrames) {
+        val segmentMs = 20_000L
+        val segFrames = (segmentMs / hopMs).toInt().coerceAtLeast(1)
+        val result    = ArrayList<TimedBeat>()
+        var segIdx    = 0
+        while (segIdx * segFrames < odf.size) {
             val sFrame = segIdx * segFrames
-            val eFrame = min(totalFrames, sFrame + segFrames)
+            val eFrame = min(odf.size, sFrame + segFrames)
             if (eFrame - sFrame < 8) { segIdx++; continue }
-            val sSample  = sFrame * hopSamples
-            val eSample  = min(samples.size, eFrame * hopSamples + FFT_SIZE)
-            val segOdf   = superFluxOdf(samples.copyOfRange(sSample, eSample), hopSamples)
+            val segOdf   = odf.subList(sFrame, eFrame)
             val segPhase = estimatePhaseFromOdf(segOdf, beatMs, hopMs)
             val segDur   = (eFrame - sFrame).toLong() * hopMs
             val segTimes = dpBeatTracker(segOdf, beatMs, hopMs, segDur, anchorMs = segPhase)
@@ -511,7 +588,7 @@ object BeatDetectorV2 {
     }
 
     // =========================================================================
-    // 다운비트 감지 — ODF 를 에너지 프록시로 사용
+    // 다운비트 감지
     // =========================================================================
 
     private fun detectDownbeatEnhanced(

@@ -27,7 +27,8 @@ object BeatDetectorRouter {
     }
 
     // =========================================================================
-    // PCM 입력 오버로드 — version 1: V1(IIR 엔벨로프 변환 후 detect), version 2: V2(madmom SuperFlux)
+    // PCM 입력 오버로드 — version 1 전용 (V1: IIR 엔벨로프 변환 후 detect)
+    // version 2: detectFile() 사용 (스트리밍 ODF, PCM 불필요)
     // version 3~5: envelope 입력 detect() 사용
     // =========================================================================
 
@@ -37,36 +38,41 @@ object BeatDetectorRouter {
         sampleRate: Int,
         minBeatMs: Long,
         maxBeatMs: Long
-    ): BeatInfo = when (version) {
+    ): BeatInfo {
+        val r = BeatDetectorV1.detectPcm(monoSamples, sampleRate,
+            BeatDetectorV1.Params(
+                hopMs     = 50L,
+                minBeatMs = minBeatMs.coerceAtLeast(375L),
+                maxBeatMs = maxBeatMs.coerceAtMost(1000L)
+            ))
+        return BeatInfo(
+            beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
+            beatMs      = r.beatMs,
+            beatsPerBar = r.timeSignature.beatsPerBar,
+            downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
+        )
+    }
 
-        1 -> {
-            val r = BeatDetectorV1.detectPcm(monoSamples, sampleRate,
-                BeatDetectorV1.Params(
-                    hopMs     = 50L,
-                    minBeatMs = minBeatMs.coerceAtLeast(375L),
-                    maxBeatMs = maxBeatMs.coerceAtMost(1000L)
-                ))
-            BeatInfo(
-                beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
-                beatMs      = r.beatMs,
-                beatsPerBar = r.timeSignature.beatsPerBar,
-                downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
-            )
-        }
+    // =========================================================================
+    // 파일 경로 입력 오버로드 — version 2: V2(madmom 스트리밍 SuperFlux + DBN)
+    // =========================================================================
 
-        else -> { // 2: BeatDetectorV2 (madmom SuperFlux)
-            val r = BeatDetectorV2.detect(monoSamples, sampleRate,
-                BeatDetectorV2.Params(
-                    minBeatMs = minBeatMs.coerceAtLeast(375L),
-                    maxBeatMs = maxBeatMs.coerceAtMost(1000L)
-                ))
-            BeatInfo(
-                beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
-                beatMs      = r.beatMs,
-                beatsPerBar = r.timeSignature.beatsPerBar,
-                downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
-            )
-        }
+    fun detectFile(
+        musicPath: String,
+        minBeatMs: Long,
+        maxBeatMs: Long
+    ): BeatInfo {
+        val r = BeatDetectorV2.detect(musicPath,
+            BeatDetectorV2.Params(
+                minBeatMs = minBeatMs.coerceAtLeast(375L),
+                maxBeatMs = maxBeatMs.coerceAtMost(1000L)
+            ))
+        return BeatInfo(
+            beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
+            beatMs      = r.beatMs,
+            beatsPerBar = r.timeSignature.beatsPerBar,
+            downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
+        )
     }
 
     fun detect(
