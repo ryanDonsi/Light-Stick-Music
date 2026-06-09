@@ -119,9 +119,15 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        // ── 2. Beat detection (BeatDetectorRouter version=3) ──────────
+        // ── 2. Beat detection ──────────────────────────────────────────
+        val detectorVer   = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val t0Beat        = System.currentTimeMillis()
-        val beatInfo      = BeatDetectorRouter.detect(3, lowEnv, midEnv, fullEnv, HOP_MS, MIN_BEAT_MS, MAX_BEAT_MS)
+        val beatInfo: BeatDetectorRouter.BeatInfo = if (detectorVer <= 2) {
+            val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
+            BeatDetectorRouter.detectPcm(detectorVer, monoSamples, sampleRate, MIN_BEAT_MS, MAX_BEAT_MS)
+        } else {
+            BeatDetectorRouter.detect(detectorVer, lowEnv, midEnv, fullEnv, HOP_MS, MIN_BEAT_MS, MAX_BEAT_MS)
+        }
         val beatInfoBeats = beatInfo.beats
         val globalBeatMs  = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
         val beatsPerBar   = beatInfo.beatsPerBar
@@ -763,6 +769,72 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         val low: List<Float>, val mid: List<Float>,
         val full: List<Float>, val high: List<Float>
     )
+
+    private fun decodeMonoPcm(musicPath: String): Pair<FloatArray, Int> {
+        val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
+        return try {
+            extractor.setDataSource(musicPath)
+            var trackIndex = -1; var format: MediaFormat? = null
+            for (i in 0 until extractor.trackCount) {
+                val f = extractor.getTrackFormat(i)
+                if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
+                    trackIndex = i; format = f; break
+                }
+            }
+            if (trackIndex < 0 || format == null) { extractor.release(); return Pair(FloatArray(0), 44100) }
+            extractor.selectTrack(trackIndex)
+            val mime         = format.getString(MediaFormat.KEY_MIME)!!
+            val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            val stepBytes    = channelCount * 2
+            codec = MediaCodec.createDecoderByType(mime)
+            codec.configure(format, null, null, 0); codec.start()
+            val out = ArrayList<Float>(sampleRate * 30)
+            val bufferInfo = MediaCodec.BufferInfo()
+            var sawInputEOS = false; var sawOutputEOS = false
+            while (!sawOutputEOS) {
+                if (!sawInputEOS) {
+                    val inIdx = codec.dequeueInputBuffer(10_000)
+                    if (inIdx >= 0) {
+                        val buf = codec.getInputBuffer(inIdx)!!
+                        val sz  = extractor.readSampleData(buf, 0)
+                        if (sz < 0) { codec.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM); sawInputEOS = true }
+                        else { codec.queueInputBuffer(inIdx, 0, sz, extractor.sampleTime, 0); extractor.advance() }
+                    }
+                }
+                val outIdx = codec.dequeueOutputBuffer(bufferInfo, 10_000)
+                if (outIdx >= 0) {
+                    val buf = codec.getOutputBuffer(outIdx)
+                    if (buf != null && bufferInfo.size > 0) {
+                        buf.position(bufferInfo.offset); buf.limit(bufferInfo.offset + bufferInfo.size)
+                        val chunk = ByteArray(bufferInfo.size); buf.get(chunk)
+                        var byteIdx = 0
+                        while (byteIdx + stepBytes <= chunk.size) {
+                            var monoSum = 0f
+                            for (c in 0 until channelCount) {
+                                val lo = chunk[byteIdx + c * 2].toInt() and 0xFF
+                                val hi = chunk[byteIdx + c * 2 + 1].toInt()
+                                monoSum += (hi shl 8 or lo).toShort().toFloat()
+                            }
+                            out.add(monoSum / channelCount / 32768f)
+                            byteIdx += stepBytes
+                        }
+                    }
+                    codec.releaseOutputBuffer(outIdx, false)
+                    if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) sawOutputEOS = true
+                }
+            }
+            codec.stop(); codec.release(); extractor.release()
+            Pair(out.toFloatArray(), sampleRate)
+        } catch (t: Throwable) {
+            Log.e(TAG, "decodeMonoPcm fail: ${t.message}")
+            try { codec?.stop() } catch (_: Throwable) {}
+            try { codec?.release() } catch (_: Throwable) {}
+            try { extractor.release() } catch (_: Throwable) {}
+            Pair(FloatArray(0), 44100)
+        }
+    }
 
     private fun decodeAllEnvelopes(musicPath: String): Envelopes {
         val extractor = MediaExtractor(); var codec: MediaCodec? = null
