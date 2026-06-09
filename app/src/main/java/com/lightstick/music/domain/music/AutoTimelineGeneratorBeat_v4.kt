@@ -121,7 +121,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         // ── 2. Beat detection ──────────────────────────────────────────
         val detectorVer   = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val t0Beat        = System.currentTimeMillis()
-        @Suppress("ConstantConditionIf")
         val beatInfo: BeatDetectorRouter.BeatInfo = if (detectorVer <= 2) {
             val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
             BeatDetectorRouter.detectPcm(detectorVer, monoSamples, sampleRate, MIN_BEAT_MS, MAX_BEAT_MS)
@@ -343,6 +342,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
             val bgR: Int, val bgG: Int, val bgB: Int,
             val period: Int, val randomDelay: Int
         )
+        @Suppress("RedundantNullableReturnType")
         var lastRepeatKey: RepeatKey? = null
 
         put(0L, buildOffPayload())
@@ -747,7 +747,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         val threshold = max((smooth.maxOrNull() ?: 0f) * 0.03f, 0.01f)
         for (i in smooth.indices.reversed()) {
             if (smooth[i] >= threshold) {
-                val lastActiveMs = (i + 1) * hopMs
+                val lastActiveMs = (i + 1).toLong() * HOP_MS
                 return if (totalMs - lastActiveMs >= MIN_TRAILING_SILENCE_MS) lastActiveMs else totalMs
             }
         }
