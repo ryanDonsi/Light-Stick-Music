@@ -1112,9 +1112,12 @@ class App(tk.Tk):
             cells += [_mmetric(metrics_body, "BPM (GT)",   v_bpm_g, "#ffffff", CELL_BG, 3, 1, 1, "BPM (GT)")]
             cells += [_mmetric(metrics_body, "BPM 오차",   v_bpm_e, "#ffcc02", CELL_BG, 3, 2, 1, "BPM 오차")]
 
-            # 클릭 바인딩 (카드 전체 + 셀 모두)
-            for w in [card, hdr, grade_f, grade_lbl, grade_sub, metrics_body] + cells:
-                w.bind("<Button-1>", lambda e, _eng=eng: self._select_engine_card(_eng))
+            # 클릭 바인딩 — 카드 내 모든 위젯에 재귀 적용
+            def _bind_card(widget, _eng=eng):
+                widget.bind("<Button-1>", lambda e, eng=_eng: self._select_engine_card(eng))
+                for child in widget.winfo_children():
+                    _bind_card(child, _eng)
+            _bind_card(card)
 
             self._card_widgets[eng] = {
                 "frame": card, "hdr": hdr,
