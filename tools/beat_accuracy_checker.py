@@ -1921,21 +1921,24 @@ class App(tk.Tk):
             s_end   = min(total_samples, int(z_end / duration_sec * total_samples))
             seg = waveform[s_start:s_end]
             if len(seg) > 1:
-                draw_w = max(1, W - LABEL_W)
-                if len(seg) > draw_w * 2:
-                    step = len(seg) // (draw_w * 2)
+                # 화면 픽셀 수에 맞게 다운샘플 (최대 draw_w 포인트)
+                draw_w = max(2, W - LABEL_W)
+                if len(seg) > draw_w:
+                    step = max(1, len(seg) // draw_w)
                     seg  = seg[::step]
-                peak = float(np.max(np.abs(seg))) or 1.0
+                n_pts  = len(seg)
+                peak   = float(np.max(np.abs(seg))) if np.any(seg) else 1.0
+                if peak < 1e-9:
+                    peak = 1.0
                 half_h = max(1, (WAVE_BOT - WAVE_TOP) // 2 - PAD)
-                pts = []
-                for i, v in enumerate(seg):
-                    px = LABEL_W + int(i / (len(seg) - 1) * (W - LABEL_W))
-                    py = WAVE_MID - int(v / peak * half_h)
-                    pts.append((px, py))
-                # 선이 최소 2점 이상일 때만 그리기
-                if len(pts) >= 2:
-                    flat = [coord for p in pts for coord in p]
-                    c.create_line(*flat, fill="#78909c", width=1, smooth=False)
+                # Tkinter create_line은 좌표 리스트를 직접 받음 — *unpack 금지(인자 수 한계)
+                coords = []
+                for i in range(n_pts):
+                    px = LABEL_W + int(i * (draw_w - 1) / (n_pts - 1))
+                    py = WAVE_MID - int(float(seg[i]) / peak * half_h)
+                    coords.append(px)
+                    coords.append(py)
+                c.create_line(coords, fill="#78909c", width=1)
 
         # ── GT 레인 비트 막대 ──
         for t in fn_ref:   # 누락 — 파랑
