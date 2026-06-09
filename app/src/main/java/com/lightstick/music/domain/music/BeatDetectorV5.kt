@@ -333,13 +333,16 @@ object BeatDetectorV5 {
         var bestCorrMs  = resultMs
         var bestCorrPBS = combPriorScore(resultMs)
 
-        // harmRatios: 0.5 만 유지 (빠른 BPM 으로의 업스케일만 허용)
+        // harmRatios: 0.5(2x 업스케일), 4/3(4/3x 다운스케일) 유지
+        //   0.5  → DBN이 0.5x 잘못 감지 시 2x 보정 (Dynamite 류)
+        //   4/3  → DBN이 4/3x 잘못 감지 시 3/4x 보정 (사랑을 했다: 157→117BPM)
+        //          raw 정규화 fix 덕에 이전 오탐(133→100, 107→81)은 재발 없음
+        //          (올바른 BPM의 raw comb score >> 4/3 후보의 raw comb score)
         // 제거된 비율과 그 이유:
         //   2/3  → 74BPM → 111BPM (1.5× 오류 3곡 원인)
-        //   4/3  → 133BPM → 100BPM, 107BPM → 81BPM (0.75× 오류 원인)
         //   1.5  → 117BPM → 78BPM (0.67× 오류 원인)
         //   2.0  → 역방향(느리게)으로 오탐 가능성
-        val harmRatios  = floatArrayOf(0.5f)
+        val harmRatios  = floatArrayOf(0.5f, 4f/3f)
         for (r in harmRatios) {
             val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt()
                              .coerceAtLeast(1)
