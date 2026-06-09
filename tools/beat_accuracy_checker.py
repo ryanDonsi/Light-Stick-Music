@@ -673,12 +673,14 @@ def _draw_beat_lanes(ax, ref_sec, app_sec, tp_est, fp_est, fn_ref,
                 step = len(seg) // 3000
                 seg  = seg[::step]
             times_seg = np.linspace(t_start, t_end, len(seg))
-            peak = np.max(np.abs(seg)) or 1.0
+            peak = float(np.max(np.abs(seg)))
+            if peak < 1e-9:
+                peak = 1.0
             seg_scaled = seg / peak * WAVE_HALF
             ax.plot(times_seg, WAVE_CTR + seg_scaled,
-                    color=C_WAVE, linewidth=0.4, alpha=0.75)
+                    color=C_WAVE, linewidth=0.9, alpha=0.85, zorder=3)
             ax.fill_between(times_seg, WAVE_CTR, WAVE_CTR + seg_scaled,
-                            color=C_WAVE, alpha=0.12)
+                            color=C_WAVE, alpha=0.25, zorder=2)
 
     # ── GT 레인 (y=1.8 중심) ──────────────────────
     for t in [x for x in fn_ref if in_range(x)]:
