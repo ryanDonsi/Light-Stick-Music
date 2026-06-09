@@ -70,8 +70,8 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
         val beatInfo: BeatDetectorRouter.BeatInfo
         val durationMs: Long
 
-        if (detectorVer <= 2) {
-            // V1/V2: PCM 디코딩 → BeatDetectorRouter.detectPcm
+        if (detectorVer == 1) {
+            // V1: PCM 디코딩 → BeatDetectorRouter.detectPcm
             val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
             Log.d(TAG, "v0 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms samples=${monoSamples.size} sr=$sampleRate")
             if (monoSamples.isEmpty()) {
@@ -89,6 +89,18 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
                 minBeatMs    = MIN_BEAT_MS,
                 maxBeatMs    = 1200L
             )
+            val globalBeatMs0 = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+            Log.d(TAG, "v0 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs0 beats=${beatInfo.beats.size} beatsPerBar=${beatInfo.beatsPerBar} detectorVer=$detectorVer")
+        } else if (detectorVer == 2) {
+            // V2: 스트리밍 ODF (PCM 불필요) → BeatDetectorRouter.detectFile
+            Log.d(TAG, "v0 [PERF] decode=0ms (streaming)")
+            val t0Beat = System.currentTimeMillis()
+            beatInfo = BeatDetectorRouter.detectFile(
+                musicPath = musicPath,
+                minBeatMs = MIN_BEAT_MS,
+                maxBeatMs = 1200L
+            )
+            durationMs = beatInfo.beats.lastOrNull()?.timeMs?.plus(beatInfo.beatMs) ?: 0L
             val globalBeatMs0 = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
             Log.d(TAG, "v0 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs0 beats=${beatInfo.beats.size} beatsPerBar=${beatInfo.beatsPerBar} detectorVer=$detectorVer")
         } else {
