@@ -37,8 +37,8 @@ object BeatDetectorV2 {
     private const val DBN_TRANSITION_LAMBDA  = 100f
     private const val DBN_OBSERVATION_LAMBDA = 16
 
-    // 하모닉 보정 비율
-    private val HARM_RATIOS = floatArrayOf(0.5f, 4f / 3f)
+    // 하모닉 보정 비율 (0.5=2배 빠른 BPM 검출, 4/3=4:3 비율 오류, 2.0=절반 BPM 검출 — 슬로우 케이팝 대응)
+    private val HARM_RATIOS = floatArrayOf(0.5f, 4f / 3f, 2.0f)
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -360,7 +360,7 @@ object BeatDetectorV2 {
         val LOG_ZERO       = -1e9f
         val logInitUnif    = -ln(numIntv.toFloat())
         val dbnPriorCenter = ln(120f)
-        val dbnPriorSx2    = 2f * 1.2f * 1.2f
+        val dbnPriorSx2    = 2f * 2.5f * 2.5f  // 넓은 prior — 60~70 BPM 슬로우 곡도 정상 검출
         var logFwd = FloatArray(totalStates) { LOG_ZERO }
         for (ii in 0 until numIntv) {
             val bpm  = 60_000f / (intervals[ii].toFloat() * hopMs.toFloat())
@@ -418,7 +418,7 @@ object BeatDetectorV2 {
         }
 
         val LOG_BPM_CENTER = ln(120f)
-        val LOG_BPM_SX2    = 2f * 1.5f * 1.5f
+        val LOG_BPM_SX2    = 2f * 2.5f * 2.5f  // 넓은 prior — dbnPriorSx2와 통일
 
         fun combPriorScore(beatMs: Long): Float {
             val fpb = max(1, (beatMs / hopMs).toInt())
@@ -531,7 +531,8 @@ object BeatDetectorV2 {
 
         val result = beats.reversed().toLongArray()
         if (result.size < 2) return result
-        val rms = sqrt(localscore.map { it * it }.average().toFloat()); val trimTh = 0.5f * rms
+        // 트림: 0.15×RMS — 기존 0.5×RMS는 Magnetic처럼 에너지 편차가 큰 곡에서 앞부분을 과도하게 제거했음
+        val rms = sqrt(localscore.map { it * it }.average().toFloat()); val trimTh = 0.15f * rms
         var ss = 0
         while (ss < result.size && localscore[(result[ss] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) ss++
         var e = result.size - 1
