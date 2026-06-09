@@ -135,15 +135,23 @@ object BeatDetectorV2 {
             return DetectResult(emptyList(), 0L, null, "all failed", 0L, TimeSignature.FOUR_FOUR)
         }
 
+        // ── 5. 페이드아웃/무음 구간 비트 제거 ───────────────────────────────
+        val clippedTimes  = clipToAudioContent(beats.map { it.timeMs }.toLongArray(), odf, hopMs, beatMs)
+        val clippedBeats  = if (clippedTimes.size < beats.size) {
+            val timeSet = clippedTimes.toHashSet()
+            beats.filter { it.timeMs in timeSet }
+                 .also { Log.d(TAG, "V2 clipToContent: ${beats.size}→${it.size} beats") }
+        } else beats
+
         val timeSignature = detectTimeSignature(odf, beatMs, hopMs)
         val downbeatMs    = detectDownbeatEnhanced(
-            beats.map { it.timeMs }, odf, beatMs, timeSignature.beatsPerBar, hopMs)
-        val downbeatOffsetMs = (downbeatMs - (beats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
+            clippedBeats.map { it.timeMs }, odf, beatMs, timeSignature.beatsPerBar, hopMs)
+        val downbeatOffsetMs = (downbeatMs - (clippedBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        Log.d(TAG, "V2 OK beats=${beats.size} beatMs=$beatMs timeSig=${timeSignature.type} reason=$reason")
+        Log.d(TAG, "V2 OK beats=${clippedBeats.size} beatMs=$beatMs timeSig=${timeSignature.type} reason=$reason")
 
         return DetectResult(
-            beats            = beats,
+            beats            = clippedBeats,
             beatMs           = beatMs,
             source           = BeatSource.FULL,
             reason           = reason,
@@ -429,10 +437,14 @@ object BeatDetectorV2 {
                 while (f < odf.size) { sc += odf[f]; f += fpb }
                 if (sc > best) best = sc
             }
+            // 비트 수로 정규화 — 미정규화 합산은 주기가 짧을수록 항상 유리해져
+            // 2x BPM 오류 시 400ms(2배 비트)가 800ms보다 합산이 2배 높아 무조건 이김
+            val expectedBeats = (odf.size.toFloat() / fpb.toFloat()).coerceAtLeast(1f)
+            val normalizedBest = best / expectedBeats
             val bpm   = 60_000f / beatMs.toFloat()
             val d     = ln(bpm) - LOG_BPM_CENTER
             val prior = exp(-(d * d) / LOG_BPM_SX2.toDouble()).toFloat()
-            return best * prior
+            return normalizedBest * prior
         }
 
         val resultMs   = intervals[bestII].toLong() * hopMs
@@ -564,6 +576,39 @@ object BeatDetectorV2 {
             segIdx++
         }
         return result.sortedBy { it.timeMs }
+    }
+
+    // =========================================================================
+    // 페이드아웃/무음 구간 비트 클리핑
+    //   sliding mean(2비트 창)으로 에너지 엔벨로프 계산 →
+    //   전체 평균의 8% 이하가 1비트 이상 지속되는 지점을 오디오 종료로 판단
+    // =========================================================================
+
+    private fun clipToAudioContent(beats: LongArray, odf: List<Float>, hopMs: Long, beatMs: Long): LongArray {
+        if (beats.isEmpty() || odf.size < 4) return beats
+        val fpb = max(1, (beatMs / hopMs).toInt())
+        val win = fpb * 2  // sliding mean window = 2 beats
+
+        // sliding mean envelope
+        val envelope = FloatArray(odf.size) { i ->
+            val s = max(0, i - win / 2); val e = min(odf.size - 1, i + win / 2)
+            var sum = 0f; for (k in s..e) sum += odf[k]; sum / (e - s + 1)
+        }
+        val globalMean = envelope.average().toFloat().coerceAtLeast(1e-9f)
+        val silentTh   = 0.08f * globalMean  // 전체 평균 8% 이하 = 무음/페이드아웃
+
+        // 앞쪽: 첫 활성 프레임
+        var firstActive = 0
+        while (firstActive < odf.size - fpb && envelope[firstActive] < silentTh) firstActive++
+
+        // 뒤쪽: 마지막 활성 프레임
+        var lastActive = odf.size - 1
+        while (lastActive > fpb && envelope[lastActive] < silentTh) lastActive--
+
+        val startMs  = max(0L, firstActive.toLong() * hopMs - beatMs)
+        val cutoffMs = lastActive.toLong() * hopMs + beatMs  // 1비트 여유
+
+        return beats.filter { it >= startMs && it <= cutoffMs }.toLongArray()
     }
 
     // =========================================================================
