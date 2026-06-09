@@ -27,7 +27,8 @@ object BeatDetectorRouter {
     }
 
     // =========================================================================
-    // PCM 입력 오버로드 — version 1: V1(IIR 엔벨로프), version 2: V2(madmom SuperFlux)
+    // PCM 입력 오버로드 — version 1: V1(IIR 엔벨로프 변환 후 detect), version 2: V2(madmom SuperFlux)
+    // version 3~5: envelope 입력 detect() 사용
     // =========================================================================
 
     fun detectPcm(
@@ -81,23 +82,6 @@ object BeatDetectorRouter {
         1 -> {
             val r = BeatDetectorV1.detect(lowEnv, midEnv, fullEnv,
                 BeatDetectorV1.Params(
-                    hopMs             = hopMs,
-                    minBeatMs         = minBeatMs.coerceAtLeast(375L),
-                    maxBeatMs         = maxBeatMs.coerceAtMost(1000L),
-                    minPeakDistanceMs = 120L,
-                    onsetSmoothWindow = 3
-                ))
-            BeatInfo(
-                beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
-                beatMs      = r.beatMs,
-                beatsPerBar = r.timeSignature.beatsPerBar,
-                downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
-            )
-        }
-
-        2 -> {
-            val r = BeatDetectorV2.detect(lowEnv, midEnv, fullEnv,
-                BeatDetectorV2.Params(
                     hopMs             = hopMs,
                     minBeatMs         = minBeatMs.coerceAtLeast(375L),
                     maxBeatMs         = maxBeatMs.coerceAtMost(1000L),
