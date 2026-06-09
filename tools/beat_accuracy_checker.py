@@ -1562,10 +1562,14 @@ class App(tk.Tk):
             self._update_cards(engine, f_val, p_val, r_val, tp, fp_cnt, fn,
                                bpm_app, bpm_ref, bpm_err, cov_pct, gaps)
 
+            # waveform은 이미 로드된 _last_result에서 재사용 (엔진 전환 시 유지)
+            prev_waveform = (self._last_result or {}).get("waveform")
+            prev_wav_sr   = (self._last_result or {}).get("wav_sr", 0)
+
             self._last_result = dict(
                 ref_sec=ref_sec, app_sec=app_sec,
                 tp_est=tp_est, fp_est=fp_est, fn_ref=fn_ref,
-                waveform=None, wav_sr=0,
+                waveform=prev_waveform, wav_sr=prev_wav_sr,
                 duration_sec=dur,
                 f_score=f_val, bpm_app=bpm_app, bpm_ref=bpm_ref,
                 engine_name=eng_name,
