@@ -1003,8 +1003,8 @@ class App(tk.Tk):
         col2 = tk.Frame(main)
         col2.grid(row=0, column=1, sticky="nsew", padx=(3, 0))
         col2.columnconfigure(0, weight=1)
-        col2.rowconfigure(0, weight=3)
-        col2.rowconfigure(1, weight=2)
+        col2.rowconfigure(0, weight=4)
+        col2.rowconfigure(1, weight=1)
 
         # 2열 1행: 분석 결과 — 엔진별 풀 상세 카드 3개
         results_frame = tk.Frame(col2, bg="#1a1a2e", bd=1, relief="solid")
@@ -1026,104 +1026,94 @@ class App(tk.Tk):
         tk.Label(song_info_inner, textvariable=self.v_song_id,
                  bg="#1e272e", fg="#546e7a", font=("", 8), anchor="w").pack(anchor="w")
 
-        # ── 엔진 카드 3개 (풀 상세) ──────────────
+        # ── 엔진 카드 3개 (풀 상세, 세로 꽉 채움) ──
         cards_outer = tk.Frame(results_frame, bg="#1a1a2e")
         cards_outer.grid(row=1, column=0, sticky="nsew", padx=4, pady=(4, 4))
         for _ci in range(3):
             cards_outer.columnconfigure(_ci, weight=1)
         cards_outer.rowconfigure(0, weight=1)
 
-        # 카드 내부 mini-metric 헬퍼
-        def _mrow(parent, bg):
-            f = tk.Frame(parent, bg=bg)
-            f.pack(fill="x", padx=0, pady=0)
-            return f
-
-        def _mmetric(parent, label, var, fg_color, bg, tip_key=None):
+        # 카드 내부 grid 기반 metric 셀 헬퍼
+        def _mmetric(parent, label, var, fg_color, bg, row, col, colspan=1, tip_key=None):
             cell = tk.Frame(parent, bg=bg)
-            cell.pack(side="left", fill="both", expand=True, padx=2, pady=1)
+            cell.grid(row=row, column=col, columnspan=colspan,
+                      sticky="nsew", padx=2, pady=2)
             hf = tk.Frame(cell, bg=bg)
-            hf.pack(anchor="w", fill="x", padx=4, pady=(3, 0))
-            tk.Label(hf, text=label, bg=bg, fg="#78909c", font=("", 7)).pack(side="left")
+            hf.pack(anchor="w", fill="x", padx=6, pady=(5, 0))
+            tk.Label(hf, text=label, bg=bg, fg="#90a4ae", font=("", 9)).pack(side="left")
             if tip_key and tip_key in _TIPS:
-                tl = tk.Label(hf, text="?", bg=bg, fg="#37474f",
-                              font=("", 6, "bold"), cursor="question_arrow")
-                tl.pack(side="left", padx=(2, 0))
+                tl = tk.Label(hf, text=" ?", bg=bg, fg="#546e7a",
+                              font=("", 8, "bold"), cursor="question_arrow")
+                tl.pack(side="left")
                 _attach_tooltip(tl, _TIPS[tip_key])
             tk.Label(cell, textvariable=var, bg=bg, fg=fg_color,
-                     font=("", 12, "bold"), anchor="w").pack(anchor="w", padx=4, pady=(0, 3))
+                     font=("", 16, "bold"), anchor="w").pack(
+                     anchor="w", padx=6, pady=(2, 5), fill="x")
+            # 클릭 이벤트 전파용 빈 공간 채우기
             return cell
 
         for col_i, eng in enumerate(("beat_transformer", "madmom", "librosa")):
             eng_label, eng_acc, eng_color = ENGINE_INFO[eng]
-            CARD_BG  = "#1e2836"
-            CELL_BG  = "#263238"
+            CARD_BG = "#1e2836"
+            CELL_BG = "#263238"
 
             card = tk.Frame(cards_outer, bg=CARD_BG, bd=2, relief="groove", cursor="hand2")
             card.grid(row=0, column=col_i, sticky="nsew", padx=3, pady=2)
             card.columnconfigure(0, weight=1)
-            card.rowconfigure(2, weight=1)   # metrics 영역이 늘어남
+            card.rowconfigure(2, weight=1)  # metrics_body 세로 확장
 
             # 헤더
             hdr = tk.Frame(card, bg=eng_color)
             hdr.grid(row=0, column=0, sticky="ew")
             tk.Label(hdr, text=f"{eng_label}  {eng_acc}", bg=eng_color, fg="white",
-                     font=("", 9, "bold"), anchor="w").pack(padx=8, pady=(5, 4), anchor="w")
+                     font=("", 11, "bold"), anchor="w").pack(padx=10, pady=(6, 5), anchor="w")
 
             # 등급 행
             grade_f = tk.Frame(card, bg=eng_color)
             grade_f.grid(row=1, column=0, sticky="ew")
             grade_lbl = tk.Label(grade_f, text="—", bg=eng_color, fg="white",
-                                  font=("", 30, "bold"), width=3)
-            grade_lbl.pack(side="left", padx=(8, 4), pady=4)
+                                  font=("", 36, "bold"), width=3)
+            grade_lbl.pack(side="left", padx=(10, 4), pady=6)
             grade_sub = tk.Label(grade_f, text="미분석", bg=eng_color, fg="white",
-                                  font=("", 9), justify="left", anchor="w", wraplength=200)
-            grade_sub.pack(side="left", fill="x", expand=True, padx=(0, 6))
+                                  font=("", 11), justify="left", anchor="w", wraplength=220)
+            grade_sub.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
-            # 지표 영역
+            # 지표 영역 — grid 4행 × 3열
             metrics_body = tk.Frame(card, bg=CARD_BG)
             metrics_body.grid(row=2, column=0, sticky="nsew", padx=2, pady=2)
-            metrics_body.columnconfigure(0, weight=1)
+            for _ci2 in range(3):
+                metrics_body.columnconfigure(_ci2, weight=1)
+            for _ri in range(4):
+                metrics_body.rowconfigure(_ri, weight=1)
 
-            # StringVar 생성
-            v_f    = tk.StringVar(value="—")
-            v_p    = tk.StringVar(value="—")
-            v_r    = tk.StringVar(value="—")
-            v_cov  = tk.StringVar(value="—")
-            v_tp   = tk.StringVar(value="—")
-            v_fp   = tk.StringVar(value="—")
-            v_fn   = tk.StringVar(value="—")
+            # StringVar
+            v_f     = tk.StringVar(value="—")
+            v_p     = tk.StringVar(value="—")
+            v_r     = tk.StringVar(value="—")
+            v_cov   = tk.StringVar(value="—")
+            v_tp    = tk.StringVar(value="—")
+            v_fp    = tk.StringVar(value="—")
+            v_fn    = tk.StringVar(value="—")
             v_bpm_a = tk.StringVar(value="—")
             v_bpm_g = tk.StringVar(value="—")
             v_bpm_e = tk.StringVar(value="—")
             v_gaps  = tk.StringVar(value="—")
 
-            # 행 1: F-measure + 커버리지
-            r1 = tk.Frame(metrics_body, bg=CARD_BG)
-            r1.pack(fill="x", pady=(2, 0))
-            _mmetric(r1, "F-measure", v_f,    "#69f0ae", CELL_BG, "F-measure")
-            _mmetric(r1, "커버리지",   v_cov,  "#82b1ff", CELL_BG, "커버리지")
-            # 행 2: Precision + Recall + 대형갭
-            r2 = tk.Frame(metrics_body, bg=CARD_BG)
-            r2.pack(fill="x")
-            _mmetric(r2, "Precision", v_p,    "#b3e5fc", CELL_BG, "Precision")
-            _mmetric(r2, "Recall",    v_r,    "#b3e5fc", CELL_BG, "Recall")
-            _mmetric(r2, "대형갭",    v_gaps, "#ffcc02", CELL_BG, "대형갭")
-            # 행 3: TP + FP + FN
-            r3 = tk.Frame(metrics_body, bg=CARD_BG)
-            r3.pack(fill="x")
-            _mmetric(r3, "TP (일치)",   v_tp, "#69f0ae", CELL_BG, "TP (일치)")
-            _mmetric(r3, "FP (오감지)", v_fp, "#ef9a9a", CELL_BG, "FP (오감지)")
-            _mmetric(r3, "FN (누락)",   v_fn, "#82b1ff", CELL_BG, "FN (누락)")
-            # 행 4: BPM 앱 + GT + 오차
-            r4 = tk.Frame(metrics_body, bg=CARD_BG)
-            r4.pack(fill="x", pady=(0, 2))
-            _mmetric(r4, "BPM (앱)",  v_bpm_a, "#ffffff", CELL_BG, "BPM (앱)")
-            _mmetric(r4, "BPM (GT)", v_bpm_g, "#ffffff", CELL_BG, "BPM (GT)")
-            _mmetric(r4, "BPM 오차", v_bpm_e, "#ffcc02", CELL_BG, "BPM 오차")
+            cells = []
+            cells += [_mmetric(metrics_body, "F-measure",  v_f,     "#69f0ae", CELL_BG, 0, 0, 2, "F-measure")]
+            cells += [_mmetric(metrics_body, "커버리지",    v_cov,   "#82b1ff", CELL_BG, 0, 2, 1, "커버리지")]
+            cells += [_mmetric(metrics_body, "Precision",  v_p,     "#b3e5fc", CELL_BG, 1, 0, 1, "Precision")]
+            cells += [_mmetric(metrics_body, "Recall",     v_r,     "#b3e5fc", CELL_BG, 1, 1, 1, "Recall")]
+            cells += [_mmetric(metrics_body, "대형갭",     v_gaps,  "#ffcc02", CELL_BG, 1, 2, 1, "대형갭")]
+            cells += [_mmetric(metrics_body, "TP (일치)",  v_tp,    "#69f0ae", CELL_BG, 2, 0, 1, "TP (일치)")]
+            cells += [_mmetric(metrics_body, "FP (오감지)",v_fp,    "#ef9a9a", CELL_BG, 2, 1, 1, "FP (오감지)")]
+            cells += [_mmetric(metrics_body, "FN (누락)",  v_fn,    "#82b1ff", CELL_BG, 2, 2, 1, "FN (누락)")]
+            cells += [_mmetric(metrics_body, "BPM (앱)",   v_bpm_a, "#ffffff", CELL_BG, 3, 0, 1, "BPM (앱)")]
+            cells += [_mmetric(metrics_body, "BPM (GT)",   v_bpm_g, "#ffffff", CELL_BG, 3, 1, 1, "BPM (GT)")]
+            cells += [_mmetric(metrics_body, "BPM 오차",   v_bpm_e, "#ffcc02", CELL_BG, 3, 2, 1, "BPM 오차")]
 
-            # 클릭 바인딩
-            for w in [card, hdr, grade_f, grade_lbl, grade_sub, metrics_body]:
+            # 클릭 바인딩 (카드 전체 + 셀 모두)
+            for w in [card, hdr, grade_f, grade_lbl, grade_sub, metrics_body] + cells:
                 w.bind("<Button-1>", lambda e, _eng=eng: self._select_engine_card(_eng))
 
             self._card_widgets[eng] = {
