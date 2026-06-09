@@ -313,17 +313,16 @@ object BeatDetectorV5 {
         }
 
         // ── 하모닉 옥타브 보정 ────────────────────────────────────────────────
-        // 정규화: combScore × fpb / n = 그리드 포인트당 평균 ODF (grid-point average)
-        //   - / fpb 는 버그: 2x interval 이 항상 유리해짐
-        //   - × fpb / n 는 전체 그리드 수로 나눠 공정한 비교 가능
-        // prior: comb score 에 log-Gaussian(center=120BPM, σ=0.8) 가중치 적용
-        //   - DBN 은 unbiased uniform 으로 실행, 후처리에서만 gentle push
-        //   - 0.5x 오류(downbeat 쏠림) 보정용
         val LOG_BPM_CENTER  = ln(120f)
         val LOG_BPM_SX2     = 2f * 1.5f * 1.5f  // 2σ²
 
-        fun combPriorScore(beatMs: Long, fpb: Int): Float {
-            val raw   = combFilterScore(odf, beatMs, hopMs) * fpb.toFloat() / n.toFloat()
+        // combPriorScore: raw sum (fpb/n 정규화 제거)
+        // 이유: * fpb/n 는 저BPM 이 유리해지는 편향 발생
+        //   - 120BPM 곡을 60BPM 으로 잘못 감지 시: 60BPM raw ≈ 120BPM raw (수학적 동등)
+        //   - prior(120BPM)=1.0 > prior(60BPM)=0.90 → 120BPM 선택 → 0.5× 오류 수정
+        //   - 진짜 66BPM 곡: 66BPM raw ≈ 2× 132BPM raw → 66BPM 유지 → 느린 곡 보호
+        fun combPriorScore(beatMs: Long): Float {
+            val raw   = combFilterScore(odf, beatMs, hopMs)
             val bpm   = 60_000f / beatMs.toFloat()
             val d     = ln(bpm) - LOG_BPM_CENTER
             val prior = exp(-(d * d) / LOG_BPM_SX2.toDouble()).toFloat()
@@ -331,17 +330,22 @@ object BeatDetectorV5 {
         }
 
         val resultMs    = intervals[bestII].toLong() * hopMs
-        val fpbResult   = max(1, (resultMs / hopMs).toInt())
         var bestCorrMs  = resultMs
-        var bestCorrPBS = combPriorScore(resultMs, fpbResult)
+        var bestCorrPBS = combPriorScore(resultMs)
 
-        val harmRatios  = floatArrayOf(0.5f, 2f/3f, 4f/3f, 1.5f, 2.0f)
+        // harmRatios: 0.5 만 유지 (빠른 BPM 으로의 업스케일만 허용)
+        // 제거된 비율과 그 이유:
+        //   2/3  → 74BPM → 111BPM (1.5× 오류 3곡 원인)
+        //   4/3  → 133BPM → 100BPM, 107BPM → 81BPM (0.75× 오류 원인)
+        //   1.5  → 117BPM → 78BPM (0.67× 오류 원인)
+        //   2.0  → 역방향(느리게)으로 오탐 가능성
+        val harmRatios  = floatArrayOf(0.5f)
         for (r in harmRatios) {
             val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt()
                              .coerceAtLeast(1)
             val cMs = frames.toLong() * hopMs
             if (cMs < minBeatMs || cMs > maxBeatMs) continue
-            val pbs = combPriorScore(cMs, frames)
+            val pbs = combPriorScore(cMs)
             if (pbs > bestCorrPBS) {
                 bestCorrPBS = pbs
                 bestCorrMs  = cMs
