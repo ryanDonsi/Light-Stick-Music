@@ -64,47 +64,30 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
         // ── 2. 비트 감지 ──────────────────────────────────────────────
-        val t0Beat    = System.currentTimeMillis()
-        val v11Result = BeatDetectorV3.detect(
-            lowEnv  = lowEnv,
-            midEnv  = midEnv,
-            fullEnv = fullEnv,
-            params  = BeatDetectorV3.Params(
-                hopMs             = HOP_MS,
-                minBeatMs         = MIN_BEAT_MS,
-                maxBeatMs         = 1200L,
-                minPeakDistanceMs = 140L,
-                onsetSmoothWindow = 3,
-                peakThresholdK    = 0.28f,
-                minPeakAbs        = 0.07f,
-                snapToleranceMs   = 130L,
-                chainToleranceMs  = 150L,
-                minChainCount     = 3,
-                continuityBonus   = 0.08f
-            )
-        )
+        val t0Beat   = System.currentTimeMillis()
+        val beatInfo = BeatDetectorRouter.detect(3, lowEnv, midEnv, fullEnv, HOP_MS, MIN_BEAT_MS, 1200L)
 
-        val globalBeatMs = v11Result.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
-        val beatsPerBar  = v11Result.timeSignature.beatsPerBar
-        Log.d(TAG, "v1 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs beats=${v11Result.beats.size} timeSig=${v11Result.timeSignature.type}")
+        val globalBeatMs = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+        val beatsPerBar  = beatInfo.beatsPerBar
+        Log.d(TAG, "v1 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs beats=${beatInfo.beats.size}")
 
-        if (v11Result.beats.isNotEmpty()) {
-            val first = v11Result.beats.take(12).joinToString(" ") { "${it.timeMs}" }
-            val last  = v11Result.beats.takeLast(4).joinToString(" ") { "${it.timeMs}" }
+        if (beatInfo.beats.isNotEmpty()) {
+            val first = beatInfo.beats.take(12).joinToString(" ") { "${it.timeMs}" }
+            val last  = beatInfo.beats.takeLast(4).joinToString(" ") { "${it.timeMs}" }
             Log.d(TAG, "v1 beatTimes[$fileName] first=[$first] last=[$last]")
         }
 
-        if (v11Result.beats.isNotEmpty()) {
-            val synth  = v11Result.beats.count { it.confidence <= 0.20f }
-            val real   = v11Result.beats.size - synth
-            val sPct   = synth * 100 / v11Result.beats.size
+        if (beatInfo.beats.isNotEmpty()) {
+            val synth  = beatInfo.beats.count { it.confidence <= 0.20f }
+            val real   = beatInfo.beats.size - synth
+            val sPct   = synth * 100 / beatInfo.beats.size
             Log.d(TAG, "v1 [A] V11_quality[$fileName]: " +
-                "real=$real synth=$synth(${sPct}%) total=${v11Result.beats.size}")
+                "real=$real synth=$synth(${sPct}%) total=${beatInfo.beats.size}")
 
             val gapTh  = globalBeatMs * 3
-            val bigGaps = (1 until v11Result.beats.size).mapNotNull { i ->
-                val gap = v11Result.beats[i].timeMs - v11Result.beats[i - 1].timeMs
-                if (gap >= gapTh) "${v11Result.beats[i - 1].timeMs / 1000}s+${gap}ms" else null
+            val bigGaps = (1 until beatInfo.beats.size).mapNotNull { i ->
+                val gap = beatInfo.beats[i].timeMs - beatInfo.beats[i - 1].timeMs
+                if (gap >= gapTh) "${beatInfo.beats[i - 1].timeMs / 1000}s+${gap}ms" else null
             }
             if (bigGaps.isEmpty())
                 Log.d(TAG, "v1 [A] V11_gaps[$fileName]: 없음 (최대 < ${gapTh}ms) ✓")
@@ -114,7 +97,7 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
 
         // ── 3. 타임라인 빌드 ──────────────────────────────────────────
         val t0Build = System.currentTimeMillis()
-        val frames = buildTimeline(v11Result.beats, globalBeatMs, beatsPerBar, durationMs)
+        val frames = buildTimeline(beatInfo.beats, globalBeatMs, beatsPerBar, durationMs)
         Log.d(TAG, "v1 [PERF] build=${System.currentTimeMillis() - t0Build}ms frames=${frames.size}")
         Log.d(TAG, "v1 [PERF] total=${System.currentTimeMillis() - t0Total}ms  file=$fileName durationMs=$durationMs")
         return frames.sortedBy { it.first }
@@ -125,7 +108,7 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
     // ──────────────────────────────────────────────────────────────
 
     private fun buildTimeline(
-        beats: List<BeatDetectorV3.TimedBeat>,
+        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
         beatMs: Long,
         beatsPerBar: Int,
         durationMs: Long

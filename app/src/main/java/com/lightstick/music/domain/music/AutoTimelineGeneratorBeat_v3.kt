@@ -119,26 +119,13 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        // ── 2. Beat detection (BeatDetectorV3 고정) ──────────────────
-        val t0Beat     = System.currentTimeMillis()
-        val beatResult = BeatDetectorV3.detect(lowEnv, midEnv, fullEnv,
-            BeatDetectorV3.Params(
-                hopMs             = HOP_MS,
-                minBeatMs         = MIN_BEAT_MS,
-                maxBeatMs         = MAX_BEAT_MS,
-                minPeakDistanceMs = 140L,
-                onsetSmoothWindow = 3,
-                peakThresholdK    = 0.28f,
-                minPeakAbs        = 0.07f,
-                snapToleranceMs   = 130L,
-                chainToleranceMs  = 150L,
-                minChainCount     = 3,
-                continuityBonus   = 0.08f
-            ))
-        val beatInfoBeats  = beatResult.beats.map { BeatDetectorRouter.BeatInfo.Beat(it.timeMs, it.confidence) }
-        val globalBeatMs   = beatResult.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
-        val beatsPerBar    = beatResult.timeSignature.beatsPerBar
-        val downbeatMs     = (beatResult.beats.firstOrNull()?.timeMs ?: 0L) + beatResult.downbeatOffsetMs
+        // ── 2. Beat detection (BeatDetectorRouter version=3) ──────────
+        val t0Beat        = System.currentTimeMillis()
+        val beatInfo      = BeatDetectorRouter.detect(3, lowEnv, midEnv, fullEnv, HOP_MS, MIN_BEAT_MS, MAX_BEAT_MS)
+        val beatInfoBeats = beatInfo.beats
+        val globalBeatMs  = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+        val beatsPerBar   = beatInfo.beatsPerBar
+        val downbeatMs    = beatInfo.downbeatMs
         val beatTimesMs    = beatInfoBeats.map { it.timeMs }.filter { it in 0..durationMs }
 
         if (beatTimesMs.isEmpty()) {

@@ -70,16 +70,15 @@ class AutoTimelineGeneratorBeat_v6 : AutoTimelineGenerator {
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        // BeatDetectorV11로 globalBeatMs 계산 (하모닉 폴딩 보정 포함)
-        val v11Result    = BeatDetectorV2.detect(lowEnv, midEnv, fullEnv)
-        val globalBeatMs = if (v11Result.beatMs > 0L) v11Result.beatMs else 500L
+        // BeatDetectorRouter version=3 으로 globalBeatMs 계산
+        val beatInfo     = BeatDetectorRouter.detect(3, lowEnv, midEnv, fullEnv, HOP_MS, 290L, 1200L)
+        val globalBeatMs = if (beatInfo.beatMs > 0L) beatInfo.beatMs else 500L
 
         // 첫 비트 위상 추정 — novelty 에너지 분포 기반 (V11 beatMs 기준으로 계산)
         val novelty = computeNovelty(lowEnv, midEnv, fullEnv)
         val phaseMs = estimatePhaseOffsetMs(novelty, HOP_MS, globalBeatMs)
 
-        Log.d(TAG, "v6 v11BeatMs=${v11Result.beatMs} globalBeatMs=$globalBeatMs " +
-                "phaseMs=$phaseMs durationMs=$durationMs reason=${v11Result.reason}")
+        Log.d(TAG, "v6 globalBeatMs=$globalBeatMs phaseMs=$phaseMs durationMs=$durationMs")
 
         val onDurationMs = (globalBeatMs * 20L / 100L).coerceAtLeast(1L)
         val palette = buildPalette(musicId, paletteSize.coerceIn(3, 5))

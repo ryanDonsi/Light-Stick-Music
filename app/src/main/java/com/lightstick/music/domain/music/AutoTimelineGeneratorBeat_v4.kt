@@ -38,7 +38,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
 
         private const val ON_TRANSIT = 2
 
-        private const val INTRO_PRESTART_TRANSIT_MS = 1_000L
         private const val MIN_TRAILING_SILENCE_MS   = 1_500L
 
         private const val ACTUAL_BEAT_USE_RATIO = 0.45f
@@ -50,7 +49,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         private const val SECTION_GAP_BREATH_THRESHOLD_MS = 2_000L
 
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
-        private const val ON_PULSE_BG_TRANSIT     = 5
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
 
         // IIR 필터 계수 (V2와 동일: HIGH 밴드 포함)
@@ -119,27 +117,14 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        // ── 2. Beat detection (BeatDetectorV2 고정) ──────────────────
-        val t0Beat     = System.currentTimeMillis()
-        val beatResult = BeatDetectorV2.detect(lowEnv, midEnv, fullEnv,
-            BeatDetectorV2.Params(
-                hopMs             = HOP_MS,
-                minBeatMs         = MIN_BEAT_MS,
-                maxBeatMs         = MAX_BEAT_MS,
-                minPeakDistanceMs = 140L,
-                onsetSmoothWindow = 3,
-                peakThresholdK    = 0.28f,
-                minPeakAbs        = 0.07f,
-                snapToleranceMs   = 130L,
-                chainToleranceMs  = 150L,
-                minChainCount     = 3,
-                continuityBonus   = 0.08f
-            ))
-        val beatInfoBeats  = beatResult.beats.map { BeatDetectorRouter.BeatInfo.Beat(it.timeMs, it.confidence) }
-        val globalBeatMs   = beatResult.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+        // ── 2. Beat detection (BeatDetectorRouter version=3) ──────────
+        val t0Beat        = System.currentTimeMillis()
+        val beatInfo      = BeatDetectorRouter.detect(3, lowEnv, midEnv, fullEnv, HOP_MS, MIN_BEAT_MS, MAX_BEAT_MS)
+        val beatInfoBeats = beatInfo.beats
+        val globalBeatMs  = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
             .let { if (it > 900L) it / 2L else it }
-        val beatsPerBar    = beatResult.timeSignature.beatsPerBar
-        val downbeatMs     = (beatResult.beats.firstOrNull()?.timeMs ?: 0L) + beatResult.downbeatOffsetMs
+        val beatsPerBar   = beatInfo.beatsPerBar
+        val downbeatMs    = beatInfo.downbeatMs
         val beatTimesMs    = beatInfoBeats.map { it.timeMs }.filter { it in 0..durationMs }
 
         if (beatTimesMs.isEmpty()) {
@@ -267,7 +252,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         }
     }
 
-    /** SectionDetectorV2 타입별 FgEngine 할당 */
+    @Suppress("UNUSED_PARAMETER")
     private fun assignFgEngine(
         type: SectionDetector.SectionType,
         rel: Float, beats: Int, globalBeatMs: Long,
@@ -302,6 +287,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         SectionDetector.SectionType.END    -> FgEngine.OFF_TRANSIT
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun buildSourceName(type: SectionDetector.SectionType, engine: FgEngine, beats: Int): String =
         when (type) {
             SectionDetector.SectionType.INTRO  -> "intro-breath"
@@ -468,8 +454,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
                     else -> beatEngine
                 }
 
-                val (fg, bg) = colorsForEngine(palette, effectiveEngine, sameTypeIdx, beatIndex, section.type)
-                val bgNonNull = bg ?: LSColor(0, 0, 0)
+                val (fg, bgNonNull) = colorsForEngine(palette, effectiveEngine, sameTypeIdx, beatIndex, section.type)
 
                 val beatPeriod = when (effectiveEngine) {
                     FgEngine.STROBE -> 1
@@ -627,6 +612,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
     // Bridge phase engine (V8와 동일)
     // ──────────────────────────────────────────────────────────────
 
+    @Suppress("UNUSED_PARAMETER")
     private fun bridgePhaseEngine(
         beatIndex: Int, totalBeats: Int, beatMs: Long, relScore: Float, isBalladMode: Boolean
     ): FgEngine {
