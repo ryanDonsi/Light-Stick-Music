@@ -592,9 +592,10 @@ def build_beatmap_figure(
     ax_wave.set_ylabel("진폭", color="#90a4ae", fontsize=8)
 
     # ── [2] 전체 비트맵 (피아노롤 스타일) ──────────
-    ax_full.set_title(f"전체 비트맵  (위: {engine_name} / 아래: 앱)", color="#90a4ae", fontsize=9, loc="left")
+    ax_full.set_title(f"전체 비트맵  (파형 / {engine_name} / 앱)", color="#90a4ae", fontsize=9, loc="left")
     _draw_beat_lanes(ax_full, ref_sec, app_sec, tp_est, fp_est, fn_ref,
-                     0, duration_sec, C_TP, C_FP, C_FN, C_GRID, engine_name=engine_name)
+                     0, duration_sec, C_TP, C_FP, C_FN, C_GRID, engine_name=engine_name,
+                     waveform=waveform, wav_sr=wav_sr, duration_sec=duration_sec)
 
     # 줌 범위 기본값: 처음 30초
     if zoom_start is None: zoom_start = 0.0
@@ -608,7 +609,8 @@ def build_beatmap_figure(
     )
     _draw_beat_lanes(ax_zoom, ref_sec, app_sec, tp_est, fp_est, fn_ref,
                      zoom_start, zoom_end, C_TP, C_FP, C_FN, C_GRID,
-                     show_ms_label=True, engine_name=engine_name)
+                     show_ms_label=True, engine_name=engine_name,
+                     waveform=waveform, wav_sr=wav_sr, duration_sec=duration_sec)
 
     # ── [4] 비트 인터벌 히스토그램 ────────────────
     ax_hist.set_title("비트 간격 분포  (ms)", color="#90a4ae", fontsize=9, loc="left")
@@ -637,34 +639,60 @@ def build_beatmap_figure(
 
 def _draw_beat_lanes(ax, ref_sec, app_sec, tp_est, fp_est, fn_ref,
                      t_start, t_end, C_TP, C_FP, C_FN, C_GRID,
-                     show_ms_label=False, engine_name="GT"):
-    """GT 레인(위)과 앱 레인(아래)에 비트를 그린다."""
+                     show_ms_label=False, engine_name="GT",
+                     waveform=None, wav_sr=0, duration_sec=0):
+    """파형(최상단) + GT 레인 + 앱 레인을 하나의 axes에 그린다."""
+    # Y 레이아웃: 파형(2.5~3.35) | 구분선(2.4) | GT(1.8) | 구분선(1.2) | 앱(0.6)
+    WAVE_CTR  = 2.875
+    WAVE_HALF = 0.375
+    GT_BOT    = 1.525
+    APP_BOT   = 0.325
+    bar_h     = 0.55
+
     ax.set_xlim(t_start, t_end)
-    ax.set_ylim(0, 2.4)
-    ax.set_yticks([0.6, 1.8])
-    ax.set_yticklabels(["앱", engine_name], color="#90a4ae", fontsize=8)
+    ax.set_ylim(0, 3.6)
+    ax.set_yticks([0.6, 1.8, WAVE_CTR])
+    ax.set_yticklabels(["앱", engine_name, "파형"], color="#90a4ae", fontsize=8)
     ax.set_xlabel("시간 (초)", color="#90a4ae", fontsize=8)
     ax.axhline(1.2, color=C_GRID, linewidth=0.5)
-
-    bar_h = 0.55
+    ax.axhline(2.4, color=C_GRID, linewidth=0.5)
 
     def in_range(t):
         return t_start <= t <= t_end
 
-    # GT 레인 (y=1.8 중심)
+    # ── 파형 레인 ─────────────────────────────────
+    C_WAVE = "#b0bec5"
+    if waveform is not None and wav_sr > 0 and duration_sec > 0:
+        total_samples = len(waveform)
+        s_start = max(0, int(t_start / duration_sec * total_samples))
+        s_end   = min(total_samples, int(t_end / duration_sec * total_samples))
+        seg = waveform[s_start:s_end]
+        if len(seg) > 1:
+            # 화면 픽셀보다 많으면 다운샘플
+            if len(seg) > 3000:
+                step = len(seg) // 3000
+                seg  = seg[::step]
+            times_seg = np.linspace(t_start, t_end, len(seg))
+            peak = np.max(np.abs(seg)) or 1.0
+            seg_scaled = seg / peak * WAVE_HALF
+            ax.plot(times_seg, WAVE_CTR + seg_scaled,
+                    color=C_WAVE, linewidth=0.4, alpha=0.75)
+            ax.fill_between(times_seg, WAVE_CTR, WAVE_CTR + seg_scaled,
+                            color=C_WAVE, alpha=0.12)
+
+    # ── GT 레인 (y=1.8 중심) ──────────────────────
     for t in [x for x in fn_ref if in_range(x)]:
-        ax.bar(t, bar_h, width=0.012, bottom=1.525, color=C_FN, alpha=0.9)
+        ax.bar(t, bar_h, width=0.012, bottom=GT_BOT, color=C_FN, alpha=0.9)
     for t in [x for x in tp_est if in_range(x)]:
-        # GT에서의 TP 위치 — ref에서 가장 가까운 것 사용
-        ax.bar(t, bar_h, width=0.012, bottom=1.525, color=C_TP, alpha=0.9)
+        ax.bar(t, bar_h, width=0.012, bottom=GT_BOT, color=C_TP, alpha=0.9)
 
-    # 앱 레인 (y=0.6 중심)
+    # ── 앱 레인 (y=0.6 중심) ──────────────────────
     for t in [x for x in tp_est if in_range(x)]:
-        ax.bar(t, bar_h, width=0.012, bottom=0.325, color=C_TP, alpha=0.9)
+        ax.bar(t, bar_h, width=0.012, bottom=APP_BOT, color=C_TP, alpha=0.9)
     for t in [x for x in fp_est if in_range(x)]:
-        ax.bar(t, bar_h, width=0.012, bottom=0.325, color=C_FP, alpha=0.9)
+        ax.bar(t, bar_h, width=0.012, bottom=APP_BOT, color=C_FP, alpha=0.9)
 
-    # ms 오차 라벨 (줌 뷰 전용)
+    # ── ms 오차 라벨 (줌 뷰 전용) ─────────────────
     if show_ms_label:
         ref_arr = np.array(ref_sec)
         for t in [x for x in tp_est if in_range(x)]:
