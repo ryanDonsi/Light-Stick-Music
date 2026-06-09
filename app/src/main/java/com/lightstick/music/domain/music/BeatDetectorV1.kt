@@ -98,6 +98,57 @@ object BeatDetectorV1 {
         val beatTimesMs: List<Long> get() = beats.map { it.timeMs }
     }
 
+    // IIR 계수 (AutoTimelineGeneratorBeat_v0 와 동일)
+    private const val LOW_ALPHA     = 0.12f
+    private const val MID_LP1_ALPHA = 0.35f
+    private const val MID_LP2_ALPHA = 0.08f
+
+    // =========================================================================
+    // PCM 입력 entry point — 내부에서 IIR 필터로 low/mid/full 엔벨로프 계산 후 detect()
+    // =========================================================================
+
+    fun detectPcm(
+        monoSamples: FloatArray,
+        sampleRate: Int,
+        params: Params = Params()
+    ): DetectResult {
+        if (monoSamples.isEmpty() || sampleRate <= 0) {
+            return DetectResult(emptyList(), 0L, null, "empty pcm", 0L, TimeSignature.FOUR_FOUR)
+        }
+        val hopSamples = max(1, (sampleRate * params.hopMs / 1000).toInt())
+        val numFrames  = monoSamples.size / hopSamples
+        val outLow  = ArrayList<Float>(numFrames)
+        val outMid  = ArrayList<Float>(numFrames)
+        val outFull = ArrayList<Float>(numFrames)
+
+        var lowZ = 0f; var midLP1 = 0f; var midLP2 = 0f
+        var lowSumSq = 0f; var midSumSq = 0f; var fullSumSq = 0f; var winPos = 0
+
+        for (sample in monoSamples) {
+            lowZ   += LOW_ALPHA     * (sample - lowZ)
+            midLP1 += MID_LP1_ALPHA * (sample - midLP1)
+            midLP2 += MID_LP2_ALPHA * (sample - midLP2)
+            val lowVal = kotlin.math.abs(lowZ)
+            val midVal = kotlin.math.abs(midLP1 - midLP2)
+            lowSumSq  += lowVal * lowVal
+            midSumSq  += midVal * midVal
+            fullSumSq += sample * sample
+            winPos++
+            if (winPos >= hopSamples) {
+                outLow  += kotlin.math.sqrt(lowSumSq  / winPos)
+                outMid  += kotlin.math.sqrt(midSumSq  / winPos)
+                outFull += kotlin.math.sqrt(fullSumSq / winPos)
+                lowSumSq = 0f; midSumSq = 0f; fullSumSq = 0f; winPos = 0
+            }
+        }
+
+        fun normalizeEnv(src: List<Float>): List<Float> {
+            val mx = src.maxOrNull() ?: 0f
+            return if (mx > 1e-6f) src.map { (it / mx).coerceIn(0f, 1f) } else src
+        }
+        return detect(normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outFull), params)
+    }
+
     // =========================================================================
     // Public entry point
     // =========================================================================

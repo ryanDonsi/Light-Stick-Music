@@ -26,6 +26,48 @@ object BeatDetectorRouter {
         val beatTimesMs: List<Long> get() = beats.map { it.timeMs }
     }
 
+    // =========================================================================
+    // PCM 입력 오버로드 — version 1: V1(IIR 엔벨로프), version 2: V2(madmom SuperFlux)
+    // =========================================================================
+
+    fun detectPcm(
+        version: Int,
+        monoSamples: FloatArray,
+        sampleRate: Int,
+        minBeatMs: Long,
+        maxBeatMs: Long
+    ): BeatInfo = when (version) {
+
+        1 -> {
+            val r = BeatDetectorV1.detectPcm(monoSamples, sampleRate,
+                BeatDetectorV1.Params(
+                    hopMs     = 50L,
+                    minBeatMs = minBeatMs.coerceAtLeast(375L),
+                    maxBeatMs = maxBeatMs.coerceAtMost(1000L)
+                ))
+            BeatInfo(
+                beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
+                beatMs      = r.beatMs,
+                beatsPerBar = r.timeSignature.beatsPerBar,
+                downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
+            )
+        }
+
+        else -> { // 2: BeatDetectorV2 (madmom SuperFlux)
+            val r = BeatDetectorV2.detect(monoSamples, sampleRate,
+                BeatDetectorV2.Params(
+                    minBeatMs = minBeatMs.coerceAtLeast(375L),
+                    maxBeatMs = maxBeatMs.coerceAtMost(1000L)
+                ))
+            BeatInfo(
+                beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
+                beatMs      = r.beatMs,
+                beatsPerBar = r.timeSignature.beatsPerBar,
+                downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
+            )
+        }
+    }
+
     fun detect(
         version: Int,
         lowEnv: List<Float>,

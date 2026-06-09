@@ -65,30 +65,58 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
 
         // ── 1. 오디오 디코딩 ──────────────────────────────────────────
         val t0Decode = System.currentTimeMillis()
-        val (lowEnv, midEnv, fullEnv) = decodeAllEnvelopes(musicPath, HOP_MS.toInt())
-        Log.d(TAG, "v0 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size}")
+        val detectorVer = AutoTimelineConfig.BEAT_DETECTOR_VERSION
 
-        if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
-            Log.w(TAG, "v0 env empty -> return empty")
-            return emptyList()
+        val beatInfo: BeatDetectorRouter.BeatInfo
+        val durationMs: Long
+
+        if (detectorVer <= 2) {
+            // V1/V2: PCM 디코딩 → BeatDetectorRouter.detectPcm
+            val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
+            Log.d(TAG, "v0 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms samples=${monoSamples.size} sr=$sampleRate")
+            if (monoSamples.isEmpty()) {
+                Log.w(TAG, "v0 pcm empty -> return empty")
+                return emptyList()
+            }
+            durationMs = monoSamples.size.toLong() * 1000L / sampleRate
+
+            // ── 2. 비트 감지 ──────────────────────────────────────────────
+            val t0Beat = System.currentTimeMillis()
+            beatInfo = BeatDetectorRouter.detectPcm(
+                version      = detectorVer,
+                monoSamples  = monoSamples,
+                sampleRate   = sampleRate,
+                minBeatMs    = MIN_BEAT_MS,
+                maxBeatMs    = 1200L
+            )
+            val globalBeatMs0 = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+            Log.d(TAG, "v0 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs0 beats=${beatInfo.beats.size} beatsPerBar=${beatInfo.beatsPerBar} detectorVer=$detectorVer")
+        } else {
+            // V3/V4/V5: 엔벨로프 디코딩 → BeatDetectorRouter.detect
+            val (lowEnv, midEnv, fullEnv) = decodeAllEnvelopes(musicPath, HOP_MS.toInt())
+            Log.d(TAG, "v0 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size}")
+            if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
+                Log.w(TAG, "v0 env empty -> return empty")
+                return emptyList()
+            }
+            durationMs = fullEnv.size.toLong() * HOP_MS
+
+            // ── 2. 비트 감지 ──────────────────────────────────────────────
+            val t0Beat = System.currentTimeMillis()
+            beatInfo = BeatDetectorRouter.detect(
+                version   = detectorVer,
+                lowEnv    = lowEnv,
+                midEnv    = midEnv,
+                fullEnv   = fullEnv,
+                hopMs     = HOP_MS,
+                minBeatMs = MIN_BEAT_MS,
+                maxBeatMs = 1200L
+            )
+            val globalBeatMs0 = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
+            Log.d(TAG, "v0 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs0 beats=${beatInfo.beats.size} beatsPerBar=${beatInfo.beatsPerBar} detectorVer=$detectorVer")
         }
-
-        val durationMs = fullEnv.size.toLong() * HOP_MS
-
-        // ── 2. 비트 감지 ──────────────────────────────────────────────
-        val t0Beat = System.currentTimeMillis()
-        val beatInfo = BeatDetectorRouter.detect(
-            version    = AutoTimelineConfig.BEAT_DETECTOR_VERSION,
-            lowEnv     = lowEnv,
-            midEnv     = midEnv,
-            fullEnv    = fullEnv,
-            hopMs      = HOP_MS,
-            minBeatMs  = MIN_BEAT_MS,
-            maxBeatMs  = 1200L
-        )
         val globalBeatMs = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
         val beatsPerBar  = beatInfo.beatsPerBar
-        Log.d(TAG, "v0 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs beats=${beatInfo.beats.size} beatsPerBar=$beatsPerBar detectorVer=${AutoTimelineConfig.BEAT_DETECTOR_VERSION}")
 
         // 비트 타임스탬프 로그 (처음 12개 + 마지막 4개)
         if (beatInfo.beats.isNotEmpty()) {
@@ -230,6 +258,88 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
     // ──────────────────────────────────────────────────────────────
     // Audio decode / envelope
     // ──────────────────────────────────────────────────────────────
+
+    /**
+     * PCM 을 모노 FloatArray 로 디코딩한다. (V1/V2 전용)
+     * 스테레오 이상이면 채널 평균으로 다운믹스, -1.0..1.0 정규화.
+     */
+    private fun decodeMonoPcm(musicPath: String): Pair<FloatArray, Int> {
+        val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
+        return try {
+            extractor.setDataSource(musicPath)
+            var trackIndex = -1; var format: MediaFormat? = null
+            for (i in 0 until extractor.trackCount) {
+                val f = extractor.getTrackFormat(i)
+                if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
+                    trackIndex = i; format = f; break
+                }
+            }
+            if (trackIndex < 0 || format == null) {
+                extractor.release(); return Pair(FloatArray(0), 44100)
+            }
+            extractor.selectTrack(trackIndex)
+            val mime         = format.getString(MediaFormat.KEY_MIME)!!
+            val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            val stepBytes    = channelCount * 2
+
+            codec = MediaCodec.createDecoderByType(mime)
+            codec.configure(format, null, null, 0)
+            codec.start()
+
+            val out          = ArrayList<Float>(sampleRate * 30)  // pre-alloc ~30s
+            val bufferInfo   = MediaCodec.BufferInfo()
+            var sawInputEOS  = false; var sawOutputEOS = false
+
+            while (!sawOutputEOS) {
+                if (!sawInputEOS) {
+                    val inIdx = codec.dequeueInputBuffer(10_000)
+                    if (inIdx >= 0) {
+                        val buf = codec.getInputBuffer(inIdx)!!
+                        val sz  = extractor.readSampleData(buf, 0)
+                        if (sz < 0) {
+                            codec.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            sawInputEOS = true
+                        } else {
+                            codec.queueInputBuffer(inIdx, 0, sz, extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+                val outIdx = codec.dequeueOutputBuffer(bufferInfo, 10_000)
+                if (outIdx >= 0) {
+                    val buf = codec.getOutputBuffer(outIdx)
+                    if (buf != null && bufferInfo.size > 0) {
+                        buf.position(bufferInfo.offset)
+                        buf.limit(bufferInfo.offset + bufferInfo.size)
+                        val chunk = ByteArray(bufferInfo.size); buf.get(chunk)
+                        var byteIdx = 0
+                        while (byteIdx + stepBytes <= chunk.size) {
+                            var monoSum = 0f
+                            for (c in 0 until channelCount) {
+                                val lo = chunk[byteIdx + c * 2].toInt() and 0xFF
+                                val hi = chunk[byteIdx + c * 2 + 1].toInt()
+                                monoSum += (hi shl 8 or lo).toShort().toFloat()
+                            }
+                            out.add(monoSum / channelCount / 32768f)
+                            byteIdx += stepBytes
+                        }
+                    }
+                    codec.releaseOutputBuffer(outIdx, false)
+                    if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) sawOutputEOS = true
+                }
+            }
+            codec.stop(); codec.release(); extractor.release()
+            Pair(out.toFloatArray(), sampleRate)
+        } catch (t: Throwable) {
+            Log.e(TAG, "decodeMonoPcm fail: ${t.message}")
+            try { codec?.stop() }    catch (_: Throwable) {}
+            try { codec?.release() } catch (_: Throwable) {}
+            try { extractor.release() } catch (_: Throwable) {}
+            Pair(FloatArray(0), 44100)
+        }
+    }
 
     /** 단일 패스로 LOW / MID / FULL 엔벨로프를 동시에 추출한다. */
     private fun decodeAllEnvelopes(
