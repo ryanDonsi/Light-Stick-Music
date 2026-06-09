@@ -5,44 +5,48 @@ import org.jtransforms.fft.FloatFFT_1D
 import kotlin.math.*
 
 /**
- * BeatDetectorV2 — madmom SuperFlux ODF + ACF BPM + Ellis DP
+ * BeatDetectorV2 — madmom 풀 파이프라인 (SuperFlux ODF + DBN HMM + Ellis DP)
  *
- * madmom (Böck et al.) 논문의 SuperFlux onset detection function 을 순수 Kotlin 으로 구현.
+ * ODF:
+ *   PCM → STFT (Hanning, FFT_SIZE=2048, hop=20ms)
+ *   → log magnitude: log(1 + 1000|X|)
+ *   → 이전 프레임에 ±1 bin max filter 적용
+ *   → positive spectral flux = SuperFlux ODF (Böck & Widmer, 2013)
  *
- * ODF 파이프라인:
- *   PCM → STFT (Hanning window, FFT_SIZE=2048) → log magnitude: log(1+λ|X|), λ=1000
- *   → 이전 프레임에 max filter(±1 bin) 적용 → 양의 스펙트럼 차분 합산 = SuperFlux ODF
+ * BPM + 위상:
+ *   DBN HMM Forward (Viterbi-max 근사, madmom DBNBeatTrackingProcessor 방식)
+ *   상태 공간: (tempo_interval × beat_phase)
+ *   전이: tempo 변경에 지수 패널티(λ=100), beat_phase 결정론적 전진
+ *   관측: log(odf[t]) at beat, log((1-odf[t])/(λ_obs-1)) at non-beat
+ *   observationLambda=16 (madmom 기본값, SuperFlux 피크 선명도에 적합)
  *
- * BPM 추정:
- *   autocorr(ODF, lag) * log-normal prior (중심=120BPM, σ=1octave) → argmax
- *   half-tempo check: ratio ≥ 0.60 일 때만 빠른 템포 선택 (별보러가자 2x 오류 방지)
- *
- * Beat tracking:
- *   Ellis DP (tightness=100) + comb-phase 위상 앵커
+ * Beat 출력:
+ *   DBN으로 결정된 tempo + comb-phase 위상 앵커 → Ellis DP beat tracking
  */
 object BeatDetectorV2 {
 
     private const val TAG = "AutoTimeline"
 
-    // madmom SuperFlux 파라미터
+    // SuperFlux 파라미터
     private const val FFT_SIZE         = 2048
-    private const val HOP_MS_TARGET    = 10L      // ~10ms/frame (441 samples @ 44100Hz)
-    private const val LOG_LAMBDA       = 1000f    // log(1 + λ|X|)
-    private const val MAX_FILTER_WIDTH = 1        // ±1 bin max filter
+    private const val HOP_MS           = 20L     // 20ms hop — DBN 효율 vs ODF 품질 균형
+    private const val LOG_LAMBDA       = 1000f
+    private const val MAX_FILTER_WIDTH = 1       // ±1 bin
 
-    // BPM prior (V1 과 동일)
-    private const val PRIOR_CENTER_MS  = 500L
-    private const val PRIOR_STD_OCTAVE = 1.0f
-    private const val HALF_TEMPO_RATIO = 0.60f
+    // DBN 파라미터 (madmom DBNBeatTrackingProcessor 기본값)
+    private const val DBN_TRANSITION_LAMBDA  = 100f
+    private const val DBN_OBSERVATION_LAMBDA = 16   // madmom 기본값 (SuperFlux 피크 선명)
+
+    // 하모닉 보정 비율 (V5 와 동일)
+    private val HARM_RATIOS = floatArrayOf(0.5f, 4f / 3f)
 
     private const val FILL_CONFIDENCE  = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
 
-    private const val LOCAL_NORM_WINDOW = 80   // ODF 후처리 평활화 창
-    private const val TIME_SIG_THREE_RATIO = 1.20f
-    private const val TIME_SIG_SIX_RATIO   = 1.25f
-    private const val DOWNBEAT_W_LOW_ENERGY  = 0.50f
-    private const val DOWNBEAT_W_BAR_COMB    = 0.30f
+    private const val TIME_SIG_THREE_RATIO  = 1.20f
+    private const val TIME_SIG_SIX_RATIO    = 1.25f
+    private const val DOWNBEAT_W_LOW_ENERGY = 0.50f
+    private const val DOWNBEAT_W_BAR_COMB   = 0.30f
     private const val DOWNBEAT_W_CONSISTENCY = 0.20f
 
     data class TimedBeat(val timeMs: Long, val confidence: Float)
@@ -95,7 +99,7 @@ object BeatDetectorV2 {
             return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
 
-        val hopSamples = max(1, (sampleRate * HOP_MS_TARGET / 1000).toInt())
+        val hopSamples = max(1, (sampleRate * HOP_MS / 1000).toInt())
         val hopMs      = hopSamples * 1000L / sampleRate
         val durationMs = monoSamples.size.toLong() * 1000L / sampleRate
 
@@ -103,15 +107,18 @@ object BeatDetectorV2 {
         val odf = superFluxOdf(monoSamples, hopSamples)
         Log.d(TAG, "V2 SuperFlux odf frames=${odf.size} hopMs=$hopMs durationMs=$durationMs")
 
-        // ── 2. Dense BPM 추정 ─────────────────────────────────────────────────
-        val beatMs = estimateBpmDense(odf, hopMs, params.minBeatMs, params.maxBeatMs) ?: 500L
+        // ── 2. DBN HMM 템포 추정 (madmom DBNBeatTrackingProcessor) ───────────
+        val beatMs = dbnEstimateTempo(
+            odf, hopMs, params.minBeatMs, params.maxBeatMs,
+            DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA
+        )
         Log.d(TAG, "V2 beatMs=$beatMs (${60_000L / beatMs} BPM)")
 
-        // ── 3. 위상 추정 ──────────────────────────────────────────────────────
+        // ── 3. 위상 추정 (comb-phase) ─────────────────────────────────────────
         val phaseMs = estimatePhaseFromOdf(odf, beatMs, hopMs)
         Log.d(TAG, "V2 phaseMs=$phaseMs")
 
-        // ── 4. Global DP ──────────────────────────────────────────────────────
+        // ── 4. Global Ellis DP ────────────────────────────────────────────────
         val dpTimes = dpBeatTracker(odf, beatMs, hopMs, durationMs, anchorMs = phaseMs)
         Log.d(TAG, "V2 dpTimes=${dpTimes.size}")
 
@@ -139,8 +146,7 @@ object BeatDetectorV2 {
             beats.map { it.timeMs }, odf, beatMs, timeSignature.beatsPerBar, hopMs)
         val downbeatOffsetMs = (downbeatMs - (beats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        Log.d(TAG, "V2 OK beats=${beats.size} beatMs=$beatMs " +
-            "timeSig=${timeSignature.type} reason=$reason")
+        Log.d(TAG, "V2 OK beats=${beats.size} beatMs=$beatMs timeSig=${timeSignature.type} reason=$reason")
 
         return DetectResult(
             beats            = beats,
@@ -155,17 +161,14 @@ object BeatDetectorV2 {
     // =========================================================================
     // madmom SuperFlux ODF
     //
-    // 각 프레임:
-    //   1. Hanning window 적용 후 FFT
-    //   2. log magnitude: log(1 + λ|X[k]|)
-    //   3. 이전 프레임에 max filter(±1 bin): prevMax[k] = max(prev[k-1..k+1])
-    //   4. positive flux: sum(max(0, cur[k] - prevMax[k]))
+    //   frame t: Hanning-windowed FFT → log magnitude: log(1 + λ|X[k]|)
+    //   flux[t] = Σ max(0, logMag[t][k] - max(logMag[t-1][k-1..k+1]))
     //
-    // 메모리: 슬라이딩 2-프레임만 유지 (전체 스펙트럼 배열 불필요)
+    // 슬라이딩 2-프레임으로 메모리 최소화
     // =========================================================================
 
     private fun superFluxOdf(samples: FloatArray, hopSamples: Int): List<Float> {
-        val numBins = FFT_SIZE / 2 + 1
+        val numBins   = FFT_SIZE / 2 + 1
         val numFrames = if (samples.size >= FFT_SIZE)
             (samples.size - FFT_SIZE) / hopSamples + 1 else 0
         if (numFrames == 0) return emptyList()
@@ -188,10 +191,9 @@ object BeatDetectorV2 {
             fft.realForward(fftBuf)
 
             // JTransforms realForward packing:
-            //   fftBuf[0]       = Re(0)   DC
-            //   fftBuf[1]       = Re(N/2) Nyquist
-            //   fftBuf[2k], [2k+1] = Re(k), Im(k)  for k=1..N/2-1
-            curLogMag[0] = ln(1f + LOG_LAMBDA * abs(fftBuf[0]))
+            //   fftBuf[0] = Re(DC), fftBuf[1] = Re(Nyquist)
+            //   fftBuf[2k], fftBuf[2k+1] = Re(k), Im(k)  for k=1..N/2-1
+            curLogMag[0]          = ln(1f + LOG_LAMBDA * abs(fftBuf[0]))
             curLogMag[numBins - 1] = ln(1f + LOG_LAMBDA * abs(fftBuf[1]))
             for (k in 1 until numBins - 1) {
                 val re = fftBuf[2 * k]; val im = fftBuf[2 * k + 1]
@@ -220,50 +222,154 @@ object BeatDetectorV2 {
     }
 
     // =========================================================================
-    // Dense BPM 추정 (V1 과 동일 — log-normal prior + half-tempo check)
+    // DBN 템포 추정 — madmom DBNBeatTrackingProcessor 핵심 알고리즘
+    //
+    // 상태 공간: (tempo_interval i, beat_phase p), p ∈ [0, i)
+    // 전이 모델:
+    //   위상 전진: (i, p) → (i, p+1)       확률 1.0
+    //   박자 경계: (i, i-1) → (j, 0)       ∝ exp(-λ × |j/i - 1|)
+    // 관측 모델:
+    //   p == 0: log(odf[t])
+    //   p  > 0: log((1 - odf[t]) / (obsLambda - 1))
+    //
+    // V5의 dbnEstimateTempo와 동일 로직, observationLambda=16 (madmom 기본값)
     // =========================================================================
 
-    private fun estimateBpmDense(
-        odf: List<Float>, hopMs: Long, minBeatMs: Long, maxBeatMs: Long
-    ): Long? {
-        val minLag = max(1, (minBeatMs / hopMs).toInt())
-        val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
-        if (odf.size <= maxLag + 2) return null
+    private fun dbnEstimateTempo(
+        odf: List<Float>,
+        hopMs: Long,
+        minBeatMs: Long,
+        maxBeatMs: Long,
+        transitionLambda: Float = DBN_TRANSITION_LAMBDA,
+        observationLambda: Int  = DBN_OBSERVATION_LAMBDA
+    ): Long {
+        val minInterval = max(1, (minBeatMs / hopMs).toInt())
+        val maxInterval = max(minInterval + 1, (maxBeatMs / hopMs).toInt())
+        val intervals   = IntArray(maxInterval - minInterval + 1) { minInterval + it }
+        val numIntv     = intervals.size
+        if (numIntv == 0 || odf.size < minInterval * 2) return minBeatMs
 
-        val acVals    = FloatArray(maxLag + 1)
-        var bestScore = Float.NEGATIVE_INFINITY
-        var bestLag   = -1
+        val totalStates    = intervals.sum()
+        val stateIntv      = IntArray(totalStates)
+        val statePos       = IntArray(totalStates)
+        val stateIntvIdx   = IntArray(totalStates)
+        val intvStartState = IntArray(numIntv)
 
-        for (lag in minLag..maxLag) {
-            var sum = 0f; var count = 0
-            for (i in 0 until odf.size - lag) { sum += odf[i] * odf[i + lag]; count++ }
-            if (count == 0) continue
-            val acVal = sum / count
-            acVals[lag] = acVal
-
-            val lagMs    = lag * hopMs
-            val logRatio = ln(lagMs.toFloat() / PRIOR_CENTER_MS) / ln(2f)
-            val prior    = exp(-0.5f * (logRatio / PRIOR_STD_OCTAVE).pow(2))
-            val score    = acVal * prior
-            if (score > bestScore) { bestScore = score; bestLag = lag }
-        }
-
-        if (bestLag <= 0) return null
-
-        val halfLag = bestLag / 2
-        if (halfLag >= minLag) {
-            val halfAc = acVals[halfLag]; val bestAc = acVals[bestLag]
-            if (bestAc > 0f && halfAc / bestAc >= HALF_TEMPO_RATIO) {
-                val halfMs = halfLag * hopMs
-                Log.d(TAG, "V2 halfTempoCheck: ${bestLag * hopMs}ms(${60_000L / (bestLag * hopMs)}BPM)" +
-                    " → ${halfMs}ms(${60_000L / halfMs}BPM) ratio=${halfAc / bestAc}")
-                return halfMs
+        var s = 0
+        for (ii in 0 until numIntv) {
+            intvStartState[ii] = s
+            for (p in 0 until intervals[ii]) {
+                stateIntv[s] = intervals[ii]; statePos[s] = p; stateIntvIdx[s] = ii; s++
             }
         }
 
-        val resultMs = bestLag * hopMs
-        Log.d(TAG, "V2 estimateBpmDense: ${resultMs}ms (${60_000L / resultMs} BPM)")
-        return resultMs
+        val bbLogTrans = Array(numIntv) { fromII ->
+            val fi  = intervals[fromII].toFloat()
+            val raw = FloatArray(numIntv) { toII ->
+                -transitionLambda * abs(intervals[toII].toFloat() / fi - 1f)
+            }
+            val maxR = raw.max(); var sumE = 0.0
+            for (v in raw) sumE += exp((v - maxR).toDouble())
+            val logZ = maxR + ln(sumE.toFloat())
+            FloatArray(numIntv) { toII -> raw[toII] - logZ }
+        }
+
+        val LOG_ZERO        = -1e9f
+        val logInitUnif     = -ln(numIntv.toFloat())
+        val dbnPriorCenter  = ln(120f)
+        val dbnPriorSigmaX2 = 2f * 1.2f * 1.2f
+        var logFwd = FloatArray(totalStates) { LOG_ZERO }
+        for (ii in 0 until numIntv) {
+            val bpm  = 60_000f / (intervals[ii].toFloat() * hopMs.toFloat())
+            val diff = ln(bpm) - dbnPriorCenter
+            logFwd[intvStartState[ii]] = logInitUnif - (diff * diff) / dbnPriorSigmaX2
+        }
+
+        val intvBeatAccum = FloatArray(numIntv)
+        val n = odf.size
+
+        for (t in 0 until n) {
+            val act        = odf[t].coerceIn(1e-6f, 1f - 1e-6f)
+            val logBeat    = ln(act)
+            val logNonBeat = ln((1f - act) / (observationLambda - 1).toFloat())
+
+            val lastLogFwd = FloatArray(numIntv) { ii ->
+                logFwd[intvStartState[ii] + intervals[ii] - 1]
+            }
+
+            val logFwdNew = FloatArray(totalStates) { LOG_ZERO }
+            for (st in 0 until totalStates) {
+                val p      = statePos[st]
+                val logObs = if (p == 0) logBeat else logNonBeat
+                val logPrev = if (p > 0) {
+                    logFwd[st - 1]
+                } else {
+                    val toII = stateIntvIdx[st]
+                    var maxVal = LOG_ZERO
+                    for (fromII in 0 until numIntv) {
+                        val cand = lastLogFwd[fromII] + bbLogTrans[fromII][toII]
+                        if (cand > maxVal) maxVal = cand
+                    }
+                    maxVal
+                }
+                if (logPrev > LOG_ZERO) logFwdNew[st] = logPrev + logObs
+            }
+
+            val peak = logFwdNew.max()
+            if (peak > LOG_ZERO) for (i in logFwdNew.indices) {
+                if (logFwdNew[i] > LOG_ZERO) logFwdNew[i] -= peak
+            }
+            logFwd = logFwdNew
+
+            for (ii in 0 until numIntv) {
+                val bss = intvStartState[ii]
+                if (logFwd[bss] > LOG_ZERO) intvBeatAccum[ii] += exp(logFwd[bss].toDouble()).toFloat()
+            }
+        }
+
+        var bestII = 0
+        for (ii in 1 until numIntv) {
+            val cntI = (n.toFloat() / intervals[ii]).coerceAtLeast(1f)
+            val cntB = (n.toFloat() / intervals[bestII]).coerceAtLeast(1f)
+            if (intvBeatAccum[ii] / cntI > intvBeatAccum[bestII] / cntB) bestII = ii
+        }
+
+        // 하모닉 옥타브 보정 (V5 와 동일: 0.5x, 4/3x)
+        val LOG_BPM_CENTER = ln(120f)
+        val LOG_BPM_SX2    = 2f * 1.5f * 1.5f
+
+        fun combPriorScore(beatMs: Long): Float {
+            val fpb = max(1, (beatMs / hopMs).toInt())
+            if (odf.size < fpb * 2) return 0f
+            var best = Float.NEGATIVE_INFINITY
+            for (ph in 0 until fpb) {
+                var sc = 0f; var f = ph
+                while (f < odf.size) { sc += odf[f]; f += fpb }
+                if (sc > best) best = sc
+            }
+            val bpm   = 60_000f / beatMs.toFloat()
+            val d     = ln(bpm) - LOG_BPM_CENTER
+            val prior = exp(-(d * d) / LOG_BPM_SX2.toDouble()).toFloat()
+            return best * prior
+        }
+
+        val resultMs   = intervals[bestII].toLong() * hopMs
+        var bestCorrMs = resultMs
+        var bestCorrPS = combPriorScore(resultMs)
+
+        for (r in HARM_RATIOS) {
+            val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt().coerceAtLeast(1)
+            val cMs = frames.toLong() * hopMs
+            if (cMs < minBeatMs || cMs > maxBeatMs) continue
+            val ps = combPriorScore(cMs)
+            if (ps > bestCorrPS) { bestCorrPS = ps; bestCorrMs = cMs }
+        }
+
+        if (bestCorrMs != resultMs)
+            Log.d(TAG, "V2 dbnTempo harmonic fix: ${resultMs}ms→${bestCorrMs}ms " +
+                "(${60_000L / resultMs}→${60_000L / bestCorrMs} BPM)")
+        Log.d(TAG, "V2 dbnTempo: ${bestCorrMs}ms (${60_000L / bestCorrMs} BPM)")
+        return bestCorrMs
     }
 
     // =========================================================================
@@ -283,7 +389,7 @@ object BeatDetectorV2 {
     }
 
     // =========================================================================
-    // Ellis DP Beat Tracker (V1 과 동일)
+    // Ellis DP Beat Tracker (V5 와 동일)
     // =========================================================================
 
     private fun dpBeatTracker(
@@ -299,25 +405,24 @@ object BeatDetectorV2 {
         val gaussHalf = fpb; val gaussSize = gaussHalf * 2 + 1
         val gaussWin  = FloatArray(gaussSize) { k ->
             val i = (k - gaussHalf).toFloat()
-            exp(-0.5f * (i * 32.0f / fpb).pow(2))
+            exp(-0.5f * (i * 32.0f / fpb) * (i * 32.0f / fpb))
         }
         val localscore = FloatArray(n)
         for (t in 0 until n) {
-            var s = 0f
+            var sc = 0f
             for (k in 0 until gaussSize) {
                 val idx = t - gaussHalf + k
-                if (idx in 0 until n) s += gaussWin[k] * odf[idx]
+                if (idx in 0 until n) sc += gaussWin[k] * odf[idx]
             }
-            localscore[t] = s
+            localscore[t] = sc
         }
 
-        val cumscore = FloatArray(n) { Float.NEGATIVE_INFINITY }
-        val prev     = IntArray(n)  { -1 }
+        val cumscore    = FloatArray(n) { Float.NEGATIVE_INFINITY }
+        val prev        = IntArray(n)  { -1 }
         val searchRange = fpb * 2
 
         for (t in 0 until n) {
-            val pLo = max(0, t - searchRange)
-            val pHi = max(0, t - max(1, fpb / 2))
+            val pLo = max(0, t - searchRange); val pHi = max(0, t - max(1, fpb / 2))
             var bestVal = Float.NEGATIVE_INFINITY
             for (p in pLo..pHi) {
                 val isFreeStart = (p == 0 || p == anchorFrame)
@@ -344,8 +449,7 @@ object BeatDetectorV2 {
 
         val result = beats.reversed().toLongArray()
         if (result.size < 2) return result
-        val rms = sqrt(localscore.map { it * it }.average().toFloat())
-        val trimTh = 0.5f * rms
+        val rms = sqrt(localscore.map { it * it }.average().toFloat()); val trimTh = 0.5f * rms
         var s = 0
         while (s < result.size && localscore[(result[s] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) s++
         var e = result.size - 1
@@ -360,8 +464,8 @@ object BeatDetectorV2 {
     private fun fallbackSegmentBeats(
         samples: FloatArray, hopSamples: Int, hopMs: Long, beatMs: Long, durationMs: Long
     ): List<TimedBeat> {
-        val segmentMs = 20_000L
-        val segFrames = (segmentMs / hopMs).toInt().coerceAtLeast(1)
+        val segmentMs   = 20_000L
+        val segFrames   = (segmentMs / hopMs).toInt().coerceAtLeast(1)
         val totalFrames = if (samples.size >= FFT_SIZE)
             (samples.size - FFT_SIZE) / hopSamples + 1 else 0
         val result = ArrayList<TimedBeat>()
@@ -371,11 +475,9 @@ object BeatDetectorV2 {
             val sFrame = segIdx * segFrames
             val eFrame = min(totalFrames, sFrame + segFrames)
             if (eFrame - sFrame < 8) { segIdx++; continue }
-
-            val sSample = sFrame * hopSamples
-            val eSample = min(samples.size, eFrame * hopSamples + FFT_SIZE)
-            val segSamples = samples.copyOfRange(sSample, eSample)
-            val segOdf   = superFluxOdf(segSamples, hopSamples)
+            val sSample  = sFrame * hopSamples
+            val eSample  = min(samples.size, eFrame * hopSamples + FFT_SIZE)
+            val segOdf   = superFluxOdf(samples.copyOfRange(sSample, eSample), hopSamples)
             val segPhase = estimatePhaseFromOdf(segOdf, beatMs, hopMs)
             val segDur   = (eFrame - sFrame).toLong() * hopMs
             val segTimes = dpBeatTracker(segOdf, beatMs, hopMs, segDur, anchorMs = segPhase)
@@ -393,9 +495,7 @@ object BeatDetectorV2 {
     private fun detectTimeSignature(odf: List<Float>, beatMs: Long, hopMs: Long): TimeSignature {
         if (odf.size < 8 || beatMs <= 0L) return TimeSignature.FOUR_FOUR
         val bf    = (beatMs / hopMs).toInt().coerceAtLeast(1)
-        val corr3 = lagCorr(odf, bf * 3)
-        val corr4 = lagCorr(odf, bf * 4)
-        val corr6 = lagCorr(odf, bf * 6)
+        val corr3 = lagCorr(odf, bf * 3); val corr4 = lagCorr(odf, bf * 4); val corr6 = lagCorr(odf, bf * 6)
         return when {
             corr3 > corr4 * TIME_SIG_THREE_RATIO                          -> TimeSignature.THREE_FOUR
             corr6 > corr4 * TIME_SIG_SIX_RATIO && corr3 > corr4 * 0.85f -> TimeSignature.SIX_EIGHT
@@ -411,7 +511,7 @@ object BeatDetectorV2 {
     }
 
     // =========================================================================
-    // 다운비트 감지 — ODF 를 lowEnv 대역 프록시로 사용
+    // 다운비트 감지 — ODF 를 에너지 프록시로 사용
     // =========================================================================
 
     private fun detectDownbeatEnhanced(
