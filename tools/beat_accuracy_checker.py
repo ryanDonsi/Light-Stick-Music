@@ -1562,23 +1562,12 @@ class App(tk.Tk):
             self._update_cards(engine, f_val, p_val, r_val, tp, fp_cnt, fn,
                                bpm_app, bpm_ref, bpm_err, cov_pct, gaps)
 
-            # 파형: iid별로 _audio_items에 캐시 — 같은 곡의 엔진 전환 시 재로드 방지
-            if "waveform" not in item:
-                audio_path = item.get("path", "")
-                if audio_path and os.path.exists(audio_path):
-                    wv, ws = load_waveform(audio_path)
-                    item["waveform"] = wv
-                    item["wav_sr"]   = ws
-                else:
-                    item["waveform"] = None
-                    item["wav_sr"]   = 0
-            waveform  = item.get("waveform")
-            wav_sr    = item.get("wav_sr", 0)
-
+            # 결과 먼저 저장 (파형 없이) → 타임라인 즉시 렌더
             self._last_result = dict(
                 ref_sec=ref_sec, app_sec=app_sec,
                 tp_est=tp_est, fp_est=fp_est, fn_ref=fn_ref,
-                waveform=waveform, wav_sr=wav_sr,
+                waveform=item.get("waveform"),  # 캐시 있으면 즉시 사용
+                wav_sr=item.get("wav_sr", 0),
                 duration_sec=dur,
                 f_score=f_val, bpm_app=bpm_app, bpm_ref=bpm_ref,
                 engine_name=eng_name,
@@ -1590,6 +1579,23 @@ class App(tk.Tk):
             self.after(100, self._redraw_timeline)
             if HAS_MPL:
                 self.map_btn.config(state="normal")
+
+            # 파형이 아직 캐시되지 않은 경우 백그라운드 로드
+            if "waveform" not in item:
+                audio_path = item.get("path", "")
+                if audio_path and os.path.exists(audio_path):
+                    def _load_waveform_async(it=item, lr=self._last_result,
+                                             ap=audio_path):
+                        wv, ws = load_waveform(ap)
+                        it["waveform"] = wv
+                        it["wav_sr"]   = ws
+                        lr["waveform"] = wv
+                        lr["wav_sr"]   = ws
+                        self.after(0, self._redraw_timeline)
+                    threading.Thread(target=_load_waveform_async, daemon=True).start()
+                else:
+                    item["waveform"] = None
+                    item["wav_sr"]   = 0
                 self.save_btn.config(state="normal")
 
         else:
