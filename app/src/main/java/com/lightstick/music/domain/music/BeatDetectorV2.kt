@@ -28,10 +28,14 @@ object BeatDetectorV2 {
     private const val TAG = "AutoTimeline"
 
     // SuperFlux 파라미터 (madmom 기본값과 동일)
-    private const val FFT_SIZE         = 2048
-    private const val HOP_MS           = 10L     // madmom fps=100 → 10ms hop
-    private const val LOG_LAMBDA       = 1000f
-    private const val MAX_FILTER_WIDTH = 1       // ±1 bin (사용됨: ±1 bin max filter)
+    private const val FFT_SIZE  = 2048
+    private const val HOP_MS    = 10L     // madmom fps=100 → 10ms hop
+    private const val LOG_LAMBDA = 1000f
+
+    // Log filterbank 파라미터 (madmom SuperFluxProcessor 기본값)
+    private const val NUM_BANDS = 24
+    private const val FB_FMIN   = 27.5f   // Hz — 피아노 A0
+    private const val FB_FMAX   = 16000f  // Hz
 
     // DBN 파라미터 (madmom DBNBeatTrackingProcessor 기본값)
     private const val DBN_TRANSITION_LAMBDA  = 100f
@@ -169,6 +173,42 @@ object BeatDetectorV2 {
     //   PCM 배열을 메모리에 쌓지 않으므로 메모리 사용량 최소화
     // =========================================================================
 
+    // =========================================================================
+    // Log Filterbank — madmom SuperFluxProcessor와 동일한 로그 주파수 삼각 필터뱅크
+    // =========================================================================
+
+    private data class FilterBand(val startBin: Int, val weights: FloatArray)
+
+    private fun buildLogFilterbank(sampleRate: Int): Array<FilterBand> {
+        val numBins  = FFT_SIZE / 2 + 1
+        val freqBin  = sampleRate.toFloat() / FFT_SIZE
+        val fmax     = minOf(FB_FMAX, sampleRate / 2f)
+        val logMin   = ln(FB_FMIN.toDouble())
+        val logMax   = ln(fmax.toDouble())
+        // NUM_BANDS + 2 경계 포함 중심점 (삼각 필터의 lo/center/hi)
+        val centers  = DoubleArray(NUM_BANDS + 2) { k ->
+            exp(logMin + k.toDouble() * (logMax - logMin) / (NUM_BANDS + 1))
+        }
+        return Array(NUM_BANDS) { b ->
+            val lo     = centers[b].toFloat()
+            val center = centers[b + 1].toFloat()
+            val hi     = centers[b + 2].toFloat()
+            val sIdx   = ((lo / freqBin).toInt()).coerceAtLeast(0)
+            val eIdx   = minOf(numBins - 1, (hi / freqBin).toInt() + 1)
+            val w      = FloatArray(eIdx - sIdx + 1) { i ->
+                val freq = (sIdx + i) * freqBin
+                when {
+                    freq <= lo || freq >= hi -> 0f
+                    freq <= center           -> (freq - lo) / (center - lo)
+                    else                     -> (hi - freq) / (hi - center)
+                }
+            }
+            val norm = w.sum()
+            if (norm > 1e-8f) w.forEachIndexed { i, v -> w[i] = v / norm }
+            FilterBand(sIdx, w)
+        }
+    }
+
     private data class OdfResult(val odf: List<Float>, val hopMs: Long, val durationMs: Long)
 
     private fun streamingOdf(musicPath: String): OdfResult {
@@ -203,8 +243,10 @@ object BeatDetectorV2 {
             }
             val numBins    = FFT_SIZE / 2 + 1
             val fftBuf     = FloatArray(FFT_SIZE)
-            val curLogMag  = FloatArray(numBins)
-            val prevLogMag = FloatArray(numBins)
+            val curMag     = FloatArray(numBins)   // raw magnitude (필터뱅크 입력)
+            val filterbank = buildLogFilterbank(sampleRate)
+            val curBand    = FloatArray(NUM_BANDS)
+            val prevBand   = FloatArray(NUM_BANDS)
             val odf        = ArrayList<Float>()
 
             // ring buffer — 마지막 FFT_SIZE 샘플을 순환 저장
@@ -270,29 +312,37 @@ object BeatDetectorV2 {
                                     }
                                     fft.realForward(fftBuf)
 
-                                    // log magnitude
-                                    curLogMag[0]           = ln(1f + LOG_LAMBDA * abs(fftBuf[0]))
-                                    curLogMag[numBins - 1] = ln(1f + LOG_LAMBDA * abs(fftBuf[1]))
+                                    // raw magnitude (필터뱅크 입력 — log 압축 전)
+                                    curMag[0]           = abs(fftBuf[0])
+                                    curMag[numBins - 1] = abs(fftBuf[1])
                                     for (k in 1 until numBins - 1) {
                                         val re = fftBuf[2 * k]; val im = fftBuf[2 * k + 1]
-                                        curLogMag[k] = ln(1f + LOG_LAMBDA * sqrt(re * re + im * im))
+                                        curMag[k] = sqrt(re * re + im * im)
+                                    }
+
+                                    // Log filterbank: magnitude → 24 bands → log(1+λ×band)
+                                    for (b in 0 until NUM_BANDS) {
+                                        val fb = filterbank[b]
+                                        var sum = 0f
+                                        for (i in fb.weights.indices) sum += fb.weights[i] * curMag[fb.startBin + i]
+                                        curBand[b] = ln(1f + LOG_LAMBDA * sum)
                                     }
 
                                     if (odf.isEmpty()) {
                                         odf.add(0f)  // 첫 프레임은 이전 프레임 없음
                                     } else {
-                                        // SuperFlux: ±MAX_FILTER_WIDTH bin max filter 후 positive flux
+                                        // SuperFlux: ±1 band max filter → positive flux
                                         var flux = 0f
-                                        for (k in 0 until numBins) {
-                                            var prevMax = prevLogMag[k]
-                                            if (k > 0 && prevLogMag[k - 1] > prevMax) prevMax = prevLogMag[k - 1]
-                                            if (k < numBins - 1 && prevLogMag[k + 1] > prevMax) prevMax = prevLogMag[k + 1]
-                                            val diff = curLogMag[k] - prevMax
+                                        for (b in 0 until NUM_BANDS) {
+                                            var prevMax = prevBand[b]
+                                            if (b > 0 && prevBand[b - 1] > prevMax) prevMax = prevBand[b - 1]
+                                            if (b < NUM_BANDS - 1 && prevBand[b + 1] > prevMax) prevMax = prevBand[b + 1]
+                                            val diff = curBand[b] - prevMax
                                             if (diff > 0f) flux += diff
                                         }
                                         odf.add(flux)
                                     }
-                                    curLogMag.copyInto(prevLogMag)
+                                    curBand.copyInto(prevBand)
                                 }
                                 byteIdx += stepBytes
                             }
@@ -449,6 +499,9 @@ object BeatDetectorV2 {
         var bestCorrPS = combPriorScore(resultMs)
 
         for (r in HARM_RATIOS) {
+            // 0.5f 보정은 920ms(≈65 BPM) 이상에서만 적용:
+            // 모든날처럼 DBN이 890ms(67 BPM)를 정확히 감지한 경우 잘못 보정하지 않도록 보호
+            if (r == 0.5f && resultMs < 920L) continue
             val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt().coerceAtLeast(1)
             val cMs = frames.toLong() * hopMs
             if (cMs < minBeatMs || cMs > maxBeatMs) continue
