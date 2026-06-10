@@ -499,9 +499,6 @@ object BeatDetectorV2 {
         var bestCorrPS = combPriorScore(resultMs)
 
         for (r in HARM_RATIOS) {
-            // 0.5f 보정은 920ms(≈65 BPM) 이상에서만 적용:
-            // 모든날처럼 DBN이 890ms(67 BPM)를 정확히 감지한 경우 잘못 보정하지 않도록 보호
-            if (r == 0.5f && resultMs < 920L) continue
             val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt().coerceAtLeast(1)
             val cMs = frames.toLong() * hopMs
             if (cMs < minBeatMs || cMs > maxBeatMs) continue
