@@ -359,23 +359,9 @@ object BeatDetectorV2 {
 
             val durationMs = totalSamples * 1000L / sampleRate
 
-            // 로컬 평균 제거 (윈도우 ~3초 = 300 frames) → HWR
-            // 구간별 에너지 편차 제거: 조용한 전주 ↔ 강한 후렴에서 ODF 감도 균등화
-            val winHalf = 150
-            val n = odf.size
-            val localMeanOdf = ArrayList<Float>(n)
-            for (i in 0 until n) {
-                val lo = maxOf(0, i - winHalf)
-                val hi = minOf(n - 1, i + winHalf)
-                var sum = 0f
-                for (j in lo..hi) sum += odf[j]
-                val mean = sum / (hi - lo + 1)
-                localMeanOdf.add(maxOf(0f, odf[i] - mean))
-            }
-
             // 전역 정규화 → [0, 1]
-            val maxVal = localMeanOdf.maxOrNull() ?: 1f
-            val normOdf = if (maxVal > 1e-6f) localMeanOdf.map { it / maxVal } else localMeanOdf
+            val maxVal = odf.maxOrNull() ?: 1f
+            val normOdf = if (maxVal > 1e-6f) odf.map { it / maxVal } else odf
 
             OdfResult(normOdf, hopMs, durationMs)
         } catch (t: Throwable) {
