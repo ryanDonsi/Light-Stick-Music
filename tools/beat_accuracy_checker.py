@@ -1562,14 +1562,23 @@ class App(tk.Tk):
             self._update_cards(engine, f_val, p_val, r_val, tp, fp_cnt, fn,
                                bpm_app, bpm_ref, bpm_err, cov_pct, gaps)
 
-            # waveform은 이미 로드된 _last_result에서 재사용 (엔진 전환 시 유지)
-            prev_waveform = (self._last_result or {}).get("waveform")
-            prev_wav_sr   = (self._last_result or {}).get("wav_sr", 0)
+            # 파형: iid별로 _audio_items에 캐시 — 같은 곡의 엔진 전환 시 재로드 방지
+            if "waveform" not in item:
+                audio_path = item.get("path", "")
+                if audio_path and os.path.exists(audio_path):
+                    wv, ws = load_waveform(audio_path)
+                    item["waveform"] = wv
+                    item["wav_sr"]   = ws
+                else:
+                    item["waveform"] = None
+                    item["wav_sr"]   = 0
+            waveform  = item.get("waveform")
+            wav_sr    = item.get("wav_sr", 0)
 
             self._last_result = dict(
                 ref_sec=ref_sec, app_sec=app_sec,
                 tp_est=tp_est, fp_est=fp_est, fn_ref=fn_ref,
-                waveform=prev_waveform, wav_sr=prev_wav_sr,
+                waveform=waveform, wav_sr=wav_sr,
                 duration_sec=dur,
                 f_score=f_val, bpm_app=bpm_app, bpm_ref=bpm_ref,
                 engine_name=eng_name,
