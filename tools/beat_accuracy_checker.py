@@ -1167,7 +1167,7 @@ class App(tk.Tk):
     def _add_audio_files(self):
         paths = filedialog.askopenfilenames(
             title="음악 파일 선택 (복수 선택 가능)",
-            filetypes=[("Audio", "*.mp3 *.wav *.flac *.ogg *.m4a"), ("All", "*.*")])
+            filetypes=[("Audio", "*.mp3 *.wav *.flac *.ogg *.m4a *.mp4"), ("All", "*.*")])
         added = False
         for p in paths:
             if not p:
