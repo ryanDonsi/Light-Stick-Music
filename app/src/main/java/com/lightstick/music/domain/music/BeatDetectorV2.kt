@@ -37,9 +37,9 @@ object BeatDetectorV2 {
     private const val DBN_TRANSITION_LAMBDA  = 100f
     private const val DBN_OBSERVATION_LAMBDA = 16
 
-    // 하모닉 보정 비율: 0.5=절반 주기(2배 BPM), 2/3=2/3 주기(3/2 BPM), 3/4=3/4 주기(4/3 BPM),
-    //                   4/3=4/3 주기(3/4 BPM), 2.0=2배 주기(절반 BPM)
-    private val HARM_RATIOS = floatArrayOf(0.5f, 2f / 3f, 0.75f, 4f / 3f, 2.0f)
+    // 하모닉 보정 비율: 0.5=절반 주기(2배 BPM), 0.75=3/4 주기(4/3 BPM)
+    // 주의: 2/3, 4/3, 2.0은 My World/Golden/God's Menu 등 정확한 DBN 결과를 망가뜨려 제거
+    private val HARM_RATIOS = floatArrayOf(0.5f, 0.75f)
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
