@@ -203,8 +203,6 @@ object BeatDetectorV2 {
                     else                     -> (hi - freq) / (hi - center)
                 }
             }
-            val norm = w.sum()
-            if (norm > 1e-8f) w.forEachIndexed { i, v -> w[i] = v / norm }
             FilterBand(sIdx, w)
         }
     }
