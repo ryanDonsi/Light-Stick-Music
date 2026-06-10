@@ -12,9 +12,9 @@ import kotlin.math.*
  *
  * ODF:
  *   PCM 디코딩과 동시에 STFT 계산 (madmom 스트리밍 방식 — PCM 배열을 메모리에 쌓지 않음)
- *   ring buffer (FFT_SIZE) → Hanning windowed FFT → log(1+λ|X|) per bin
- *   → 이전 프레임 log-bins에 ±1 bin spectral max filter → 24-band filterbank → positive diff
- *   → SuperFlux ODF (Böck & Widmer, 2013) — madmom과 동일한 연산 순서
+ *   ring buffer (FFT_SIZE) → Hanning windowed FFT → log magnitude: log(1 + 1000|X|)
+ *   → 이전 프레임에 ±1 bin max filter 적용
+ *   → positive spectral flux = SuperFlux ODF (Böck & Widmer, 2013)
  *
  * BPM + 위상:
  *   DBN HMM Forward (Viterbi-max 근사, madmom DBNBeatTrackingProcessor 방식)
@@ -243,10 +243,10 @@ object BeatDetectorV2 {
             }
             val numBins    = FFT_SIZE / 2 + 1
             val fftBuf     = FloatArray(FFT_SIZE)
-            val curMag     = FloatArray(numBins)   // log-compressed magnitude per bin
+            val curMag     = FloatArray(numBins)   // raw magnitude (필터뱅크 입력)
             val filterbank = buildLogFilterbank(sampleRate)
             val curBand    = FloatArray(NUM_BANDS)
-            val prevLogMag = FloatArray(numBins)   // 이전 프레임 log-compressed bins (max filter용)
+            val prevBand   = FloatArray(NUM_BANDS)
             val odf        = ArrayList<Float>()
 
             // ring buffer — 마지막 FFT_SIZE 샘플을 순환 저장
@@ -312,43 +312,37 @@ object BeatDetectorV2 {
                                     }
                                     fft.realForward(fftBuf)
 
-                                    // log(1+λ×|X|) per bin — madmom SuperFlux와 동일한 순서
-                                    curMag[0]           = ln(1f + LOG_LAMBDA * abs(fftBuf[0]))
-                                    curMag[numBins - 1] = ln(1f + LOG_LAMBDA * abs(fftBuf[1]))
+                                    // raw magnitude (필터뱅크 입력 — log 압축 전)
+                                    curMag[0]           = abs(fftBuf[0])
+                                    curMag[numBins - 1] = abs(fftBuf[1])
                                     for (k in 1 until numBins - 1) {
                                         val re = fftBuf[2 * k]; val im = fftBuf[2 * k + 1]
-                                        curMag[k] = ln(1f + LOG_LAMBDA * sqrt(re * re + im * im))
+                                        curMag[k] = sqrt(re * re + im * im)
                                     }
 
-                                    // filterbank: log-compressed bins → 24 bands
+                                    // Log filterbank: magnitude → 24 bands → log(1+λ×band)
                                     for (b in 0 until NUM_BANDS) {
                                         val fb = filterbank[b]
                                         var sum = 0f
                                         for (i in fb.weights.indices) sum += fb.weights[i] * curMag[fb.startBin + i]
-                                        curBand[b] = sum
+                                        curBand[b] = ln(1f + LOG_LAMBDA * sum)
                                     }
 
                                     if (odf.isEmpty()) {
                                         odf.add(0f)  // 첫 프레임은 이전 프레임 없음
                                     } else {
-                                        // SuperFlux: prevLogMag에 ±1 bin max filter → filterbank → positive diff
+                                        // SuperFlux: ±1 band max filter → positive flux
                                         var flux = 0f
                                         for (b in 0 until NUM_BANDS) {
-                                            val fb = filterbank[b]
-                                            var prevMaxSum = 0f
-                                            for (i in fb.weights.indices) {
-                                                val k = fb.startBin + i
-                                                var maxVal = prevLogMag[k]
-                                                if (k > 0 && prevLogMag[k - 1] > maxVal) maxVal = prevLogMag[k - 1]
-                                                if (k < numBins - 1 && prevLogMag[k + 1] > maxVal) maxVal = prevLogMag[k + 1]
-                                                prevMaxSum += fb.weights[i] * maxVal
-                                            }
-                                            val diff = curBand[b] - prevMaxSum
+                                            var prevMax = prevBand[b]
+                                            if (b > 0 && prevBand[b - 1] > prevMax) prevMax = prevBand[b - 1]
+                                            if (b < NUM_BANDS - 1 && prevBand[b + 1] > prevMax) prevMax = prevBand[b + 1]
+                                            val diff = curBand[b] - prevMax
                                             if (diff > 0f) flux += diff
                                         }
                                         odf.add(flux)
                                     }
-                                    curMag.copyInto(prevLogMag)
+                                    curBand.copyInto(prevBand)
                                 }
                                 byteIdx += stepBytes
                             }
