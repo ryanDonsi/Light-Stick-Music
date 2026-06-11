@@ -78,8 +78,9 @@ def main():
     print("[bt_infer] 모델 로드 완료")
 
     # ── 오디오 → 스펙트로그램 ──────────────────────
-    print(f"[bt_infer] 오디오 로드: {args.audio}")
-    y, sr = librosa.load(args.audio, sr=22050, mono=True)
+    MAX_DURATION = 600.0  # 최대 10분 (OOM 방지)
+    print(f"[bt_infer] 오디오 로드: {args.audio} (최대 {MAX_DURATION:.0f}초)")
+    y, sr = librosa.load(args.audio, sr=22050, mono=True, duration=MAX_DURATION)
 
     # 128-mel log spectrogram (모델 입력 형식: (batch, instr, time, melbin=128))
     hop_length = 512   # ~23ms @ 22050 Hz
@@ -168,7 +169,8 @@ def run_inference(audio_path: str, checkpoint_dir: str, code_dir: str = "", devi
     model.load_state_dict(sd, strict=False)
     model.to(_device).eval()
 
-    y, sr = librosa.load(audio_path, sr=22050, mono=True)
+    MAX_DURATION = 600.0  # 최대 10분 (OOM 방지)
+    y, sr = librosa.load(audio_path, sr=22050, mono=True, duration=MAX_DURATION)
     hop_length = 512
     S    = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=2048, hop_length=hop_length,
                                           n_mels=128, fmin=20, fmax=11025, power=2.0)

@@ -338,7 +338,7 @@ def detect_beats_madmom(audio_path):
 
     # 2차: librosa → 임시 WAV 변환 폴백
     import soundfile as sf
-    y, sr = librosa.load(audio_path, sr=44100, mono=True)
+    y, sr = librosa.load(audio_path, sr=44100, mono=True, duration=600.0)
     tmp   = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
     sf.write(tmp.name, y, sr)
@@ -350,7 +350,7 @@ def detect_beats_madmom(audio_path):
     return beats_sec, _median_bpm(beats_sec)
 
 def detect_beats_librosa(audio_path, bpm_hint=0.0):
-    y, sr = librosa.load(audio_path, sr=None, mono=True)
+    y, sr = librosa.load(audio_path, sr=None, mono=True, duration=600.0)
     tempo_r, frames = librosa.beat.beat_track(
         y=y, sr=sr,
         start_bpm=float(bpm_hint) if bpm_hint > 0 else 120.0,
