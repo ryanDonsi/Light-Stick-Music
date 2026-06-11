@@ -148,9 +148,13 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
             val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             val stepBytes    = channelCount * 2
             val maxSamples   = (sampleRate * MAX_DECODE_MS / 1000).toInt()
+            // MediaFormat duration으로 pre-allocate → boxing 없이 4바이트/샘플, grow() OOM 방지
+            val durationUs   = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else -1L
+            val allocSamples = if (durationUs > 0) (sampleRate * durationUs / 1_000_000L).toInt().coerceAtMost(maxSamples) else maxSamples
+            val out          = FloatArray(allocSamples)
+            var outPos       = 0
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0); codec.start()
-            val out = ArrayList<Float>(sampleRate * 30)
             val bufferInfo = MediaCodec.BufferInfo()
             var sawInputEOS = false; var sawOutputEOS = false
             while (!sawOutputEOS) {
@@ -171,14 +175,15 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
                         val chunk = ByteArray(bufferInfo.size); buf.get(chunk)
                         var byteIdx = 0
                         while (byteIdx + stepBytes <= chunk.size) {
-                            if (out.size >= maxSamples) { sawInputEOS = true; sawOutputEOS = true; break }
+                            if (outPos >= maxSamples) { sawInputEOS = true; sawOutputEOS = true; break }
                             var monoSum = 0f
                             for (c in 0 until channelCount) {
                                 val lo = chunk[byteIdx + c * 2].toInt() and 0xFF
                                 val hi = chunk[byteIdx + c * 2 + 1].toInt()
                                 monoSum += (hi shl 8 or lo).toShort().toFloat()
                             }
-                            out.add(monoSum / channelCount / 32768f)
+                            if (outPos < out.size) out[outPos] = monoSum / channelCount / 32768f
+                            outPos++
                             byteIdx += stepBytes
                         }
                     }
@@ -187,7 +192,7 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
                 }
             }
             codec.stop(); codec.release(); extractor.release()
-            Pair(out.toFloatArray(), sampleRate)
+            Pair(if (outPos < out.size) out.copyOf(outPos) else out, sampleRate)
         } catch (t: Throwable) {
             Log.e(TAG, "decodeMonoPcm fail: ${t.message}")
             try { codec?.stop() } catch (_: Throwable) {}
