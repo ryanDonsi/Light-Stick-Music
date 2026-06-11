@@ -257,12 +257,21 @@ class SplashViewModel @Inject constructor(
         }
 
         // 파일시스템 직접 탐색 (mp4) — MediaStore 분류와 무관하게 확실히 수집
+        val mp4Tag = AppConstants.Feature.AUTO_TIMELINE
+        Log.d(mp4Tag, "mp4 filesystem scan start — allowedDirs=$allowedDirs")
+        var mp4Found = 0
         allowedDirs.map { File(it) }.filter { it.exists() }.forEach { dir ->
+            Log.d(mp4Tag, "mp4 scan dir: ${dir.absolutePath}")
             dir.walkTopDown()
                 .onEnter { !FileHelper.isRecordingsPath(it.absolutePath) }
                 .filter { it.isFile && it.extension.lowercase() == "mp4" }
-                .forEach { file -> addIfValid(file.absolutePath, null, file.name, null) }
+                .forEach { file ->
+                    Log.d(mp4Tag, "mp4 found: ${file.absolutePath}")
+                    mp4Found++
+                    addIfValid(file.absolutePath, null, file.name, null)
+                }
         }
+        Log.d(mp4Tag, "mp4 filesystem scan done — found=$mp4Found  total validEntries=${validEntries.size}")
 
         val total = validEntries.size
         _state.value = InitializationState.ScanningMusic(total, total)
