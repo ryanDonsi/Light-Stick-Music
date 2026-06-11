@@ -26,8 +26,9 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
 
         private const val VERSION     = 13
         private const val HOP_MS      = 20L
-        private const val MIN_BEAT_MS = 320L
-        private const val MAX_BEAT_MS = 1200L
+        private const val MIN_BEAT_MS   = 320L
+        private const val MAX_BEAT_MS   = 1200L
+        private const val MAX_DECODE_MS = 600_000L  // 최대 10분 (OOM 방지)
 
         // IIR filter coefficients (V8 최적화)
         private const val LOW_ALPHA     = 0.12f
@@ -295,6 +296,7 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
             val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             val stepBytes    = channelCount * 2
+            val maxSamples   = (sampleRate * MAX_DECODE_MS / 1000).toInt()
 
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0)
@@ -328,6 +330,7 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
                         val chunk = ByteArray(bufferInfo.size); buf.get(chunk)
                         var byteIdx = 0
                         while (byteIdx + stepBytes <= chunk.size) {
+                            if (out.size >= maxSamples) { sawInputEOS = true; sawOutputEOS = true; break }
                             var monoSum = 0f
                             for (c in 0 until channelCount) {
                                 val lo = chunk[byteIdx + c * 2].toInt() and 0xFF

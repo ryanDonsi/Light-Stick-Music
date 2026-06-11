@@ -25,6 +25,7 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
 
         private const val DETECTOR_VER = 1  // BeatDetectorV1 고정
         private const val HOP_MS       = 20L
+        private const val MAX_DECODE_MS = 600_000L  // 최대 10분 (OOM 방지)
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -146,6 +147,7 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
             val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             val stepBytes    = channelCount * 2
+            val maxSamples   = (sampleRate * MAX_DECODE_MS / 1000).toInt()
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0); codec.start()
             val out = ArrayList<Float>(sampleRate * 30)
@@ -169,6 +171,7 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
                         val chunk = ByteArray(bufferInfo.size); buf.get(chunk)
                         var byteIdx = 0
                         while (byteIdx + stepBytes <= chunk.size) {
+                            if (out.size >= maxSamples) { sawInputEOS = true; sawOutputEOS = true; break }
                             var monoSum = 0f
                             for (c in 0 until channelCount) {
                                 val lo = chunk[byteIdx + c * 2].toInt() and 0xFF
