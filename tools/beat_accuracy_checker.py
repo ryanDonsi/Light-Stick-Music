@@ -1845,13 +1845,15 @@ class App(tk.Tk):
             r["tp_est"], r["fp_est"], r["fn_ref"],
             r["ref_sec"], r["app_sec"],
             r["duration_sec"], z_s, z_e,
-            waveform=r.get("waveform"), wav_sr=r.get("wav_sr", 0)
+            waveform=r.get("waveform"), wav_sr=r.get("wav_sr", 0),
+            engine_failed=r.get("engine_failed", False),
         )
 
     def _draw_beat_timeline(self, tp_est, fp_est, fn_ref,
                             ref_sec, app_sec, duration_sec,
                             z_start, z_end,
-                            waveform=None, wav_sr=0):
+                            waveform=None, wav_sr=0,
+                            engine_failed=False):
         """
         캔버스에 3-레인 비트 타임라인을 그린다.
           파형 레인: Waveform (GT 위)
@@ -1973,28 +1975,36 @@ class App(tk.Tk):
                     c.create_line(px, y_hi, px, y_lo, fill="#78909c")
 
         # ── GT 레인 비트 막대 ──
-        for t in fn_ref:   # 누락 — 파랑
-            if in_range(t):
-                x = tx(t)
-                c.create_rectangle(x-1, GT_TOP, x+1, GT_BOT - PAD,
-                                   fill="#448aff", outline="")
-        for t in tp_est:   # 일치 — 초록
-            if in_range(t):
-                x = tx(t)
-                c.create_rectangle(x-1, GT_TOP, x+1, GT_BOT - PAD,
-                                   fill="#69f0ae", outline="")
+        if engine_failed:
+            # 분석 실패 — GT 레인에 안내 텍스트만 표시
+            c.create_rectangle(LABEL_W, SEP1_Y, W, SEP2_Y, fill="#1a0a0a", outline="")
+            c.create_text((LABEL_W + W) // 2, (SEP1_Y + SEP2_Y) // 2,
+                          text="분석 실패 (메모리 부족 — 파일이 너무 큼)",
+                          fill="#ef5350", font=("", 9, "bold"), anchor="center")
+        else:
+            for t in fn_ref:   # 누락 — 파랑
+                if in_range(t):
+                    x = tx(t)
+                    c.create_rectangle(x-1, GT_TOP, x+1, GT_BOT - PAD,
+                                       fill="#448aff", outline="")
+            for t in tp_est:   # 일치 — 초록
+                if in_range(t):
+                    x = tx(t)
+                    c.create_rectangle(x-1, GT_TOP, x+1, GT_BOT - PAD,
+                                       fill="#69f0ae", outline="")
 
         # ── 앱 레인 비트 막대 ──
-        for t in tp_est:   # 일치 — 초록
+        for t in (tp_est if not engine_failed else app_sec):   # 일치/전체 — 초록
             if in_range(t):
                 x = tx(t)
                 c.create_rectangle(x-1, APP_TOP, x+1, APP_BOT,
                                    fill="#69f0ae", outline="")
-        for t in fp_est:   # 오감지 — 빨강
-            if in_range(t):
-                x = tx(t)
-                c.create_rectangle(x-1, APP_TOP, x+1, APP_BOT,
-                                   fill="#ff5252", outline="")
+        if not engine_failed:
+            for t in fp_est:   # 오감지 — 빨강
+                if in_range(t):
+                    x = tx(t)
+                    c.create_rectangle(x-1, APP_TOP, x+1, APP_BOT,
+                                       fill="#ff5252", outline="")
 
     # ── 분석 ──────────────────────────────────────
 
@@ -2042,12 +2052,82 @@ class App(tk.Tk):
                 tb       = traceback.format_exc()
                 msg      = str(e)
                 eng_name = ENGINE_INFO.get(engine, (engine,))[0]
-                self.after(0, lambda n=eng_name, m=msg, t=tb:
+                is_oom   = "not enough memory" in msg or "MemoryError" in msg or "alloc" in msg.lower()
+                self.after(0, lambda n=eng_name, m=msg, t=tb, oom=is_oom:
                            self._log(f"\n[오류] {n}: {m}\n{t}", "red"))
+                if is_oom:
+                    self.after(0, lambda eng=engine, n=eng_name:
+                               self._handle_engine_oom(audio, binf, eng, n, tol_ms))
         self.after(0, lambda: self.run_btn.config(state="normal"))
         self.after(0, lambda: self.run_all_btn.config(state="normal"))
         self.after(0, lambda: self.status_var.set("완료"))
         self.after(0, self._save_state)
+
+    def _update_cards_failed(self, engine, reason="메모리 부족"):
+        """엔진 분석 실패 시 카드에 '분석 실패' 표시."""
+        cw = self._card_widgets.get(engine)
+        if not cw:
+            return
+        cw["v_f"].set("분석 실패")
+        cw["v_p"].set("—")
+        cw["v_r"].set("—")
+        cw["v_tp"].set("—")
+        cw["v_fp"].set("—")
+        cw["v_fn"].set("—")
+        cw["v_bpm_a"].set("—")
+        cw["v_bpm_g"].set("—")
+        cw["v_bpm_e"].set("—")
+        cw["v_cov"].set("—")
+        cw["v_gaps"].set("—")
+        # 헤더 색상을 경고색으로
+        frame = cw.get("frame")
+        if frame:
+            try:
+                frame.config(bg="#4a1010")
+            except Exception:
+                pass
+
+    def _handle_engine_oom(self, audio_path, bin_path, engine, eng_name, tol_ms):
+        """OOM 실패 시: 카드에 분석 실패 표시 + 파형/앱 타임라인만 그리기."""
+        self._update_cards_failed(engine, "메모리 부족 (파일이 너무 큼)")
+        self.status_var.set(f"{eng_name}: 분석 실패 (메모리 부족)")
+
+        # 바이너리 파싱 후 파형+앱 타임라인만 표시
+        try:
+            version, frame_count, app_ms = parse_timeline_binary(bin_path)
+            app_sec = [t / 1000.0 for t in app_ms]
+            try:
+                duration_sec = get_audio_duration(audio_path)
+            except Exception:
+                duration_sec = app_ms[-1] / 1000.0 + 1.0 if app_ms else 0.0
+
+            waveform, wav_sr = None, 0
+            iid = next((i for i, v in self._audio_items.items()
+                        if v.get("path") == audio_path), None)
+            if iid and self._audio_items[iid].get("waveform") is not None:
+                waveform = self._audio_items[iid]["waveform"]
+                wav_sr   = self._audio_items[iid].get("wav_sr", 0)
+            else:
+                try:
+                    waveform, wav_sr = load_waveform(audio_path)
+                except Exception:
+                    pass
+
+            self._last_result = dict(
+                ref_sec=[], app_sec=app_sec,
+                tp_est=app_sec, fp_est=[], fn_ref=[],
+                waveform=waveform, wav_sr=wav_sr,
+                duration_sec=duration_sec,
+                f_score=0.0, bpm_app=0.0, bpm_ref=0.0,
+                engine_name=eng_name + " (실패)",
+                audio_name=os.path.basename(audio_path),
+                music_id="—", tol_ms=tol_ms,
+                engine_failed=True,
+            )
+            self.zoom_e_var.set(round(duration_sec, 1))
+            self._redraw_timeline()
+        except Exception as ex:
+            self._log(f"[타임라인 표시 오류] {ex}", "red")
 
     def _do_analyze(self, audio_path, bin_path, engine, tol_ms, bpm_hint):
         SEP  = "─" * 62
