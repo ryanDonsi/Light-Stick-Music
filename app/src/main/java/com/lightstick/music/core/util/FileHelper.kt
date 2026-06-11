@@ -248,8 +248,6 @@ object FileHelper {
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS),
-        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
-        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
     ).mapNotNull { runCatching { if (it.exists()) it.canonicalPath else null }.getOrNull() }
 
     /**
