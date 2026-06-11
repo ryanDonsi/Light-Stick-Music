@@ -35,6 +35,7 @@ import com.lightstick.music.domain.usecase.music.HandleSeekUseCase
 import com.lightstick.music.domain.usecase.music.LoadEfxUseCase
 import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
 import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
+import com.lightstick.efx.MusicId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -303,7 +304,7 @@ class MusicViewModel @Inject constructor(
         _currentPosition.value = 0
 
         val musicFile = File(item.filePath)
-        val musicId   = com.lightstick.music.core.util.FileHelper.musicIdFromFile(musicFile)
+        val musicId   = MusicId.fromFile(musicFile)
         val ver       = AutoTimelineConfig.VERSION
 
         if (_isAutoModeEnabled.value) {
@@ -396,7 +397,7 @@ class MusicViewModel @Inject constructor(
                 if (MusicEffectManager.hasEffectFor(musicFile)) {
                     loadEfxUseCase(context, musicFile)
                 } else {
-                    val musicId = com.lightstick.music.core.util.FileHelper.musicIdFromFile(musicFile)
+                    val musicId = MusicId.fromFile(musicFile)
                     val ver     = AutoTimelineConfig.VERSION
                     val storage = AutoTimelineStorage(version = ver)
                     val frames  = storage.load(context, musicId)
