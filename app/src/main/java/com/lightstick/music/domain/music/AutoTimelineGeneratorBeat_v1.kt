@@ -19,7 +19,7 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
-        private const val VERSION     = 13
+        private const val VERSION     = 1
         private const val MIN_BEAT_MS = 320L
         private const val MAX_BEAT_MS = 1200L
 
