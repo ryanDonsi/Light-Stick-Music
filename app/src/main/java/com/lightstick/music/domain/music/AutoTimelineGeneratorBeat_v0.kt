@@ -88,7 +88,8 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
                 monoSamples  = monoSamples,
                 sampleRate   = sampleRate,
                 minBeatMs    = MIN_BEAT_MS,
-                maxBeatMs    = 1200L
+                maxBeatMs    = 1200L,
+                hopMs        = HOP_MS
             )
             val globalBeatMs0 = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
             Log.d(TAG, "v0 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs0 beats=${beatInfo.beats.size} beatsPerBar=${beatInfo.beatsPerBar} detectorVer=$detectorVer")
