@@ -2,7 +2,6 @@ package com.lightstick.music.ui.viewmodel
 
 import android.annotation.SuppressLint
 import android.app.Application
-import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
@@ -19,7 +18,6 @@ import com.lightstick.music.core.util.FileHelper
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.local.preferences.AutoModePreferences
 import com.lightstick.music.data.local.preferences.SectionOverlayPreferences
-import com.lightstick.music.data.local.storage.EffectPathPreferences
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.BleTransmissionMonitor
@@ -62,7 +60,7 @@ class MusicViewModel @Inject constructor(
         private const val TAG = AppConstants.Feature.VM_MUSIC
     }
 
-    private val context = application.applicationContext
+    private val context get() = getApplication<Application>().applicationContext
 
     private val _isAutoModeEnabled = MutableStateFlow(true)
     val isAutoModeEnabled: StateFlow<Boolean> = _isAutoModeEnabled.asStateFlow()
@@ -257,7 +255,7 @@ class MusicViewModel @Inject constructor(
 
         val retriever = MediaMetadataRetriever()
         var art: String? = null
-        var duration: Long = 0L
+        var duration = 0L
         try {
             retriever.setDataSource(path)
             art = retriever.embeddedPicture?.let { bytes ->
