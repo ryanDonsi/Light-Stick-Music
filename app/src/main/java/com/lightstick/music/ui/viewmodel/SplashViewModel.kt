@@ -152,27 +152,38 @@ class SplashViewModel @Inject constructor(
      * - MediaStore 자동 스캔이 누락한 파일을 초기화 시점에 한 번 등록
      */
     private suspend fun triggerMediaStoreScan() = withContext(Dispatchers.IO) {
+        val mp4Tag   = AppConstants.Feature.AUTO_TIMELINE
         val scanDirs = FileHelper.allowedMusicDirs().map { File(it) }.filter { it.exists() }
 
-        val audioFiles = scanDirs
+        data class ScanEntry(val path: String, val mime: String?)
+
+        val entries = scanDirs
             .flatMap { dir ->
                 dir.walkTopDown()
                     .onEnter { !FileHelper.isRecordingsPath(it.absolutePath) }
                     .filter { it.isFile && it.extension.lowercase() in AppConstants.SUPPORTED_AUDIO_EXTENSIONS }
-                    .map { it.absolutePath }
+                    .map { file ->
+                        val mime = if (file.extension.lowercase() == "mp4") "audio/mp4" else null
+                        ScanEntry(file.absolutePath, mime)
+                    }
                     .toList()
             }
-            .distinct()
+            .distinctBy { it.path }
 
-        if (audioFiles.isEmpty()) return@withContext
+        if (entries.isEmpty()) return@withContext
+
+        val mp4Count = entries.count { it.mime == "audio/mp4" }
+        Log.d(mp4Tag, "triggerMediaStoreScan: total=${entries.size}  mp4=$mp4Count")
 
         suspendCancellableCoroutine { cont ->
-            val remaining = AtomicInteger(audioFiles.size)
+            val remaining = AtomicInteger(entries.size)
             MediaScannerConnection.scanFile(
                 context,
-                audioFiles.toTypedArray(),
-                null
-            ) { _, _ ->
+                entries.map { it.path }.toTypedArray(),
+                entries.map { it.mime }.toTypedArray()  // mp4 → "audio/mp4" 강제 지정
+            ) { path, uri ->
+                if (path.endsWith(".mp4"))
+                    Log.d(mp4Tag, "MediaStore scan result: $path → uri=$uri")
                 if (remaining.decrementAndGet() == 0) {
                     cont.resumeWith(Result.success(Unit))
                 }
