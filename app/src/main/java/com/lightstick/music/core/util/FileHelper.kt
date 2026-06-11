@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.OpenableColumns
 import com.lightstick.music.core.util.Log
+import com.lightstick.efx.MusicId
 import com.lightstick.music.core.constants.AppConstants
 import java.io.File
 
@@ -109,6 +110,39 @@ object FileHelper {
             bytes < 1024 * 1024 -> String.format("%.1f KB", bytes / 1024.0)
             bytes < 1024 * 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
             else -> String.format("%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0))
+        }
+    }
+
+    /**
+     * OOM 없이 Music ID를 계산한다.
+     *
+     * SDK의 MusicId.fromFile()은 파일 전체를 ByteArray로 읽어 해시를 계산하므로
+     * 앨범 통합 mp3처럼 대용량 파일(>20MB)에서 OutOfMemoryError가 발생한다.
+     * 임계값 초과 시 앞 4MB만 읽는 LimitedInputStream을 사용해 일관된 ID를 반환한다.
+     */
+    fun musicIdFromFile(file: File): Int {
+        val thresholdBytes = 20L * 1024 * 1024  // 20 MB
+        val readLimitBytes = 4L * 1024 * 1024   // 4 MB
+        return if (file.length() <= thresholdBytes) {
+            MusicId.fromFile(file)
+        } else {
+            file.inputStream().use { base ->
+                val limited = object : java.io.InputStream() {
+                    var remaining = readLimitBytes
+                    override fun read(): Int {
+                        if (remaining <= 0L) return -1
+                        remaining--
+                        return base.read()
+                    }
+                    override fun read(b: ByteArray, off: Int, len: Int): Int {
+                        if (remaining <= 0L) return -1
+                        val n = base.read(b, off, minOf(len.toLong(), remaining).toInt())
+                        if (n > 0) remaining -= n
+                        return n
+                    }
+                }
+                MusicId.fromStream(limited)
+            }
         }
     }
 

@@ -317,7 +317,7 @@ class MusicViewModel @Inject constructor(
         _currentPosition.value = 0
 
         val musicFile = File(item.filePath)
-        val musicId   = com.lightstick.efx.MusicId.fromFile(musicFile)
+        val musicId   = com.lightstick.music.core.util.FileHelper.musicIdFromFile(musicFile)
         val ver       = AutoTimelineConfig.VERSION
 
         if (_isAutoModeEnabled.value) {
@@ -410,7 +410,7 @@ class MusicViewModel @Inject constructor(
                 if (MusicEffectManager.hasEffectFor(musicFile)) {
                     loadEfxUseCase(context, musicFile)
                 } else {
-                    val musicId = com.lightstick.efx.MusicId.fromFile(musicFile)
+                    val musicId = com.lightstick.music.core.util.FileHelper.musicIdFromFile(musicFile)
                     val ver     = AutoTimelineConfig.VERSION
                     val storage = AutoTimelineStorage(version = ver)
                     val frames  = storage.load(context, musicId)
