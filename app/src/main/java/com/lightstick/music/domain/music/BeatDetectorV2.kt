@@ -499,6 +499,7 @@ object BeatDetectorV2 {
         var bestCorrPS = combPriorScore(resultMs)
 
         for (r in HARM_RATIOS) {
+            if (r == 0.5f && resultMs < 910L) continue
             val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt().coerceAtLeast(1)
             val cMs = frames.toLong() * hopMs
             if (cMs < minBeatMs || cMs > maxBeatMs) continue
