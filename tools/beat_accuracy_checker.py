@@ -1205,7 +1205,8 @@ class App(tk.Tk):
     def _compute_id_for_item(self, iid, path):
         try:
             mid = str(compute_music_id(path))
-        except Exception:
+        except Exception as e:
+            print(f"[compute_music_id] FAILED for {os.path.basename(path)}: {e}")
             mid = extract_music_id(path) or "—"
         if iid not in self._audio_items:
             return
