@@ -37,11 +37,12 @@ object BeatDetectorRouter {
         monoSamples: FloatArray,
         sampleRate: Int,
         minBeatMs: Long,
-        maxBeatMs: Long
+        maxBeatMs: Long,
+        hopMs: Long = 50L
     ): BeatInfo {
         val r = BeatDetectorV1.detectPcm(monoSamples, sampleRate,
             BeatDetectorV1.Params(
-                hopMs     = 50L,
+                hopMs     = hopMs,
                 minBeatMs = minBeatMs.coerceAtLeast(375L),
                 maxBeatMs = maxBeatMs.coerceAtMost(1000L)
             ))

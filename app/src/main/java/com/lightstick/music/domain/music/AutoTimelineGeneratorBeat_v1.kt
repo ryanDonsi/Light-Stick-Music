@@ -24,6 +24,7 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
         private const val MAX_BEAT_MS = 1200L
 
         private const val DETECTOR_VER = 1  // BeatDetectorV1 고정
+        private const val HOP_MS       = 20L
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -49,7 +50,7 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
 
         // ── 2. 비트 감지 ─────────────────────────────────────────────
         val t0Beat = System.currentTimeMillis()
-        val beatInfo = BeatDetectorRouter.detectPcm(DETECTOR_VER, monoSamples, sampleRate, MIN_BEAT_MS, 1200L)
+        val beatInfo = BeatDetectorRouter.detectPcm(DETECTOR_VER, monoSamples, sampleRate, MIN_BEAT_MS, 1200L, HOP_MS)
         val globalBeatMs = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
         val beatsPerBar  = beatInfo.beatsPerBar
         Log.d(TAG, "v1 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs beats=${beatInfo.beats.size} beatsPerBar=$beatsPerBar detectorVer=$DETECTOR_VER")
