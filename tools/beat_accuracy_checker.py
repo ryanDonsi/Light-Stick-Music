@@ -359,12 +359,22 @@ def detect_beats_librosa(audio_path, bpm_hint=0.0):
     beats_sec = sorted(librosa.frames_to_time(frames, sr=sr).tolist())
     return beats_sec, bpm
 
-def load_waveform(audio_path, max_sr=22050):
-    """파형 로드 (librosa 있을 때만). → (y, sr) or (None, 0)"""
+def load_waveform(audio_path, max_sr=22050, max_duration=600.0):
+    """파형 로드 (librosa 있을 때만). → (y, sr) or (None, 0)
+    max_duration 초 초과 파일은 앞부분만 로드 (앨범 통합 mp3 대응).
+    """
     if not HAS_LIBROSA:
         return None, 0
-    y, sr = librosa.load(audio_path, sr=max_sr, mono=True)
-    return y, sr
+    try:
+        duration = librosa.get_duration(path=audio_path)
+        offset, dur = 0.0, None
+        if duration > max_duration:
+            dur = max_duration
+        y, sr = librosa.load(audio_path, sr=max_sr, mono=True,
+                             offset=offset, duration=dur)
+        return y, sr
+    except Exception:
+        return None, 0
 
 def get_audio_duration(audio_path):
     if HAS_LIBROSA:
@@ -383,10 +393,15 @@ def _median_bpm(beats_sec):
 # ──────────────────────────────────────────────
 
 def compute_music_id(path: str) -> int:
-    """SDK와 동일한 알고리즘: SHA-256 앞 4바이트를 Little Endian u32로 변환."""
+    """SDK와 동일한 알고리즘: SHA-256 앞 4바이트를 Little Endian u32로 변환.
+    20MB 초과 파일은 앱과 동일하게 앞 4MB만 해시 (OOM 방지 + ID 일치).
+    """
     import hashlib, struct as _struct
+    THRESHOLD = 20 * 1024 * 1024  # 20 MB
+    READ_LIMIT = 4 * 1024 * 1024  # 4 MB
+    file_size = os.path.getsize(path)
     with open(path, "rb") as f:
-        data = f.read()
+        data = f.read(READ_LIMIT if file_size > THRESHOLD else file_size)
     digest = hashlib.sha256(data).digest()
     return _struct.unpack("<I", digest[:4])[0]
 
