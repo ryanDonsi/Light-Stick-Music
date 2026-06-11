@@ -394,23 +394,16 @@ def _median_bpm(beats_sec):
 
 def compute_music_id(path: str) -> int:
     """SDK와 동일한 알고리즘: SHA-256 앞 4바이트를 Little Endian u32로 변환.
-    20MB 초과 파일은 앱과 동일하게 앞 4MB만 해시 (OOM 방지 + ID 일치).
+    20MB 이하: 파일 전체 읽기 / 20MB 초과: 앞 4MB만 읽기 (SDK 동일 정책).
     """
     import hashlib, struct as _struct
     THRESHOLD = 20 * 1024 * 1024  # 20 MB
     READ_LIMIT = 4 * 1024 * 1024  # 4 MB
-    name = os.path.basename(path)
-    print(f"[compute_music_id] START  {name}")
     file_size = os.path.getsize(path)
-    print(f"[compute_music_id] SIZE   {file_size/1024/1024:.1f} MB  → read {'4MB' if file_size > THRESHOLD else 'full'}")
     with open(path, "rb") as f:
-        print(f"[compute_music_id] FILE_OPEN OK  {name}")
         data = f.read(READ_LIMIT if file_size > THRESHOLD else file_size)
-    print(f"[compute_music_id] READ OK  {len(data)} bytes  {name}")
     digest = hashlib.sha256(data).digest()
-    result = _struct.unpack("<I", digest[:4])[0]
-    print(f"[compute_music_id] DONE   {name}  →  {result}")
-    return result
+    return _struct.unpack("<I", digest[:4])[0]
 
 def _fmt_sec(sec: float) -> str:
     """초(float)를 mm:ss 형식 문자열로 변환."""

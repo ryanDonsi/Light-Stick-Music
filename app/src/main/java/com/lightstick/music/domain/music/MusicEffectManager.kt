@@ -6,7 +6,6 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.efx.Efx
 import com.lightstick.efx.EfxEntry
 import com.lightstick.efx.MusicId
-import com.lightstick.music.core.util.FileHelper.musicIdFromFile
 import com.lightstick.music.data.local.storage.EffectPathPreferences
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -105,7 +104,7 @@ object MusicEffectManager {
 
     fun hasEffectFor(musicFile: File): Boolean {
         return try {
-            val musicId = musicIdFromFile(musicFile)
+            val musicId = MusicId.fromFile(musicFile)
             val found = effectFileMap.containsKey(musicId)
             if (found) {
                 Log.d(TAG, "hasEffectFor: HIT  ${musicFile.name} → musicId=$musicId")
@@ -137,7 +136,7 @@ object MusicEffectManager {
      */
     fun loadEffects(musicFile: File): List<EfxEntry>? {
         return try {
-            val musicId = musicIdFromFile(musicFile)
+            val musicId = MusicId.fromFile(musicFile)
             loadEffectsByMusicId(musicId)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load effects: ${e.message}")
