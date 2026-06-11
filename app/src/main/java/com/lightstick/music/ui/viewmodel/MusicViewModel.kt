@@ -198,35 +198,6 @@ class MusicViewModel @Inject constructor(
                     }
                 }
 
-                // Video MediaStore (mp4 — Android는 mp4를 Video로 분류)
-                val videoProjection = arrayOf(
-                    MediaStore.Video.Media.TITLE,
-                    MediaStore.Video.Media.DISPLAY_NAME,
-                    MediaStore.Video.Media.ARTIST,
-                    MediaStore.Video.Media.DATA
-                )
-                resolver.query(
-                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                    videoProjection,
-                    null, null,
-                    "${MediaStore.Video.Media.DATE_ADDED} DESC"
-                )?.use { cursor ->
-                    val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.TITLE)
-                    val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
-                    val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.ARTIST)
-                    val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
-                    while (cursor.moveToNext()) {
-                        val path = cursor.getString(dataCol) ?: continue
-                        if (File(path).extension.lowercase() != "mp4") continue
-                        if (!seenPaths.add(path)) continue
-                        addMusicItemIfValid(
-                            path, cursor.getString(titleCol),
-                            cursor.getString(nameCol), cursor.getString(artistCol),
-                            allowedDirs, items
-                        )
-                    }
-                }
-
                 // 파일시스템 직접 탐색 (mp4) — MediaStore 분류와 무관하게 확실히 수집
                 allowedDirs.map { File(it) }.filter { it.exists() }.forEach { dir ->
                     dir.walkTopDown()

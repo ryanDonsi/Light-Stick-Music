@@ -152,38 +152,27 @@ class SplashViewModel @Inject constructor(
      * - MediaStore 자동 스캔이 누락한 파일을 초기화 시점에 한 번 등록
      */
     private suspend fun triggerMediaStoreScan() = withContext(Dispatchers.IO) {
-        val mp4Tag   = AppConstants.Feature.AUTO_TIMELINE
         val scanDirs = FileHelper.allowedMusicDirs().map { File(it) }.filter { it.exists() }
 
-        data class ScanEntry(val path: String, val mime: String?)
-
-        val entries = scanDirs
+        val audioFiles = scanDirs
             .flatMap { dir ->
                 dir.walkTopDown()
                     .onEnter { !FileHelper.isRecordingsPath(it.absolutePath) }
                     .filter { it.isFile && it.extension.lowercase() in AppConstants.SUPPORTED_AUDIO_EXTENSIONS }
-                    .map { file ->
-                        val mime = if (file.extension.lowercase() == "mp4") "audio/mp4" else null
-                        ScanEntry(file.absolutePath, mime)
-                    }
+                    .map { it.absolutePath }
                     .toList()
             }
-            .distinctBy { it.path }
+            .distinct()
 
-        if (entries.isEmpty()) return@withContext
-
-        val mp4Count = entries.count { it.mime == "audio/mp4" }
-        Log.d(mp4Tag, "triggerMediaStoreScan: total=${entries.size}  mp4=$mp4Count")
+        if (audioFiles.isEmpty()) return@withContext
 
         suspendCancellableCoroutine { cont ->
-            val remaining = AtomicInteger(entries.size)
+            val remaining = AtomicInteger(audioFiles.size)
             MediaScannerConnection.scanFile(
                 context,
-                entries.map { it.path }.toTypedArray(),
-                entries.map { it.mime }.toTypedArray()  // mp4 → "audio/mp4" 강제 지정
-            ) { path, uri ->
-                if (path.endsWith(".mp4"))
-                    Log.d(mp4Tag, "MediaStore scan result: $path → uri=$uri")
+                audioFiles.toTypedArray(),
+                null
+            ) { _, _ ->
                 if (remaining.decrementAndGet() == 0) {
                     cont.resumeWith(Result.success(Unit))
                 }
@@ -243,46 +232,13 @@ class SplashViewModel @Inject constructor(
             }
         }
 
-        // Video MediaStore (mp4 — Android는 mp4를 Video로 분류)
-        val videoProjection = arrayOf(
-            MediaStore.Video.Media.TITLE,
-            MediaStore.Video.Media.DISPLAY_NAME,
-            MediaStore.Video.Media.ARTIST,
-            MediaStore.Video.Media.DATA
-        )
-        resolver.query(
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-            videoProjection,
-            null, null,
-            "${MediaStore.Video.Media.DATE_ADDED} DESC"
-        )?.use { cursor ->
-            val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.TITLE)
-            val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
-            val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.ARTIST)
-            val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
-            while (cursor.moveToNext()) {
-                val path = cursor.getString(dataCol) ?: continue
-                if (File(path).extension.lowercase() != "mp4") continue
-                addIfValid(path, cursor.getString(titleCol), cursor.getString(nameCol), cursor.getString(artistCol))
-            }
-        }
-
         // 파일시스템 직접 탐색 (mp4) — MediaStore 분류와 무관하게 확실히 수집
-        val mp4Tag = AppConstants.Feature.AUTO_TIMELINE
-        Log.d(mp4Tag, "mp4 filesystem scan start — allowedDirs=$allowedDirs")
-        var mp4Found = 0
         allowedDirs.map { File(it) }.filter { it.exists() }.forEach { dir ->
-            Log.d(mp4Tag, "mp4 scan dir: ${dir.absolutePath}")
             dir.walkTopDown()
                 .onEnter { !FileHelper.isRecordingsPath(it.absolutePath) }
                 .filter { it.isFile && it.extension.lowercase() == "mp4" }
-                .forEach { file ->
-                    Log.d(mp4Tag, "mp4 found: ${file.absolutePath}")
-                    mp4Found++
-                    addIfValid(file.absolutePath, null, file.name, null)
-                }
+                .forEach { file -> addIfValid(file.absolutePath, null, file.name, null) }
         }
-        Log.d(mp4Tag, "mp4 filesystem scan done — found=$mp4Found  total validEntries=${validEntries.size}")
 
         val total = validEntries.size
         _state.value = InitializationState.ScanningMusic(total, total)
