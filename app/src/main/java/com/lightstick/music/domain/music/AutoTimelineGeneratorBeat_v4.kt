@@ -121,11 +121,13 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         // ── 2. Beat detection ──────────────────────────────────────────
         val detectorVer   = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val t0Beat        = System.currentTimeMillis()
-        val beatInfo: BeatDetectorRouter.BeatInfo = if (detectorVer <= 2) {
-            val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
-            BeatDetectorRouter.detectPcm(detectorVer, monoSamples, sampleRate, MIN_BEAT_MS, MAX_BEAT_MS)
-        } else {
-            BeatDetectorRouter.detect(detectorVer, lowEnv, midEnv, fullEnv, HOP_MS, MIN_BEAT_MS, MAX_BEAT_MS)
+        val beatInfo: BeatDetectorRouter.BeatInfo = when {
+            detectorVer == 1 -> {
+                val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
+                BeatDetectorRouter.detectPcm(detectorVer, monoSamples, sampleRate, MIN_BEAT_MS, MAX_BEAT_MS)
+            }
+            detectorVer == 2 -> BeatDetectorRouter.detectFile(musicPath, MIN_BEAT_MS, MAX_BEAT_MS)
+            else -> BeatDetectorRouter.detect(detectorVer, lowEnv, midEnv, fullEnv, HOP_MS, MIN_BEAT_MS, MAX_BEAT_MS)
         }
         val beatInfoBeats = beatInfo.beats
         val globalBeatMs  = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
