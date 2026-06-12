@@ -102,9 +102,6 @@ object MusicEffectManager {
         Log.i(TAG, "initialize(File): done — ${effectFileMap.size} EFX file(s) in map")
     }
 
-    /**
-     *  SDK 활용: MusicId.fromFile()
-     */
     fun hasEffectFor(musicFile: File): Boolean {
         return try {
             val musicId = MusicId.fromFile(musicFile)

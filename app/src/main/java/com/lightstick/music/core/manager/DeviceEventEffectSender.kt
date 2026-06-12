@@ -38,6 +38,10 @@ object DeviceEventEffectSender {
 
     @SuppressLint("MissingPermission")
     fun sendCallEffect(context: Context) {
+        if (EffectEngineController.isEffectActive()) {
+            Log.d(TAG, "[CALL] 이펙트 연출 중 → 이벤트 이펙트 차단")
+            return
+        }
         val payload = LSEffectPayload.Effects.blink(
             period = 10,
             color = Colors.CYAN,
@@ -64,10 +68,22 @@ object DeviceEventEffectSender {
 
     @SuppressLint("MissingPermission")
     fun sendSmsEffect(context: Context) {
+        if (EffectEngineController.isEffectActive()) {
+            Log.d(TAG, "[SMS] 이펙트 연출 중 → 이벤트 이펙트 차단")
+            return
+        }
         // blink가 이미 진행 중이면 중복 알림 무시
         if (smsBlinkJob?.isActive == true) {
             Log.d(TAG, "[SMS] blink 진행 중 → 중복 알림 무시")
             return
+        }
+
+        val appContext = context.applicationContext
+        val wasTimelineActive = EffectEngineController.isTimelineActive()
+
+        if (wasTimelineActive) {
+            EffectEngineController.pauseEffects(appContext)
+            Log.d(TAG, "[SMS] 자동 타임라인 일시정지")
         }
 
         val payload = LSEffectPayload.Effects.blink(
@@ -82,7 +98,6 @@ object DeviceEventEffectSender {
             isEnabled = { mac -> DevicePreferences.getSmsEventEnabled(mac) }
         )
 
-        val appContext = context.applicationContext
         smsBlinkJob = scope.launch {
             delay(SMS_BLINK_DURATION_MS)
             val offPayload = LSEffectPayload.Effects.off()
@@ -92,6 +107,10 @@ object DeviceEventEffectSender {
                 payload = offPayload,
                 isEnabled = { mac -> DevicePreferences.getSmsEventEnabled(mac) }
             )
+            if (wasTimelineActive) {
+                EffectEngineController.resumeEffects(appContext)
+                Log.d(TAG, "[SMS] 자동 타임라인 재개")
+            }
         }
     }
 

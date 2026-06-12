@@ -1,0 +1,64 @@
+#define AppName      "Beat Accuracy Checker"
+#define AppVersion   "1.0.0"
+#define AppPublisher "LightStick Music"
+#define AppExeName   "BeatAccuracyChecker.exe"
+#define ToolsDir     ".."
+#define DistDir      "dist"
+
+[Setup]
+AppId={{8F3A2C1D-4E7B-4F2A-9D1E-3C5A7B8F2E4D}
+AppName={#AppName}
+AppVersion={#AppVersion}
+AppPublisherURL=https://github.com/ryanDonsi/Light-Stick-Music
+AppSupportURL=https://github.com/ryanDonsi/Light-Stick-Music
+AppUpdatesURL=https://github.com/ryanDonsi/Light-Stick-Music
+DefaultDirName={autopf}\{#AppName}
+DefaultGroupName={#AppName}
+AllowNoIcons=yes
+OutputDir=output
+OutputBaseFilename=BeatAccuracyChecker_Setup
+Compression=lzma2/ultra64
+SolidCompression=yes
+WizardStyle=modern
+; 2GB 이상 인스톨러 지원
+DiskSpanning=no
+LicenseFile=
+SetupIconFile=icon.ico
+UninstallDisplayIcon={app}\BeatAccuracyChecker.exe
+
+[Languages]
+Name: "korean";  MessagesFile: "compiler:Languages\Korean.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "바탕화면에 아이콘 만들기"; GroupDescription: "추가 아이콘:"; Flags: unchecked
+
+[Files]
+; onedir 빌드 결과물 전체 (torch·madmom 등 모든 라이브러리 포함)
+Source: "{#DistDir}\BeatAccuracyChecker\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; beat_analysis_records.json (있으면 포함, 없으면 무시)
+Source: "{#ToolsDir}\beat_analysis_records.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+
+; Beat-Transformer 폴더 전체 포함
+Source: "{#ToolsDir}\Beat-Transformer\*"; DestDir: "{app}\Beat-Transformer"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; Visual C++ Redistributable
+Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+
+[Icons]
+Name: "{group}\{#AppName}";        Filename: "{app}\{#AppExeName}"
+Name: "{group}\제거";               Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+
+[Run]
+; Visual C++ Redistributable 자동 설치 (이미 설치돼 있으면 /passive로 빠르게 건너뜀)
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /passive /norestart"; \
+  StatusMsg: "Visual C++ Runtime 설치 중..."; Flags: waituntilterminated
+
+Filename: "{app}\{#AppExeName}"; Description: "{#AppName} 실행"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\Beat-Transformer"
+Type: files;          Name: "{app}\beat_analysis_records.json"
+Type: files;          Name: "{app}\.bt_path"

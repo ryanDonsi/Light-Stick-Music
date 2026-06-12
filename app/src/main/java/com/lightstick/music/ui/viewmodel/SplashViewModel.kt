@@ -187,44 +187,57 @@ class SplashViewModel @Inject constructor(
         _state.value = InitializationState.ScanningMusic(0, 0)
         _splashState.value = SplashState.Initializing(InitializationState.ScanningMusic(0, 0))
 
-        val resolver = context.contentResolver
-        val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        val projection = arrayOf(
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.DISPLAY_NAME,
-            MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.DATA
-        )
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-        val sort = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
-
+        val resolver    = context.contentResolver
         val allowedDirs = FileHelper.allowedMusicDirs()
 
         // 1단계: 필터를 적용해 유효한 경로만 수집 → 정확한 total 확보
         data class RawEntry(val path: String, val title: String, val artist: String)
 
-        val dataOnlyProjection = arrayOf(
+        val audioProjection = arrayOf(
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.DATA
         )
         val validEntries = mutableListOf<RawEntry>()
-        resolver.query(uri, dataOnlyProjection, selection, null, sort)?.use { cursor ->
+        val seenPaths    = mutableSetOf<String>()
+
+        fun addIfValid(path: String, metaTitle: String?, fileName: String?, metaArtist: String?) {
+            if (!seenPaths.add(path)) return
+            if (File(path).extension.lowercase() !in AppConstants.SUPPORTED_AUDIO_EXTENSIONS) return
+            if (allowedDirs.none { path.startsWith(it) }) return
+            if (FileHelper.isRecordingsPath(path)) return
+            val title = if (!metaTitle.isNullOrBlank()) metaTitle
+                        else fileName?.substringBeforeLast(".") ?: "Unknown"
+            validEntries.add(RawEntry(path, title, metaArtist ?: "Unknown"))
+        }
+
+        // Audio MediaStore (mp3, m4a, flac, aac)
+        resolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            audioProjection,
+            "${MediaStore.Audio.Media.IS_MUSIC} != 0",
+            null,
+            "${MediaStore.Audio.Media.DATE_ADDED} DESC"
+        )?.use { cursor ->
             val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
             val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
             while (cursor.moveToNext()) {
-                val path = cursor.getString(dataCol) ?: continue
-                if (File(path).extension.lowercase() !in AppConstants.SUPPORTED_AUDIO_EXTENSIONS) continue
-                if (allowedDirs.none { path.startsWith(it) }) continue
-                if (FileHelper.isRecordingsPath(path)) continue
-                val metaTitle = cursor.getString(titleCol)
-                val fileName  = cursor.getString(nameCol) ?: "Unknown"
-                val title     = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
-                validEntries.add(RawEntry(path, title, cursor.getString(artistCol) ?: "Unknown"))
+                addIfValid(
+                    cursor.getString(dataCol) ?: continue,
+                    cursor.getString(titleCol), cursor.getString(nameCol), cursor.getString(artistCol)
+                )
             }
+        }
+
+        // 파일시스템 직접 탐색 (mp4) — MediaStore 분류와 무관하게 확실히 수집
+        allowedDirs.map { File(it) }.filter { it.exists() }.forEach { dir ->
+            dir.walkTopDown()
+                .onEnter { !FileHelper.isRecordingsPath(it.absolutePath) }
+                .filter { it.isFile && it.extension.lowercase() == "mp4" }
+                .forEach { file -> addIfValid(file.absolutePath, null, file.name, null) }
         }
 
         val total = validEntries.size

@@ -20,6 +20,7 @@
 
     <!-- Media(Android 13+) Permission -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
     <!-- External Storage(Android 12-) Permission -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"

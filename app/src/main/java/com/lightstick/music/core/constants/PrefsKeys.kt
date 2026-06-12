@@ -65,6 +65,9 @@ object PrefsKeys {
 
     const val KEY_AUTO_MODE_ENABLED = "auto_mode_enabled"
 
+    /** 섹션 정보 오버레이 표시 여부 (MusicControlScreen 앨범 이미지 위) */
+    const val KEY_SECTION_OVERLAY_ENABLED = "section_overlay_enabled"
+
     /** Foreground 프리셋 색상 key 생성 */
     fun fgPresetKey(index: Int): String = KEY_FG_PRESET_PREFIX + index
 

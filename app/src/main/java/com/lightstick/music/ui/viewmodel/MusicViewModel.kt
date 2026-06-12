@@ -2,7 +2,6 @@ package com.lightstick.music.ui.viewmodel
 
 import android.annotation.SuppressLint
 import android.app.Application
-import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
@@ -18,13 +17,15 @@ import com.lightstick.music.core.state.MusicPlaybackState
 import com.lightstick.music.core.util.FileHelper
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.local.preferences.AutoModePreferences
-import com.lightstick.music.data.local.storage.EffectPathPreferences
+import com.lightstick.music.data.local.preferences.SectionOverlayPreferences
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.BleTransmissionMonitor
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
+import com.lightstick.music.domain.music.SectionMeta
+import com.lightstick.music.domain.music.SectionMetaStorage
 import com.lightstick.music.domain.music.FftAudioProcessor
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.domain.music.createFftPlayer
@@ -32,6 +33,7 @@ import com.lightstick.music.domain.usecase.music.HandleSeekUseCase
 import com.lightstick.music.domain.usecase.music.LoadEfxUseCase
 import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
 import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
+import com.lightstick.efx.MusicId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -58,7 +60,7 @@ class MusicViewModel @Inject constructor(
         private const val TAG = AppConstants.Feature.VM_MUSIC
     }
 
-    private val context = application.applicationContext
+    private val context get() = getApplication<Application>().applicationContext
 
     private val _isAutoModeEnabled = MutableStateFlow(true)
     val isAutoModeEnabled: StateFlow<Boolean> = _isAutoModeEnabled.asStateFlow()
@@ -94,6 +96,12 @@ class MusicViewModel @Inject constructor(
     val latestTransmission: StateFlow<BleTransmissionEvent?> =
         BleTransmissionMonitor.latestTransmission
 
+    private val _currentSections = MutableStateFlow<List<SectionMeta>?>(null)
+    val currentSections: StateFlow<List<SectionMeta>?> = _currentSections.asStateFlow()
+
+    private val _isSectionOverlayEnabled = MutableStateFlow(false)
+    val isSectionOverlayEnabled: StateFlow<Boolean> = _isSectionOverlayEnabled.asStateFlow()
+
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_ENDED) playNext()
@@ -104,7 +112,8 @@ class MusicViewModel @Inject constructor(
         initializeEffects()
         EffectEngineController.reset()
 
-        _isAutoModeEnabled.value = AutoModePreferences.isAutoModeEnabled(getApplication())
+        _isAutoModeEnabled.value      = AutoModePreferences.isAutoModeEnabled(getApplication())
+        _isSectionOverlayEnabled.value = SectionOverlayPreferences.isEnabled(getApplication())
 
         viewModelScope.launch {
             combine(_isPlaying, _isAutoModeEnabled) { playing, autoMode ->
@@ -154,78 +163,55 @@ class MusicViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val musicItems = withContext(Dispatchers.IO) {
-                val resolver   = context.contentResolver
-                val uri        = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                val projection = arrayOf(
+                val resolver    = context.contentResolver
+                val allowedDirs = FileHelper.allowedMusicDirs()
+                val items       = mutableListOf<MusicItem>()
+                val seenPaths   = mutableSetOf<String>()
+
+                // Audio MediaStore (mp3, m4a, flac, aac)
+                val audioProjection = arrayOf(
                     MediaStore.Audio.Media.TITLE,
                     MediaStore.Audio.Media.DISPLAY_NAME,
                     MediaStore.Audio.Media.ARTIST,
                     MediaStore.Audio.Media.DATA
                 )
-                val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-                val sort      = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
-
-                val allowedDirs = FileHelper.allowedMusicDirs()
-
-                val items = mutableListOf<MusicItem>()
-                resolver.query(uri, projection, selection, null, sort)?.use { cursor ->
+                resolver.query(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    audioProjection,
+                    "${MediaStore.Audio.Media.IS_MUSIC} != 0",
+                    null,
+                    "${MediaStore.Audio.Media.DATE_ADDED} DESC"
+                )?.use { cursor ->
                     val titleCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
                     val nameCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
                     val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
                     val dataCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
-
                     while (cursor.moveToNext()) {
-                        val path      = cursor.getString(dataCol) ?: continue
-                        val file      = File(path)
-                        if (file.extension.lowercase() !in AppConstants.SUPPORTED_AUDIO_EXTENSIONS) continue
-                        if (allowedDirs.none { path.startsWith(it) }) continue
-                        if (FileHelper.isRecordingsPath(path)) continue
-
-                        val metaTitle = cursor.getString(titleCol)
-                        val fileName  = cursor.getString(nameCol)
-                        val title     = if (!metaTitle.isNullOrBlank()) metaTitle
-                        else fileName.substringBeforeLast(".")
-                        val artist    = cursor.getString(artistCol) ?: "Unknown"
-
-                        val hasEffect = try {
-                            MusicEffectManager.hasEffectFor(file)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to check effect: ${e.message}")
-                            false
-                        }
-
-                        val retriever = MediaMetadataRetriever()
-                        var art: String? = null
-                        var duration: Long = 0L
-                        try {
-                            retriever.setDataSource(path)
-                            art = retriever.embeddedPicture?.let { bytes ->
-                                val file = File(context.cacheDir, "${title.hashCode()}.jpg")
-                                file.writeBytes(bytes)
-                                file.absolutePath
-                            }
-                            val durationStr = retriever.extractMetadata(
-                                MediaMetadataRetriever.METADATA_KEY_DURATION
-                            )
-                            duration = durationStr?.toLongOrNull() ?: 0L
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to extract metadata: ${e.message}")
-                        } finally {
-                            retriever.release()
-                        }
-
-                        items.add(
-                            MusicItem(
-                                title        = title,
-                                artist       = artist,
-                                filePath     = path,
-                                albumArtPath = art,
-                                hasEffect    = hasEffect,
-                                duration     = duration
-                            )
+                        val path = cursor.getString(dataCol) ?: continue
+                        if (!seenPaths.add(path)) continue
+                        addMusicItemIfValid(
+                            path, cursor.getString(titleCol),
+                            cursor.getString(nameCol), cursor.getString(artistCol),
+                            allowedDirs, items
                         )
                     }
                 }
+
+                // 파일시스템 직접 탐색 (mp4) — MediaStore 분류와 무관하게 확실히 수집
+                allowedDirs.map { File(it) }.filter { it.exists() }.forEach { dir ->
+                    dir.walkTopDown()
+                        .onEnter { !FileHelper.isRecordingsPath(it.absolutePath) }
+                        .filter { it.isFile && it.extension.lowercase() == "mp4" }
+                        .forEach { file ->
+                            if (seenPaths.add(file.absolutePath)) {
+                                addMusicItemIfValid(
+                                    file.absolutePath, null, file.name, null,
+                                    allowedDirs, items
+                                )
+                            }
+                        }
+                }
+
                 items
             }
 
@@ -241,6 +227,61 @@ class MusicViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun addMusicItemIfValid(
+        path: String,
+        metaTitle: String?,
+        fileName: String?,
+        metaArtist: String?,
+        allowedDirs: List<String>,
+        items: MutableList<MusicItem>
+    ) {
+        val file = File(path)
+        if (file.extension.lowercase() !in AppConstants.SUPPORTED_AUDIO_EXTENSIONS) return
+        if (allowedDirs.none { path.startsWith(it) }) return
+        if (FileHelper.isRecordingsPath(path)) return
+
+        val title  = if (!metaTitle.isNullOrBlank()) metaTitle
+                     else fileName?.substringBeforeLast(".") ?: file.nameWithoutExtension
+        val artist = metaArtist ?: "Unknown"
+
+        val hasEffect = try {
+            MusicEffectManager.hasEffectFor(file)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to check effect: ${e.message}")
+            false
+        }
+
+        val retriever = MediaMetadataRetriever()
+        var art: String? = null
+        var duration = 0L
+        try {
+            retriever.setDataSource(path)
+            art = retriever.embeddedPicture?.let { bytes ->
+                val cacheFile = File(context.cacheDir, "${title.hashCode()}.jpg")
+                cacheFile.writeBytes(bytes)
+                cacheFile.absolutePath
+            }
+            duration = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_DURATION
+            )?.toLongOrNull() ?: 0L
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to extract metadata: ${e.message}")
+        } finally {
+            retriever.release()
+        }
+
+        items.add(
+            MusicItem(
+                title        = title,
+                artist       = artist,
+                filePath     = path,
+                albumArtPath = art,
+                hasEffect    = hasEffect,
+                duration     = duration
+            )
+        )
     }
 
     fun updateNotificationProgress() {
@@ -260,15 +301,16 @@ class MusicViewModel @Inject constructor(
         _duration.value        = 0
         _currentPosition.value = 0
 
+        val musicFile = File(item.filePath)
+        val musicId   = MusicId.fromFile(musicFile)
+        val ver       = AutoTimelineConfig.VERSION
+
         if (_isAutoModeEnabled.value) {
-            val musicFile = File(item.filePath)
             EffectEngineController.reset()
 
             if (MusicEffectManager.hasEffectFor(musicFile)) {
                 loadEfxUseCase(context, musicFile)
             } else {
-                val musicId = com.lightstick.efx.MusicId.fromFile(musicFile)
-                val ver     = AutoTimelineConfig.VERSION
                 val storage = AutoTimelineStorage(version = ver)
                 val frames  = storage.load(context, musicId)
 
@@ -280,6 +322,11 @@ class MusicViewModel @Inject constructor(
             }
         } else {
             EffectEngineController.reset()
+        }
+
+        // 섹션 메타 비동기 로드 (오버레이용)
+        viewModelScope.launch(Dispatchers.IO) {
+            _currentSections.value = SectionMetaStorage(ver).load(context, musicId)
         }
 
         ServiceController.startMusicEffectService(
@@ -309,11 +356,26 @@ class MusicViewModel @Inject constructor(
         if (player.isPlaying) {
             player.pause()
             _isPlaying.value = false
+            if (_isAutoModeEnabled.value) EffectEngineController.pauseEffects(context)
         } else {
             player.play()
             _isPlaying.value = true
+            if (_isAutoModeEnabled.value) {
+                EffectEngineController.resumeEffects(context)
+                // SDK가 resumeEffects()만으로 BLE 전송을 재개하지 못하는 경우가 있어
+                // 현재 position으로 re-seek해 전송 엔진을 강제 재시작한다
+                val currentPos = player.currentPosition
+                try { handleSeekUseCase(context, currentPos) }
+                catch (e: Exception) { Log.e(TAG, "Resume position sync failed: ${e.message}") }
+            }
         }
         updateNotificationProgress()
+    }
+
+    fun toggleSectionOverlay(): Boolean {
+        val newState = SectionOverlayPreferences.toggle(getApplication())
+        _isSectionOverlayEnabled.value = newState
+        return newState
     }
 
     fun toggleAutoMode(): Boolean {
@@ -333,7 +395,7 @@ class MusicViewModel @Inject constructor(
                 if (MusicEffectManager.hasEffectFor(musicFile)) {
                     loadEfxUseCase(context, musicFile)
                 } else {
-                    val musicId = com.lightstick.efx.MusicId.fromFile(musicFile)
+                    val musicId = MusicId.fromFile(musicFile)
                     val ver     = AutoTimelineConfig.VERSION
                     val storage = AutoTimelineStorage(version = ver)
                     val frames  = storage.load(context, musicId)

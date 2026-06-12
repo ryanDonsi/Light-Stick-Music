@@ -3,6 +3,7 @@ package com.lightstick.music.domain.effect
 import android.annotation.SuppressLint
 import android.content.Context
 import com.lightstick.music.core.util.Log
+import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
 import com.lightstick.efx.EfxEntry
@@ -21,18 +22,25 @@ import java.io.File
 @SuppressLint("MissingPermission")
 object EffectEngineController {
 
-    private const val TAG = "EffectEngineCtrl"
+    private const val TAG = AppConstants.Feature.EFFECT_ENGINE
 
     @Volatile private var targetDevice: Device? = null
     @Volatile private var targetAddress: String? = null
     @Volatile private var isTimelineLoaded: Boolean = false
     @Volatile private var loadedEffectSource: TransmissionSource? = null
+    @Volatile private var isManualEffectActive: Boolean = false  // PAYLOAD_EFFECT 활성 여부
 
     @Volatile private var cachedTimeline: List<EfxEntry> = emptyList()
     @Volatile private var lastRecordedEffectIndex: Int = -1
 
-    /**  MusicViewModel에서 FFT 차단용으로 사용 */
+    /** MusicViewModel에서 FFT 차단용으로 사용 */
     fun isTimelineActive(): Boolean = isTimelineLoaded
+
+    /**
+     * 앱 기능(Effect Control, Music 등)이 현재 이펙트를 연출 중인지 반환.
+     * true 이면 SMS/CALL 이벤트 이펙트를 차단해야 한다.
+     */
+    fun isEffectActive(): Boolean = isTimelineLoaded || isManualEffectActive
 
     fun sendEffect(
         context: Context,
@@ -78,6 +86,11 @@ object EffectEngineController {
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to send to ${device.mac}: ${e.message}")
                 }
+            }
+
+            // Effect Control(PAYLOAD_EFFECT) 활성 상태 갱신
+            if (success && source == TransmissionSource.PAYLOAD_EFFECT) {
+                isManualEffectActive = (payload.effectType != EffectType.OFF)
             }
 
             success
@@ -193,7 +206,13 @@ object EffectEngineController {
         if (devices.isEmpty()) { Log.w(TAG, "No connected devices for auto timeline"); return }
 
         try {
+            Log.d(TAG, "[load] loadTimeline: total=${frames.size}개 frames → SDK 전달")
+            frames.take(10).forEachIndexed { i, (t, bytes) ->
+                val payload = runCatching { LSEffectPayload.fromByteArray(bytes) }.getOrNull()
+                Log.d(TAG, "[load]   frame[$i] t=${t}ms type=${payload?.effectType} color=${payload?.color}")
+            }
             devices.forEach { it.loadTimeline(frames) }
+            Log.d(TAG, "[load] loadTimeline 완료 devices=${devices.size}")
             isTimelineLoaded = true
             loadedEffectSource = TransmissionSource.TIMELINE_EFFECT
             lastRecordedEffectIndex = -1
@@ -287,6 +306,7 @@ object EffectEngineController {
     @Synchronized
     fun reset() {
         isTimelineLoaded = false
+        isManualEffectActive = false
         loadedEffectSource = null
         cachedTimeline = emptyList()
         lastRecordedEffectIndex = -1
@@ -369,8 +389,49 @@ object EffectEngineController {
             }
 
             val currentEffectIndex = cachedTimeline.indexOfLast { it.timestampMs <= currentPositionMs }
-            if (currentEffectIndex == lastRecordedEffectIndex || currentEffectIndex < 0) return
+            if (currentEffectIndex < 0) return
+            if (currentEffectIndex == lastRecordedEffectIndex) return
 
+            // 인덱스가 2 이상 건너뛰면 경고 (SDK가 중간 프레임을 스킵했을 가능성)
+            val skipped = currentEffectIndex - lastRecordedEffectIndex - 1
+            if (lastRecordedEffectIndex >= 0 && skipped > 0) {
+                Log.w(TAG, "[record] effectIndex 건너뜀: ${lastRecordedEffectIndex} → ${currentEffectIndex} (${skipped}개 스킵) posMs=${currentPositionMs}ms")
+                for (si in (lastRecordedEffectIndex + 1) until currentEffectIndex) {
+                    val skippedEntry = cachedTimeline[si]
+                    val p = skippedEntry.payload
+                    Log.w(TAG, "[record]   스킵된 frame[$si] t=${skippedEntry.timestampMs}ms type=${p.effectType} color=${p.color}")
+                }
+            }
+
+            val currentEntry = cachedTimeline[currentEffectIndex]
+            val currentPayload = currentEntry.payload
+
+            // [firmware] 이전 프레임과의 간격 및 연속 동일 color 패턴 감지
+            if (lastRecordedEffectIndex >= 0) {
+                val prevEntry = cachedTimeline[lastRecordedEffectIndex]
+                val intervalMs = currentEntry.timestampMs - prevEntry.timestampMs
+                val prevColor = prevEntry.payload.color
+                val currColor = currentPayload.color
+                val sameColor = (prevColor != null && currColor != null &&
+                        prevColor.r == currColor.r && prevColor.g == currColor.g && prevColor.b == currColor.b)
+                Log.d(TAG, "[firmware] idx=${currentEffectIndex}(1-idx=${currentEffectIndex + 1}) " +
+                        "t=${currentEntry.timestampMs}ms interval=${intervalMs}ms " +
+                        "type=${currentPayload.effectType} color=${currColor} " +
+                        "sameColorAsPrev=$sameColor")
+                if (sameColor) {
+                    Log.w(TAG, "[firmware] ★ 연속 동일 color 감지! idx=${lastRecordedEffectIndex}→${currentEffectIndex} " +
+                            "t=${prevEntry.timestampMs}→${currentEntry.timestampMs}ms color=${currColor} " +
+                            "→ 펌웨어가 무시할 가능성 있음")
+                }
+            }
+
+            // [firmware] raw bytes 로그 (frame index 3-5 집중 확인 — SDK effectIndex 필드는 Mode 용도, 기본값=1)
+            if (currentEffectIndex in 3..5) {
+                val bytes = runCatching { currentEntry.payload.toByteArray() }.getOrNull()
+                Log.d(TAG, "[firmware] raw frame[$currentEffectIndex] bytes=${bytes?.joinToString(",") { "%02X".format(it) }}")
+            }
+
+            Log.d(TAG, "[record] effectIndex=${currentEffectIndex} posMs=${currentPositionMs}ms t=${currentEntry.timestampMs}ms")
             lastRecordedEffectIndex = currentEffectIndex
             val currentEffect = cachedTimeline[currentEffectIndex]
 

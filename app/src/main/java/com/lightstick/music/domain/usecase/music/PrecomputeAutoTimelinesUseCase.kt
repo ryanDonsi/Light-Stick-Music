@@ -1,15 +1,18 @@
 package com.lightstick.music.domain.usecase.music
 
 import android.content.Context
-import com.lightstick.efx.MusicId
 import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.efx.MusicId
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.AutoTimelineGenerator
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v7
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v8
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v9
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v0
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v1
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v3
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v4
+import com.lightstick.music.domain.music.SectionAwareGenerator
+import com.lightstick.music.domain.music.SectionMetaStorage
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -70,12 +73,14 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
             }
         }
 
-        val generator: AutoTimelineGenerator = when (version) {
-            7 -> AutoTimelineGeneratorBeat_v7()
-            8 -> AutoTimelineGeneratorBeat_v8()
-            9 -> AutoTimelineGeneratorBeat_v9()
-            else -> throw IllegalArgumentException("Unsupported version: $version")
+        val generator: AutoTimelineGenerator = when (AutoTimelineConfig.GENERATOR_VERSION) {
+            0  -> AutoTimelineGeneratorBeat_v0()
+            1  -> AutoTimelineGeneratorBeat_v1()
+            3  -> AutoTimelineGeneratorBeat_v3()
+            4  -> AutoTimelineGeneratorBeat_v4()
+            else -> throw IllegalArgumentException("Unsupported generator version: ${AutoTimelineConfig.GENERATOR_VERSION} (supported: 0, 3, 4)")
         }
+        val sectionStorage = if (generator is SectionAwareGenerator) SectionMetaStorage(version) else null
 
         // 이미 생성된 파일은 제외한 실제 처리 대상만 추려 정확한 total 확보
         val filesToProcess = if (TEST_FORCE_REGENERATE) {
@@ -113,13 +118,20 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                         }
 
                         try {
-                            val frames = generator.generate(file.absolutePath, musicId, paletteSize = paletteSize)
+                            val (frames, sections) = if (generator is SectionAwareGenerator) {
+                                generator.generateWithSections(file.absolutePath, musicId, paletteSize)
+                            } else {
+                                generator.generate(file.absolutePath, musicId, paletteSize) to emptyList()
+                            }
 
                             if (frames.isEmpty()) {
                                 failed.incrementAndGet()
                                 Log.w(TAG, "empty frames -> skip save file=${file.name} musicId=$musicId")
                             } else {
                                 storage.save(context, musicId, frames)
+                                if (sections.isNotEmpty()) {
+                                    sectionStorage?.save(context, musicId, sections)
+                                }
                                 created.incrementAndGet()
                             }
                         } catch (t: Throwable) {

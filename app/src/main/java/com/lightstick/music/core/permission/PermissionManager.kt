@@ -65,7 +65,8 @@ object PermissionManager {
      */
     fun hasStoragePermission(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            hasPermission(context, Manifest.permission.READ_MEDIA_AUDIO)
+            hasPermission(context, Manifest.permission.READ_MEDIA_AUDIO) &&
+            hasPermission(context, Manifest.permission.READ_MEDIA_VIDEO)
         } else {
             hasPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE)
         }
@@ -76,7 +77,10 @@ object PermissionManager {
      */
     fun getRequiredStoragePermissions(): Array<String> {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.READ_MEDIA_AUDIO)
+            arrayOf(
+                Manifest.permission.READ_MEDIA_AUDIO,
+                Manifest.permission.READ_MEDIA_VIDEO
+            )
         } else {
             arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
         }

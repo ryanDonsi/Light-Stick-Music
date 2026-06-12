@@ -1,0 +1,509 @@
+{
+  "bin_folder": "C:/Users/DongSiTech/Downloads/2606111359_V2_HOP10",
+  "items": [
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Golden.mp3",
+      "music_id": "2266976999",
+      "results": {
+        "beat_transformer": {
+          "grade": "A",
+          "f_score": 0.804630969609262
+        },
+        "madmom": {
+          "grade": "A",
+          "f_score": 0.8765743073047859
+        },
+        "librosa": {
+          "grade": "B",
+          "f_score": 0.7602040816326531
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Soda Pop Official Lyric Video  KPop Demon Hunters  Sony Animation.mp3",
+      "music_id": "1397115491",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.9478260869565216
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9648382559774966
+        },
+        "librosa": {
+          "grade": "A",
+          "f_score": 0.8394366197183099
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Celebrity (Celebrity).mp3",
+      "music_id": "230947745",
+      "results": {
+        "beat_transformer": {
+          "grade": "D",
+          "f_score": 0.2894308943089431
+        },
+        "madmom": {
+          "grade": "D",
+          "f_score": 0.32665639445300465
+        },
+        "librosa": {
+          "grade": "B",
+          "f_score": 0.6739130434782608
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/iKON - ‘사랑을 했다(LOVE SCENARIO)’ MV.mp3",
+      "music_id": "923573155",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.9925925925925926
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.989090909090909
+        },
+        "librosa": {
+          "grade": "S",
+          "f_score": 0.927429274292743
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Attention.mp3",
+      "music_id": "4158771515",
+      "results": {
+        "beat_transformer": {
+          "grade": "A",
+          "f_score": 0.8867924528301886
+        },
+        "madmom": {
+          "grade": "A",
+          "f_score": 0.8980891719745223
+        },
+        "librosa": {
+          "grade": "S",
+          "f_score": 0.9146537842190016
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/TOMBOY.mp3",
+      "music_id": "1135138134",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.9261261261261261
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9207419898819561
+        },
+        "librosa": {
+          "grade": "B",
+          "f_score": 0.6116838487972509
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Dynamite.mp3",
+      "music_id": "1887276846",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.9836888331242158
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9876543209876543
+        },
+        "librosa": {
+          "grade": "B",
+          "f_score": 0.7487562189054727
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Stray Kids 神메뉴(God's Menu) MV.mp3",
+      "music_id": "3348457302",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.905829596412556
+        },
+        "madmom": {
+          "grade": "B",
+          "f_score": 0.6282578875171467
+        },
+        "librosa": {
+          "grade": "B",
+          "f_score": 0.6256983240223464
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Entrance.mp3",
+      "music_id": "178857265",
+      "results": {
+        "beat_transformer": {
+          "grade": "D",
+          "f_score": 0.33204633204633205
+        },
+        "madmom": {
+          "grade": "C",
+          "f_score": 0.40138408304498274
+        },
+        "librosa": {
+          "grade": "D",
+          "f_score": 0.34628975265017664
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/모든 날, 모든 순간 Every day, Every Moment.mp3",
+      "music_id": "4235088010",
+      "results": {
+        "beat_transformer": {
+          "grade": "A",
+          "f_score": 0.8744186046511628
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9637526652452025
+        },
+        "librosa": {
+          "grade": "A",
+          "f_score": 0.8874458874458875
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Let's go see the stars (별 보러 가자).mp3",
+      "music_id": "1958457398",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.9016641452344932
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9572649572649573
+        },
+        "librosa": {
+          "grade": "B",
+          "f_score": 0.6212847555129434
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/BLACKPINK - 'Kill This Love' MV.mp3",
+      "music_id": "2840662791",
+      "results": {
+        "beat_transformer": {
+          "grade": "B",
+          "f_score": 0.6712564543889845
+        },
+        "madmom": {
+          "grade": "B",
+          "f_score": 0.6498422712933754
+        },
+        "librosa": {
+          "grade": "B",
+          "f_score": 0.6451612903225807
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Good Goodbye.mp3",
+      "music_id": "366918538",
+      "results": {
+        "beat_transformer": {
+          "grade": "A",
+          "f_score": 0.8937259923175415
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9705093833780161
+        },
+        "librosa": {
+          "grade": "S",
+          "f_score": 0.9583892617449664
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Almond Chocolate.mp3",
+      "music_id": "3740958210",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.993103448275862
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9986320109439125
+        },
+        "librosa": {
+          "grade": "S",
+          "f_score": 0.9038461538461539
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/ILLIT (아일릿) ‘Cherish (My Love)’ Dance Practice (Fix Ver.).mp3",
+      "music_id": "3575854247",
+      "results": {
+        "beat_transformer": {
+          "grade": "C",
+          "f_score": 0.5592592592592592
+        },
+        "madmom": {
+          "grade": "C",
+          "f_score": 0.5915492957746479
+        },
+        "librosa": {
+          "grade": "B",
+          "f_score": 0.6261980830670927
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/IYKYK (If You Know You Know).mp3",
+      "music_id": "310184352",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.9783693843594009
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9950900163666121
+        },
+        "librosa": {
+          "grade": "S",
+          "f_score": 0.9492635024549918
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Tick-Tack.mp3",
+      "music_id": "694454641",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.9818181818181819
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9803220035778175
+        },
+        "librosa": {
+          "grade": "S",
+          "f_score": 0.9566787003610108
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/I’ll Like You.mp3",
+      "music_id": "335688175",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.9539594843462248
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9927536231884058
+        },
+        "librosa": {
+          "grade": "A",
+          "f_score": 0.850909090909091
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Pimple.mp3",
+      "music_id": "1608830131",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.9537892791127542
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9838998211091234
+        },
+        "librosa": {
+          "grade": "A",
+          "f_score": 0.8972972972972973
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/ILLIT (아일릿) 'Lucky Girl Syndrome' Official MV.mp3",
+      "music_id": "4233669120",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.967032967032967
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9739130434782608
+        },
+        "librosa": {
+          "grade": "S",
+          "f_score": 0.9769094138543516
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Midnight Fiction.mp3",
+      "music_id": "2439446069",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.9308885754583921
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.968363136176066
+        },
+        "librosa": {
+          "grade": "A",
+          "f_score": 0.8077994428969358
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/Magnetic.mp3",
+      "music_id": "2791059778",
+      "results": {
+        "beat_transformer": {
+          "grade": "D",
+          "f_score": 0.0
+        },
+        "madmom": {
+          "grade": "D",
+          "f_score": 0.005698005698005697
+        },
+        "librosa": {
+          "grade": "C",
+          "f_score": 0.5050215208034433
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/youplayer/My World.mp3",
+      "music_id": "360047155",
+      "results": {
+        "beat_transformer": {
+          "grade": "S",
+          "f_score": 0.9565217391304347
+        },
+        "madmom": {
+          "grade": "S",
+          "f_score": 0.9687500000000001
+        },
+        "librosa": {
+          "grade": "S",
+          "f_score": 0.9206349206349207
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/music test/[클래식을 좋아하세요! CD 01] Bach 01 Brandenburg Concerto No.3 In G Majo.mp3",
+      "music_id": "2466754677",
+      "results": {
+        "beat_transformer": {
+          "grade": "D",
+          "f_score": 0.24787775891341257
+        },
+        "madmom": {
+          "grade": "D",
+          "f_score": 0.26436781609195403
+        },
+        "librosa": {
+          "grade": "D",
+          "f_score": 0.27887788778877887
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/music test/Concerto Grosso For Violin & String Orchestra Op.3-3 In G Major Allegro(Antonio Vivaldi) No10.mp3",
+      "music_id": "4261187012",
+      "results": {
+        "beat_transformer": {
+          "grade": "D",
+          "f_score": 0.23284823284823283
+        },
+        "madmom": {
+          "grade": "D",
+          "f_score": 0.2702702702702703
+        },
+        "librosa": {
+          "grade": "D",
+          "f_score": 0.2831215970961888
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/music test/The_Drum_cover_by_COOMO.mp3",
+      "music_id": "1590639724",
+      "results": {
+        "beat_transformer": {
+          "grade": "D",
+          "f_score": 0.3490445859872611
+        },
+        "madmom": {
+          "grade": "D",
+          "f_score": 0.35250000000000004
+        },
+        "librosa": {
+          "grade": "C",
+          "f_score": 0.47222222222222227
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/music test/Alan_Walker_-_Top_20_Alan_Walker_Songs_2021.mp3",
+      "music_id": "1425250152",
+      "results": {
+        "beat_transformer": {
+          "grade": "D",
+          "f_score": 0.059103260869565216
+        },
+        "madmom": {
+          "grade": "D",
+          "f_score": 0.07741650077416501
+        },
+        "librosa": {
+          "grade": "D",
+          "f_score": 0.10695625448212273
+        }
+      }
+    },
+    {
+      "path": "C:/Users/DongSiTech/Downloads/music test/지브리 OST피아노ver..mp4",
+      "music_id": "2373022284",
+      "results": {
+        "beat_transformer": {
+          "grade": "D",
+          "f_score": 0.03395240858966918
+        },
+        "madmom": {
+          "grade": "D",
+          "f_score": 0.03741422896352474
+        },
+        "librosa": {
+          "grade": "D",
+          "f_score": 0.07463690155997849
+        }
+      }
+    }
+  ]
+}

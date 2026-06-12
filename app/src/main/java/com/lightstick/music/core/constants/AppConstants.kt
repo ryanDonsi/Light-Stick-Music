@@ -32,7 +32,7 @@ object AppConstants {
 
     const val MAX_CUSTOM_EFFECTS = 7
 
-    const val POSITION_MONITOR_INTERVAL_MS = 100L
+    const val POSITION_MONITOR_INTERVAL_MS = 50L
 
     const val MAX_TRANSMISSION_HISTORY              = 100
     const val TRANSMISSION_MONITOR_UPDATE_INTERVAL_MS = 50L
@@ -42,7 +42,7 @@ object AppConstants {
     const val WAV_FILE_EXTENSION  = "wav"
     const val FLAC_FILE_EXTENSION = "flac"
 
-    val SUPPORTED_AUDIO_EXTENSIONS = setOf("mp3", "m4a", "flac", "aac")
+    val SUPPORTED_AUDIO_EXTENSIONS = setOf("mp3", "m4a", "flac", "aac", "mp4")
 
     object Feature {
 
