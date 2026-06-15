@@ -107,13 +107,15 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
             Log.d(TAG, "v0 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs0 beats=${beatInfo.beats.size} beatsPerBar=${beatInfo.beatsPerBar} detectorVer=$detectorVer")
         } else {
             // V3/V4/V5: 엔벨로프 디코딩 → BeatDetectorRouter.detect
-            val (lowEnv, midEnv, fullEnv) = decodeAllEnvelopes(musicPath, HOP_MS.toInt())
-            Log.d(TAG, "v0 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size}")
+            // V5는 HOP 50ms, 나머지는 HOP_MS(20ms) 사용
+            val effectiveHopMs = if (detectorVer == 5) 50L else HOP_MS
+            val (lowEnv, midEnv, fullEnv) = decodeAllEnvelopes(musicPath, effectiveHopMs.toInt())
+            Log.d(TAG, "v0 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs")
             if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
                 Log.w(TAG, "v0 env empty -> return empty")
                 return emptyList()
             }
-            durationMs = fullEnv.size.toLong() * HOP_MS
+            durationMs = fullEnv.size.toLong() * effectiveHopMs
 
             // ── 2. 비트 감지 ──────────────────────────────────────────────
             val t0Beat = System.currentTimeMillis()
@@ -122,12 +124,12 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
                 lowEnv    = lowEnv,
                 midEnv    = midEnv,
                 fullEnv   = fullEnv,
-                hopMs     = HOP_MS,
+                hopMs     = effectiveHopMs,
                 minBeatMs = MIN_BEAT_MS,
                 maxBeatMs = 1200L
             )
             val globalBeatMs0 = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
-            Log.d(TAG, "v0 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs0 beats=${beatInfo.beats.size} beatsPerBar=${beatInfo.beatsPerBar} detectorVer=$detectorVer")
+            Log.d(TAG, "v0 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs0 beats=${beatInfo.beats.size} beatsPerBar=${beatInfo.beatsPerBar} detectorVer=$detectorVer hopMs=$effectiveHopMs")
         }
         val globalBeatMs = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
         val beatsPerBar  = beatInfo.beatsPerBar
