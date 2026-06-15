@@ -1,8 +1,5 @@
 package com.lightstick.music.domain.music
 
-import android.media.MediaCodec
-import android.media.MediaExtractor
-import android.media.MediaFormat
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
@@ -52,11 +49,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
 
-        // IIR 필터 계수 (V2와 동일: HIGH 밴드 포함)
-        private const val LOW_ALPHA     = 0.12f
-        private const val MID_LP1_ALPHA = 0.35f
-        private const val MID_LP2_ALPHA = 0.08f
-        private const val HIGH_ALPHA    = 0.40f
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -107,28 +99,27 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
 
         val palette    = buildPalette(musicId)
 
-        // ── 1. 오디오 디코딩 ──────────────────────────────────────────
+        // ── 1. BeatDetector + Envelope 단일 decode ────────────────────
         val t0Decode = System.currentTimeMillis()
-        val (lowEnv, midEnv, fullEnv, highEnv) = decodeAllEnvelopes(musicPath)
-        Log.d(TAG, "v4 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size}")
-
-        if (lowEnv.isEmpty()) {
+        val beatInfo = BeatDetectorRouter.detect(
+            filePath  = musicPath,
+            version   = AutoTimelineConfig.BEAT_DETECTOR_VERSION,
+            hopMs     = HOP_MS,
+            minBeatMs = MIN_BEAT_MS,
+            maxBeatMs = MAX_BEAT_MS
+        )
+        val envelopes = beatInfo.envelopes
+        if (envelopes == null || envelopes.full.isEmpty()) {
             Log.w(TAG, "v4 env empty"); return Pair(emptyList(), emptyList())
         }
+        val lowEnv  = envelopes.low
+        val midEnv  = envelopes.mid
+        val fullEnv = envelopes.full
+        val highEnv = envelopes.high
+        Log.d(TAG, "v4 [PERF] decode+beat=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$HOP_MS beatMs=${beatInfo.beatMs} beats=${beatInfo.beats.size}")
 
         val durationMs = fullEnv.size.toLong() * HOP_MS
 
-        // ── 2. Beat detection ──────────────────────────────────────────
-        val detectorVer   = AutoTimelineConfig.BEAT_DETECTOR_VERSION
-        val t0Beat        = System.currentTimeMillis()
-        val beatInfo: BeatDetectorRouter.BeatInfo = when {
-            detectorVer == 1 -> {
-                val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
-                BeatDetectorRouter.detectPcm(monoSamples, sampleRate, MIN_BEAT_MS, MAX_BEAT_MS)
-            }
-            detectorVer == 2 -> BeatDetectorRouter.detectFile(musicPath, MIN_BEAT_MS, MAX_BEAT_MS)
-            else -> BeatDetectorRouter.detect(detectorVer, lowEnv, midEnv, fullEnv, HOP_MS, MIN_BEAT_MS, MAX_BEAT_MS)
-        }
         val beatInfoBeats = beatInfo.beats
         val globalBeatMs  = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
             .let { if (it > 900L) it / 2L else it }
@@ -139,7 +130,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         if (beatTimesMs.isEmpty()) {
             Log.w(TAG, "v4 beat detect FAIL"); return Pair(emptyList(), emptyList())
         }
-        Log.d(TAG, "v4 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs beats=${beatTimesMs.size}")
 
         // ── 3. Section detection (SectionDetectorV2 고정) ────────────
         val t0Section        = System.currentTimeMillis()
@@ -766,201 +756,8 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
     private fun msToBreathRandomDelay(beatMs: Long)  = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
 
     // ──────────────────────────────────────────────────────────────
-    // 오디오 디코딩 (V2와 동일: HIGH 밴드 포함)
-    // ──────────────────────────────────────────────────────────────
-
-    private data class Envelopes(
-        val low: List<Float>, val mid: List<Float>,
-        val full: List<Float>, val high: List<Float>
-    )
-
-    private fun decodeMonoPcm(musicPath: String): Pair<FloatArray, Int> {
-        val extractor = MediaExtractor()
-        var codec: MediaCodec? = null
-        return try {
-            extractor.setDataSource(musicPath)
-            var trackIndex = -1; var format: MediaFormat? = null
-            for (i in 0 until extractor.trackCount) {
-                val f = extractor.getTrackFormat(i)
-                if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
-                    trackIndex = i; format = f; break
-                }
-            }
-            if (trackIndex < 0 || format == null) { extractor.release(); return Pair(FloatArray(0), 44100) }
-            extractor.selectTrack(trackIndex)
-            val mime         = format.getString(MediaFormat.KEY_MIME)!!
-            val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-            val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-            val stepBytes    = channelCount * 2
-            codec = MediaCodec.createDecoderByType(mime)
-            codec.configure(format, null, null, 0); codec.start()
-            val out = ArrayList<Float>(sampleRate * 30)
-            val bufferInfo = MediaCodec.BufferInfo()
-            var sawInputEOS = false; var sawOutputEOS = false
-            while (!sawOutputEOS) {
-                if (!sawInputEOS) {
-                    val inIdx = codec.dequeueInputBuffer(10_000)
-                    if (inIdx >= 0) {
-                        val buf = codec.getInputBuffer(inIdx)!!
-                        val sz  = extractor.readSampleData(buf, 0)
-                        if (sz < 0) { codec.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM); sawInputEOS = true }
-                        else { codec.queueInputBuffer(inIdx, 0, sz, extractor.sampleTime, 0); extractor.advance() }
-                    }
-                }
-                val outIdx = codec.dequeueOutputBuffer(bufferInfo, 10_000)
-                if (outIdx >= 0) {
-                    val buf = codec.getOutputBuffer(outIdx)
-                    if (buf != null && bufferInfo.size > 0) {
-                        buf.position(bufferInfo.offset); buf.limit(bufferInfo.offset + bufferInfo.size)
-                        val chunk = ByteArray(bufferInfo.size); buf.get(chunk)
-                        var byteIdx = 0
-                        while (byteIdx + stepBytes <= chunk.size) {
-                            var monoSum = 0f
-                            for (c in 0 until channelCount) {
-                                val lo = chunk[byteIdx + c * 2].toInt() and 0xFF
-                                val hi = chunk[byteIdx + c * 2 + 1].toInt()
-                                monoSum += (hi shl 8 or lo).toShort().toFloat()
-                            }
-                            out.add(monoSum / channelCount / 32768f)
-                            byteIdx += stepBytes
-                        }
-                    }
-                    codec.releaseOutputBuffer(outIdx, false)
-                    if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) sawOutputEOS = true
-                }
-            }
-            codec.stop(); codec.release(); extractor.release()
-            Pair(out.toFloatArray(), sampleRate)
-        } catch (t: Throwable) {
-            Log.e(TAG, "decodeMonoPcm fail: ${t.message}")
-            try { codec?.stop() } catch (_: Throwable) {}
-            try { codec?.release() } catch (_: Throwable) {}
-            try { extractor.release() } catch (_: Throwable) {}
-            Pair(FloatArray(0), 44100)
-        }
-    }
-
-    private fun decodeAllEnvelopes(musicPath: String): Envelopes {
-        val extractor = MediaExtractor(); var codec: MediaCodec? = null
-        return try {
-            extractor.setDataSource(musicPath)
-            var trackIndex = -1; var format: MediaFormat? = null
-            for (i in 0 until extractor.trackCount) {
-                val f = extractor.getTrackFormat(i)
-                if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
-                    trackIndex = i; format = f; break
-                }
-            }
-            if (trackIndex < 0 || format == null) {
-                extractor.release(); return Envelopes(emptyList(), emptyList(), emptyList(), emptyList())
-            }
-            extractor.selectTrack(trackIndex)
-            val mime         = format.getString(MediaFormat.KEY_MIME)!!
-            val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-            val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-            val hopSamples   = (sampleRate.toLong() * HOP_MS / 1000L).toInt().coerceAtLeast(1)
-            codec = MediaCodec.createDecoderByType(mime)
-            codec.configure(format, null, null, 0); codec.start()
-            val bufferInfo = MediaCodec.BufferInfo()
-            var sawInputEOS = false; var sawOutputEOS = false
-            val est = (sampleRate.toLong() * 300L / hopSamples).toInt()
-            val outLow  = ArrayList<Float>(est); val outMid  = ArrayList<Float>(est)
-            val outFull = ArrayList<Float>(est); val outHigh = ArrayList<Float>(est)
-            var lowZ = 0f; var midLP1 = 0f; var midLP2 = 0f; var highLP = 0f
-            var lowSumSq = 0f; var midSumSq = 0f; var fullSumSq = 0f; var highSumSq = 0f
-            var winPos = 0
-            val stepBytes = channelCount * 2
-            while (!sawOutputEOS) {
-                if (!sawInputEOS) {
-                    val inIdx = codec.dequeueInputBuffer(10_000)
-                    if (inIdx >= 0) {
-                        val buf = codec.getInputBuffer(inIdx)!!; buf.clear()
-                        val sz = extractor.readSampleData(buf, 0)
-                        if (sz < 0) {
-                            codec.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                            sawInputEOS = true
-                        } else { codec.queueInputBuffer(inIdx, 0, sz, extractor.sampleTime, 0); extractor.advance() }
-                    }
-                }
-                val outIdx = codec.dequeueOutputBuffer(bufferInfo, 10_000)
-                when {
-                    outIdx >= 0 -> {
-                        val buf = codec.getOutputBuffer(outIdx)
-                        if (buf != null && bufferInfo.size > 0) {
-                            buf.position(bufferInfo.offset); buf.limit(bufferInfo.offset + bufferInfo.size)
-                            val bytes = ByteArray(bufferInfo.size); buf.get(bytes)
-                            var byteIdx = 0
-                            while (byteIdx + stepBytes <= bytes.size) {
-                                var monoSum = 0f
-                                for (c in 0 until channelCount) {
-                                    val lo = bytes[byteIdx + c * 2].toInt() and 0xFF
-                                    val hi = bytes[byteIdx + c * 2 + 1].toInt()
-                                    monoSum += (hi shl 8 or lo).toShort().toFloat()
-                                }
-                                val mono = monoSum / channelCount / 32768f
-                                lowZ   += LOW_ALPHA     * (mono - lowZ)
-                                midLP1 += MID_LP1_ALPHA * (mono - midLP1)
-                                midLP2 += MID_LP2_ALPHA * (mono - midLP2)
-                                highLP += HIGH_ALPHA    * (mono - highLP)
-                                val lowV  = abs(lowZ); val midV = abs(midLP1 - midLP2)
-                                val fullV = abs(mono); val highV = abs(mono - highLP)
-                                lowSumSq += lowV * lowV; midSumSq += midV * midV
-                                fullSumSq += fullV * fullV; highSumSq += highV * highV
-                                winPos++
-                                if (winPos >= hopSamples) {
-                                    val n = hopSamples.toFloat()
-                                    outLow  += sqrt(lowSumSq  / n); outMid  += sqrt(midSumSq  / n)
-                                    outFull += sqrt(fullSumSq / n); outHigh += sqrt(highSumSq / n)
-                                    lowSumSq = 0f; midSumSq = 0f; fullSumSq = 0f; highSumSq = 0f; winPos = 0
-                                }
-                                byteIdx += stepBytes
-                            }
-                        }
-                        codec.releaseOutputBuffer(outIdx, false)
-                        if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) sawOutputEOS = true
-                    }
-                    outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
-                }
-            }
-            codec.stop(); codec.release(); extractor.release()
-            if (winPos > 0) {
-                val n = winPos.toFloat()
-                outLow += sqrt(lowSumSq / n); outMid += sqrt(midSumSq / n)
-                outFull += sqrt(fullSumSq / n); outHigh += sqrt(highSumSq / n)
-            }
-            Envelopes(normalize(outLow), normalize(outMid), normalize(outFull), normalize(outHigh))
-        } catch (t: Throwable) {
-            Log.e(TAG, "v3 decode fail: ${t.message}")
-            try { codec?.stop() } catch (_: Throwable) {}; try { codec?.release() } catch (_: Throwable) {}
-            try { extractor.release() } catch (_: Throwable) {}
-            Envelopes(emptyList(), emptyList(), emptyList(), emptyList())
-        }
-    }
-
-    // ──────────────────────────────────────────────────────────────
     // Utility
     // ──────────────────────────────────────────────────────────────
-
-    private fun normalize(src: List<Float>): List<Float> {
-        if (src.isEmpty()) return emptyList()
-        val smooth = movingAverage(src)
-        val mx = smooth.maxOrNull() ?: 0f
-        if (mx <= 1e-6f) return List(smooth.size) { 0f }
-        return smooth.map { (it / mx).coerceIn(0f, 1f) }
-    }
-
-    private fun movingAverage(src: List<Float>): List<Float> {
-        val window = 5
-        if (src.isEmpty()) return src
-        val out = ArrayList<Float>(src.size); val half = window / 2
-        for (i in src.indices) {
-            var sum = 0f; var cnt = 0
-            val s = max(0, i - half); val e = min(src.lastIndex, i + half)
-            for (j in s..e) { sum += src[j]; cnt++ }
-            out += if (cnt == 0) 0f else sum / cnt.toFloat()
-        }
-        return out
-    }
 
     private fun estimateBeatCount(startMs: Long, endMs: Long, beatMs: Long): Int {
         if (endMs <= startMs || beatMs <= 0L) return 0
