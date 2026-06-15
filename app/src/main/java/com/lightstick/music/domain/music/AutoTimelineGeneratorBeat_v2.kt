@@ -91,7 +91,6 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                 // V1 원래 방식: PCM FloatArray 입력 → IIR 엔벨로프 내부 변환
                 val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
                 BeatDetectorRouter.detectPcm(
-                    version     = detectorVer,
                     monoSamples = monoSamples,
                     sampleRate  = sampleRate,
                     minBeatMs   = MIN_BEAT_MS,

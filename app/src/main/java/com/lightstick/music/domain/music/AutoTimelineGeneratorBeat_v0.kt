@@ -84,7 +84,6 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
             // ── 2. 비트 감지 ──────────────────────────────────────────────
             val t0Beat = System.currentTimeMillis()
             beatInfo = BeatDetectorRouter.detectPcm(
-                version      = detectorVer,
                 monoSamples  = monoSamples,
                 sampleRate   = sampleRate,
                 minBeatMs    = MIN_BEAT_MS,

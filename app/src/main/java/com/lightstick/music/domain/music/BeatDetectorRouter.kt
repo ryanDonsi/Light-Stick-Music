@@ -7,9 +7,9 @@ package com.lightstick.music.domain.music
  * 결과를 [BeatInfo] 로 정규화한다.
  *
  * 버전별 파일 대응:
- *  1 : BeatDetectorV1 (IIR 3밴드 ODF + Autocorrelation + log-normal prior, PCM 입력)
- *  2 : BeatDetectorV2 (SuperFlux ODF + DBN HMM, 스트리밍)
- *  5 : BeatDetectorV0 (IIR 3밴드 ODF + Autocorrelation, 엔벨로프 입력, hopMs=50)
+ *  1 : BeatDetectorV1 (IIR 3밴드 ODF + Autocorrelation + log-normal prior, PCM 입력, hopMs=10ms)
+ *  2 : BeatDetectorV2 (SuperFlux ODF + DBN HMM, 스트리밍, hopMs=10ms)
+ *  0 : BeatDetectorV0 (IIR 3밴드 ODF + Autocorrelation, 엔벨로프 입력, hopMs=50ms)
  */
 object BeatDetectorRouter {
 
@@ -31,7 +31,6 @@ object BeatDetectorRouter {
     // =========================================================================
 
     fun detectPcm(
-        version: Int,
         monoSamples: FloatArray,
         sampleRate: Int,
         minBeatMs: Long,
@@ -82,11 +81,11 @@ object BeatDetectorRouter {
         hopMs: Long,
         minBeatMs: Long,
         maxBeatMs: Long
-    ): BeatInfo {
+    ): BeatInfo =
         // version 1: envelope 경로 (detectPcm이 기본이지만 envelope detect도 지원)
-        // version 5(else): BeatDetectorV0
-        val r = if (version == 1) {
-            BeatDetectorV1.detect(lowEnv, midEnv, fullEnv,
+        // version 0(else): BeatDetectorV0
+        if (version == 1) {
+            val r = BeatDetectorV1.detect(lowEnv, midEnv, fullEnv,
                 BeatDetectorV1.Params(
                     hopMs             = hopMs,
                     minBeatMs         = minBeatMs.coerceAtLeast(375L),
@@ -94,8 +93,14 @@ object BeatDetectorRouter {
                     minPeakDistanceMs = 120L,
                     onsetSmoothWindow = 3
                 ))
+            BeatInfo(
+                beats       = r.beats.map { b -> BeatInfo.Beat(b.timeMs, b.confidence) },
+                beatMs      = r.beatMs,
+                beatsPerBar = r.timeSignature.beatsPerBar,
+                downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
+            )
         } else {
-            BeatDetectorV0.detect(lowEnv, midEnv, fullEnv,
+            val r = BeatDetectorV0.detect(lowEnv, midEnv, fullEnv,
                 BeatDetectorV0.Params(
                     hopMs             = hopMs,
                     minBeatMs         = minBeatMs.coerceAtLeast(375L),
@@ -103,12 +108,11 @@ object BeatDetectorRouter {
                     minPeakDistanceMs = 120L,
                     onsetSmoothWindow = 3
                 ))
+            BeatInfo(
+                beats       = r.beats.map { b -> BeatInfo.Beat(b.timeMs, b.confidence) },
+                beatMs      = r.beatMs,
+                beatsPerBar = r.timeSignature.beatsPerBar,
+                downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
+            )
         }
-        return BeatInfo(
-            beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
-            beatMs      = r.beatMs,
-            beatsPerBar = r.timeSignature.beatsPerBar,
-            downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs
-        )
-    }
 }

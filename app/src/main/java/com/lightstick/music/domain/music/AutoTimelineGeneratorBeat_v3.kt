@@ -128,7 +128,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         val beatInfo: BeatDetectorRouter.BeatInfo = when {
             detectorVer == 1 -> {
                 val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
-                BeatDetectorRouter.detectPcm(detectorVer, monoSamples, sampleRate, MIN_BEAT_MS, MAX_BEAT_MS, effectiveHopMs)
+                BeatDetectorRouter.detectPcm(monoSamples, sampleRate, MIN_BEAT_MS, MAX_BEAT_MS, effectiveHopMs)
             }
             detectorVer == 2 -> BeatDetectorRouter.detectFile(musicPath, MIN_BEAT_MS, MAX_BEAT_MS)
             else -> BeatDetectorRouter.detect(detectorVer, lowEnv, midEnv, fullEnv, effectiveHopMs, MIN_BEAT_MS, MAX_BEAT_MS)
