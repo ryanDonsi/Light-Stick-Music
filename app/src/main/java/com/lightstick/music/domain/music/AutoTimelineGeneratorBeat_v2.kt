@@ -63,11 +63,14 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         paletteSize: Int
     ): Pair<List<Pair<Long, ByteArray>>, List<SectionMeta>> {
         val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
-        Log.d(TAG, "v2 generateWithSections() start file=$fileName musicId=$musicId paletteSize=$paletteSize")
+        val t0Total  = System.currentTimeMillis()
+        Log.d(TAG, "v2 [PERF] start file=$fileName musicId=$musicId paletteSize=$paletteSize")
 
         // 1. Single-pass decode (LOW / MID / FULL / HIGH 4밴드)
+        val t0Decode = System.currentTimeMillis()
         val envs = decodeAllEnvelopes(musicPath, HOP_MS.toInt())
         val (lowEnv, midEnv, fullEnv, highEnv) = envs
+        Log.d(TAG, "v2 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size}")
 
         if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
             Log.w(TAG, "v2 env empty -> return empty")
@@ -78,7 +81,8 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
         // 2. BeatDetector — 버전별 원래 입력 방식으로 dispatch
         val detectorVer = AutoTimelineConfig.BEAT_DETECTOR_VERSION
-        Log.d(TAG, "v2 BeatDetect start file=$fileName musicId=$musicId durationMs=$durationMs beatDetectorVer=$detectorVer")
+        val t0Beat = System.currentTimeMillis()
+        Log.d(TAG, "v2 [PERF] beatDetect start file=$fileName durationMs=$durationMs beatDetectorVer=$detectorVer")
         val beatInfo = when (detectorVer) {
             1 -> {
                 // V1 원래 방식: PCM FloatArray 입력 → IIR 엔벨로프 내부 변환
@@ -112,7 +116,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
         val globalBeatMs = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
         val beatsPerBar  = beatInfo.beatsPerBar
-        Log.d(TAG, "v2 beatMs=$globalBeatMs beats=${beatInfo.beats.size} beatsPerBar=$beatsPerBar")
+        Log.d(TAG, "v2 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms beatMs=$globalBeatMs beats=${beatInfo.beats.size} beatsPerBar=$beatsPerBar")
 
         // 비트 타임스탬프 로그 (처음 12개 + 마지막 4개)
         if (beatInfo.beats.isNotEmpty()) {
@@ -140,6 +144,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         }
 
         // 3. SectionDetector (버전은 AutoTimelineConfig.SECTION_DETECTOR_VERSION)
+        val t0Section = System.currentTimeMillis()
         val sections = SectionDetectorRouter.detect(
             version    = AutoTimelineConfig.SECTION_DETECTOR_VERSION,
             lowEnv     = lowEnv,
@@ -151,11 +156,13 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
             durationMs = durationMs,
             hopMs      = HOP_MS
         )
-        Log.d(TAG, "v2 sections=${sections.size}")
+        Log.d(TAG, "v2 [PERF] sectionDetect=${System.currentTimeMillis() - t0Section}ms sections=${sections.size}")
 
         // 4. Section-aware timeline
+        val t0Build = System.currentTimeMillis()
         val frames = buildTimeline(beatInfo.beats, sections, beatsPerBar, globalBeatMs, beatInfo.downbeatMs, durationMs)
-        Log.d(TAG, "v2 frames(final)=${frames.size}")
+        Log.d(TAG, "v2 [PERF] build=${System.currentTimeMillis() - t0Build}ms frames=${frames.size}")
+        Log.d(TAG, "v2 [PERF] total=${System.currentTimeMillis() - t0Total}ms file=$fileName durationMs=$durationMs")
 
         // 5. Convert SectionDetector.Section → SectionMeta
         val sectionMetas = sections.map { s ->
