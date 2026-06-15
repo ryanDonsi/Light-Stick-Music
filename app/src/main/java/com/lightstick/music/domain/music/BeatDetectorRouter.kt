@@ -192,13 +192,22 @@ object BeatDetectorRouter {
             val maxPcmSamp   = if (collectPcm) (sampleRate * MAX_PCM_SECS).toInt() else 0
             val stepBytes    = channelCount * 2
 
+            // Pre-allocate PCM as primitive FloatArray to avoid boxing overhead (4 bytes vs 16 bytes per sample)
+            val durationUs   = if (collectPcm && format.containsKey(MediaFormat.KEY_DURATION))
+                format.getLong(MediaFormat.KEY_DURATION) else -1L
+            val estPcmSamp   = if (collectPcm) {
+                if (durationUs > 0) (sampleRate * durationUs / 1_000_000L).toInt().coerceAtMost(maxPcmSamp)
+                else maxPcmSamp
+            } else 0
+            val pcmArray     = if (collectPcm) FloatArray(estPcmSamp) else null
+            var pcmPos       = 0
+
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0); codec.start()
 
             val est     = (sampleRate.toLong() * 300L / hopSamples).toInt()
             val outLow  = ArrayList<Float>(est); val outMid  = ArrayList<Float>(est)
             val outFull = ArrayList<Float>(est); val outHigh = ArrayList<Float>(est)
-            val outPcm  = if (collectPcm) ArrayList<Float>(sampleRate * 30) else null
 
             var lowZ = 0f; var midLP1 = 0f; var midLP2 = 0f; var highLP = 0f
             var lowSumSq = 0f; var midSumSq = 0f; var fullSumSq = 0f; var highSumSq = 0f
@@ -238,7 +247,7 @@ object BeatDetectorRouter {
                                     monoSum += (hi shl 8 or lo).toShort().toFloat()
                                 }
                                 val mono = monoSum / channelCount / 32768f
-                                if (outPcm != null && outPcm.size < maxPcmSamp) outPcm.add(mono)
+                                if (pcmArray != null && pcmPos < pcmArray.size) pcmArray[pcmPos++] = mono
                                 lowZ   += LOW_ALPHA     * (mono - lowZ)
                                 midLP1 += MID_LP1_ALPHA * (mono - midLP1)
                                 midLP2 += MID_LP2_ALPHA * (mono - midLP2)
@@ -273,7 +282,7 @@ object BeatDetectorRouter {
             DecodeResult(
                 low  = normalize(outLow),  mid  = normalize(outMid),
                 full = normalize(outFull), high = normalize(outHigh),
-                pcm        = outPcm?.toFloatArray() ?: FloatArray(0),
+                pcm        = if (pcmArray != null) { if (pcmPos < pcmArray.size) pcmArray.copyOf(pcmPos) else pcmArray } else FloatArray(0),
                 sampleRate = sampleRate
             )
         } catch (t: Throwable) {
