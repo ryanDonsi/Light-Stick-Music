@@ -4,7 +4,7 @@ import android.util.Log
 import kotlin.math.*
 
 /**
- * BeatDetectorV5 (= 버전 14)
+ * BeatDetectorV0 (= 버전 14)
  *
  * librosa beat_track 충실 재현. V4 의 두 가지 근본 결함을 해소:
  *
@@ -25,7 +25,7 @@ import kotlin.math.*
  *   - Ellis DP, Gaussian local scoring, tightness=100 (V4 Rev3)
  *   - 고정 위상 보정 제거 (DP 가 자연스럽게 최적 위상 탐색)
  */
-object BeatDetectorV5 {
+object BeatDetectorV0 {
 
     private const val TAG = "AutoTimeline"
 

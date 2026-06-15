@@ -1,58 +1,50 @@
 package com.lightstick.music.domain.music
 
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.util.Log
-import kotlin.math.abs
-import kotlin.math.ln
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.roundToLong
-import kotlin.math.sqrt
+import org.jtransforms.fft.FloatFFT_1D
+import kotlin.math.*
 
 /**
- * BeatDetectorV3
- *
- * BeatDetectorV2 기반 + 5가지 Fix:
- * Fix 1 — MIN_BEAT_MS / MAX_BEAT_MS 조정 (minBeatMs=430, maxBeatMs=1000)
- * Fix 2 — Comb Filter 옥타브 해소 (combFilterScore + resolveOctave)
- * Fix 3 — Multi-band Positive Flux ODF (computeMultiBandFluxOdf, 가중합 정규화)
- * Fix 4 — Adaptive Peak Threshold (computeAdaptiveThreshold + findPeaksAdaptive)
- * Fix 5 — Ellis DP Beat Tracker (dpBeatTracker, DP 기반 갭 채우기)
+ * BeatDetectorV3 — 엇박자(Phase Error) 및 루바토 방어 로직이 추가된 최종 형태
+ * * 주요 개선점:
+ * 1. 저음역대(0~5 Band) ODF 분리 추출 및 킥(Kick) 기반 위상 앵커 고정
+ * 2. Ellis DP의 시작점 강제 해제 및 앵커 보너스 시스템 도입
+ * 3. 정박 / 엇박 듀얼 DP 트래킹 및 평균 에너지 기반 승자 독식 로직
  */
 object BeatDetectorV3 {
 
-    private const val TAG = "AutoTimeline"
+    private const val TAG = "AutoTimelineV3"
 
-    private const val HARMONIC_FOLD_HALF_RATIO  = 0.45f
-    private const val HARMONIC_FOLD_THIRD_RATIO = 0.35f
-    private const val HARMONIC_DOUBLE_RATIO     = 0.80f
-    private const val HARMONIC_TWO_THIRDS_RATIO = 0.75f
-    private const val HARMONIC_FOLD_HALF_MIN_MS = 340L
+    // SuperFlux 파라미터
+    private const val FFT_SIZE  = 2048
+    private const val HOP_MS    = 10L
+    private const val LOG_LAMBDA = 1000f
 
-    private const val LOCAL_NORM_WINDOW  = 60
-    private const val GLOBAL_NORM_WINDOW = 80
+    // Log filterbank 파라미터
+    private const val NUM_BANDS = 24
+    private const val FB_FMIN   = 27.5f
+    private const val FB_FMAX   = 16000f
 
-    private const val TIME_SIG_THREE_RATIO = 1.20f
-    private const val TIME_SIG_SIX_RATIO   = 1.25f
+    // DBN 파라미터
+    private const val DBN_TRANSITION_LAMBDA  = 100f
+    private const val DBN_OBSERVATION_LAMBDA = 16
 
-    private const val CONTINUITY_MAX_RATIO = 0.12f
+    private val HARM_RATIOS = floatArrayOf(0.5f)
 
+    private const val FILL_CONFIDENCE   = 0.20f
+    private const val DP_MIN_BEAT_RATIO = 0.25f
+
+    private const val TIME_SIG_THREE_RATIO   = 1.20f
+    private const val TIME_SIG_SIX_RATIO     = 1.25f
     private const val DOWNBEAT_W_LOW_ENERGY  = 0.50f
-    private const val DOWNBEAT_W_BAR_COMB   = 0.30f
+    private const val DOWNBEAT_W_BAR_COMB    = 0.30f
     private const val DOWNBEAT_W_CONSISTENCY = 0.20f
 
-    private const val REALIGN_SNAP_MS = 80L
-
-    private const val THIN_RATIO      = 0.55f
-    private const val FILL_CONFIDENCE = 0.20f
-
-    private const val WEAK_SIGNAL_FAIL_RATE = 0.60f
-
-    private const val LOW_COVERAGE_TH = 0.15f
-
-    // ④ confidence
     data class TimedBeat(val timeMs: Long, val confidence: Float)
 
-    // ③ 박자표
     enum class TimeSignatureType { FOUR_FOUR, THREE_FOUR, SIX_EIGHT }
 
     data class TimeSignature(
@@ -70,20 +62,10 @@ object BeatDetectorV3 {
 
     enum class BeatSource { LOW, MID, FULL, LOW_MID, MID_FULL, LOW_FULL }
 
-    // Fix 1: minBeatMs=430L, maxBeatMs=1000L
     data class Params(
-        val hopMs: Long             = 50L,
-        val minBeatMs: Long         = 430L,
-        val maxBeatMs: Long         = 1000L,
-        val minPeakDistanceMs: Long = 140L,
-        val onsetSmoothWindow: Int  = 3,
-        val segmentMs: Long         = 20_000L,
-        val peakThresholdK: Float   = 0.22f,
-        val minPeakAbs: Float       = 0.04f,
-        val snapToleranceMs: Long   = 150L,
-        val chainToleranceMs: Long  = 170L,
-        val minChainCount: Int      = 3,
-        val continuityBonus: Float  = 0.08f
+        val minBeatMs: Long = 280L,
+        val maxBeatMs: Long = 1100L,
+        val minPeakDistanceMs: Long = 120L
     )
 
     data class DetectResult(
@@ -93,464 +75,655 @@ object BeatDetectorV3 {
         val reason: String,
         val downbeatOffsetMs: Long,
         val timeSignature: TimeSignature,
-        val debugSegments: List<SegmentResult>
+        val debugSegments: List<Any> = emptyList()
     ) {
         val beatTimesMs: List<Long> get() = beats.map { it.timeMs }
     }
-
-    data class SegmentResult(
-        val index: Int,
-        val startMs: Long,
-        val endMs: Long,
-        val selectedSource: BeatSource?,
-        val timedBeats: List<TimedBeat>,
-        val beatMs: Long,
-        val score: Float,
-        val reason: String,
-        val trials: List<TrialResult>
-    ) {
-        val beatTimesMs: List<Long> get() = timedBeats.map { it.timeMs }
-    }
-
-    data class TrialResult(
-        val source: BeatSource,
-        val timedBeats: List<TimedBeat>,
-        val beatMs: Long,
-        val score: Float,
-        val rawPeakCount: Int,
-        val snappedCount: Int,
-        val onsetMean: Float,
-        val onsetStd: Float,
-        val onsetMax: Float,
-        val acPeak: Float,
-        val snapRatio: Float,
-        val reason: String
-    ) {
-        val beatTimesMs: List<Long> get() = timedBeats.map { it.timeMs }
-    }
-
-    private data class SegLoopResult(
-        val segResults: List<SegmentResult>,
-        val mergedBeats: List<TimedBeat>,
-        val sourceVotes: Map<BeatSource, Int>
-    )
 
     // =========================================================================
     // Public entry point
     // =========================================================================
 
     fun detect(
-        lowEnv: List<Float>,
-        midEnv: List<Float>,
-        fullEnv: List<Float>,
+        musicPath: String,
         params: Params = Params()
     ): DetectResult {
-        if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
-            return DetectResult(emptyList(), 0L, null, "empty env", 0L, TimeSignature.FOUR_FOUR, emptyList())
+        // ── 1. 스트리밍 디코딩 + ODF (전체 / 저음역대) 분리 추출 ─────────────────
+        val (odf, lowOdf, hopMs, durationMs) = streamingOdf(musicPath)
+        if (odf.isEmpty()) {
+            return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
+        Log.d(TAG, "V3 SuperFlux odf frames=${odf.size} hopMs=$hopMs durationMs=$durationMs")
 
-        val minSize    = min(lowEnv.size, min(midEnv.size, fullEnv.size))
-        val low        = lowEnv.take(minSize)
-        val mid        = midEnv.take(minSize)
-        val full       = fullEnv.take(minSize)
-        val durationMs = minSize * params.hopMs
+        // ── 2. DBN HMM 템포 추정 (전체 ODF 사용) ─────────────────────────────────
+        val beatMs = dbnEstimateTempo(
+            odf, hopMs, params.minBeatMs, params.maxBeatMs,
+            DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA
+        )
+        Log.d(TAG, "V3 beatMs=$beatMs (${60_000L / beatMs} BPM)")
 
-        val globalBeatMs = estimateGlobalBpm(low, mid, full, params)
-        Log.d(TAG, "V3 globalBeatMs=$globalBeatMs durationMs=$durationMs")
+        // ── 3. 위상 추정 (킥 드럼 중심의 lowOdf 사용) ──────────────────────────────
+        val normalPhaseMs = estimatePhaseFromOdf(lowOdf, beatMs, hopMs)
+        val offBeatPhaseMs = (normalPhaseMs + beatMs / 2) % beatMs
+        Log.d(TAG, "V3 Phase Anchor: Normal=${normalPhaseMs}ms, OffBeat=${offBeatPhaseMs}ms")
 
-        val effectiveSegmentMs = if (durationMs < 60_000L) durationMs else params.segmentMs
-        val segmentFrames      = max(1, (effectiveSegmentMs / params.hopMs).toInt())
+        // ── 4. Global Ellis DP (정박 / 엇박 듀얼 검증) ─────────────────────────────
+        val dpTimesNormal = dpBeatTracker(odf, beatMs, hopMs, durationMs, anchorMs = normalPhaseMs)
+        val dpTimesOffBeat = dpBeatTracker(odf, beatMs, hopMs, durationMs, anchorMs = offBeatPhaseMs)
 
-        Log.d(TAG, "V3 segmentMs=$effectiveSegmentMs minBeatMs=${params.minBeatMs} maxBeatMs=${params.maxBeatMs}")
-
-        var loop = runSegmentLoop(low, mid, full, globalBeatMs, params, segmentFrames, minSize)
-
-        val failCount = loop.segResults.count { it.selectedSource == null }
-        val totalSegs = loop.segResults.size
-        if (totalSegs > 1 && failCount.toFloat() / totalSegs > WEAK_SIGNAL_FAIL_RATE) {
-            Log.d(TAG, "V3 weak signal ($failCount/$totalSegs segs FAIL) → retry relaxed params")
-            val relaxed = params.copy(
-                peakThresholdK   = params.peakThresholdK   * 0.65f,
-                minPeakAbs       = params.minPeakAbs        * 0.60f,
-                chainToleranceMs = (params.chainToleranceMs * 1.30f).toLong(),
-                minChainCount    = maxOf(2, params.minChainCount - 1)
-            )
-            loop = runSegmentLoop(low, mid, full, globalBeatMs, relaxed, segmentFrames, minSize)
-        }
-
-        val dedupedBeats = dedupeCloseTimedBeats(loop.mergedBeats.sortedBy { it.timeMs }, params.minPeakDistanceMs)
-        if (dedupedBeats.isEmpty()) {
-            Log.w(TAG, "V3 beat detect FAIL")
-            return DetectResult(emptyList(), 0L, null, "all segments failed", 0L, TimeSignature.FOUR_FOUR, loop.segResults)
-        }
-
-        val rawBeatMs   = estimateMedianInterval(dedupedBeats.map { it.timeMs }, params.minBeatMs, params.maxBeatMs, params.hopMs)
-        val finalBeatMs: Long = when {
-            globalBeatMs == null -> rawBeatMs
-            kotlin.math.abs(globalBeatMs - rawBeatMs * 2L) < 100L -> {
-                Log.d(TAG, "V3 finalBeatMs: global($globalBeatMs) ≈ 2×raw($rawBeatMs) → raw 채택 (global half-time)")
-                rawBeatMs
+        // 승자 독식 로직 (에너지 평가)
+        fun evaluateDP(times: LongArray): Float {
+            if (times.isEmpty()) return 0f
+            var score = 0f
+            for (t in times) {
+                val frame = (t / hopMs).toInt().coerceIn(0, odf.lastIndex)
+                score += odf[frame]
             }
-            kotlin.math.abs(rawBeatMs - globalBeatMs * 2L) < 100L -> {
-                Log.d(TAG, "V3 finalBeatMs: raw($rawBeatMs) ≈ 2×global($globalBeatMs) → global 채택 (raw half-time)")
-                globalBeatMs
-            }
-            else -> globalBeatMs
-        }
-        val finalSource = loop.sourceVotes.maxByOrNull { it.value }?.key
-
-        // Fix 3+5: 글로벌 멀티밴드 ODF (Ellis DP + 박자표 감지 공용)
-        val globalOdf  = computeMultiBandFluxOdf(low, mid, full, params)
-
-        // Fix 5: Ellis DP로 최적 비트 경로 계산
-        val dpTimes    = dpBeatTracker(globalOdf, finalBeatMs, params.hopMs, durationMs)
-
-        // DP 결과와 실제 감지 비트를 병합: 실제 비트 우선, DP는 갭 채움
-        // 버킷 단위(finalBeatMs/4)로 반올림해 같은 버킷이면 높은 confidence만 유지 → 50ms 아티팩트 제거
-        val bucketMs    = (finalBeatMs / 4L).coerceAtLeast(1L)
-        val bucketMap   = LinkedHashMap<Long, TimedBeat>()
-        for (t in dpTimes) {
-            val bucket = t / bucketMs
-            val existing = bucketMap[bucket]
-            if (existing == null || FILL_CONFIDENCE > existing.confidence) {
-                bucketMap[bucket] = TimedBeat(t, FILL_CONFIDENCE)
-            }
-        }
-        for (b in dedupedBeats) {
-            val bucket = b.timeMs / bucketMs
-            val existing = bucketMap[bucket]
-            if (existing == null || b.confidence > existing.confidence) {
-                bucketMap[bucket] = b   // 실제 감지 우선
-            }
-        }
-        val mergedSorted = bucketMap.values.sortedBy { it.timeMs }
-
-        // 최소 간격(finalBeatMs * 0.45)보다 가까운 중복 제거
-        val minMergeGapMs = (finalBeatMs * 0.45f).toLong()
-        val filledBeats = ArrayList<TimedBeat>(mergedSorted.size)
-        for (b in mergedSorted) {
-            val last = filledBeats.lastOrNull()
-            when {
-                last == null -> filledBeats += b
-                b.timeMs - last.timeMs >= minMergeGapMs -> filledBeats += b
-                b.confidence > last.confidence -> filledBeats[filledBeats.lastIndex] = b
-            }
+            return score / times.size
         }
 
-        // 곡 앞/뒤 빈 구간 채우기
-        val firstTime    = filledBeats.firstOrNull()?.timeMs ?: 0L
-        val initialFills = ArrayList<TimedBeat>()
-        var tStart = firstTime - finalBeatMs
-        while (tStart >= 0) { initialFills.add(TimedBeat(tStart, FILL_CONFIDENCE)); tStart -= finalBeatMs }
-        initialFills.reverse()
+        val normalScore = evaluateDP(dpTimesNormal)
+        val offBeatScore = evaluateDP(dpTimesOffBeat)
 
-        val withHead  = initialFills + filledBeats
-        val lastTime  = withHead.lastOrNull()?.timeMs ?: 0L
-        val tailFills = ArrayList<TimedBeat>()
-        var tEnd = lastTime + finalBeatMs
-        while (tEnd <= durationMs) { tailFills.add(TimedBeat(tEnd, FILL_CONFIDENCE)); tEnd += finalBeatMs }
-
-        // 중간 대형 갭(> finalBeatMs * 1.5) 그리드 채우기
-        val withTail     = withHead + tailFills
-        val gapThreshMs  = (finalBeatMs * 1.5f).toLong()
-        val completeList = ArrayList<TimedBeat>(withTail.size + 32)
-        completeList += withTail.first()
-        for (i in 1 until withTail.size) {
-            val prev = withTail[i - 1]
-            val cur  = withTail[i]
-            var gapT = prev.timeMs + finalBeatMs
-            while (cur.timeMs - gapT > gapThreshMs / 2) {
-                completeList += TimedBeat(gapT, FILL_CONFIDENCE)
-                gapT += finalBeatMs
-            }
-            completeList += cur
+        // K-POP 특성상 정박 확률이 높으므로 정상 위상에 10% 가산점
+        val (dpTimes, phaseReason) = if (normalScore * 1.1f >= offBeatScore) {
+            Log.d(TAG, "V3 DP Winner: Normal Phase (Score: $normalScore vs $offBeatScore)")
+            dpTimesNormal to "dp_normal"
+        } else {
+            Log.d(TAG, "V3 DP Winner: Off-Beat Phase (Score: $offBeatScore vs $normalScore)")
+            dpTimesOffBeat to "dp_offbeat"
         }
-        val completeBeats = completeList
 
-        val timeSignature = detectTimeSignature(globalOdf, finalBeatMs, params.hopMs)
-        Log.d(TAG, "V3 timeSignature=${timeSignature.type}")
+        val expectedBeats = max(1, (durationMs / beatMs).toInt())
+        val dpOk = dpTimes.size >= max(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
 
-        val downbeatMs = detectDownbeatEnhanced(
-            completeBeats.map { it.timeMs }, low, finalBeatMs, timeSignature.beatsPerBar, params.hopMs)
-        val downbeatOffsetMs = (downbeatMs - (completeBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
+        val beats: List<TimedBeat>
+        val reason: String
+        if (dpOk) {
+            beats  = dpTimes.map { TimedBeat(it, 1f) }
+            reason = phaseReason
+        } else {
+            Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → segment fallback")
+            beats  = fallbackSegmentBeats(odf, lowOdf, hopMs, beatMs, durationMs) // fallback도 lowOdf 사용
+            reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
+        }
 
-        Log.d(TAG, "V3 detect OK source=$finalSource beats=${completeBeats.size} " +
-            "beatMs=$finalBeatMs timeSignature=${timeSignature.type} downbeatOffset=${downbeatOffsetMs}ms " +
-            "first=${completeBeats.firstOrNull()?.timeMs} last=${completeBeats.lastOrNull()?.timeMs}")
+        if (beats.isEmpty()) {
+            Log.w(TAG, "V3 detect FAIL")
+            return DetectResult(emptyList(), 0L, null, "all failed", 0L, TimeSignature.FOUR_FOUR)
+        }
+
+        // ── 5. 페이드아웃/무음 구간 비트 제거 및 마무리 ───────────────────────────
+        val clippedTimes  = clipToAudioContent(beats.map { it.timeMs }.toLongArray(), odf, hopMs, beatMs)
+        val clippedBeats  = if (clippedTimes.size < beats.size) {
+            val timeSet = clippedTimes.toHashSet()
+            beats.filter { it.timeMs in timeSet }
+                .also { Log.d(TAG, "V3 clipToContent: ${beats.size}→${it.size} beats") }
+        } else beats
+
+        val timeSignature = detectTimeSignature(odf, beatMs, hopMs)
+        val downbeatMs    = detectDownbeatEnhanced(
+            clippedBeats.map { it.timeMs }, odf, beatMs, timeSignature.beatsPerBar, hopMs)
+        val downbeatOffsetMs = (downbeatMs - (clippedBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
         return DetectResult(
-            beats            = completeBeats,
-            beatMs           = finalBeatMs,
-            source           = finalSource,
-            reason           = "ok",
+            beats            = clippedBeats,
+            beatMs           = beatMs,
+            source           = BeatSource.FULL,
+            reason           = reason,
             downbeatOffsetMs = downbeatOffsetMs,
-            timeSignature    = timeSignature,
-            debugSegments    = loop.segResults
+            timeSignature    = timeSignature
         )
     }
 
     // =========================================================================
-    // 세그먼트 루프 — detect() 에서 분리된 내부 헬퍼
+    // 스트리밍 ODF (Low ODF 추가)
     // =========================================================================
 
-    private fun runSegmentLoop(
-        low: List<Float>,
-        mid: List<Float>,
-        full: List<Float>,
-        globalBeatMs: Long?,
-        params: Params,
-        segmentFrames: Int,
-        minSize: Int
-    ): SegLoopResult {
-        val segmentCount = (minSize + segmentFrames - 1) / segmentFrames
-        val segResults   = ArrayList<SegmentResult>()
-        val mergedBeats  = ArrayList<TimedBeat>()
-        val sourceVotes  = LinkedHashMap<BeatSource, Int>()
-        var prevBeatMs: Long? = null
+    private data class FilterBand(val startBin: Int, val weights: FloatArray)
 
-        for (segIndex in 0 until segmentCount) {
-            val s = segIndex * segmentFrames
-            val e = min(minSize, s + segmentFrames)
-            if (e - s < 8) continue
-
-            val lowSeg     = low.subList(s, e)
-            val midSeg     = mid.subList(s, e)
-            val fullSeg    = full.subList(s, e)
-            val segStartMs = s.toLong() * params.hopMs
-
-            val srcOrder = buildSourceOrder(lowSeg, midSeg, fullSeg)
-            Log.d(TAG, "SEG[$segIndex] srcOrder=${srcOrder.joinToString(",")}")
-            val trials   = ArrayList<TrialResult>()
-            val okTrials = ArrayList<TrialResult>()
-
-            for (src in srcOrder) {
-                val trial = detectSingleSource(
-                    segIndex, src,
-                    combineSource(src, lowSeg, midSeg, fullSeg),
-                    globalBeatMs, params
-                )
-                trials += trial
-                Log.d(TAG,
-                    "SEG[$segIndex] try=${trial.source} beats=${trial.timedBeats.size} " +
-                    "beatMs=${trial.beatMs} score=${fmt(trial.score)} " +
-                    "acPeak=${fmt(trial.acPeak)} snapRatio=${fmt(trial.snapRatio)} " +
-                    "reason=${trial.reason}")
-                if (trial.reason == "ok") okTrials += trial
-            }
-
-            val best = selectBestWithContinuity(okTrials, prevBeatMs, params.continuityBonus)
-
-            if (best == null) {
-                Log.w(TAG, "SEG[$segIndex] FAIL → skip")
-                if (globalBeatMs != null && globalBeatMs > 0L && prevBeatMs != null) {
-                    val segEndMs = e.toLong() * params.hopMs
-                    val lastMs   = mergedBeats.lastOrNull()?.timeMs ?: segStartMs
-                    var t = lastMs + globalBeatMs
-                    while (t < segEndMs) {
-                        mergedBeats.add(TimedBeat(t, FILL_CONFIDENCE))
-                        t += globalBeatMs
-                    }
-                    Log.d(TAG, "SEG[$segIndex] FAIL gap-fill: globalBeatMs=${globalBeatMs}ms phantom 삽입")
+    private fun buildLogFilterbank(sampleRate: Int): Array<FilterBand> {
+        val numBins  = FFT_SIZE / 2 + 1
+        val freqBin  = sampleRate.toFloat() / FFT_SIZE
+        val fmax     = minOf(FB_FMAX, sampleRate / 2f)
+        val logMin   = ln(FB_FMIN.toDouble())
+        val logMax   = ln(fmax.toDouble())
+        val centers  = DoubleArray(NUM_BANDS + 2) { k ->
+            exp(logMin + k.toDouble() * (logMax - logMin) / (NUM_BANDS + 1))
+        }
+        return Array(NUM_BANDS) { b ->
+            val lo     = centers[b].toFloat()
+            val center = centers[b + 1].toFloat()
+            val hi     = centers[b + 2].toFloat()
+            val sIdx   = ((lo / freqBin).toInt()).coerceAtLeast(0)
+            val eIdx   = minOf(numBins - 1, (hi / freqBin).toInt() + 1)
+            val w      = FloatArray(eIdx - sIdx + 1) { i ->
+                val freq = (sIdx + i) * freqBin
+                when {
+                    freq <= lo || freq >= hi -> 0f
+                    freq <= center           -> (freq - lo) / (center - lo)
+                    else                     -> (hi - freq) / (hi - center)
                 }
-                segResults += SegmentResult(segIndex, segStartMs,
-                    e.toLong() * params.hopMs, null, emptyList(), 0L, 0f, "all failed", trials)
-                continue
+            }
+            val norm = w.sum()
+            if (norm > 1e-8f) w.forEachIndexed { i, v -> w[i] = v / norm }
+            FilterBand(sIdx, w)
+        }
+    }
+
+    // 변경점 1: lowOdf 배열 추가
+    private data class OdfResult(val odf: List<Float>, val lowOdf: List<Float>, val hopMs: Long, val durationMs: Long)
+
+    private fun streamingOdf(musicPath: String): OdfResult {
+        val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
+        return try {
+            extractor.setDataSource(musicPath)
+            var trackIndex = -1; var format: MediaFormat? = null
+            for (i in 0 until extractor.trackCount) {
+                val f = extractor.getTrackFormat(i)
+                if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
+                    trackIndex = i; format = f; break
+                }
+            }
+            if (trackIndex < 0 || format == null) {
+                extractor.release()
+                return OdfResult(emptyList(), emptyList(), HOP_MS, 0L)
+            }
+            extractor.selectTrack(trackIndex)
+
+            val mime         = format.getString(MediaFormat.KEY_MIME)!!
+            val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            val hopSamples   = max(1, (sampleRate * HOP_MS / 1000).toInt())
+            val hopMs        = hopSamples * 1000L / sampleRate
+            val stepBytes    = channelCount * 2
+
+            val fft        = FloatFFT_1D(FFT_SIZE.toLong())
+            val hannWindow = FloatArray(FFT_SIZE) { i ->
+                (0.5 * (1.0 - cos(2.0 * PI * i / (FFT_SIZE - 1)))).toFloat()
+            }
+            val numBins    = FFT_SIZE / 2 + 1
+            val fftBuf     = FloatArray(FFT_SIZE)
+            val curMag     = FloatArray(numBins)
+            val filterbank = buildLogFilterbank(sampleRate)
+            val curBand    = FloatArray(NUM_BANDS)
+            val prevBand   = FloatArray(NUM_BANDS)
+
+            val odf        = ArrayList<Float>()
+            val lowOdf     = ArrayList<Float>() // 추가
+
+            val ringBuf    = FloatArray(FFT_SIZE)
+            var ringHead   = 0
+            var totalSamples         = 0L
+            var samplesUntilNextFrame = FFT_SIZE
+
+            codec = MediaCodec.createDecoderByType(mime)
+            codec.configure(format, null, null, 0); codec.start()
+            val bufferInfo  = MediaCodec.BufferInfo()
+            var sawInputEOS = false; var sawOutputEOS = false
+
+            while (!sawOutputEOS) {
+                if (!sawInputEOS) {
+                    val inIdx = codec.dequeueInputBuffer(10_000)
+                    if (inIdx >= 0) {
+                        val buf = codec.getInputBuffer(inIdx)!!; buf.clear()
+                        val sz = extractor.readSampleData(buf, 0)
+                        if (sz < 0) {
+                            codec.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            sawInputEOS = true
+                        } else {
+                            codec.queueInputBuffer(inIdx, 0, sz, extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+
+                val outIdx = codec.dequeueOutputBuffer(bufferInfo, 10_000)
+                when {
+                    outIdx >= 0 -> {
+                        val buf = codec.getOutputBuffer(outIdx)
+                        if (buf != null && bufferInfo.size > 0) {
+                            buf.position(bufferInfo.offset)
+                            buf.limit(bufferInfo.offset + bufferInfo.size)
+                            val chunk = ByteArray(bufferInfo.size); buf.get(chunk)
+
+                            var byteIdx = 0
+                            while (byteIdx + stepBytes <= chunk.size) {
+                                var monoSum = 0f
+                                for (c in 0 until channelCount) {
+                                    val lo = chunk[byteIdx + c * 2].toInt() and 0xFF
+                                    val hi = chunk[byteIdx + c * 2 + 1].toInt()
+                                    monoSum += (hi shl 8 or lo).toShort().toFloat()
+                                }
+                                val mono = monoSum / channelCount / 32768f
+
+                                ringBuf[ringHead] = mono
+                                ringHead = (ringHead + 1) % FFT_SIZE
+                                totalSamples++
+                                samplesUntilNextFrame--
+
+                                if (samplesUntilNextFrame <= 0) {
+                                    samplesUntilNextFrame = hopSamples
+                                    val oldest = ringHead
+                                    for (i in 0 until FFT_SIZE) {
+                                        fftBuf[i] = ringBuf[(oldest + i) % FFT_SIZE] * hannWindow[i]
+                                    }
+                                    fft.realForward(fftBuf)
+
+                                    curMag[0]           = abs(fftBuf[0])
+                                    curMag[numBins - 1] = abs(fftBuf[1])
+                                    for (k in 1 until numBins - 1) {
+                                        val re = fftBuf[2 * k]; val im = fftBuf[2 * k + 1]
+                                        curMag[k] = sqrt(re * re + im * im)
+                                    }
+
+                                    for (b in 0 until NUM_BANDS) {
+                                        val fb = filterbank[b]
+                                        var sum = 0f
+                                        for (i in fb.weights.indices) sum += fb.weights[i] * curMag[fb.startBin + i]
+                                        curBand[b] = ln(1f + LOG_LAMBDA * sum)
+                                    }
+
+                                    if (odf.isEmpty()) {
+                                        odf.add(0f)
+                                        lowOdf.add(0f) // 추가
+                                    } else {
+                                        var flux = 0f
+                                        var lowFlux = 0f // 추가
+                                        for (b in 0 until NUM_BANDS) {
+                                            var prevMax = prevBand[b]
+                                            if (b > 0 && prevBand[b - 1] > prevMax) prevMax = prevBand[b - 1]
+                                            if (b < NUM_BANDS - 1 && prevBand[b + 1] > prevMax) prevMax = prevBand[b + 1]
+                                            val diff = curBand[b] - prevMax
+                                            if (diff > 0f) {
+                                                flux += diff
+                                                if (b <= 5) lowFlux += diff // Band 0~5 (약 300Hz 이하)
+                                            }
+                                        }
+                                        odf.add(flux)
+                                        lowOdf.add(lowFlux) // 추가
+                                    }
+                                    curBand.copyInto(prevBand)
+                                }
+                                byteIdx += stepBytes
+                            }
+                        }
+                        codec.releaseOutputBuffer(outIdx, false)
+                        if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0)
+                            sawOutputEOS = true
+                    }
+                    outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
+                }
             }
 
-            Log.d(TAG, "SEG[$segIndex] WINNER=${best.source} beatMs=${best.beatMs} " +
-                "beats=${best.timedBeats.size} score=${fmt(best.score)}")
+            codec.stop(); codec.release(); extractor.release()
 
-            val absBeats    = best.timedBeats.map { it.copy(timeMs = it.timeMs + segStartMs) }
-            val halfBeatMs  = best.beatMs / 2
+            val durationMs = totalSamples * 1000L / sampleRate
 
-            var onBeatEnergy = 0f; var offBeatEnergy = 0f
-            var onCount = 0; var offCount = 0
-            for (beat in absBeats) {
-                val fOn  = (beat.timeMs / params.hopMs).toInt().coerceIn(0, low.lastIndex)
-                val fOff = ((beat.timeMs + halfBeatMs) / params.hopMs).toInt().coerceIn(0, low.lastIndex)
-                onBeatEnergy  += low[fOn];  onCount++
-                offBeatEnergy += low[fOff]; offCount++
-            }
-            val avgOn  = if (onCount  > 0) onBeatEnergy  / onCount  else 0f
-            val avgOff = if (offCount > 0) offBeatEnergy / offCount else 0f
+            val maxVal = odf.maxOrNull() ?: 1f
+            val normOdf = if (maxVal > 1e-6f) odf.map { it / maxVal } else odf
 
-            val correctedBeats = if (avgOff > avgOn * 1.15f) {
-                Log.d(TAG, "SEG[$segIndex] Inversion Detected! avgOff=${fmt(avgOff)} > avgOn=${fmt(avgOn)} → shift +${halfBeatMs}ms")
-                absBeats.map { it.copy(timeMs = it.timeMs + halfBeatMs) }
-            } else {
-                absBeats
-            }
+            // lowOdf 정규화
+            val maxLow = lowOdf.maxOrNull() ?: 1f
+            val normLowOdf = if (maxLow > 1e-6f) lowOdf.map { it / maxLow } else lowOdf
 
-            mergedBeats += correctedBeats
-            sourceVotes[best.source] = (sourceVotes[best.source] ?: 0) + 1
-            prevBeatMs = best.beatMs
-
-            segResults += SegmentResult(segIndex, segStartMs, e.toLong() * params.hopMs,
-                best.source, correctedBeats, best.beatMs, best.score, best.reason, trials)
-        }
-
-        return SegLoopResult(segResults, mergedBeats, sourceVotes)
-    }
-
-    // =========================================================================
-    // Fix 2: Comb Filter 옥타브 해소
-    // =========================================================================
-
-    private fun combFilterScore(odf: List<Float>, periodMs: Long, hopMs: Long): Float {
-        val period = (periodMs / hopMs).toInt().coerceAtLeast(1)
-        var score = 0f; var count = 0
-        for (tap in 1..4) {
-            val lag = period * tap
-            if (lag >= odf.size) break
-            for (i in 0 until odf.size - lag) { score += odf[i] * odf[i + lag]; count++ }
-        }
-        return if (count > 0) score / count else 0f
-    }
-
-    private fun resolveOctave(odf: List<Float>, beatMs: Long, hopMs: Long, minBeatMs: Long, maxBeatMs: Long): Long {
-        val half   = beatMs * 2L
-        val double = beatMs / 2L
-        val sCurrent = combFilterScore(odf, beatMs, hopMs)
-        val sHalf    = if (half   <= maxBeatMs) combFilterScore(odf, half,   hopMs) else 0f
-        val sDouble  = if (double >= minBeatMs) combFilterScore(odf, double, hopMs) else 0f
-        return when {
-            sHalf   > sCurrent * 0.82f -> { Log.d(TAG, "V3 resolveOctave: ${beatMs}ms → ${half}ms (half)");   half   }
-            sDouble > sCurrent * 1.25f -> { Log.d(TAG, "V3 resolveOctave: ${beatMs}ms → ${double}ms (double)"); double }
-            else                       -> beatMs
+            OdfResult(normOdf, normLowOdf, hopMs, durationMs)
+        } catch (t: Throwable) {
+            Log.e(TAG, "V3 streamingOdf fail: ${t.message}")
+            try { codec?.stop() }     catch (_: Throwable) {}
+            try { codec?.release() }  catch (_: Throwable) {}
+            try { extractor.release() } catch (_: Throwable) {}
+            OdfResult(emptyList(), emptyList(), HOP_MS, 0L)
         }
     }
 
     // =========================================================================
-    // Fix 3: Multi-band Positive Flux ODF
+    // DBN 템포 추정
     // =========================================================================
 
-    private fun computeMultiBandFluxOdf(
-        low: List<Float>, mid: List<Float>, full: List<Float>, params: Params
-    ): List<Float> {
-        val n = minOf(low.size, mid.size, full.size)
-        val lowFlux  = computeOdf(low.take(n),  params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val midFlux  = computeOdf(mid.take(n),  params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val fullFlux = computeOdf(full.take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        // 킥(LOW) 1.4, 스네어(MID) 1.2, 전체(FULL) 0.8 가중합 → 정규화
-        val combined = ArrayList<Float>(n)
-        for (i in 0 until n) {
-            combined += lowFlux[i] * 1.4f + midFlux[i] * 1.2f + fullFlux[i] * 0.8f
-        }
-        return localNormalize(combined, GLOBAL_NORM_WINDOW)
-    }
-
-    // =========================================================================
-    // Fix 2: estimateGlobalBpm — autocorrelation 결과에 resolveOctave 적용
-    // =========================================================================
-
-    private fun estimateGlobalBpm(low: List<Float>, mid: List<Float>, full: List<Float>, params: Params): Long? {
-        val odf = computeMultiBandFluxOdf(low, mid, full, params)
-        val raw = autoCorrelateBeat(odf, params.hopMs, params.minBeatMs, params.maxBeatMs)?.first ?: return null
-        return resolveOctave(odf, raw, params.hopMs, params.minBeatMs, params.maxBeatMs)
-    }
-
-    /**
-     * 전곡 ODF에서 비트 위상(phase)을 추정한다.
-     */
-    private fun estimatePhaseFromOdf(
-        onset: List<Float>,
-        beatMs: Long,
-        hopMs: Long
+    private fun dbnEstimateTempo(
+        odf: List<Float>,
+        hopMs: Long,
+        minBeatMs: Long,
+        maxBeatMs: Long,
+        transitionLambda: Float,
+        observationLambda: Int
     ): Long {
-        val beatFrames = max(1, (beatMs / hopMs).toInt())
-        if (onset.size < beatFrames * 2) return 0L
+        val minInterval = max(1, (minBeatMs / hopMs).toInt())
+        val maxInterval = max(minInterval + 1, (maxBeatMs / hopMs).toInt())
+        val intervals   = IntArray(maxInterval - minInterval + 1) { minInterval + it }
+        val numIntv     = intervals.size
+        if (numIntv == 0 || odf.size < minInterval * 2) return minBeatMs
 
-        var bestPhase = 0
-        var bestScore = Double.NEGATIVE_INFINITY
+        val totalStates    = intervals.sum()
+        val stateIntv      = IntArray(totalStates)
+        val statePos       = IntArray(totalStates)
+        val stateIntvIdx   = IntArray(totalStates)
+        val intvStartState = IntArray(numIntv)
 
-        for (ph in 0 until beatFrames) {
-            var score = 0.0
-            var f = ph
-            while (f < onset.size) {
-                score += onset[f]
-                f += beatFrames
-            }
-            if (score > bestScore) {
-                bestScore = score
-                bestPhase = ph
+        var s = 0
+        for (ii in 0 until numIntv) {
+            intvStartState[ii] = s
+            for (p in 0 until intervals[ii]) {
+                stateIntv[s] = intervals[ii]; statePos[s] = p; stateIntvIdx[s] = ii; s++
             }
         }
 
+        val bbLogTrans = Array(numIntv) { fromII ->
+            val fi  = intervals[fromII].toFloat()
+            val raw = FloatArray(numIntv) { toII ->
+                -transitionLambda * abs(intervals[toII].toFloat() / fi - 1f)
+            }
+            val maxR = raw.max(); var sumE = 0.0
+            for (v in raw) sumE += exp((v - maxR).toDouble())
+            val logZ = maxR + ln(sumE.toFloat())
+            FloatArray(numIntv) { toII -> raw[toII] - logZ }
+        }
+
+        val LOG_ZERO    = -1e9f
+        val logInitUnif = -ln(numIntv.toFloat())
+        var logFwd = FloatArray(totalStates) { LOG_ZERO }
+        for (ii in 0 until numIntv) {
+            logFwd[intvStartState[ii]] = logInitUnif
+        }
+
+        val intvBeatAccum = FloatArray(numIntv)
+        val n = odf.size
+
+        for (t in 0 until n) {
+            val act        = odf[t].coerceIn(1e-6f, 1f - 1e-6f)
+            val logBeat    = ln(act)
+            val logNonBeat = ln((1f - act) / (observationLambda - 1).toFloat())
+
+            val lastLogFwd = FloatArray(numIntv) { ii ->
+                logFwd[intvStartState[ii] + intervals[ii] - 1]
+            }
+
+            val logFwdNew = FloatArray(totalStates) { LOG_ZERO }
+            for (st in 0 until totalStates) {
+                val p      = statePos[st]
+                val logObs = if (p == 0) logBeat else logNonBeat
+                val logPrev = if (p > 0) {
+                    logFwd[st - 1]
+                } else {
+                    val toII = stateIntvIdx[st]
+                    var maxVal = LOG_ZERO
+                    for (fromII in 0 until numIntv) {
+                        val cand = lastLogFwd[fromII] + bbLogTrans[fromII][toII]
+                        if (cand > maxVal) maxVal = cand
+                    }
+                    maxVal
+                }
+                if (logPrev > LOG_ZERO) logFwdNew[st] = logPrev + logObs
+            }
+
+            val peak = logFwdNew.max()
+            if (peak > LOG_ZERO) for (i in logFwdNew.indices) {
+                if (logFwdNew[i] > LOG_ZERO) logFwdNew[i] -= peak
+            }
+            logFwd = logFwdNew
+
+            for (ii in 0 until numIntv) {
+                val bss = intvStartState[ii]
+                if (logFwd[bss] > LOG_ZERO) intvBeatAccum[ii] += exp(logFwd[bss].toDouble()).toFloat()
+            }
+        }
+
+        var bestII = 0
+        for (ii in 1 until numIntv) {
+            val cntI = (n.toFloat() / intervals[ii]).coerceAtLeast(1f)
+            val cntB = (n.toFloat() / intervals[bestII]).coerceAtLeast(1f)
+            if (intvBeatAccum[ii] / cntI > intvBeatAccum[bestII] / cntB) bestII = ii
+        }
+
+        val LOG_BPM_CENTER = ln(120f)
+        val LOG_BPM_SX2    = 2f * 0.8f * 0.8f
+
+        fun combPriorScore(beatMs: Long): Float {
+            val fpb = max(1, (beatMs / hopMs).toInt())
+            if (odf.size < fpb * 2) return 0f
+            var best = Float.NEGATIVE_INFINITY
+            for (ph in 0 until fpb) {
+                var sc = 0f; var f = ph
+                while (f < odf.size) { sc += odf[f]; f += fpb }
+                if (sc > best) best = sc
+            }
+            val expectedBeats = (odf.size.toFloat() / fpb.toFloat()).coerceAtLeast(1f)
+            val normalizedBest = best / expectedBeats
+            val bpm   = 60_000f / beatMs.toFloat()
+            val d     = ln(bpm) - LOG_BPM_CENTER
+            val prior = exp(-(d * d) / LOG_BPM_SX2.toDouble()).toFloat()
+            return normalizedBest * prior
+        }
+
+        val resultMs   = intervals[bestII].toLong() * hopMs
+        var bestCorrMs = resultMs
+        var bestCorrPS = combPriorScore(resultMs)
+
+        for (r in HARM_RATIOS) {
+            if (r == 0.5f && resultMs < 910L) continue
+            val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt().coerceAtLeast(1)
+            val cMs = frames.toLong() * hopMs
+            if (cMs < minBeatMs || cMs > maxBeatMs) continue
+            val ps = combPriorScore(cMs)
+            if (ps > bestCorrPS) { bestCorrPS = ps; bestCorrMs = cMs }
+        }
+
+        return bestCorrMs
+    }
+
+    // =========================================================================
+    // 위상 추정
+    // =========================================================================
+
+    private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
+        val fpb = max(1, (beatMs / hopMs).toInt())
+        if (odf.size < fpb * 2) return 0L
+        var bestPhase = 0; var bestScore = Float.NEGATIVE_INFINITY
+        for (ph in 0 until fpb) {
+            var score = 0f; var f = ph
+            while (f < odf.size) { score += odf[f]; f += fpb }
+            if (score > bestScore) { bestScore = score; bestPhase = ph }
+        }
         return bestPhase.toLong() * hopMs
     }
 
     // =========================================================================
-    // ③ 박자표 감지 (Time Signature)
+    // Ellis DP Beat Tracker (제한 완화 및 보너스 적용)
     // =========================================================================
 
-    private fun detectTimeSignature(onset: List<Float>, beatMs: Long, hopMs: Long): TimeSignature {
-        if (onset.size < 8 || beatMs <= 0L) return TimeSignature.FOUR_FOUR
+    private fun dpBeatTracker(
+        odf: List<Float>, targetPeriodMs: Long, hopMs: Long,
+        durationMs: Long, anchorMs: Long = 0L
+    ): LongArray {
+        if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
+        val n           = odf.size
+        val fpb         = (targetPeriodMs / hopMs).toInt().coerceAtLeast(1)
+        val tightness   = 100.0f
+        val anchorFrame = if (anchorMs > 0L) (anchorMs / hopMs).toInt().coerceIn(0, n - 1) else -1
+
+        val gaussHalf = fpb; val gaussSize = gaussHalf * 2 + 1
+        val gaussWin  = FloatArray(gaussSize) { k ->
+            val i = (k - gaussHalf).toFloat()
+            exp(-0.5f * (i * 32.0f / fpb) * (i * 32.0f / fpb))
+        }
+        val localscore = FloatArray(n)
+        for (t in 0 until n) {
+            var sc = 0f
+            for (k in 0 until gaussSize) {
+                val idx = t - gaussHalf + k
+                if (idx in 0 until n) sc += gaussWin[k] * odf[idx]
+            }
+            localscore[t] = sc
+        }
+
+        val cumscore    = FloatArray(n) { Float.NEGATIVE_INFINITY }
+        val prev        = IntArray(n)  { -1 }
+        val searchRange = fpb * 2
+
+        for (t in 0 until n) {
+            val pLo = max(0, t - searchRange); val pHi = max(0, t - max(1, fpb / 2))
+            var bestVal = Float.NEGATIVE_INFINITY
+
+            // 변경점 2: DP의 시작점을 0프레임으로 강제하지 않고, 어디서든(p==0) 자유롭게 시작 가능하도록 개방
+            for (p in pLo..pHi) {
+                val isFreeStart = (p == 0)
+                if (cumscore[p] == Float.NEGATIVE_INFINITY && !isFreeStart) continue
+
+                val pScore   = if (p == 0) 0f else cumscore[p]
+                val lag      = (t - p).toFloat().coerceAtLeast(1f)
+                val logRatio = ln(lag / fpb)
+                val penalty  = tightness * logRatio * logRatio
+                val cand     = pScore - penalty
+                if (cand > bestVal) { bestVal = cand; prev[t] = p }
+            }
+
+            // 변경점 2: 앵커 프레임 근처의 노드에 통과 가산점 20% 부여 (유연한 유도)
+            var currentScore = localscore[t]
+            if (anchorFrame > 0 && abs(t - anchorFrame) <= fpb / 4) {
+                currentScore *= 1.2f
+            }
+
+            cumscore[t] = if (bestVal == Float.NEGATIVE_INFINITY) currentScore
+            else bestVal + currentScore
+        }
+
+        var t     = cumscore.indices.maxByOrNull { cumscore[it] } ?: return LongArray(0)
+        val beats = mutableListOf<Long>()
+        var iter  = 0
+        while (t > 0 && iter < n) {
+            beats.add(t.toLong() * hopMs)
+            val p = prev[t]; if (p < 0 || p == t) break
+            t = p; iter++
+        }
+
+        val result = beats.reversed().toLongArray()
+        if (result.size < 2) return result
+
+        val rms = sqrt(localscore.map { it * it }.average().toFloat()); val trimTh = 0.15f * rms
+        var ss = 0
+        while (ss < result.size && localscore[(result[ss] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) ss++
+        var e = result.size - 1
+        while (e > ss && localscore[(result[e] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) e--
+        return if (ss > e) result else result.sliceArray(ss..e)
+    }
+
+    // =========================================================================
+    // Fallback
+    // =========================================================================
+
+    private fun fallbackSegmentBeats(
+        odf: List<Float>, lowOdf: List<Float>, hopMs: Long, beatMs: Long, durationMs: Long
+    ): List<TimedBeat> {
+        val segmentMs = 20_000L
+        val segFrames = (segmentMs / hopMs).toInt().coerceAtLeast(1)
+        val result    = ArrayList<TimedBeat>()
+        var segIdx    = 0
+        while (segIdx * segFrames < odf.size) {
+            val sFrame = segIdx * segFrames
+            val eFrame = min(odf.size, sFrame + segFrames)
+            if (eFrame - sFrame < 8) { segIdx++; continue }
+            val segOdf   = odf.subList(sFrame, eFrame)
+            val segLowOdf = lowOdf.subList(sFrame, min(lowOdf.size, eFrame))
+
+            // 변경점 1 적용: 세그먼트 fallback에서도 위상 추정은 lowOdf 사용
+            val segPhase = estimatePhaseFromOdf(if (segLowOdf.size == segOdf.size) segLowOdf else segOdf, beatMs, hopMs)
+            val segDur   = (eFrame - sFrame).toLong() * hopMs
+            val segTimes = dpBeatTracker(segOdf, beatMs, hopMs, segDur, anchorMs = segPhase)
+            val offset   = sFrame.toLong() * hopMs
+            segTimes.forEach { result += TimedBeat(offset + it, FILL_CONFIDENCE) }
+            segIdx++
+        }
+        return result.sortedBy { it.timeMs }
+    }
+
+    // =========================================================================
+    // 페이드아웃/무음 구간 비트 클리핑
+    // =========================================================================
+
+    private fun clipToAudioContent(beats: LongArray, odf: List<Float>, hopMs: Long, beatMs: Long): LongArray {
+        if (beats.isEmpty() || odf.size < 4) return beats
+        val fpb = max(1, (beatMs / hopMs).toInt())
+        val win = fpb * 2
+
+        val envelope = FloatArray(odf.size) { i ->
+            val s = max(0, i - win / 2); val e = min(odf.size - 1, i + win / 2)
+            var sum = 0f; for (k in s..e) sum += odf[k]; sum / (e - s + 1)
+        }
+        val globalMean = envelope.average().toFloat().coerceAtLeast(1e-9f)
+        val silentTh   = 0.08f * globalMean
+
+        var firstActive = 0
+        while (firstActive < odf.size - fpb && envelope[firstActive] < silentTh) firstActive++
+
+        var lastActive = odf.size - 1
+        while (lastActive > fpb && envelope[lastActive] < silentTh) lastActive--
+
+        val startMs  = max(0L, firstActive.toLong() * hopMs - beatMs)
+        val cutoffMs = lastActive.toLong() * hopMs + beatMs
+
+        return beats.filter { it >= startMs && it <= cutoffMs }.toLongArray()
+    }
+
+    // =========================================================================
+    // 박자표 감지
+    // =========================================================================
+
+    private fun detectTimeSignature(odf: List<Float>, beatMs: Long, hopMs: Long): TimeSignature {
+        if (odf.size < 8 || beatMs <= 0L) return TimeSignature.FOUR_FOUR
         val bf    = (beatMs / hopMs).toInt().coerceAtLeast(1)
-        val corr3 = lagCorr(onset, bf * 3)
-        val corr4 = lagCorr(onset, bf * 4)
-        val corr6 = lagCorr(onset, bf * 6)
-        Log.d(TAG, "V3 timeSig corr3=${fmt(corr3)} corr4=${fmt(corr4)} corr6=${fmt(corr6)}")
+        val corr3 = lagCorr(odf, bf * 3); val corr4 = lagCorr(odf, bf * 4); val corr6 = lagCorr(odf, bf * 6)
         return when {
-            corr3 > corr4 * TIME_SIG_THREE_RATIO                            -> TimeSignature.THREE_FOUR
-            corr6 > corr4 * TIME_SIG_SIX_RATIO && corr3 > corr4 * 0.85f   -> TimeSignature.SIX_EIGHT
-            else                                                             -> TimeSignature.FOUR_FOUR
+            corr3 > corr4 * TIME_SIG_THREE_RATIO                          -> TimeSignature.THREE_FOUR
+            corr6 > corr4 * TIME_SIG_SIX_RATIO && corr3 > corr4 * 0.85f -> TimeSignature.SIX_EIGHT
+            else                                                           -> TimeSignature.FOUR_FOUR
         }
     }
 
-    private fun lagCorr(onset: List<Float>, lag: Int): Float {
-        if (lag <= 0 || lag >= onset.size) return 0f
+    private fun lagCorr(odf: List<Float>, lag: Int): Float {
+        if (lag <= 0 || lag >= odf.size) return 0f
         var sum = 0f; var i = 0
-        while (i + lag < onset.size) { sum += onset[i] * onset[i + lag]; i++ }
+        while (i + lag < odf.size) { sum += odf[i] * odf[i + lag]; i++ }
         return sum / i.toFloat().coerceAtLeast(1f)
     }
 
     // =========================================================================
-    // ① 다운비트 감지 — 3가지 Factor 결합
+    // 다운비트 감지
     // =========================================================================
 
     private fun detectDownbeatEnhanced(
-        beatTimesMs: List<Long>,
-        lowEnv: List<Float>,
-        beatMs: Long,
-        beatsPerBar: Int,
-        hopMs: Long
+        beatTimesMs: List<Long>, odf: List<Float>,
+        beatMs: Long, beatsPerBar: Int, hopMs: Long
     ): Long {
         if (beatTimesMs.isEmpty() || beatMs <= 0L) return 0L
         if (beatTimesMs.size < beatsPerBar) return beatTimesMs.first()
 
-        val barFrames = ((beatMs * beatsPerBar) / hopMs).toInt().coerceAtLeast(1)
-
-        val phaseSum   = FloatArray(beatsPerBar)
-        val phaseCnt   = IntArray(beatsPerBar)
+        val phaseSum = FloatArray(beatsPerBar); val phaseCnt = IntArray(beatsPerBar)
         for (i in beatTimesMs.indices) {
             val ph = i % beatsPerBar
-            val fr = (beatTimesMs[i] / hopMs).toInt().coerceIn(0, lowEnv.lastIndex)
-            phaseSum[ph] += lowEnv[fr]
-            phaseCnt[ph]++
+            val fr = (beatTimesMs[i] / hopMs).toInt().coerceIn(0, odf.lastIndex)
+            phaseSum[ph] += odf[fr]; phaseCnt[ph]++
         }
         val avgEnergy = FloatArray(beatsPerBar) { p ->
             if (phaseCnt[p] > 0) phaseSum[p] / phaseCnt[p] else 0f
         }
 
+        val barFrames = ((beatMs * beatsPerBar) / hopMs).toInt().coerceAtLeast(1)
         val combScore = FloatArray(beatsPerBar)
         for (ph in 0 until beatsPerBar) {
             val anchor = (beatTimesMs.getOrElse(ph) { ph.toLong() * beatMs } / hopMs).toInt()
             var k = anchor; var sum = 0f; var cnt = 0
-            while (k < lowEnv.size) {
-                sum += lowEnv[k.coerceIn(0, lowEnv.lastIndex)]; cnt++; k += barFrames
-            }
+            while (k < odf.size) { sum += odf[k.coerceIn(0, odf.lastIndex)]; cnt++; k += barFrames }
             k = anchor - barFrames
-            while (k >= 0) {
-                sum += lowEnv[k.coerceIn(0, lowEnv.lastIndex)]; cnt++; k -= barFrames
-            }
+            while (k >= 0) { sum += odf[k.coerceIn(0, odf.lastIndex)]; cnt++; k -= barFrames }
             combScore[ph] = if (cnt > 0) sum / cnt else 0f
         }
 
         val consistScore = FloatArray(beatsPerBar)
         for (ph in 0 until beatsPerBar) {
-            val energies = beatTimesMs
-                .filterIndexed { i, _ -> i % beatsPerBar == ph }
-                .map { t -> lowEnv[(t / hopMs).toInt().coerceIn(0, lowEnv.lastIndex)] }
+            val energies = beatTimesMs.filterIndexed { i, _ -> i % beatsPerBar == ph }
+                .map { t -> odf[(t / hopMs).toInt().coerceIn(0, odf.lastIndex)] }
             if (energies.size >= 2) {
                 val avg = energies.average().toFloat()
                 val std = sqrt(energies.map { (it - avg) * (it - avg) }.average().toFloat())
@@ -563,573 +736,12 @@ object BeatDetectorV3 {
             val mx = maxOrNull() ?: return this
             return if (mx > 0.001f) FloatArray(size) { this[it] / mx } else this
         }
-        val nEnergy  = avgEnergy.normMax()
-        val nComb    = combScore.normMax()
-        val nConsist = consistScore.normMax()
-
         val bestPhase = (0 until beatsPerBar).maxByOrNull { p ->
-            nEnergy[p]  * DOWNBEAT_W_LOW_ENERGY  +
-            nComb[p]    * DOWNBEAT_W_BAR_COMB    +
-            nConsist[p] * DOWNBEAT_W_CONSISTENCY
+            avgEnergy.normMax()[p] * DOWNBEAT_W_LOW_ENERGY +
+                    combScore.normMax()[p]  * DOWNBEAT_W_BAR_COMB  +
+                    consistScore.normMax()[p] * DOWNBEAT_W_CONSISTENCY
         } ?: 0
-
-        Log.d(TAG,
-            "V3 downbeat avgE=[${avgEnergy.joinToString { fmt(it) }}] " +
-            "comb=[${combScore.joinToString { fmt(it) }}] " +
-            "consist=[${consistScore.joinToString { fmt(it) }}] " +
-            "bestPhase=$bestPhase")
 
         return beatTimesMs.getOrElse(bestPhase) { beatTimesMs.first() }
     }
-
-    // =========================================================================
-    // ② 비트 그리드 재정렬 — 다운비트 앵커 정박자 스냅
-    // =========================================================================
-
-    private fun realignBeatsToGrid(
-        beats: List<TimedBeat>,
-        downbeatMs: Long,
-        beatMs: Long
-    ): List<TimedBeat> {
-        if (beats.isEmpty() || beatMs <= 0L) return beats
-
-        val result = beats.mapNotNull { beat ->
-            val offset        = (beat.timeMs - downbeatMs).toDouble()
-            val nearestStep   = (offset / beatMs.toDouble()).roundToLong()
-            val nearestGridMs = downbeatMs + nearestStep * beatMs
-
-            if (abs(beat.timeMs - nearestGridMs) <= REALIGN_SNAP_MS) {
-                beat.copy(timeMs = nearestGridMs)
-            } else {
-                null
-            }
-        }.distinctBy { it.timeMs }.sortedBy { it.timeMs }
-
-        val dropped = beats.size - result.size
-        Log.d(TAG, "V3 realignBeatsToGrid: in=${beats.size} kept=${result.size} " +
-            "dropped=$dropped snapMs=${REALIGN_SNAP_MS}ms downbeat=${downbeatMs}ms")
-        return result
-    }
-
-    // =========================================================================
-    // ⑥ 갭 채우기 + 밀도 축소 후처리
-    // =========================================================================
-
-    private fun normalizeBeats(
-        beats: List<TimedBeat>,
-        beatMs: Long,
-        downbeatMs: Long,
-        durationMs: Long
-    ): List<TimedBeat> {
-        if (beatMs <= 0L) return beats
-
-        val thinThresholdMs = (beatMs * THIN_RATIO).toLong()
-
-        val thinned = ArrayList<TimedBeat>(beats.size)
-        for (beat in beats) {
-            val last = thinned.lastOrNull()
-            when {
-                last == null -> thinned += beat
-                beat.timeMs - last.timeMs >= thinThresholdMs -> thinned += beat
-                beat.confidence > last.confidence -> thinned[thinned.lastIndex] = beat
-            }
-        }
-
-        val phase     = ((downbeatMs % beatMs) + beatMs) % beatMs
-        val realTimes = LongArray(thinned.size) { thinned[it].timeMs }.also { it.sort() }
-        val snapMs    = REALIGN_SNAP_MS
-
-        val filled = ArrayList<TimedBeat>(thinned)
-        var t = phase
-        while (t <= durationMs) {
-            if (!hasNearbyBeat(realTimes, t, snapMs)) {
-                filled += TimedBeat(t, FILL_CONFIDENCE)
-            }
-            t += beatMs
-        }
-
-        val minFinalGapMs = (beatMs * 0.75f).toLong()
-        val cleaned = ArrayList<TimedBeat>(filled.size)
-        for (beat in filled.sortedBy { it.timeMs }) {
-            val last = cleaned.lastOrNull()
-            when {
-                last == null                                 -> cleaned += beat
-                beat.timeMs - last.timeMs >= minFinalGapMs  -> cleaned += beat
-                beat.confidence > last.confidence           -> cleaned[cleaned.lastIndex] = beat
-            }
-        }
-
-        val thinCount  = beats.size - thinned.size
-        val fillCount  = filled.size - thinned.size
-        val cleanCount = filled.size - cleaned.size
-        val realCount  = thinned.size
-        val synthRatio = if (realCount + fillCount > 0) fillCount * 100 / (realCount + fillCount) else 0
-        Log.d(TAG, "V3 normalizeBeats: original=${beats.size} " +
-                "thinned=$thinCount filled=$fillCount cleaned=$cleanCount " +
-                "final=${cleaned.size} real=$realCount synth=$fillCount(${synthRatio}%) " +
-                "phase=${phase}ms beatMs=${beatMs}ms")
-
-        return cleaned
-    }
-
-    private fun hasNearbyBeat(sortedTimes: LongArray, t: Long, snapMs: Long): Boolean {
-        var lo = 0; var hi = sortedTimes.size - 1
-        while (lo <= hi) {
-            val mid = (lo + hi) ushr 1
-            val v   = sortedTimes[mid]
-            when {
-                v < t - snapMs -> lo = mid + 1
-                v > t + snapMs -> hi = mid - 1
-                else           -> return true
-            }
-        }
-        return false
-    }
-
-    // =========================================================================
-    // Fix 5: Ellis DP Beat Tracker
-    // =========================================================================
-
-    private fun dpBeatTracker(
-        odf: List<Float>,
-        targetPeriodMs: Long,
-        hopMs: Long,
-        durationMs: Long
-    ): LongArray {
-        if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
-        val n = odf.size
-        val targetFrames = (targetPeriodMs / hopMs).toInt().coerceAtLeast(1)
-        val alpha = 0.9f
-
-        val score = FloatArray(n) { Float.NEGATIVE_INFINITY }
-        val prev  = IntArray(n)  { -1 }
-
-        val initEnd = (targetFrames * 2).coerceAtMost(n - 1)
-        for (i in 0..initEnd) score[i] = odf[i]
-
-        for (t in 1 until n) {
-            val searchLo = max(0, t - (targetFrames * 2.0f).toInt())
-            val searchHi = max(0, t - (targetFrames * 0.5f).toInt())
-            for (p in searchLo..searchHi) {
-                if (score[p] == Float.NEGATIVE_INFINITY) continue
-                val lag = (t - p).toFloat()
-                val logRatio = ln(lag / targetFrames)
-                val penalty  = alpha * logRatio * logRatio
-                val cand     = score[p] - penalty
-                if (cand > score[t]) { score[t] = cand; prev[t] = p }
-            }
-            if (score[t] != Float.NEGATIVE_INFINITY) score[t] += odf[t]
-        }
-
-        // Backtrack
-        var t = score.indices.maxByOrNull { score[it] } ?: return LongArray(0)
-        val beats = mutableListOf<Long>()
-        var iter  = 0
-        while (t >= 0 && iter < n) {
-            beats.add(t.toLong() * hopMs)
-            val p = prev[t]; if (p < 0 || p == t) break; t = p; iter++
-        }
-        return beats.reversed().toLongArray()
-    }
-
-    // =========================================================================
-    // ⑤ Multi-Hypothesis 연속성 선택
-    // =========================================================================
-
-    private fun selectBestWithContinuity(
-        okTrials: List<TrialResult>,
-        prevBeatMs: Long?,
-        continuityBonus: Float
-    ): TrialResult? {
-        if (okTrials.isEmpty()) return null
-        if (okTrials.size == 1 || prevBeatMs == null || prevBeatMs <= 0L)
-            return okTrials.maxByOrNull { it.score }
-
-        return okTrials.maxByOrNull { trial ->
-            val bonus = if (trial.beatMs > 0L &&
-                abs(trial.beatMs - prevBeatMs).toFloat() / prevBeatMs.toFloat() <= CONTINUITY_MAX_RATIO
-            ) continuityBonus else 0f
-            trial.score + bonus
-        }
-    }
-
-    // =========================================================================
-    // Single source detection — Fix 4: Adaptive Peak Threshold 적용
-    // =========================================================================
-
-    private fun detectSingleSource(
-        segmentIndex: Int,
-        source: BeatSource,
-        env: List<Float>,
-        globalBeatMs: Long?,
-        params: Params
-    ): TrialResult {
-        if (env.size < 8)
-            return TrialResult(source, emptyList(), 0L, 0f, 0, 0, 0f, 0f, 0f, 0f, 0f, "env too short")
-
-        val onset    = computeOdf(env, params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val mean     = meanOf(onset)
-        val std      = stdOf(onset, mean)
-        val onsetMax = maxOfList(onset)
-
-        // Fix 4: Adaptive Peak Threshold
-        val minPeakFrames = max(1, (params.minPeakDistanceMs / params.hopMs).toInt())
-        val adaptiveTh    = computeAdaptiveThreshold(onset, windowFrames = 40, minAbs = params.minPeakAbs)
-        val rawPeaks      = findPeaksAdaptive(onset, adaptiveTh, minPeakFrames)
-
-        Log.d(TAG, "SEG[$segmentIndex][$source] mean=${fmt(mean)} std=${fmt(std)} " +
-            "max=${fmt(onsetMax)} rawPeaks=${rawPeaks.size}")
-
-        val acResult = autoCorrelateBeat(onset, params.hopMs, params.minBeatMs, params.maxBeatMs)
-
-        val beatMs: Long
-        val acPeak: Float
-        when {
-            acResult != null -> { beatMs = acResult.first; acPeak = acResult.second }
-            globalBeatMs != null -> {
-                beatMs = globalBeatMs; acPeak = 0.5f
-                Log.d(TAG, "SEG[$segmentIndex] autocorr weak → globalBeatMs=$globalBeatMs fallback")
-            }
-            else -> {
-                val fallbackMs = rawPeakMedianInterval(rawPeaks, params)
-                if (fallbackMs != null) {
-                    val snappedFb = snapPeaksToGrid(rawPeaks, onset, fallbackMs, params.hopMs, params.snapToleranceMs)
-                    val chainedFb = keepConsistentChain(snappedFb, fallbackMs, params.hopMs, params.chainToleranceMs)
-                    if (chainedFb.size >= 2) {
-                        val snapRatioFb = chainedFb.size.toFloat() / rawPeaks.size.coerceAtLeast(1).toFloat()
-                        val segDur      = onset.size.toLong() * params.hopMs
-                        val expectedFb  = max(1, (segDur / fallbackMs).toInt())
-                        val densityFb   = min(1f, chainedFb.size.toFloat() / expectedFb.toFloat())
-                        val scoreFb     = (densityFb * 0.35f + snapRatioFb * 0.30f + 0.10f).coerceIn(0f, 1f)
-                        val timedFb = chainedFb.map { fr ->
-                            TimedBeat(fr.toLong() * params.hopMs,
-                                (onset.getOrElse(fr) { 0f } * 0.6f).coerceIn(0f, 1f))
-                        }
-                        return TrialResult(source, timedFb, fallbackMs, scoreFb,
-                            rawPeaks.size, chainedFb.size, mean, std, onsetMax, 0f, snapRatioFb, "onset-fallback")
-                    }
-                }
-                return TrialResult(source, emptyList(), 0L, 0.08f,
-                    rawPeaks.size, 0, mean, std, onsetMax, 0f, 0f, "autocorr weak")
-            }
-        }
-
-        val snapped = snapPeaksToGrid(rawPeaks, onset, beatMs, params.hopMs, params.snapToleranceMs)
-        if (snapped.isEmpty()) {
-            return TrialResult(source, emptyList(), beatMs, 0.1f + acPeak * 0.5f,
-                rawPeaks.size, 0, mean, std, onsetMax, acPeak, 0f, "snap empty")
-        }
-
-        val chained = keepConsistentChain(snapped, beatMs, params.hopMs, params.chainToleranceMs)
-        val segDurationMs     = onset.size.toLong() * params.hopMs
-        val effectiveMinChain = if (segDurationMs < 15_000L) 2 else params.minChainCount
-
-        if (chained.size < effectiveMinChain) {
-            val snapRatio = chained.size.toFloat() / rawPeaks.size.coerceAtLeast(1).toFloat()
-            return TrialResult(source, emptyList(), beatMs,
-                0.2f + acPeak * 0.5f + snapRatio * 0.1f,
-                rawPeaks.size, chained.size, mean, std, onsetMax, acPeak, snapRatio, "chain too short")
-        }
-
-        val timedBeats = chained.map { frame ->
-            TimedBeat(frame.toLong() * params.hopMs,
-                onset.getOrElse(frame) { 0f }.coerceIn(0f, 1f))
-        }
-
-        val snapRatio     = chained.size.toFloat() / rawPeaks.size.coerceAtLeast(1).toFloat()
-        val expectedBeats = max(1, (segDurationMs / beatMs).toInt())
-        val densityScore  = min(1f, timedBeats.size.toFloat() / expectedBeats.toFloat())
-        val score = (densityScore * 0.40f + snapRatio * 0.30f +
-                     acPeak * 0.20f + min(1f, onsetMax) * 0.10f).coerceIn(0f, 1f)
-
-        return TrialResult(source, timedBeats, beatMs, score,
-            rawPeaks.size, chained.size, mean, std, onsetMax, acPeak, snapRatio, "ok")
-    }
-
-    // =========================================================================
-    // Fix 4: Adaptive Threshold + findPeaksAdaptive
-    // =========================================================================
-
-    private fun computeAdaptiveThreshold(odf: List<Float>, windowFrames: Int = 40, minAbs: Float = 0.04f): FloatArray {
-        val th = FloatArray(odf.size)
-        for (i in odf.indices) {
-            val lo = max(0, i - windowFrames); val hi = min(odf.lastIndex, i + windowFrames)
-            var localMean = 0f; var localMax = 0f; var cnt = 0
-            for (j in lo..hi) { localMean += odf[j]; if (odf[j] > localMax) localMax = odf[j]; cnt++ }
-            localMean = if (cnt > 0) localMean / cnt else 0f
-            th[i] = max(minAbs, max(localMean * 1.5f, localMax * 0.30f))
-        }
-        return th
-    }
-
-    private fun findPeaksAdaptive(src: List<Float>, threshold: FloatArray, minDistance: Int): List<Int> {
-        if (src.size < 3) return emptyList()
-        val peaks = ArrayList<Int>(); var lastAccepted = -minDistance * 2
-        for (i in 1 until src.lastIndex) {
-            val c = src[i]; if (c < threshold[i]) continue
-            if (c < src[i - 1] || c < src[i + 1]) continue
-            if (i - lastAccepted < minDistance) {
-                if (peaks.isNotEmpty() && c > src[peaks.last()]) { peaks[peaks.lastIndex] = i; lastAccepted = i }
-            } else { peaks += i; lastAccepted = i }
-        }
-        return peaks
-    }
-
-    // =========================================================================
-    // 소스 우선순위
-    // =========================================================================
-
-    private fun buildSourceOrder(low: List<Float>, mid: List<Float>, full: List<Float>): List<BeatSource> {
-        val lowVar  = varOf(low)
-        val midVar  = varOf(mid)
-        val fullVar = varOf(full)
-        val BASS_BONUS = 0.003f
-        val scored = listOf(
-            BeatSource.LOW      to (lowVar + BASS_BONUS),
-            BeatSource.LOW_MID  to ((lowVar + midVar) * 0.5f + min(lowVar, midVar) * 0.2f + BASS_BONUS),
-            BeatSource.MID      to midVar,
-            BeatSource.FULL     to fullVar,
-            BeatSource.MID_FULL to ((midVar + fullVar) * 0.5f + min(midVar, fullVar) * 0.2f),
-            BeatSource.LOW_FULL to ((lowVar + fullVar) * 0.5f + min(lowVar, fullVar) * 0.2f)
-        ).sortedByDescending { it.second }
-        return scored.map { it.first }
-    }
-
-    private fun combineSource(src: BeatSource, low: List<Float>, mid: List<Float>, full: List<Float>): List<Float> =
-        when (src) {
-            BeatSource.LOW      -> low
-            BeatSource.MID      -> mid
-            BeatSource.FULL     -> full
-            BeatSource.LOW_MID  -> mix(low, mid,  0.55f, 0.45f)
-            BeatSource.MID_FULL -> mix(mid, full, 0.60f, 0.40f)
-            BeatSource.LOW_FULL -> mix(low, full, 0.60f, 0.40f)
-        }
-
-    // =========================================================================
-    // Autocorrelation + harmonic folding
-    // =========================================================================
-
-    private fun autoCorrelateBeat(
-        onset: List<Float>, hopMs: Long, minBeatMs: Long, maxBeatMs: Long
-    ): Pair<Long, Float>? {
-        val minLag = max(1, (minBeatMs / hopMs).toInt())
-        val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
-        if (onset.size <= maxLag + 2) return null
-
-        val corrArray = FloatArray(maxLag + 1)
-        var bestLag = -1; var bestValue = 0f; var secondValue = 0f
-
-        for (lag in minLag..maxLag) {
-            var sum = 0f; var count = 0; var i = 0
-            while (i + lag < onset.size) { sum += onset[i] * onset[i + lag]; count++; i++ }
-            if (count == 0) continue
-            val value = sum / count.toFloat()
-            corrArray[lag] = value
-            if (value > bestValue) { secondValue = bestValue; bestValue = value; bestLag = lag }
-            else if (value > secondValue) { secondValue = value }
-        }
-
-        if (bestLag <= 0 || bestValue < 0.015f) return null
-        if ((bestValue - secondValue).coerceAtLeast(0f) + bestValue < 0.012f) return null
-
-        val halfLag        = bestLag / 2
-        val halfMs         = halfLag * hopMs
-        val dynamicHalfRatio = if (bestLag * hopMs > 650L) 0.30f else HARMONIC_FOLD_HALF_RATIO
-        if (halfLag >= minLag && halfMs >= HARMONIC_FOLD_HALF_MIN_MS &&
-            corrArray[halfLag] >= bestValue * dynamicHalfRatio) {
-            Log.d(TAG, "autoCorr half-fold: bestLag=${bestLag * hopMs}ms → halfMs=${halfMs}ms")
-            val quarterLag = halfLag / 2
-            if (quarterLag >= minLag && corrArray[quarterLag] >= corrArray[halfLag] * HARMONIC_FOLD_HALF_RATIO)
-                return quarterLag * hopMs to corrArray[quarterLag].coerceIn(0f, 1f)
-            return halfMs to corrArray[halfLag].coerceIn(0f, 1f)
-        }
-
-        val thirdLag = bestLag / 3
-        if (thirdLag >= minLag && corrArray[thirdLag] >= bestValue * HARMONIC_FOLD_THIRD_RATIO)
-            return thirdLag * hopMs to corrArray[thirdLag].coerceIn(0f, 1f)
-
-        val ttLag = bestLag * 2 / 3
-        val ttMs  = ttLag * hopMs
-        if (ttLag >= minLag && ttMs in minBeatMs..(maxBeatMs * 0.65f).toLong()) {
-            val ttVal = if (ttLag < corrArray.size) corrArray[ttLag] else {
-                var sum = 0f; var cnt = 0; var i = 0
-                while (i + ttLag < onset.size) { sum += onset[i] * onset[i + ttLag]; cnt++; i++ }
-                if (cnt > 0) sum / cnt else 0f
-            }
-            if (ttVal >= bestValue * HARMONIC_TWO_THIRDS_RATIO)
-                return ttMs to ttVal.coerceIn(0f, 1f)
-        }
-
-        val dLag = bestLag * 2; val dMs = dLag * hopMs
-        val dVal: Float = when {
-            dLag <= maxLag -> corrArray[dLag]
-            dLag + 2 < onset.size -> {
-                var sum = 0f; var cnt = 0; var i = 0
-                while (i + dLag < onset.size) { sum += onset[i] * onset[i + dLag]; cnt++; i++ }
-                if (cnt > 0) sum / cnt else 0f
-            }
-            else -> 0f
-        }
-        if (bestLag * hopMs > (maxBeatMs * 0.55f).toLong() &&
-            dVal >= bestValue * HARMONIC_DOUBLE_RATIO && dMs <= maxBeatMs)
-            return dMs to dVal.coerceIn(0f, 1f)
-
-        return bestLag * hopMs to bestValue.coerceIn(0f, 1f)
-    }
-
-    // =========================================================================
-    // Peak snapping & chain
-    // =========================================================================
-
-    private fun snapPeaksToGrid(
-        rawPeakFrames: List<Int>, onset: List<Float>,
-        beatMs: Long, hopMs: Long, snapToleranceMs: Long
-    ): List<Int> {
-        if (rawPeakFrames.isEmpty()) return emptyList()
-        val beatFrames = max(1, (beatMs / hopMs).toInt())
-        val tolFrames  = max(1, (snapToleranceMs / hopMs).toInt())
-        var bestGrid: List<Int> = emptyList(); var bestScore = -1f
-        for (anchor in rawPeakFrames) {
-            val snapped = ArrayList<Int>()
-            var g = anchor
-            while (g >= 0) { nearestPeak(rawPeakFrames, g, tolFrames)?.let { snapped += it }; g -= beatFrames }
-            g = anchor + beatFrames
-            while (g < onset.size) { nearestPeak(rawPeakFrames, g, tolFrames)?.let { snapped += it }; g += beatFrames }
-            val uniq = snapped.distinct().sorted()
-            var score = 0f; for (idx in uniq) score += onset[idx]
-            if (score > bestScore) { bestScore = score; bestGrid = uniq }
-        }
-        return bestGrid
-    }
-
-    private fun keepConsistentChain(
-        snappedFrames: List<Int>, expectedBeatMs: Long, hopMs: Long, toleranceMs: Long
-    ): List<Int> {
-        if (snappedFrames.size <= 2) return snappedFrames
-        val expected = expectedBeatMs.toFloat(); val tol = toleranceMs.toFloat()
-        val kept = ArrayList<Int>(); kept += snappedFrames.first()
-        for (i in 1 until snappedFrames.size) {
-            val prev = kept.last(); val cur = snappedFrames[i]
-            val diffMs = (cur - prev) * hopMs.toFloat()
-            when {
-                abs(diffMs - expected)        <= tol         -> kept += cur
-                abs(diffMs - expected * 2f)   <= tol * 0.6f -> kept += cur
-                abs(diffMs - expected * 0.5f) <= tol * 0.8f -> kept += cur
-                abs(diffMs - expected * 3f)   <= tol * 1.2f -> kept += cur
-                abs(diffMs - expected * 4f)   <= tol * 1.4f -> kept += cur
-            }
-        }
-        return kept
-    }
-
-    private fun rawPeakMedianInterval(rawPeaks: List<Int>, params: Params): Long? {
-        if (rawPeaks.size < 3) return null
-        val intervals = (1 until rawPeaks.size)
-            .map { (rawPeaks[it] - rawPeaks[it - 1]).toLong() * params.hopMs }
-            .filter { it in params.minBeatMs..params.maxBeatMs }
-        if (intervals.size < 2) return null
-        return intervals.sorted()[intervals.size / 2]
-    }
-
-    // =========================================================================
-    // Utility
-    // =========================================================================
-
-    private fun estimateMedianInterval(
-        beats: List<Long>, minBeatMs: Long, maxBeatMs: Long, hopMs: Long
-    ): Long {
-        if (beats.size < 2) return 500L
-        val diffs = (1 until beats.size).mapNotNull {
-            val d = beats[it] - beats[it - 1]
-            if (d in minBeatMs..maxBeatMs) d else null
-        }
-        if (diffs.isEmpty()) return 500L
-        val binned = diffs.map { (it / hopMs) * hopMs }
-        return binned.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
-            ?: diffs.sorted()[diffs.size / 2]
-    }
-
-    private fun dedupeCloseTimedBeats(beats: List<TimedBeat>, minDistanceMs: Long): List<TimedBeat> {
-        if (beats.isEmpty()) return emptyList()
-        val out = ArrayList<TimedBeat>(); var lastMs = Long.MIN_VALUE / 4
-        for (b in beats) {
-            if (b.timeMs - lastMs >= minDistanceMs) { out += b; lastMs = b.timeMs }
-        }
-        return out
-    }
-
-    private fun nearestPeak(peaks: List<Int>, center: Int, tol: Int): Int? {
-        var best: Int? = null; var bestDist = Int.MAX_VALUE
-        for (p in peaks) { val d = abs(p - center); if (d <= tol && d < bestDist) { bestDist = d; best = p } }
-        return best
-    }
-
-    // 기존 findPeaks (고정 threshold 버전) — 다른 곳에서 사용 가능하므로 유지
-    private fun findPeaks(src: List<Float>, threshold: Float, minDistance: Int): List<Int> {
-        if (src.size < 3) return emptyList()
-        val peaks = ArrayList<Int>(); var lastAccepted = -minDistance * 2
-        for (i in 1 until src.lastIndex) {
-            val c = src[i]; if (c < threshold) continue
-            if (c < src[i - 1] || c < src[i + 1]) continue
-            if (i - lastAccepted < minDistance) {
-                if (peaks.isNotEmpty() && c > src[peaks.last()]) { peaks[peaks.lastIndex] = i; lastAccepted = i }
-            } else { peaks += i; lastAccepted = i }
-        }
-        return peaks
-    }
-
-    private fun computeOdf(env: List<Float>, smoothWindow: Int, normWindow: Int): List<Float> =
-        localNormalize(positiveDiff(movingAverage(env, smoothWindow)), normWindow)
-
-    private fun localNormalize(src: List<Float>, windowFrames: Int): List<Float> {
-        if (src.isEmpty()) return emptyList()
-        val out = ArrayList<Float>(src.size)
-        for (i in src.indices) {
-            val lo = max(0, i - windowFrames); val hi = min(src.lastIndex, i + windowFrames)
-            var localMax = 0f; for (j in lo..hi) if (src[j] > localMax) localMax = src[j]
-            out.add(if (localMax > 1e-6f) (src[i] / localMax).coerceIn(0f, 1f) else 0f)
-        }
-        return out
-    }
-
-    private fun movingAverage(src: List<Float>, window: Int): List<Float> {
-        if (src.isEmpty() || window <= 1) return src.toList()
-        val out = ArrayList<Float>(src.size); val half = window / 2
-        for (i in src.indices) {
-            var sum = 0f; var count = 0
-            val s = max(0, i - half); val e = min(src.lastIndex, i + half)
-            for (j in s..e) { sum += src[j]; count++ }
-            out += if (count == 0) 0f else sum / count.toFloat()
-        }
-        return out
-    }
-
-    private fun positiveDiff(src: List<Float>): List<Float> {
-        if (src.isEmpty()) return emptyList()
-        val out = ArrayList<Float>(src.size); out += 0f
-        for (i in 1 until src.size) out += max(0f, src[i] - src[i - 1])
-        return out
-    }
-
-    private fun mix(a: List<Float>, b: List<Float>, aw: Float, bw: Float): List<Float> {
-        val n = min(a.size, b.size); val out = ArrayList<Float>(n)
-        for (i in 0 until n) out += a[i] * aw + b[i] * bw
-        return out
-    }
-
-    private fun meanOf(v: List<Float>): Float {
-        if (v.isEmpty()) return 0f; var s = 0f; for (x in v) s += x; return s / v.size
-    }
-    private fun stdOf(v: List<Float>, mean: Float): Float {
-        if (v.isEmpty()) return 0f; var s = 0f
-        for (x in v) { val d = x - mean; s += d * d }
-        return sqrt(s / v.size)
-    }
-    private fun varOf(v: List<Float>): Float {
-        val m = meanOf(v); var s = 0f
-        for (x in v) { val d = x - m; s += d * d }
-        return if (v.isEmpty()) 0f else s / v.size
-    }
-    private fun maxOfList(v: List<Float>): Float = v.maxOrNull() ?: 0f
-    private fun fmt(v: Float): String = String.format(java.util.Locale.US, "%.3f", v)
 }

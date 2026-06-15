@@ -4,7 +4,7 @@ import android.util.Log
 import kotlin.math.*
 
 /**
- * BeatDetectorV5 (= 버전 14)
+ * BeatDetectorV1 (= 버전 14)
  *
  * librosa beat_track 충실 재현. V4 의 두 가지 근본 결함을 해소:
  *
@@ -72,7 +72,7 @@ object BeatDetectorV1 {
     enum class BeatSource { LOW, MID, FULL, LOW_MID, MID_FULL, LOW_FULL }
 
     data class Params(
-        val hopMs: Long             = 10L,
+        val hopMs: Long             = 50L,
         val minBeatMs: Long         = 375L,   // 160 BPM
         val maxBeatMs: Long         = 1000L,  // 60 BPM
         val minPeakDistanceMs: Long = 120L,

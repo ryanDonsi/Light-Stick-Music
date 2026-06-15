@@ -25,6 +25,10 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 # 스플래시 화면 — 무거운 패키지 로드 전 즉시 표시
 # ──────────────────────────────────────────────
 
+# ──────────────────────────────────────────────
+# 스플래시 화면 — 무거운 패키지 로드 전 즉시 표시
+# ──────────────────────────────────────────────
+
 def _show_splash():
     """앱 로딩 중 스플래시 창을 즉시 표시하고 위젯을 반환한다."""
     splash = tk.Tk()
@@ -33,12 +37,28 @@ def _show_splash():
     splash.overrideredirect(True)
     splash.configure(bg="#1e272e")
 
+    # 💡 OS별 설치된 한글 폰트를 동적으로 찾기
+    from tkinter import font as tkfont
+    available_fonts = tkfont.families(splash)
+    kr_font = ""  # 기본 폰트
+    font_candidates = [
+        "Malgun Gothic", "맑은 고딕",            # Windows
+        "AppleGothic", "Apple SD Gothic Neo",  # Mac
+        "NanumGothic", "NanumSquare",          # Linux / 기타
+        "Noto Sans KR", "Noto Sans CJK KR"     # 범용
+    ]
+    for f in font_candidates:
+        if f in available_fonts:
+            kr_font = f
+            break
+
     # 스플래시 이미지 경로 (installer/ 폴더 또는 번들 내부)
     _is_frozen = getattr(sys, "frozen", False)
     _img_base  = sys._MEIPASS if _is_frozen else os.path.join(os.path.dirname(os.path.abspath(__file__)), "installer")
     splash_img_path = os.path.join(_img_base, "splash.png")
 
     W, H = 480, 200
+    lbl_status = None
     try:
         from PIL import Image as _PILImage, ImageTk as _PILImageTk
         pil_img = _PILImage.open(splash_img_path).resize((W, H))
@@ -54,9 +74,10 @@ def _show_splash():
         splash.configure(bg="#1e272e")
         W, H = 380, 160
         tk.Label(splash, text="Beat Accuracy Checker",
-                 bg="#1e272e", fg="#ecf0f1", font=("", 16, "bold")).pack(pady=(28, 4))
-        tk.Label(splash, text="라이브러리를 불러오는 중입니다...",
-                 bg="#1e272e", fg="#78909c", font=("", 10)).pack()
+                 bg="#1e272e", fg="#ecf0f1").pack(pady=(28, 4))
+        lbl_status = tk.Label(splash, text="Loading ...",
+                 bg="#1e272e", fg="#78909c")
+        lbl_status.pack()
 
     sw, sh = splash.winfo_screenwidth(), splash.winfo_screenheight()
     splash.geometry(f"{W}x{H}+{(sw-W)//2}+{(sh-H)//2}")
@@ -69,22 +90,139 @@ def _show_splash():
     canvas.pack()
     bar = canvas.create_rectangle(0, 0, 0, 6, fill="#42a5f5", outline="")
 
-    _splash_state = {"pos": 0, "running": True}
+    _splash_state = {"pos": 0, "running": True, "job": None}
     bar_w = W - 56
 
-    def _animate():
-        if not _splash_state["running"]:
-            return
-        p = _splash_state["pos"]
-        canvas.coords(bar, 0, 0, p, 6)
-        _splash_state["pos"] = (p + 4) % (bar_w + 4)
-        splash.after(16, _animate)
+    def _step_splash(msg, progress_pct):
+        """라이브러리 로드 구간마다 텍스트와 프로그래스바를 수동 갱신"""
+        if not _splash_state["running"]: return
+        try:
+            if lbl_status and not use_image:
+                lbl_status.config(text=msg)
+            p = int((progress_pct / 100.0) * bar_w)
+            canvas.coords(bar, 0, 0, p, 6)
+            splash.update()
+        except tk.TclError:
+            pass
 
-    _animate()
     splash.update()
-    return splash, _splash_state
+    return splash, _splash_state, _step_splash
 
-_splash_root, _splash_state = _show_splash()
+_splash_root, _splash_state, _step_splash = _show_splash()
+
+# ──────────────────────────────────────────────
+# 의존 라이브러리 감지
+# ──────────────────────────────────────────────
+
+_step_splash("Loading Numpy module...", 15)
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
+
+_step_splash("Loading Matplotlib...", 35)
+try:
+    import matplotlib
+    matplotlib.use("TkAgg")
+    import matplotlib.pyplot as plt
+    import matplotlib.gridspec as gridspec
+    import matplotlib.patches as mpatches
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib import font_manager
+
+    def _setup_korean_font():
+        """OS별 한글 폰트를 자동 탐색하여 matplotlib에 적용한다."""
+        candidates = [
+            "Malgun Gothic", "맑은 고딕", "AppleGothic", "Apple SD Gothic Neo",
+            "NanumGothic", "NanumBarunGothic", "NanumSquare",
+            "Noto Sans CJK KR", "Noto Sans KR", "UnDotum",
+        ]
+        available = {f.name for f in font_manager.fontManager.ttflist}
+        for name in candidates:
+            if name in available:
+                matplotlib.rcParams["font.family"] = name
+                matplotlib.rcParams["axes.unicode_minus"] = False
+                return name
+        matplotlib.rcParams["axes.unicode_minus"] = False
+        return None
+
+    _setup_korean_font()
+    HAS_MPL = True
+except ImportError:
+    HAS_MPL = False
+
+_step_splash("Checking Beat Transformer...", 50)
+HAS_BT = False
+BT_LOCAL_PATH = ""
+_is_frozen  = getattr(sys, "frozen", False)
+_exe_dir    = os.path.dirname(sys.executable) if _is_frozen else os.path.dirname(os.path.abspath(__file__))
+_bundle_dir = sys._MEIPASS if _is_frozen else _exe_dir
+_script_dir = _exe_dir
+_BT_CONF_FILE = os.path.join(_exe_dir, ".bt_path")
+
+def _try_load_bt(local_path=""):
+    global HAS_BT, BT_LOCAL_PATH
+    for check_root in [local_path, os.path.dirname(local_path) if local_path else ""]:
+        if not check_root or not os.path.isdir(check_root):
+            continue
+        if (os.path.isdir(os.path.join(check_root, "checkpoint")) and
+                os.path.isdir(os.path.join(check_root, "code"))):
+            BT_LOCAL_PATH = check_root
+            HAS_BT = True
+            return True
+    return False
+
+def _save_bt_path(path):
+    try:
+        with open(_BT_CONF_FILE, "w", encoding="utf-8") as f:
+            f.write(path)
+    except Exception: pass
+
+def _load_bt_path():
+    try:
+        with open(_BT_CONF_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception: return ""
+
+def _auto_detect_bt():
+    candidates = []
+    for rel in ["Beat-Transformer", "beat-transformer", "beat_transformer"]:
+        candidates.append(os.path.join(_exe_dir, rel))
+    saved = _load_bt_path()
+    if saved: candidates.append(saved)
+    for rel in ["Beat-Transformer", "beat-transformer", "beat_transformer"]:
+        candidates.append(os.path.join(_script_dir, "..", rel))
+        candidates.append(os.path.join(_script_dir, "..", "..", rel))
+    import string
+    for drv in string.ascii_uppercase:
+        root = f"{drv}:\\"
+        if os.path.isdir(root):
+            for rel in ["Beat-Transformer", "beat-transformer"]:
+                candidates.append(os.path.join(root, rel))
+    for path in candidates:
+        if _try_load_bt(path):
+            _save_bt_path(BT_LOCAL_PATH)
+            return True
+    return False
+
+_auto_detect_bt()
+
+_step_splash("Loading Madmom engine... (This may take a while)", 75)
+HAS_MADMOM = False
+try:
+    import madmom
+    HAS_MADMOM = True
+except ImportError:
+    pass
+
+_step_splash("Loading Librosa engine...", 100)
+HAS_LIBROSA = False
+try:
+    import librosa
+    HAS_LIBROSA = True
+except ImportError:
+    pass
 
 # ──────────────────────────────────────────────
 # 의존 라이브러리 감지
@@ -502,7 +640,7 @@ def beat_stats(beat_times_ms):
     }
 
 def grade_info(f_score, engine):
-    pct = f_score * 100
+    pct = round(f_score * 100, 1)
     th = [(90,"S","#1b5e20","최고 수준"),
           (80,"A","#1565c0","상용 서비스 수준"),
           (60,"B","#f57f17","실사용 가능 - 일부 구간 오류"),
@@ -2348,5 +2486,10 @@ if __name__ == "__main__":
 
     # 스플래시 닫고 메인 앱 시작
     _splash_state["running"] = False
+    if _splash_state.get("job"):
+        try:
+            _splash_root.after_cancel(_splash_state["job"])
+        except Exception:
+            pass
     _splash_root.destroy()
     App().mainloop()

@@ -1,8 +1,5 @@
 package com.lightstick.music.domain.music
 
-import android.media.MediaCodec
-import android.media.MediaExtractor
-import android.media.MediaFormat
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
@@ -25,7 +22,6 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
 
         private const val DETECTOR_VER = 1  // BeatDetectorV1 고정
         private const val HOP_MS       = 20L
-        private const val MAX_DECODE_MS = 600_000L  // 최대 10분 (OOM 방지)
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -42,19 +38,21 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
         val t0Total  = System.currentTimeMillis()
         Log.d(TAG, "v1 [PERF] generate() start file=$fileName musicId=$musicId")
 
-        // ── 1. 오디오 디코딩 (PCM) ───────────────────────────────────
+        // ── 1+2. PCM decode + Beat detection (단일 pass) ─────────────
         val t0Decode = System.currentTimeMillis()
-        val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
-        Log.d(TAG, "v1 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms samples=${monoSamples.size} sr=$sampleRate")
-        if (monoSamples.isEmpty()) { Log.w(TAG, "v1 pcm empty -> return empty"); return emptyList() }
-        val durationMs = monoSamples.size.toLong() * 1000L / sampleRate
+        val beatInfo = BeatDetectorRouter.detect(
+            filePath  = musicPath,
+            version   = DETECTOR_VER,
+            hopMs     = HOP_MS,
+            minBeatMs = MIN_BEAT_MS,
+            maxBeatMs = MAX_BEAT_MS
+        )
+        val durationMs = beatInfo.envelopes?.let { it.full.size.toLong() * HOP_MS }
+            ?: (beatInfo.beats.lastOrNull()?.timeMs?.plus(beatInfo.beatMs) ?: 0L)
+        Log.d(TAG, "v1 [PERF] decode+beat=${System.currentTimeMillis() - t0Decode}ms beatMs=${beatInfo.beatMs} beats=${beatInfo.beats.size} beatsPerBar=${beatInfo.beatsPerBar}")
 
-        // ── 2. 비트 감지 ─────────────────────────────────────────────
-        val t0Beat = System.currentTimeMillis()
-        val beatInfo = BeatDetectorRouter.detectPcm(DETECTOR_VER, monoSamples, sampleRate, MIN_BEAT_MS, 1200L, HOP_MS)
         val globalBeatMs = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
         val beatsPerBar  = beatInfo.beatsPerBar
-        Log.d(TAG, "v1 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs beats=${beatInfo.beats.size} beatsPerBar=$beatsPerBar detectorVer=$DETECTOR_VER")
 
         if (beatInfo.beats.isNotEmpty()) {
             val first = beatInfo.beats.take(12).joinToString(" ") { "${it.timeMs}" }
@@ -123,83 +121,6 @@ class AutoTimelineGeneratorBeat_v1 : AutoTimelineGenerator {
 
         Log.d(TAG, "v1 buildTimeline: beats=${beats.size} rangeSkip=$rangeSkip frames=${frames.size} dimDelayMs=$dimDelayMs")
         return frames.sortedBy { it.first }
-    }
-
-    // ──────────────────────────────────────────────────────────────
-    // Audio decode
-    // ──────────────────────────────────────────────────────────────
-
-    private fun decodeMonoPcm(musicPath: String): Pair<FloatArray, Int> {
-        val extractor = MediaExtractor()
-        var codec: MediaCodec? = null
-        return try {
-            extractor.setDataSource(musicPath)
-            var trackIndex = -1; var format: MediaFormat? = null
-            for (i in 0 until extractor.trackCount) {
-                val f = extractor.getTrackFormat(i)
-                if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
-                    trackIndex = i; format = f; break
-                }
-            }
-            if (trackIndex < 0 || format == null) { extractor.release(); return Pair(FloatArray(0), 44100) }
-            extractor.selectTrack(trackIndex)
-            val mime         = format.getString(MediaFormat.KEY_MIME)!!
-            val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-            val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-            val stepBytes    = channelCount * 2
-            val maxSamples   = (sampleRate * MAX_DECODE_MS / 1000).toInt()
-            // MediaFormat duration으로 pre-allocate → boxing 없이 4바이트/샘플, grow() OOM 방지
-            val durationUs   = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else -1L
-            val allocSamples = if (durationUs > 0) (sampleRate * durationUs / 1_000_000L).toInt().coerceAtMost(maxSamples) else maxSamples
-            val out          = FloatArray(allocSamples)
-            var outPos       = 0
-            codec = MediaCodec.createDecoderByType(mime)
-            codec.configure(format, null, null, 0); codec.start()
-            val bufferInfo = MediaCodec.BufferInfo()
-            var sawInputEOS = false; var sawOutputEOS = false
-            while (!sawOutputEOS) {
-                if (!sawInputEOS) {
-                    val inIdx = codec.dequeueInputBuffer(10_000)
-                    if (inIdx >= 0) {
-                        val buf = codec.getInputBuffer(inIdx)!!
-                        val sz  = extractor.readSampleData(buf, 0)
-                        if (sz < 0) { codec.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM); sawInputEOS = true }
-                        else { codec.queueInputBuffer(inIdx, 0, sz, extractor.sampleTime, 0); extractor.advance() }
-                    }
-                }
-                val outIdx = codec.dequeueOutputBuffer(bufferInfo, 10_000)
-                if (outIdx >= 0) {
-                    val buf = codec.getOutputBuffer(outIdx)
-                    if (buf != null && bufferInfo.size > 0) {
-                        buf.position(bufferInfo.offset); buf.limit(bufferInfo.offset + bufferInfo.size)
-                        val chunk = ByteArray(bufferInfo.size); buf.get(chunk)
-                        var byteIdx = 0
-                        while (byteIdx + stepBytes <= chunk.size) {
-                            if (outPos >= maxSamples) { sawInputEOS = true; sawOutputEOS = true; break }
-                            var monoSum = 0f
-                            for (c in 0 until channelCount) {
-                                val lo = chunk[byteIdx + c * 2].toInt() and 0xFF
-                                val hi = chunk[byteIdx + c * 2 + 1].toInt()
-                                monoSum += (hi shl 8 or lo).toShort().toFloat()
-                            }
-                            if (outPos < out.size) out[outPos] = monoSum / channelCount / 32768f
-                            outPos++
-                            byteIdx += stepBytes
-                        }
-                    }
-                    codec.releaseOutputBuffer(outIdx, false)
-                    if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) sawOutputEOS = true
-                }
-            }
-            codec.stop(); codec.release(); extractor.release()
-            Pair(if (outPos < out.size) out.copyOf(outPos) else out, sampleRate)
-        } catch (t: Throwable) {
-            Log.e(TAG, "decodeMonoPcm fail: ${t.message}")
-            try { codec?.stop() } catch (_: Throwable) {}
-            try { codec?.release() } catch (_: Throwable) {}
-            try { extractor.release() } catch (_: Throwable) {}
-            Pair(FloatArray(0), 44100)
-        }
     }
 
     fun getVersion(): Int = VERSION
