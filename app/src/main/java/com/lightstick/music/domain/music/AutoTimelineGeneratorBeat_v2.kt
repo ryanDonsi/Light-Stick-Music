@@ -1,8 +1,5 @@
 package com.lightstick.music.domain.music
 
-import android.media.MediaCodec
-import android.media.MediaExtractor
-import android.media.MediaFormat
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
@@ -110,28 +107,26 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         val detectorVer    = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
 
-        // ── 1. 오디오 디코딩 ──────────────────────────────────────────
-        // detectorVer==1: PCM + envelope 단일 pass (중복 decode 제거)
+        // ── 1. BeatDetector + Envelope 단일 decode ────────────────────
         val t0Decode = System.currentTimeMillis()
-        val decoded = decodeAllEnvelopes(musicPath, effectiveHopMs.toInt(), collectPcm = (detectorVer == 1))
-        val (lowEnv, midEnv, fullEnv, highEnv) = decoded
-        Log.d(TAG, "v2 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs")
-
-        if (lowEnv.isEmpty()) {
+        val beatInfo = BeatDetectorRouter.detect(
+            filePath  = musicPath,
+            version   = detectorVer,
+            hopMs     = effectiveHopMs,
+            minBeatMs = MIN_BEAT_MS,
+            maxBeatMs = MAX_BEAT_MS
+        )
+        val envelopes = beatInfo.envelopes
+        if (envelopes == null || envelopes.full.isEmpty()) {
             Log.w(TAG, "v2 env empty"); return Pair(emptyList(), emptyList())
         }
+        val lowEnv  = envelopes.low
+        val midEnv  = envelopes.mid
+        val fullEnv = envelopes.full
+        val highEnv = envelopes.high
+        Log.d(TAG, "v2 [PERF] decode+beat=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs beatMs=${beatInfo.beatMs} beats=${beatInfo.beats.size}")
 
         val durationMs = fullEnv.size.toLong() * effectiveHopMs
-
-        // ── 2. Beat detection ──────────────────────────────────────────
-        val t0Beat = System.currentTimeMillis()
-        val beatInfo: BeatDetectorRouter.BeatInfo = when {
-            detectorVer == 1 -> BeatDetectorRouter.detectPcm(
-                decoded.monoSamples, decoded.sampleRate, MIN_BEAT_MS, MAX_BEAT_MS, effectiveHopMs
-            )
-            detectorVer == 2 -> BeatDetectorRouter.detectFile(musicPath, MIN_BEAT_MS, MAX_BEAT_MS)
-            else -> BeatDetectorRouter.detect(detectorVer, lowEnv, midEnv, fullEnv, effectiveHopMs, MIN_BEAT_MS, MAX_BEAT_MS)
-        }
         val beatInfoBeats = beatInfo.beats
         val globalBeatMs  = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
         val beatsPerBar   = beatInfo.beatsPerBar
@@ -510,18 +505,12 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
     private fun msToBreathRandomDelay(beatMs: Long)  = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
 
     // ──────────────────────────────────────────────────────────────
-    // 오디오 디코딩 (V3와 동일)
+    // 오디오 디코딩은 BeatDetectorRouter.detect() 내부에서 처리
     // ──────────────────────────────────────────────────────────────
 
-    private data class Envelopes(
-        val low: List<Float>, val mid: List<Float>,
-        val full: List<Float>, val high: List<Float>,
-        val monoSamples: FloatArray = FloatArray(0),
-        val sampleRate: Int = 44100
-    )
-
+    @Suppress("unused")
     private fun decodeAllEnvelopes(musicPath: String, hopMs: Int = HOP_MS.toInt(),
-                                   collectPcm: Boolean = false): Envelopes {
+                                   collectPcm: Boolean = false): Nothing = TODO("removed — use BeatDetectorRouter.detect(filePath)")
         val extractor = MediaExtractor(); var codec: MediaCodec? = null
         return try {
             extractor.setDataSource(musicPath)
