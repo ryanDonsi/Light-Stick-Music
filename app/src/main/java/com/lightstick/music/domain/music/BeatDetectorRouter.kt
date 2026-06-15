@@ -11,7 +11,7 @@ package com.lightstick.music.domain.music
  *  2 : BeatDetectorV2 = V11
  *  3 : BeatDetectorV3 = V12 (Fix 1~5)
  *  4 : BeatDetectorV4 = V13 (Fix A~E)
- *  5 : BeatDetectorV5 = V14 (DBN HMM)
+ *  5 : BeatDetectorV0 = V14 (DBN HMM)
  */
 object BeatDetectorRouter {
 
@@ -149,9 +149,9 @@ object BeatDetectorRouter {
             )
         }
 
-        else -> { // 5: BeatDetectorV5 (DBN HMM)
-            val r = BeatDetectorV5.detect(lowEnv, midEnv, fullEnv,
-                BeatDetectorV5.Params(
+        else -> { // 5: BeatDetectorV0 (DBN HMM)
+            val r = BeatDetectorV0.detect(lowEnv, midEnv, fullEnv,
+                BeatDetectorV0.Params(
                     hopMs             = hopMs,
                     minBeatMs         = minBeatMs.coerceAtLeast(375L),
                     maxBeatMs         = maxBeatMs.coerceAtMost(1000L),

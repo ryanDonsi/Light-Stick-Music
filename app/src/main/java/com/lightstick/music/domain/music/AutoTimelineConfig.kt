@@ -13,7 +13,7 @@ object AutoTimelineConfig {
      *  2 : BeatDetectorV2
      *  3 : BeatDetectorV3 (Fix 1~5)
      *  4 : BeatDetectorV4 (Fix A~E)
-     *  5 : BeatDetectorV5 (DBN HMM)
+     *  5 : BeatDetectorV0 (DBN HMM)
      */
     const val BEAT_DETECTOR_VERSION = 1
 

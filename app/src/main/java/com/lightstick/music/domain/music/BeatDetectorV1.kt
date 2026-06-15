@@ -4,7 +4,7 @@ import android.util.Log
 import kotlin.math.*
 
 /**
- * BeatDetectorV5 (= 버전 14)
+ * BeatDetectorV1 (= 버전 14)
  *
  * librosa beat_track 충실 재현. V4 의 두 가지 근본 결함을 해소:
  *
