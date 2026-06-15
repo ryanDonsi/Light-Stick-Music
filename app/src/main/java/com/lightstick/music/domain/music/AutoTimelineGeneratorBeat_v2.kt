@@ -256,7 +256,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Frame building (V3와 동일, 단 engine은 항상 ON_PULSE)
+    // Frame building — 모든 섹션에 BEAT 섹션과 동일한 1/4박 패턴 적용
     // ──────────────────────────────────────────────────────────────
 
     private fun buildFramesFromSections(
@@ -278,62 +278,20 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
         put(0L, buildOffPayload())
 
-        var prevSectionEndMs  = 0L
-        val sameTypeCountMap  = mutableMapOf<SectionDetector.SectionType, Int>()
-
         for ((index, section) in sections.withIndex()) {
-            val sameTypeIdx = sameTypeCountMap.getOrDefault(section.type, 0)
-            sameTypeCountMap[section.type] = sameTypeIdx + 1
-
             val actualBeats    = beatTimesMs.filter { it >= section.startMs && it < section.endMs }
             val effectiveBeats = buildSectionBeatGrid(section, actualBeats)
 
             Log.d(TAG, "v2 section[$index] ${section.type} ${section.startMs}~${section.endMs} " +
                 "beats=${effectiveBeats.size}")
 
-            // ── BEAT 섹션 전용: 1/4박 White-C1-C2-C3 패턴 ─────────
-            if (section.type == SectionDetector.SectionType.BEAT) {
-                put(section.startMs, buildOffPayload())
-                for (t in effectiveBeats) {
-                    val beatInBar = beatInBar(t, downbeatMs, globalBeatMs = section.beatMs, beatsPerBar)
-                    val (color, fade) = beatSectionColorAndFade(beatInBar, palette)
-                    put(t, LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
-                }
-                prevSectionEndMs = section.endMs; continue
+            // 모든 섹션에 1/4박 White-C1-C2-C3 패턴 적용
+            put(section.startMs, buildOffPayload())
+            for (t in effectiveBeats) {
+                val beatInBar = beatInBar(t, downbeatMs, globalBeatMs = section.beatMs, beatsPerBar)
+                val (color, fade) = beatSectionColorAndFade(beatInBar, palette)
+                put(t, LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
             }
-
-            if (effectiveBeats.isEmpty()) {
-                val (fg, _) = colorsForEngine(palette, FgEngine.ON_PULSE, sameTypeIdx)
-                put(section.startMs, buildPayload(FgEngine.ON_PULSE, fg, null, section.beatMs))
-                continue
-            }
-
-            val firstBeat  = effectiveBeats.first()
-            val coverGapMs = firstBeat - section.startMs
-
-            if (coverGapMs > 0L && section.type != SectionDetector.SectionType.INTRO) {
-                val (cvFg, _) = colorsForEngine(palette, FgEngine.ON_PULSE, sameTypeIdx)
-                put(section.startMs, buildPayload(FgEngine.ON_PULSE, cvFg, null, section.beatMs))
-            }
-
-            for ((beatIndex, t) in effectiveBeats.withIndex()) {
-                if (beatIndex == 0 && section.type == SectionDetector.SectionType.INTRO) {
-                    val (introFg, _) = colorsForEngine(palette, FgEngine.ON_PULSE, sameTypeIdx)
-                    put(section.startMs, LSEffectPayload.Effects.on(color = introFg, transit = 0).toByteArray())
-                    continue
-                }
-
-                val (fg, _) = colorsForEngine(palette, FgEngine.ON_PULSE, sameTypeIdx, beatIndex, section.type)
-
-                put(t, LSEffectPayload.Effects.on(color = fg, transit = 0).toByteArray())
-
-                val holdMs = minOf(ON_PULSE_ACCENT_HOLD_MS * 2L, section.beatMs * 44L / 100L).coerceAtLeast(60L)
-                val offT   = minOf(section.endMs - 1L, t + holdMs)
-                if (offT > t)
-                    put(offT, LSEffectPayload.Effects.off(transit = 3).toByteArray())
-            }
-
-            prevSectionEndMs = section.endMs
         }
 
         if (finalOffMs < durationMs) frameMap.keys.filter { it > finalOffMs }.forEach { frameMap.remove(it) }
