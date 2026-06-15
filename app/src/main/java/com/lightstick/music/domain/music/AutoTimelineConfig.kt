@@ -26,11 +26,9 @@ object AutoTimelineConfig {
      *  V5 : 50ms (DBN HMM 설계 기준)
      */
     fun beatDetectorHopMs(version: Int = BEAT_DETECTOR_VERSION): Long = when (version) {
-        1    -> 20L   // PCM 경로 — detectPcm() 내부에서 사용
+        1    -> 10L   // PCM 경로 — detectPcm() 내부에서 사용
         2    -> 10L   // 스트리밍 — SuperFlux 내부 고정값
-        3    -> 20L
-        4    -> 20L
-        else -> 50L   // V5 (DBN HMM)
+        else -> 50L   // V3/V4/V5
     }
 
     /**
