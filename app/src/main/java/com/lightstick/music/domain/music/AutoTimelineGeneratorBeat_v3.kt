@@ -15,12 +15,12 @@ import kotlin.math.sqrt
 /**
  * AutoTimelineGeneratorBeat v3
  *
- * 감지기: BeatDetectorV2 (V11) + SectionDetectorV1 (고정)
+ * 감지기: BeatDetector(BEAT_DETECTOR_VERSION) + SectionDetector(SECTION_DETECTOR_VERSION)
  * 이펙트: V8 이펙트 매칭룰 (FgEngine 기반 — ON_PULSE / STROBE / BREATH / ON_TRANSIT_ROTATE 등)
  *
  * V2 대비 변경:
  *  - 단순 beat-ON 대신 V8의 섹션별 엔진(FgEngine) + 팔레트 기반 이펙트 적용
- *  - SectionDetectorV1의 energy 필드를 V8의 energyScore 로 활용
+ *  - SectionDetector의 energy 필드를 V8의 energyScore 로 활용
  *  - Climax 감지 / 발라드 모드 / Bridge phase engine 등 V8 규칙 전부 유지
  */
 class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerator {
@@ -144,9 +144,10 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         }
         Log.d(TAG, "v3 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs beats=${beatTimesMs.size}")
 
-        // ── 3. Section detection (SectionDetectorV1 고정) ────────────
+        // ── 3. Section detection ─────────────────────────────────────
         val t0Section        = System.currentTimeMillis()
-        val detectedSections = SectionDetectorV1().detect(
+        val detectedSections = SectionDetectorRouter.detect(
+            version    = AutoTimelineConfig.SECTION_DETECTOR_VERSION,
             lowEnv     = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beats      = beatInfoBeats,
             beatMs     = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
@@ -264,7 +265,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         }
     }
 
-    /** SectionDetectorV1 타입별 FgEngine 할당 */
+    /** 섹션 타입별 FgEngine 할당 */
     private fun assignFgEngine(
         type: SectionDetector.SectionType,
         rel: Float, beats: Int, globalBeatMs: Long,

@@ -29,7 +29,8 @@ object AutoTimelineConfig {
 
     /**
      * 섹션 감지기 버전 — v2 에서 SectionDetectorRouter 를 통해 적용된다.
-     *  1 : SectionDetectorV1 (슬라이딩 윈도우 특징 분석 + 비트 경계 정렬)
+     *  0 : SectionDetectorV0 (슬라이딩 윈도우 + 비트 경계 정렬, STRIDE=1000ms, per-window autocorr)
+     *  1 : SectionDetectorV1 (속도 최적화: STRIDE=2000ms, global periodicity, single-pass feature)
      */
     const val SECTION_DETECTOR_VERSION = 1
 
