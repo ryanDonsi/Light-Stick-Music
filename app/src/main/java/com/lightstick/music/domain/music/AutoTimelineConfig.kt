@@ -10,10 +10,8 @@ object AutoTimelineConfig {
     /**
      * 비트 감지기 버전 — v0/v2 에서 BeatDetectorRouter 를 통해 적용된다.
      *  1 : BeatDetectorV1 (Autocorrelation + log-normal prior + half-tempo check)
-     *  2 : BeatDetectorV2
-     *  3 : BeatDetectorV3 (Fix 1~5)
-     *  4 : BeatDetectorV4 (Fix A~E)
-     *  5 : BeatDetectorV0 (DBN HMM)
+     *  2 : BeatDetectorV2 (SuperFlux ODF + DBN HMM, 스트리밍)
+     *  5 : BeatDetectorV0 (IIR 3밴드 ODF + Autocorrelation, hopMs=50)
      */
     const val BEAT_DETECTOR_VERSION = 1
 
@@ -21,14 +19,12 @@ object AutoTimelineConfig {
      * BeatDetector 버전별 hopMs — 엔벨로프 디코딩 및 detect() 호출에 공통 적용.
      *  V1 : PCM 직접 입력 (hopMs는 BeatDetectorV1 내부에서만 사용)
      *  V2 : 스트리밍 (hopMs 불필요)
-     *  V3 : 20ms
-     *  V4 : 20ms
-     *  V5 : 50ms (DBN HMM 설계 기준)
+     *  V5(V0) : 50ms
      */
     fun beatDetectorHopMs(version: Int = BEAT_DETECTOR_VERSION): Long = when (version) {
         1    -> 10L   // PCM 경로 — detectPcm() 내부에서 사용
         2    -> 10L   // 스트리밍 — SuperFlux 내부 고정값
-        else -> 50L   // V3/V4/V5
+        else -> 50L   // V5(V0)
     }
 
     /**
