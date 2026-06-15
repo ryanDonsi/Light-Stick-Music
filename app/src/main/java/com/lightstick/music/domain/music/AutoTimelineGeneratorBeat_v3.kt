@@ -15,7 +15,10 @@ import kotlin.math.sqrt
 /**
  * AutoTimelineGeneratorBeat v3
  *
- * 감지기: BeatDetectorV2 (V11) + SectionDetectorV1 (고정)
+ * 감지기: BeatDetector 는 AutoTimelineConfig.BEAT_DETECTOR_VERSION 을 따른다
+ *         (1: BeatDetectorV1 — PCM, hop 10ms / 2: BeatDetectorV2 — 스트리밍 ODF, hop 10ms
+ *          / 3~5: 엔벨로프 입력) + SectionDetectorV1 (고정)
+ *         선택된 버전의 비트가 SectionDetectorV1 에 그대로 공급된다.
  * 이펙트: V8 이펙트 매칭룰 (FgEngine 기반 — ON_PULSE / STROBE / BREATH / ON_TRANSIT_ROTATE 등)
  *
  * V2 대비 변경:
@@ -35,6 +38,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         private const val HOP_MS      = 50L
         private const val MIN_BEAT_MS = 430L   // Fix 1: 290 → 430ms (8분음표 오탐 방지)
         private const val MAX_BEAT_MS = 1000L  // Fix 1: 1200 → 1000ms
+        private const val MAX_DECODE_MS = 600_000L  // PCM 디코딩 최대 10분 (OOM 방지)
 
         private const val ON_TRANSIT = 2
 
@@ -139,7 +143,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         if (beatTimesMs.isEmpty()) {
             Log.w(TAG, "v3 beat detect FAIL"); return Pair(emptyList(), emptyList())
         }
-        Log.d(TAG, "v3 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs beats=${beatTimesMs.size}")
+        Log.d(TAG, "v3 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs beats=${beatTimesMs.size} detectorVer=$detectorVer")
 
         // ── 3. Section detection (SectionDetectorV1 고정) ────────────
         val t0Section        = System.currentTimeMillis()
@@ -772,6 +776,10 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         val full: List<Float>, val high: List<Float>
     )
 
+    /**
+     * PCM 을 모노 FloatArray 로 디코딩한다. (v0 과 동일)
+     * 스테레오 이상이면 채널 평균으로 다운믹스, -1.0..1.0 정규화.
+     */
     private fun decodeMonoPcm(musicPath: String): Pair<FloatArray, Int> {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
@@ -790,9 +798,15 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             val stepBytes    = channelCount * 2
+            val maxSamples   = (sampleRate * MAX_DECODE_MS / 1000).toInt()
+            // MediaFormat duration으로 pre-allocate → boxing 없이 4바이트/샘플, grow() OOM 방지
+            val durationUs   = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else -1L
+            val allocSamples = if (durationUs > 0) (sampleRate * durationUs / 1_000_000L).toInt().coerceAtMost(maxSamples) else maxSamples
+            val out          = FloatArray(allocSamples)
+            var outPos       = 0
+
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0); codec.start()
-            val out = ArrayList<Float>(sampleRate * 30)
             val bufferInfo = MediaCodec.BufferInfo()
             var sawInputEOS = false; var sawOutputEOS = false
             while (!sawOutputEOS) {
@@ -813,13 +827,15 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
                         val chunk = ByteArray(bufferInfo.size); buf.get(chunk)
                         var byteIdx = 0
                         while (byteIdx + stepBytes <= chunk.size) {
+                            if (outPos >= maxSamples) { sawInputEOS = true; sawOutputEOS = true; break }
                             var monoSum = 0f
                             for (c in 0 until channelCount) {
                                 val lo = chunk[byteIdx + c * 2].toInt() and 0xFF
                                 val hi = chunk[byteIdx + c * 2 + 1].toInt()
                                 monoSum += (hi shl 8 or lo).toShort().toFloat()
                             }
-                            out.add(monoSum / channelCount / 32768f)
+                            if (outPos < out.size) out[outPos] = monoSum / channelCount / 32768f
+                            outPos++
                             byteIdx += stepBytes
                         }
                     }
@@ -828,7 +844,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
                 }
             }
             codec.stop(); codec.release(); extractor.release()
-            Pair(out.toFloatArray(), sampleRate)
+            Pair(if (outPos < out.size) out.copyOf(outPos) else out, sampleRate)
         } catch (t: Throwable) {
             Log.e(TAG, "decodeMonoPcm fail: ${t.message}")
             try { codec?.stop() } catch (_: Throwable) {}

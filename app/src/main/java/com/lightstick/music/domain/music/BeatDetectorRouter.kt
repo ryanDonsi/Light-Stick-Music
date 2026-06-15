@@ -30,6 +30,8 @@ object BeatDetectorRouter {
     // PCM 입력 오버로드 — version 1 전용 (V1: IIR 엔벨로프 변환 후 detect)
     // version 2: detectFile() 사용 (스트리밍 ODF, PCM 불필요)
     // version 3~5: envelope 입력 detect() 사용
+    //
+    // hopMs 기본값 10ms — V1 의 Params 기본값 및 V2 내부 hop(10ms)과 통일.
     // =========================================================================
 
     fun detectPcm(
@@ -38,7 +40,7 @@ object BeatDetectorRouter {
         sampleRate: Int,
         minBeatMs: Long,
         maxBeatMs: Long,
-        hopMs: Long = 50L
+        hopMs: Long = 10L
     ): BeatInfo {
         val r = BeatDetectorV1.detectPcm(monoSamples, sampleRate,
             BeatDetectorV1.Params(
