@@ -66,34 +66,37 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         val t0Total  = System.currentTimeMillis()
         Log.d(TAG, "v2 [PERF] start file=$fileName musicId=$musicId paletteSize=$paletteSize")
 
-        // 1. Single-pass decode (LOW / MID / FULL / HIGH 4밴드)
+        // BeatDetector 버전 및 hopMs 결정
+        val detectorVer    = AutoTimelineConfig.BEAT_DETECTOR_VERSION
+        val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
+
+        // 1. Single-pass decode (LOW / MID / FULL / HIGH 4밴드) — effectiveHopMs 적용
         val t0Decode = System.currentTimeMillis()
-        val envs = decodeAllEnvelopes(musicPath, HOP_MS.toInt())
+        val envs = decodeAllEnvelopes(musicPath, effectiveHopMs.toInt())
         val (lowEnv, midEnv, fullEnv, highEnv) = envs
-        Log.d(TAG, "v2 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size}")
+        Log.d(TAG, "v2 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs")
 
         if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
             Log.w(TAG, "v2 env empty -> return empty")
             return Pair(emptyList(), emptyList())
         }
 
-        val durationMs = fullEnv.size.toLong() * HOP_MS
+        val durationMs = fullEnv.size.toLong() * effectiveHopMs
 
         // 2. BeatDetector — 버전별 원래 입력 방식으로 dispatch
-        val detectorVer = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val t0Beat = System.currentTimeMillis()
-        Log.d(TAG, "v2 [PERF] beatDetect start file=$fileName durationMs=$durationMs beatDetectorVer=$detectorVer")
+        Log.d(TAG, "v2 [PERF] beatDetect start file=$fileName durationMs=$durationMs beatDetectorVer=$detectorVer hopMs=$effectiveHopMs")
         val beatInfo = when (detectorVer) {
             1 -> {
                 // V1 원래 방식: PCM FloatArray 입력 → IIR 엔벨로프 내부 변환
                 val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
                 BeatDetectorRouter.detectPcm(
-                    version    = detectorVer,
+                    version     = detectorVer,
                     monoSamples = monoSamples,
-                    sampleRate = sampleRate,
-                    minBeatMs  = MIN_BEAT_MS,
-                    maxBeatMs  = 1200L,
-                    hopMs      = HOP_MS
+                    sampleRate  = sampleRate,
+                    minBeatMs   = MIN_BEAT_MS,
+                    maxBeatMs   = 1200L,
+                    hopMs       = effectiveHopMs
                 )
             }
             2 -> {
@@ -101,13 +104,13 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                 BeatDetectorRouter.detectFile(musicPath, MIN_BEAT_MS, 1200L)
             }
             else -> {
-                // V3/4/5: 외부 엔벨로프 입력 (기존 동작 유지)
+                // V3/4/5: 외부 엔벨로프 입력 — Config hopMs 적용
                 BeatDetectorRouter.detect(
                     version   = detectorVer,
                     lowEnv    = lowEnv,
                     midEnv    = midEnv,
                     fullEnv   = fullEnv,
-                    hopMs     = HOP_MS,
+                    hopMs     = effectiveHopMs,
                     minBeatMs = MIN_BEAT_MS,
                     maxBeatMs = 1200L
                 )
@@ -154,7 +157,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
             beats      = beatInfo.beats,
             beatMs     = globalBeatMs,
             durationMs = durationMs,
-            hopMs      = HOP_MS
+            hopMs      = effectiveHopMs
         )
         Log.d(TAG, "v2 [PERF] sectionDetect=${System.currentTimeMillis() - t0Section}ms sections=${sections.size}")
 

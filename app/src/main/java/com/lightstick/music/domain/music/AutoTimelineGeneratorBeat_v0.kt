@@ -107,8 +107,7 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
             Log.d(TAG, "v0 [PERF] beatDetect=${System.currentTimeMillis() - t0Beat}ms  beatMs=$globalBeatMs0 beats=${beatInfo.beats.size} beatsPerBar=${beatInfo.beatsPerBar} detectorVer=$detectorVer")
         } else {
             // V3/V4/V5: 엔벨로프 디코딩 → BeatDetectorRouter.detect
-            // V5는 HOP 50ms, 나머지는 HOP_MS(20ms) 사용
-            val effectiveHopMs = if (detectorVer == 5) 50L else HOP_MS
+            val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
             val (lowEnv, midEnv, fullEnv) = decodeAllEnvelopes(musicPath, effectiveHopMs.toInt())
             Log.d(TAG, "v0 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs")
             if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {

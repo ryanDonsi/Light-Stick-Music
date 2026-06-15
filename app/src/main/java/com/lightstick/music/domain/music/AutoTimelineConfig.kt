@@ -18,6 +18,20 @@ object AutoTimelineConfig {
     const val BEAT_DETECTOR_VERSION = 1
 
     /**
+     * BeatDetector 버전별 hopMs — 엔벨로프 디코딩 및 detect() 호출에 공통 적용.
+     *  V1 : PCM 직접 입력 (hopMs는 BeatDetectorV1 내부에서만 사용)
+     *  V2 : 스트리밍 (hopMs 불필요)
+     *  V3 : 20ms
+     *  V4 : 20ms
+     *  V5 : 50ms (DBN HMM 설계 기준)
+     */
+    fun beatDetectorHopMs(version: Int = BEAT_DETECTOR_VERSION): Long = when (version) {
+        1    -> 10L   // PCM 경로 — detectPcm() 내부에서 사용
+        2    -> 10L   // 스트리밍 — SuperFlux 내부 고정값
+        else -> 50L   // V3/V4/V5
+    }
+
+    /**
      * 섹션 감지기 버전 — v2 에서 SectionDetectorRouter 를 통해 적용된다.
      *  1 : SectionDetectorV1 (슬라이딩 윈도우 특징 분석 + 비트 경계 정렬)
      */
