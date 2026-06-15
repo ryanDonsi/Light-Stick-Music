@@ -108,27 +108,30 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
         val palette    = buildPalette(musicId)
 
+        // BeatDetector 버전 및 hopMs 결정
+        val detectorVer    = AutoTimelineConfig.BEAT_DETECTOR_VERSION
+        val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
+
         // ── 1. 오디오 디코딩 ──────────────────────────────────────────
         val t0Decode = System.currentTimeMillis()
-        val (lowEnv, midEnv, fullEnv, highEnv) = decodeAllEnvelopes(musicPath)
-        Log.d(TAG, "v3 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size}")
+        val (lowEnv, midEnv, fullEnv, highEnv) = decodeAllEnvelopes(musicPath, effectiveHopMs.toInt())
+        Log.d(TAG, "v3 [PERF] decode=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs")
 
         if (lowEnv.isEmpty()) {
             Log.w(TAG, "v3 env empty"); return Pair(emptyList(), emptyList())
         }
 
-        val durationMs = fullEnv.size.toLong() * HOP_MS
+        val durationMs = fullEnv.size.toLong() * effectiveHopMs
 
         // ── 2. Beat detection ──────────────────────────────────────────
-        val detectorVer   = AutoTimelineConfig.BEAT_DETECTOR_VERSION
-        val t0Beat        = System.currentTimeMillis()
+        val t0Beat = System.currentTimeMillis()
         val beatInfo: BeatDetectorRouter.BeatInfo = when {
             detectorVer == 1 -> {
                 val (monoSamples, sampleRate) = decodeMonoPcm(musicPath)
-                BeatDetectorRouter.detectPcm(detectorVer, monoSamples, sampleRate, MIN_BEAT_MS, MAX_BEAT_MS)
+                BeatDetectorRouter.detectPcm(detectorVer, monoSamples, sampleRate, MIN_BEAT_MS, MAX_BEAT_MS, effectiveHopMs)
             }
             detectorVer == 2 -> BeatDetectorRouter.detectFile(musicPath, MIN_BEAT_MS, MAX_BEAT_MS)
-            else -> BeatDetectorRouter.detect(detectorVer, lowEnv, midEnv, fullEnv, HOP_MS, MIN_BEAT_MS, MAX_BEAT_MS)
+            else -> BeatDetectorRouter.detect(detectorVer, lowEnv, midEnv, fullEnv, effectiveHopMs, MIN_BEAT_MS, MAX_BEAT_MS)
         }
         val beatInfoBeats = beatInfo.beats
         val globalBeatMs  = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
@@ -146,7 +149,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         val detectedSections = SectionDetectorV1().detect(
             lowEnv     = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beats      = beatInfoBeats,
-            beatMs     = globalBeatMs, durationMs = durationMs, hopMs = HOP_MS,
+            beatMs     = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
             beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
         )
         Log.d(TAG, "v3 [PERF] sectionDetect=${System.currentTimeMillis() - t0Section}ms sections=${detectedSections.size}")
@@ -154,7 +157,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         // ── 4. Music style + climax ───────────────────────────────
         val styleResult  = MusicStyleClassifier.classify(
             lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
-            beatMs = globalBeatMs, beats = beatInfoBeats, hopMs = HOP_MS
+            beatMs = globalBeatMs, beats = beatInfoBeats, hopMs = effectiveHopMs
         )
         val musicStyle    = styleResult.style
         // BALLAD / HIPHOP_RNB 는 느리고 부드러운 이펙트 계열로 처리
@@ -166,7 +169,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
                          || musicStyle == MusicStyleClassifier.MusicStyle.ROCK
                          || musicStyle == MusicStyleClassifier.MusicStyle.POP
         val climaxMoments = if (!needsClimax) emptyList()
-                            else detectClimaxPeakMoments(fullEnv, durationMs, globalBeatMs)
+                            else detectClimaxPeakMoments(fullEnv, durationMs, globalBeatMs, effectiveHopMs)
         Log.d(TAG, "v3 style=$musicStyle balladMode=$isBalladMode climax=${climaxMoments.size}")
 
         // ── 5. Convert → V8Section with FgEngine assignment ───────
@@ -174,7 +177,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
         // ── 6. Frame building (V8 규칙) ───────────────────────────
         val t0Build    = System.currentTimeMillis()
-        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), HOP_MS, MIN_TRAILING_SILENCE_MS)
+        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
             .coerceIn(0L, durationMs)
 
         val frames = buildFramesFromSections(
@@ -701,7 +704,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
     // Climax / ballad / silence detection (V8와 동일)
     // ──────────────────────────────────────────────────────────────
 
-    private fun detectClimaxPeakMoments(fullEnv: List<Float>, durationMs: Long, beatMs: Long): List<Long> {
+    private fun detectClimaxPeakMoments(fullEnv: List<Float>, durationMs: Long, beatMs: Long, hopMs: Long = HOP_MS): List<Long> {
         if (fullEnv.size < 8) return emptyList()
         val scoreArray = FloatArray(fullEnv.size)
         for (i in 2 until fullEnv.size - 2) {
@@ -721,7 +724,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         for (i in 2 until scoreArray.size - 2) {
             val sc = scoreArray[i]; if (sc <= 0f) continue
             if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2])
-                candidates += (i.toLong() * HOP_MS) to sc
+                candidates += (i.toLong() * hopMs) to sc
         }
         val p90 = scoreList.sorted().let { it[(it.lastIndex * 0.90f).toInt().coerceIn(0, it.lastIndex)] }
         val strong = candidates.filter { it.second >= p90 * 1.18f && it.second >= envMean + envStd * 1.30f }
@@ -838,7 +841,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         }
     }
 
-    private fun decodeAllEnvelopes(musicPath: String): Envelopes {
+    private fun decodeAllEnvelopes(musicPath: String, hopMs: Int = HOP_MS.toInt()): Envelopes {
         val extractor = MediaExtractor(); var codec: MediaCodec? = null
         return try {
             extractor.setDataSource(musicPath)
@@ -856,7 +859,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             val mime         = format.getString(MediaFormat.KEY_MIME)!!
             val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-            val hopSamples   = (sampleRate.toLong() * HOP_MS / 1000L).toInt().coerceAtLeast(1)
+            val hopSamples   = (sampleRate.toLong() * hopMs / 1000L).toInt().coerceAtLeast(1)
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0); codec.start()
             val bufferInfo = MediaCodec.BufferInfo()
