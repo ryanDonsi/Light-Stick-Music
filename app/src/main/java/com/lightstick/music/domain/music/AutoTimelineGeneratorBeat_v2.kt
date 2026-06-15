@@ -13,10 +13,10 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * AutoTimelineGeneratorBeat_v2 — SectionDetectorV1 적용 버전
+ * AutoTimelineGeneratorBeat_v2 — BeatDetector(버전별) + SectionDetector(버전별) 적용 버전
  *
- * v0 기반. 단일 패스 디코딩 후 BeatDetectorV2 + SectionDetectorV1 을 순차 실행.
- * 섹션 타입별 고정 색상으로 ON 이펙트를 생성한다.
+ * v0 기반. 단일 패스 디코딩 후 BeatDetector → SectionDetector 를 순차 실행.
+ * 이펙트는 모든 섹션 타입에 beat-ON 단일 패턴 적용 (섹션 타입별 색상만 다름).
  * SectionAwareGenerator 를 구현해 PrecomputeAutoTimelinesUseCase 에서 섹션 메타를 저장할 수 있다.
  */
 class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerator {
