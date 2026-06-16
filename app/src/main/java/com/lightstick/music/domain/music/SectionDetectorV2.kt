@@ -105,31 +105,30 @@ class SectionDetectorV2 : SectionDetector {
         highEnv: List<Float>,
         beatsPerBar: Int,
         downbeatMs: Long
-    ): List<SectionDetector.Section> {
+    ): List<SectionDetector.AnnotatedBeat> {
         if (fullEnv.isEmpty()) return emptyList()
 
-        // ① 윈도우 피처 계산 (타입 미결정)
         val rawWindows = buildFeatureWindows(lowEnv, midEnv, fullEnv, highEnv, durationMs, hopMs)
-
-        // ② 전곡 에너지 통계 → CLIMAX 임계값
-        val climaxTh = percentile(rawWindows.map { it.energy }, CLIMAX_PERCENTILE)
-
-        // ③ 타입 분류
+        val climaxTh   = percentile(rawWindows.map { it.energy }, CLIMAX_PERCENTILE)
         val classified = rawWindows.mapIndexed { i, w ->
-            var prev = if (i > 0) rawWindows[i - 1] else null
-            val type = classifyType(w, durationMs, climaxTh)
+            val prev   = if (i > 0) rawWindows[i - 1] else null
+            val type   = classifyType(w, durationMs, climaxTh)
             val change = estimateChangeStrength(prev?.copy(sectionType = classifyType(prev, durationMs, climaxTh)), w.copy(sectionType = type))
             w.copy(sectionType = type, changeStrength = change)
         }
-
-        // ④ 병합 + 정규화
         val rawSections = buildSectionsFromWindows(classified, durationMs)
-
-        // ⑤ 비트 스냅
         val sortedBeatTimes = beats.map { it.timeMs }.toLongArray().also { it.sort() }
         val aligned = alignBoundariesToBeats(rawSections, sortedBeatTimes, durationMs)
+        return annotateBeats(beats, toSections(aligned))
+    }
 
-        return toSections(aligned)
+    private fun annotateBeats(
+        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
+        sections: List<SectionDetector.Section>
+    ): List<SectionDetector.AnnotatedBeat> = beats.map { beat ->
+        val type = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
+            ?: SectionDetector.SectionType.VOCAL
+        SectionDetector.AnnotatedBeat(beat.timeMs, beat.confidence, type)
     }
 
     private fun toSections(windows: List<FeatureWindow>): List<SectionDetector.Section> =

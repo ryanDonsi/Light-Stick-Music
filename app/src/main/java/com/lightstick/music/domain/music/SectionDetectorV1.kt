@@ -67,7 +67,7 @@ class SectionDetectorV1 : SectionDetector {
         highEnv: List<Float>,
         beatsPerBar: Int,
         downbeatMs: Long
-    ): List<SectionDetector.Section> {
+    ): List<SectionDetector.AnnotatedBeat> {
         if (fullEnv.isEmpty()) return emptyList()
 
         // FloatArray로 변환 (인덱스 직접 접근용)
@@ -96,7 +96,18 @@ class SectionDetectorV1 : SectionDetector {
 
         val sections = toSections(alignedSections)
         val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs)
-        return reclassifyClimax(sections, climaxMoments)
+        val finalSections = reclassifyClimax(sections, climaxMoments)
+        return annotateBeats(beats, finalSections)
+    }
+
+    // 입력 비트에 sectionType 태깅 후 반환 (순서 유지)
+    private fun annotateBeats(
+        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
+        sections: List<SectionDetector.Section>
+    ): List<SectionDetector.AnnotatedBeat> = beats.map { beat ->
+        val type = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
+            ?: SectionDetector.SectionType.VERSE
+        SectionDetector.AnnotatedBeat(beat.timeMs, beat.confidence, type)
     }
 
     // ──────────────────────────────────────────────────────────────

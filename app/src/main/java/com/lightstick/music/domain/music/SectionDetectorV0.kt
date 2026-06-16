@@ -79,12 +79,11 @@ class SectionDetectorV0 : SectionDetector {
         highEnv: List<Float>,
         beatsPerBar: Int,
         downbeatMs: Long
-    ): List<SectionDetector.Section> {
+    ): List<SectionDetector.AnnotatedBeat> {
         if (fullEnv.isEmpty()) return emptyList()
 
         val windows = buildFeatureWindows(lowEnv, midEnv, fullEnv, highEnv, durationMs, hopMs)
 
-        // V8 방식: score 기반 임계값 계산
         val frameScores = windows.map { it.score }
         val lowTh  = if (frameScores.isNotEmpty()) percentile(frameScores, 0.35f) else 0f
         val highTh = if (frameScores.isNotEmpty()) percentile(frameScores, 0.70f) else 1f
@@ -97,7 +96,17 @@ class SectionDetectorV0 : SectionDetector {
 
         val sections = toSections(alignedSections)
         val climaxMoments = detectClimaxMoments(fullEnv, durationMs, hopMs, beatMs)
-        return reclassifyClimax(sections, climaxMoments)
+        val finalSections = reclassifyClimax(sections, climaxMoments)
+        return annotateBeats(beats, finalSections)
+    }
+
+    private fun annotateBeats(
+        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
+        sections: List<SectionDetector.Section>
+    ): List<SectionDetector.AnnotatedBeat> = beats.map { beat ->
+        val type = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
+            ?: SectionDetector.SectionType.VERSE
+        SectionDetector.AnnotatedBeat(beat.timeMs, beat.confidence, type)
     }
 
     // ──────────────────────────────────────────────────────────────
