@@ -5,7 +5,7 @@ object AutoTimelineConfig {
     /**
      * 파일 캐시 버전 — 생성기·감지기 조합이 바뀔 때마다 증가시켜 기존 캐시를 무효화한다.
      */
-    const val VERSION = 1
+    const val VERSION = 0
 
     /**
      * 비트 감지기 버전 — BeatDetectorRouter 를 통해 적용된다.
