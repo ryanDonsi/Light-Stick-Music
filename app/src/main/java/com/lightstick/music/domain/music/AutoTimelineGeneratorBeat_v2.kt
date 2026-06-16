@@ -240,9 +240,15 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                 else      -> ChangeLevel.STRONG
             }
 
+            val engine = when (normalizedType) {
+                SectionDetector.SectionType.END,
+                SectionDetector.SectionType.OUTRO -> FgEngine.OFF_TRANSIT
+                else -> FgEngine.ON_PULSE
+            }
+
             V8Section(
                 startMs     = s.startMs,    endMs       = s.endMs,
-                type        = normalizedType, engine    = FgEngine.ON_PULSE,
+                type        = normalizedType, engine    = engine,
                 beatMs      = beatMs,        beats     = beats,
                 source      = "beat-on",     change    = change,
                 energyScore = s.energy,      relScore  = relScore
@@ -276,7 +282,10 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
             val effectiveBeats = buildSectionBeatGrid(section, actualBeats)
 
             Log.d(TAG, "v2 section[$index] ${section.type} ${section.startMs}~${section.endMs} " +
-                "beats=${effectiveBeats.size}")
+                "engine=${section.engine} beats=${effectiveBeats.size}")
+
+            // END/OUTRO: OFF_TRANSIT — 이펙트 없음
+            if (section.engine == FgEngine.OFF_TRANSIT) continue
 
             // 모든 섹션에 1/4박 White-C1-C2-C3 패턴 적용
             for (t in effectiveBeats) {
