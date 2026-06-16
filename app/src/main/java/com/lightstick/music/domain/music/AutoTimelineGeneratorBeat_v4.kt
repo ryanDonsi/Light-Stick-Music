@@ -132,13 +132,20 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         }
 
         // ── 3. Section detection (SectionDetectorV2 고정) ────────────
+        // finalOffMs를 먼저 계산해 실제 음악 종료 이후 비트를 END로 재태깅
+        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray())
+            .coerceIn(0L, durationMs)
         val t0Section         = System.currentTimeMillis()
         val detectedAnnotated = SectionDetectorV2().detect(
             lowEnv     = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beats      = beatInfoBeats,
             beatMs     = globalBeatMs, durationMs = durationMs, hopMs = HOP_MS,
             beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
-        )
+        ).map { ab ->
+            if (ab.timeMs >= finalOffMs)
+                SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
+            else ab
+        }
         val sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
         Log.d(TAG, "v4 [PERF] sectionDetect=${System.currentTimeMillis() - t0Section}ms sections=${sectionGroups.size}")
 
@@ -159,8 +166,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
 
         // ── 6. Frame building (V8 규칙) ───────────────────────────
         val t0Build    = System.currentTimeMillis()
-        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray())
-            .coerceIn(0L, durationMs)
 
         val frames = buildFramesFromSections(
             palette         = palette,
@@ -351,7 +356,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
             val insertTransitionBreath = interGapMs >= SECTION_GAP_BREATH_THRESHOLD_MS &&
                 section.engine != FgEngine.BREATH && section.engine != FgEngine.OFF_TRANSIT
 
-            val effectiveBeats = section.beatTimesMs.filter { it < finalOffMs }
+            val effectiveBeats = section.beatTimesMs
 
             Log.d(TAG, "v3 section[$index] ${section.type} ${section.startMs}~${section.endMs} " +
                 "engine=${section.engine} beats=${effectiveBeats.size} ballad=$isBalladMode")

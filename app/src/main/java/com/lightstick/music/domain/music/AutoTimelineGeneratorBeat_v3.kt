@@ -139,6 +139,9 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         }
 
         // ── 3. Section detection ─────────────────────────────────────
+        // finalOffMs를 먼저 계산해 실제 음악 종료 이후 비트를 END로 재태깅
+        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
+            .coerceIn(0L, durationMs)
         val t0Section         = System.currentTimeMillis()
         val detectedAnnotated = SectionDetectorRouter.detect(
             version    = AutoTimelineConfig.SECTION_DETECTOR_VERSION,
@@ -146,7 +149,11 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             beats      = beatInfoBeats,
             beatMs     = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
             beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
-        )
+        ).map { ab ->
+            if (ab.timeMs >= finalOffMs)
+                SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
+            else ab
+        }
         val sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
         Log.d(TAG, "v3 [PERF] sectionDetect=${System.currentTimeMillis() - t0Section}ms sections=${sectionGroups.size}")
 
@@ -165,8 +172,6 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
         // ── 6. Frame building (V8 규칙) ───────────────────────────
         val t0Build    = System.currentTimeMillis()
-        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
-            .coerceIn(0L, durationMs)
 
         val frames = buildFramesFromSections(
             palette         = palette,
@@ -349,7 +354,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             sameTypeCountMap[section.type] = sameTypeIdx + 1
             lastRepeatKey = null
 
-            val effectiveBeats = section.beatTimesMs.filter { it < finalOffMs }
+            val effectiveBeats = section.beatTimesMs
 
             Log.d(TAG, "v3 section[$index] ${section.type} ${section.startMs}~${section.endMs} " +
                 "engine=${section.engine} beats=${effectiveBeats.size} ballad=$isBalladMode")

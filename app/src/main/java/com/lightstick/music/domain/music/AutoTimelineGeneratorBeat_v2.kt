@@ -136,6 +136,9 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         }
 
         // ── 3. Section detection ─────────────────────────────────────
+        // finalOffMs를 먼저 계산해 durationMs 이후 비트를 END로 재태깅
+        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
+            .coerceIn(0L, durationMs)
         val t0Section         = System.currentTimeMillis()
         val detectedAnnotated = SectionDetectorRouter.detect(
             version    = AutoTimelineConfig.SECTION_DETECTOR_VERSION,
@@ -143,7 +146,11 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
             beats      = beatInfoBeats,
             beatMs     = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
             beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
-        )
+        ).map { ab ->
+            if (ab.timeMs >= finalOffMs)
+                SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
+            else ab
+        }
         val sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
         Log.d(TAG, "v2 [PERF] sectionDetect=${System.currentTimeMillis() - t0Section}ms sections=${sectionGroups.size}")
 
@@ -159,8 +166,6 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
         // ── 6. Frame building ─────────────────────────────────────
         val t0Build    = System.currentTimeMillis()
-        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
-            .coerceIn(0L, durationMs)
 
         val frames = buildFramesFromSections(
             palette     = palette,
@@ -222,7 +227,10 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
             V8Section(
                 startMs     = g.startMs,      endMs       = g.endMs,
-                type        = normalizedType,  engine      = FgEngine.ON_PULSE,
+                type        = normalizedType,
+                engine      = if (normalizedType == SectionDetector.SectionType.END ||
+                                  normalizedType == SectionDetector.SectionType.OUTRO) FgEngine.OFF_TRANSIT
+                              else FgEngine.ON_PULSE,
                 beatMs      = beatMs,          beats       = beats,
                 source      = "beat-on",       change      = change,
                 beatTimesMs = g.annotatedBeats.map { it.timeMs }
@@ -250,7 +258,10 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         }
 
         for ((index, section) in sections.withIndex()) {
-            val effectiveBeats = section.beatTimesMs.filter { it < finalOffMs }
+            // END/OUTRO: 비트 이펙트 없음 (GEN에서 별도 처리 가능)
+            if (section.engine == FgEngine.OFF_TRANSIT) continue
+
+            val effectiveBeats = section.beatTimesMs
 
             Log.d(TAG, "v2 section[$index] ${section.type} ${section.startMs}~${section.endMs} " +
                 "engine=${section.engine} beats=${effectiveBeats.size}")
