@@ -27,7 +27,7 @@ import kotlin.math.*
  */
 object BeatDetectorV1 {
 
-    private const val TAG = "AutoTimeline"
+    private const val TAG = "BeatDetectorV1"
 
     private const val FILL_CONFIDENCE = 0.20f
 
@@ -175,16 +175,16 @@ object BeatDetectorV1 {
         // ── 2. Dense BPM 추정 (librosa 방식) + half-tempo 체크 ────────────────
         val beatMs = estimateBpmDense(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs)
                      ?: 500L
-        Log.d(TAG, "V5 beatMs=$beatMs (${60_000L / beatMs} BPM) durationMs=$durationMs")
+        Log.d(TAG, "V1 beatMs=$beatMs (${60_000L / beatMs} BPM) durationMs=$durationMs")
 
         // ── 3. 위상 추정 (comb-phase) — DP 앵커로 사용 ───────────────────────
         //    DP가 잘못된 위상에 수렴하는 문제(Dynamite 등) 방지
         val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
-        Log.d(TAG, "V5 phaseMs=$phaseMs")
+        Log.d(TAG, "V1 phaseMs=$phaseMs")
 
         // ── 4. Global DP (전곡 단위, 위상 앵커 주입) ─────────────────────────
         val dpTimes = dpBeatTracker(globalOdf, beatMs, params.hopMs, durationMs, anchorMs = phaseMs)
-        Log.d(TAG, "V5 dpTimes=${dpTimes.size}")
+        Log.d(TAG, "V1 dpTimes=${dpTimes.size}")
 
         // DP 품질 검증
         val expectedBeats = max(1, (durationMs / beatMs).toInt())
@@ -196,13 +196,13 @@ object BeatDetectorV1 {
             beats  = dpTimes.map { TimedBeat(it, 1f) }
             reason = "dp"
         } else {
-            Log.w(TAG, "V5 DP insufficient (${dpTimes.size}/$expectedBeats) → segment fallback")
+            Log.w(TAG, "V1 DP insufficient (${dpTimes.size}/$expectedBeats) → segment fallback")
             beats  = fallbackSegmentBeats(low, mid, full, params, beatMs, durationMs)
             reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
         }
 
         if (beats.isEmpty()) {
-            Log.w(TAG, "V5 detect FAIL")
+            Log.w(TAG, "V1 detect FAIL")
             return DetectResult(emptyList(), 0L, null, "all failed", 0L, TimeSignature.FOUR_FOUR)
         }
 
@@ -211,7 +211,7 @@ object BeatDetectorV1 {
             beats.map { it.timeMs }, low, beatMs, timeSignature.beatsPerBar, params.hopMs)
         val downbeatOffsetMs = (downbeatMs - (beats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        Log.d(TAG, "V5 OK beats=${beats.size} beatMs=$beatMs " +
+        Log.d(TAG, "V1 OK beats=${beats.size} beatMs=$beatMs " +
             "timeSig=${timeSignature.type} reason=$reason")
 
         return DetectResult(
@@ -278,14 +278,14 @@ object BeatDetectorV1 {
             val bestAc = acVals[bestLag]
             if (bestAc > 0f && halfAc / bestAc >= HALF_TEMPO_RATIO) {
                 val halfMs = halfLag * hopMs
-                Log.d(TAG, "V5 halfTempoCheck: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
+                Log.d(TAG, "V1 halfTempoCheck: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
                     " → ${halfMs}ms(${60_000L/halfMs}BPM)  ratio=${halfAc/bestAc}")
                 return halfMs
             }
         }
 
         val resultMs = bestLag * hopMs
-        Log.d(TAG, "V5 estimateBpmDense: ${resultMs}ms (${60_000L / resultMs} BPM)")
+        Log.d(TAG, "V1 estimateBpmDense: ${resultMs}ms (${60_000L / resultMs} BPM)")
         return resultMs
     }
 

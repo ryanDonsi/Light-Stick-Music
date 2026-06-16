@@ -122,7 +122,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         val midEnv  = envelopes.mid
         val fullEnv = envelopes.full
         val highEnv = envelopes.high
-        Log.d(TAG, "v3 [PERF] decode+beat=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs")
+        Log.d(TAG, "v3 [PERF] decode+beat=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs beatMs=${beatInfo.beatMs} beats=${beatInfo.beats.size} beatDetectorVer=$detectorVer")
 
         val durationMs = fullEnv.size.toLong() * effectiveHopMs
 

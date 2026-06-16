@@ -124,7 +124,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         val midEnv  = envelopes.mid
         val fullEnv = envelopes.full
         val highEnv = envelopes.high
-        Log.d(TAG, "v2 [PERF] decode+beat=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs beatMs=${beatInfo.beatMs} beats=${beatInfo.beats.size}")
+        Log.d(TAG, "v2 [PERF] decode+beat=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs beatMs=${beatInfo.beatMs} beats=${beatInfo.beats.size} beatDetectorVer=$detectorVer")
 
         val durationMs = fullEnv.size.toLong() * effectiveHopMs
         val beatInfoBeats = beatInfo.beats
@@ -270,8 +270,6 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         fun put(t: Long, payload: ByteArray) {
             if (t >= 0L) frameMap[t] = payload
         }
-
-        put(0L, buildOffPayload())
 
         for ((index, section) in sections.withIndex()) {
             val actualBeats    = beatTimesMs.filter { it >= section.startMs && it < section.endMs }
