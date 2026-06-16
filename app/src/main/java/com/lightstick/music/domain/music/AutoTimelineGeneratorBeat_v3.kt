@@ -349,7 +349,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             sameTypeCountMap[section.type] = sameTypeIdx + 1
             lastRepeatKey = null
 
-            val effectiveBeats = section.beatTimesMs
+            val effectiveBeats = section.beatTimesMs.filter { it < finalOffMs }
 
             Log.d(TAG, "v3 section[$index] ${section.type} ${section.startMs}~${section.endMs} " +
                 "engine=${section.engine} beats=${effectiveBeats.size} ballad=$isBalladMode")
@@ -425,10 +425,9 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
         }
 
-        if (finalOffMs < durationMs) frameMap.keys.filter { it > finalOffMs }.forEach { frameMap.remove(it) }
-        if (frameMap.keys.none { it >= finalOffMs }) {
-            frameMap[finalOffMs] = buildOffPayload()
-        }
+        // finalOffMs 이후 프레임 제거 (경계 포함) → finalOffMs 위치는 off 페이로드로 덮어씀
+        frameMap.keys.filter { it >= finalOffMs }.forEach { frameMap.remove(it) }
+        frameMap[finalOffMs] = buildOffPayload()
 
         return frameMap.entries.sortedBy { it.key }.map { it.key to it.value }
     }

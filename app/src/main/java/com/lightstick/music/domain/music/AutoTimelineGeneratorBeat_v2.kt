@@ -7,7 +7,6 @@ import com.lightstick.types.LSEffectPayload
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sqrt
 
 /**
  * AutoTimelineGeneratorBeat v2
@@ -251,7 +250,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         }
 
         for ((index, section) in sections.withIndex()) {
-            val effectiveBeats = section.beatTimesMs
+            val effectiveBeats = section.beatTimesMs.filter { it < finalOffMs }
 
             Log.d(TAG, "v2 section[$index] ${section.type} ${section.startMs}~${section.endMs} " +
                 "engine=${section.engine} beats=${effectiveBeats.size}")
@@ -264,10 +263,9 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
             }
         }
 
-        if (finalOffMs < durationMs) frameMap.keys.filter { it > finalOffMs }.forEach { frameMap.remove(it) }
-        if (frameMap.keys.none { it >= finalOffMs }) {
-            frameMap[finalOffMs] = buildOffPayload()
-        }
+        // finalOffMs 이후 프레임 제거 (경계 포함) → finalOffMs 위치는 off 페이로드로 덮어씀
+        frameMap.keys.filter { it >= finalOffMs }.forEach { frameMap.remove(it) }
+        frameMap[finalOffMs] = buildOffPayload()
 
         return frameMap.entries.sortedBy { it.key }.map { it.key to it.value }
     }
