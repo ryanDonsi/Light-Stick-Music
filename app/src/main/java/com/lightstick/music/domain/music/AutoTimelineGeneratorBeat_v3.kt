@@ -38,13 +38,9 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         private const val INTRO_PRESTART_TRANSIT_MS = 1_000L
         private const val MIN_TRAILING_SILENCE_MS   = 1_500L
 
-        private const val ACTUAL_BEAT_USE_RATIO = 0.45f
-
         private const val CLIMAX_WINDOW_HALF_MS = 4_000L
         private const val CLIMAX_MIN_CV         = 0.35f
         private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
-
-        private const val SECTION_GAP_BREATH_THRESHOLD_MS = 2_000L
 
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
         private const val ON_PULSE_BG_TRANSIT     = 5
@@ -345,113 +341,35 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         )
         var lastRepeatKey: RepeatKey? = null
 
-        put(0L, buildOffPayload())
-
-        var prevSectionEndMs  = 0L
-        val sameTypeCountMap  = mutableMapOf<SectionDetector.SectionType, Int>()
+        val sameTypeCountMap = mutableMapOf<SectionDetector.SectionType, Int>()
 
         for ((index, section) in sections.withIndex()) {
             val sameTypeIdx = sameTypeCountMap.getOrDefault(section.type, 0)
             sameTypeCountMap[section.type] = sameTypeIdx + 1
             lastRepeatKey = null
 
-            val interGapMs = if (index > 0) (section.startMs - prevSectionEndMs).coerceAtLeast(0L) else 0L
-            val insertTransitionBreath = interGapMs >= SECTION_GAP_BREATH_THRESHOLD_MS &&
-                section.engine != FgEngine.BREATH && section.engine != FgEngine.OFF_TRANSIT
-
-            val actualBeats    = beatTimesMs.filter { it >= section.startMs && it < section.endMs }
-            val effectiveBeats = buildSectionBeatGrid(section, actualBeats)
+            // 실제 beat만 사용 — section.startMs는 Fix1으로 항상 beat 위치
+            val effectiveBeats = beatTimesMs.filter { it >= section.startMs && it < section.endMs }.sorted()
 
             Log.d(TAG, "v3 section[$index] ${section.type} ${section.startMs}~${section.endMs} " +
                 "engine=${section.engine} beats=${effectiveBeats.size} ballad=$isBalladMode")
 
-            // ── BEAT 섹션 전용: 1/4박 White-C1-C2-C3 패턴 ─────────
+            // ── BEAT 섹션: 1/4박 White-C1-C2-C3 패턴 ─────────────────
             if (section.type == SectionDetector.SectionType.BEAT) {
-                put(section.startMs, buildOffPayload())
                 for (t in effectiveBeats) {
                     val beatInBar = beatInBar(t, downbeatMs, globalBeatMs = section.beatMs, beatsPerBar)
                     val (color, fade) = beatSectionColorAndFade(beatInBar, palette)
                     put(t, LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
                 }
-                prevSectionEndMs = section.endMs; continue
-            }
-
-            if (section.engine == FgEngine.OFF_TRANSIT) {
-                put(section.startMs, buildOffPayload())
-                prevSectionEndMs = section.endMs; continue
-            }
-
-            if (section.engine == FgEngine.BREATH) {
-                val (fg, bg) = colorsForEngine(palette, FgEngine.BREATH, sameTypeIdx)
-                val delay = if (section.type == SectionDetector.SectionType.VERSE) 0
-                            else msToBreathRandomDelay(section.beatMs)
-                put(section.startMs, buildPayload(FgEngine.BREATH, fg, bg, section.beatMs,
-                    randomDelay = delay))
-                prevSectionEndMs = section.endMs; continue
-            }
-
-            if (effectiveBeats.isEmpty()) {
-                val (fg, bg) = colorsForEngine(palette, section.engine, sameTypeIdx)
-                val rotateTransit = if (section.engine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
-                    ON_ROTATE_BALLAD_TRANSIT else 0
-                put(section.startMs, buildPayload(section.engine, fg, bg, section.beatMs,
-                    rotateTransit = rotateTransit))
                 continue
             }
 
-            val firstBeat  = effectiveBeats.first()
-            val coverGapMs = firstBeat - section.startMs
+            // OFF_TRANSIT (OUTRO/END): beat에 이펙트 없음
+            if (section.engine == FgEngine.OFF_TRANSIT) continue
 
-            val sectionNearClimax = if (section.engine == FgEngine.STROBE) {
-                climaxMoments.any { c ->
-                    c + CLIMAX_WINDOW_HALF_MS >= section.startMs &&
-                    c - CLIMAX_WINDOW_HALF_MS <= section.endMs
-                }
-            } else false
-
-            if (insertTransitionBreath) {
-                val (mFg, mBg) = palette.white to palette.breathSet.bg
-                put(section.startMs, buildPayload(FgEngine.BREATH, mFg, mBg, section.beatMs,
-                    randomDelay = msToBreathRandomDelay(section.beatMs)))
-            } else if (coverGapMs > 0L && section.type != SectionDetector.SectionType.INTRO) {
-                val longThMs = section.beatMs * 3L / 2L
-                if (coverGapMs <= longThMs) {
-                    val coverEngine = when (section.engine) {
-                        FgEngine.ON_TRANSIT_ROTATE, FgEngine.STROBE -> FgEngine.BREATH
-                        else -> section.engine
-                    }
-                    val (cvFg, cvBg) = colorsForEngine(palette, coverEngine, sameTypeIdx)
-                    put(section.startMs, buildPayload(coverEngine, cvFg, cvBg, section.beatMs))
-                } else {
-                    var fillT = section.startMs; var fillIdx = 0
-                    while (fillT < firstBeat) {
-                        val (cvFg, cvBg) = colorsForEngine(palette, section.engine, sameTypeIdx, fillIdx, section.type)
-                        val fillRotateTransit = if (section.engine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
-                            ON_ROTATE_BALLAD_TRANSIT else 0
-                        val fillPeriod = if (section.engine == FgEngine.STROBE)
-                            (if (sectionNearClimax) 1 else msToStrobePeriod(section.beatMs)) else null
-                        put(fillT, buildPayload(section.engine, cvFg, cvBg, section.beatMs,
-                            period = fillPeriod, rotateTransit = fillRotateTransit))
-                        if (section.engine == FgEngine.ON_PULSE) {
-                            val offT = min(firstBeat, fillT + section.beatMs * 3L / 10L)
-                            if (offT > fillT)
-                                put(offT, buildPayload(FgEngine.ON_PULSE, cvBg, cvBg, section.beatMs))
-                        }
-                        fillT += section.beatMs; fillIdx++
-                    }
-                }
-            }
-
+            // 일반 섹션: beat마다 section 속성 이펙트
             for ((beatIndex, t) in effectiveBeats.withIndex()) {
-                if (beatIndex == 0 && section.type == SectionDetector.SectionType.INTRO) {
-                    val (introFg, _) = colorsForEngine(palette, FgEngine.BREATH, sameTypeIdx)
-                    put(section.startMs, buildPayload(FgEngine.BREATH, introFg, LSColor(0, 0, 0), section.beatMs,
-                        randomDelay = 3))
-                    continue
-                }
-
-                val nearClimax = if (section.engine == FgEngine.STROBE) sectionNearClimax
-                                 else isNearClimax(t)
+                val nearClimax = isNearClimax(t)
 
                 val beatEngine = if (section.type == SectionDetector.SectionType.BRIDGE)
                     bridgePhaseEngine(beatIndex, effectiveBeats.size, section.beatMs, section.relScore, isBalladMode)
@@ -510,7 +428,6 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
                 }
             }
 
-            prevSectionEndMs = section.endMs
         }
 
         if (finalOffMs < durationMs) frameMap.keys.filter { it > finalOffMs }.forEach { frameMap.remove(it) }
@@ -522,42 +439,6 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Beat grid (V8와 동일)
-    // ──────────────────────────────────────────────────────────────
-
-    private fun buildSectionBeatGrid(section: V8Section, actualBeats: List<Long>): List<Long> {
-        if (section.endMs <= section.startMs || section.beatMs <= 0L) return emptyList()
-        val expected = estimateBeatCount(section.startMs, section.endMs, section.beatMs)
-        val minRequired = (expected * ACTUAL_BEAT_USE_RATIO).toInt().coerceAtLeast(2)
-        if (actualBeats.size >= minRequired) return fillBeatGaps(actualBeats.sorted(), section.beatMs, section.endMs)
-        val grid = ArrayList<Long>(); var t = section.startMs
-        while (t < section.endMs) { grid += t; t += section.beatMs }
-        if (actualBeats.isEmpty()) return grid
-        val snapMs = section.beatMs / 4L
-        return grid.map { g ->
-            val closest = actualBeats.minByOrNull { abs(it - g) }
-            if (closest != null && abs(closest - g) <= snapMs) closest else g
-        }.distinct().sorted()
-    }
-
-    private fun fillBeatGaps(beats: List<Long>, beatMs: Long, sectionEndMs: Long): List<Long> {
-        if (beats.size < 2 || beatMs <= 0L) return beats
-        val gapTh = beatMs * 3L / 2L
-        val out = ArrayList<Long>(beats.size * 2); out += beats.first()
-        for (i in 1 until beats.size) {
-            val prev = beats[i - 1]; val cur = beats[i]; val gap = cur - prev
-            if (gap > gapTh) {
-                val fillCount = ((gap + beatMs / 2L) / beatMs).toInt() - 1
-                if (fillCount > 0) {
-                    val step = gap / (fillCount + 1).toLong()
-                    for (k in 1..fillCount) { val interp = prev + step * k; if (interp < sectionEndMs) out += interp }
-                }
-            }
-            out += cur
-        }
-        return out.distinct().sorted()
-    }
-
     // ──────────────────────────────────────────────────────────────
     // Payload builder (V8와 동일)
     // ──────────────────────────────────────────────────────────────
