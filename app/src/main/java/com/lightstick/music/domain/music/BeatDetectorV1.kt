@@ -215,8 +215,8 @@ object BeatDetectorV1 {
         val beatTimes = beats.map { it.timeMs }
         for (i in 1 until beatTimes.size) {
             val gap = beatTimes[i] - beatTimes[i - 1]
-            if (gap < beatMs / 4L) {
-                Log.w(TAG, "V1 detect() close-pair FINAL: ${beatTimes[i-1]}ms→${beatTimes[i]}ms gap=${gap}ms idx=$i reason=$reason")
+            if (gap < beatMs * 3L / 4L) {
+                Log.w(TAG, "V1 detect() short-gap FINAL: ${beatTimes[i-1]}ms→${beatTimes[i]}ms gap=${gap}ms (beatMs=$beatMs) idx=$i reason=$reason")
             }
         }
 
