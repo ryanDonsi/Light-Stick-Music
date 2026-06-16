@@ -30,8 +30,8 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
         private const val HOP_MS      = 50L
-        private const val MIN_BEAT_MS = 430L   // Fix 1: 290 → 430ms (8분음표 오탐 방지)
-        private const val MAX_BEAT_MS = 1000L  // Fix 1: 1200 → 1000ms
+        private val MIN_BEAT_MS = AutoTimelineConfig.MIN_BEAT_MS
+        private val MAX_BEAT_MS = AutoTimelineConfig.MAX_BEAT_MS
 
         private const val ON_TRANSIT = 2
 

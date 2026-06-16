@@ -49,4 +49,8 @@ object AutoTimelineConfig {
     const val GENERATOR_VERSION = 0
 
     const val PALETTE_SIZE = 4
+
+    /** 비트 감지기 공통 BPM 탐색 범위 — 모든 generator에서 공유 */
+    const val MIN_BEAT_MS = 375L   // ~160 BPM (BeatDetector 내부 하한과 일치)
+    const val MAX_BEAT_MS = 1200L  // ~50 BPM
 }

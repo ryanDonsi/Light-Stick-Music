@@ -20,8 +20,8 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
 
         private const val VERSION     = 13
         private const val HOP_MS      = 10L
-        private const val MIN_BEAT_MS   = 320L
-        private const val MAX_BEAT_MS   = 1200L
+        private val MIN_BEAT_MS = AutoTimelineConfig.MIN_BEAT_MS
+        private val MAX_BEAT_MS = AutoTimelineConfig.MAX_BEAT_MS
         private const val MAX_DECODE_MS = 600_000L  // 최대 10분 (OOM 방지)
 
         // IIR filter coefficients (V8 최적화)
