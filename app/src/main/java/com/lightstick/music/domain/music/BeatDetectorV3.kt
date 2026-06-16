@@ -86,13 +86,16 @@ object BeatDetectorV3 {
             return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
 
-        // [🔥 BPM은 반드시 odfTempo(순정)를 사용하여 반토막 함정을 피합니다]
+        Log.d(TAG, "ODF: frames=${odfTempo.size} hopMs=$hopMs durationMs=$durationMs")
+
+        // [BPM은 반드시 odfTempo(순정)를 사용하여 반토막 함정을 피합니다]
         val beatMs = dbnEstimateTempo(
             odfTempo, hopMs, params.minBeatMs, params.maxBeatMs,
             DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA
         )
+        Log.d(TAG, "BPM final: ${beatMs}ms (${60000L / beatMs} BPM)")
 
-        // [🔥 위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
+        // [위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
         val phaseMs = estimatePhaseFromOdf(odfTrack, beatMs, hopMs)
         val dpTimes = dpBeatTracker(odfTrack, beatMs, hopMs, durationMs, anchorMs = phaseMs)
 
@@ -457,18 +460,28 @@ object BeatDetectorV3 {
         val avg1x = getGridAverage(resultMs)
         val cMs = resultMs / 2
 
-        // 엔진이 느린 곡(680ms 초과 = 약 88 BPM 이하)으로 추정했을 때만 2배속 여부 검사
-        if (cMs >= minBeatMs && resultMs > 680L) {
-            val avg2x = getGridAverage(cMs)
+        Log.d(TAG, "DBN raw: ${resultMs}ms (${60000L / resultMs} BPM) | half: ${cMs}ms (${if (cMs > 0) 60000L / cMs else 0} BPM)")
+        Log.d(TAG, "Octave gate: resultMs=$resultMs > 910ms = ${resultMs > 910L} | cMs=$cMs >= minBeatMs=$minBeatMs = ${cMs >= minBeatMs}")
 
-            // 댄스곡: 엇박자에 스네어가 강하게 찍혀서 절반 템포의 평균 에너지가 73% 이상 높게 유지됨
-            // 발라드: 엇박자가 비어 있어서 절반 템포의 평균 에너지가 크게 떨어짐
+        // V2와 동일하게 910ms 초과(≈65 BPM 이하)인 경우에만 2배속 검사
+        // 이전 680ms 게이트는 ~900ms 발라드(66 BPM)가 게이트를 통과하면서
+        // 비트 사이 지속음 에너지로 인해 avg2x > avg1x * 0.73f 조건을 False Positive로 통과해 오배속 유발
+        if (cMs >= minBeatMs && resultMs > 910L) {
+            val avg2x = getGridAverage(cMs)
+            val ratio = if (avg1x > 1e-6f) avg2x / avg1x else 0f
+
+            Log.d(TAG, "Octave grid: avg1x=$avg1x avg2x=$avg2x ratio=${"%.3f".format(ratio)} threshold=0.73")
+
+            // 댄스곡: 오프비트 스네어 에너지 → 절반 주기 평균이 73% 이상 유지
+            // 발라드: 비트 사이 에너지 부족 → 절반 주기 평균이 크게 낮아짐
             if (avg2x > avg1x * 0.73f) {
                 bestCorrMs = cMs
-                Log.d(TAG, "Octave Check: Doubled to ${60000/cMs} BPM (avg1x=$avg1x, avg2x=$avg2x)")
+                Log.d(TAG, "Octave DOUBLED: ${60000L / resultMs}BPM → ${60000L / cMs}BPM (ratio=${"%.3f".format(ratio)})")
             } else {
-                Log.d(TAG, "Octave Check: Kept at ${60000/resultMs} BPM (avg1x=$avg1x, avg2x=$avg2x)")
+                Log.d(TAG, "Octave KEPT: ${60000L / resultMs}BPM (ratio=${"%.3f".format(ratio)} < 0.73)")
             }
+        } else {
+            Log.d(TAG, "Octave SKIPPED → final=${60000L / resultMs}BPM (${resultMs}ms)")
         }
 
         return bestCorrMs
