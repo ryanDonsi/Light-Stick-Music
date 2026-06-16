@@ -89,9 +89,10 @@ class SectionDetectorV1 : SectionDetector {
 
         val rawSections = buildSectionsFromWindows(windows, durationMs, lowTh, highTh)
 
-        val barMs = beatMs * beatsPerBar.coerceAtLeast(1)
-        val barBoundaries = generateBarBoundaries(downbeatMs, durationMs, barMs)
-        val alignedSections = alignBoundariesToBars(rawSections, barBoundaries, durationMs)
+        // 실제 beat 타임스탬프로 경계 정렬 (synthetic bar grid 대신)
+        // → section.startMs가 항상 실제 beat 위치에 snap됨
+        val beatBoundaries = beats.map { it.timeMs }.sorted().toLongArray()
+        val alignedSections = alignBoundariesToBars(rawSections, beatBoundaries, durationMs)
 
         val sections = toSections(alignedSections)
         val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs)
