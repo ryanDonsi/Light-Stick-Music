@@ -20,5 +20,7 @@ data class SectionMeta(
     val onsetDensity: Float = 0f,  // 비트 밀집도 (0~1, novelty > 0.12 비율)
     val periodicity: Float  = 0f,  // 주기성 강도 (0~1)
     // 곡 단위 스타일 — 첫 번째 섹션에만 채워지며 나머지는 null
-    val musicStyle: MusicStyleClassifier.MusicStyle? = null
+    val musicStyle: MusicStyleClassifier.MusicStyle? = null,
+    // 이 섹션 안에 포함된 비트 타임스탬프 목록 (BeatDetector 원본)
+    val beatTimesMs: List<Long> = emptyList()
 )

@@ -194,7 +194,8 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
                 lowRatio       = s.lowRatio,   midRatio       = s.midRatio,
                 highRatio      = s.highRatio,  onsetDensity   = s.onsetDensity,
                 periodicity    = s.periodicity,
-                musicStyle     = if (idx == 0) musicStyle else null
+                musicStyle     = if (idx == 0) musicStyle else null,
+                beatTimesMs    = sectionBeats.map { it.timeMs }
             )
         }
 

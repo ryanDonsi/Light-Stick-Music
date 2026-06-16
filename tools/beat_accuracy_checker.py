@@ -588,6 +588,65 @@ def parse_timeline_binary(path):
         times_ms.append(time_ms)
     return version, frame_count, times_ms
 
+# SectionDetector.SectionType enum 순서 (Kotlin 정의와 동일해야 함)
+_SECTION_TYPES = ['INTRO', 'VERSE', 'CHORUS', 'BRIDGE', 'END',
+                  'VOCAL', 'BEAT', 'BUILD', 'CLIMAX', 'BREAK', 'OUTRO']
+
+def parse_section_meta_binary(path):
+    """SectionMetaStorage 바이너리 파싱.
+    반환: (version, list of section dicts)
+    각 dict: start_ms, end_ms, type, beat_ms, beat_confidence,
+             energy, peak_energy, low_ratio, mid_ratio, high_ratio,
+             onset_density, periodicity, beat_times_ms (List[int])
+    """
+    with open(path, "rb") as f:
+        data = f.read()
+    offset = 0
+    if len(data) < 12:
+        return 0, []
+    version   = struct.unpack_from(">i", data, offset)[0]; offset += 4
+    _style    = struct.unpack_from(">i", data, offset)[0]; offset += 4
+    count     = struct.unpack_from(">i", data, offset)[0]; offset += 4
+    sections  = []
+    for _ in range(count):
+        if offset + 8 > len(data): break
+        start_ms      = struct.unpack_from(">q", data, offset)[0]; offset += 8
+        end_ms        = struct.unpack_from(">q", data, offset)[0]; offset += 8
+        type_ord      = struct.unpack_from(">i", data, offset)[0]; offset += 4
+        _str_ord      = struct.unpack_from(">i", data, offset)[0]; offset += 4
+        beat_ms       = struct.unpack_from(">q", data, offset)[0]; offset += 8
+        beat_conf     = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        energy        = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        peak_energy   = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        low_ratio     = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        mid_ratio     = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        high_ratio    = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        onset_density = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        periodicity   = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        # beatTimesMs (VERSION=1 이상)
+        beat_times_ms = []
+        if offset + 4 <= len(data):
+            beat_count = struct.unpack_from(">i", data, offset)[0]; offset += 4
+            for _ in range(beat_count):
+                if offset + 8 > len(data): break
+                beat_times_ms.append(struct.unpack_from(">q", data, offset)[0]); offset += 8
+        sections.append({
+            "start_ms":      start_ms,
+            "end_ms":        end_ms,
+            "type":          _SECTION_TYPES[type_ord] if 0 <= type_ord < len(_SECTION_TYPES) else "VERSE",
+            "beat_ms":       beat_ms,
+            "beat_confidence": beat_conf,
+            "energy":        round(energy, 4),
+            "peak_energy":   round(peak_energy, 4),
+            "low_ratio":     round(low_ratio, 4),
+            "mid_ratio":     round(mid_ratio, 4),
+            "high_ratio":    round(high_ratio, 4),
+            "onset_density": round(onset_density, 4),
+            "periodicity":   round(periodicity, 4),
+            "beat_times_ms": beat_times_ms,
+        })
+    return version, sections
+
 # ──────────────────────────────────────────────
 # 분석 유틸
 # ──────────────────────────────────────────────
@@ -1836,7 +1895,7 @@ class App(tk.Tk):
                                  tol_ms, music_id, duration_sec,
                                  app_ms, ref_ms, tp_est, fp_est, fn_ref,
                                  f, p, r, tp, fp_cnt, fn,
-                                 bpm_app, bpm_ref, grade):
+                                 bpm_app, bpm_ref, grade, section_results=None):
         """분석 결과를 beat_analysis_records.json 에 누적 저장한다."""
         import datetime
 
@@ -1914,6 +1973,9 @@ class App(tk.Tk):
                 "median_offset_ms": round(sorted(abs(e) for e in offset_errors)[len(offset_errors)//2], 2) if offset_errors else 0,
                 "within_tol_pct":   round(sum(1 for e in offset_errors if abs(e) <= tol_ms) / len(offset_errors) * 100, 1) if offset_errors else 0,
             },
+
+            # 섹션별 비트 정확도 (section meta 바이너리가 있을 때만 채워짐)
+            "sections": section_results or [],
         }
 
         records.append(record)
@@ -2276,6 +2338,19 @@ class App(tk.Tk):
         app_st   = beat_stats(app_ms)
         bin_id   = extract_music_id(bin_path) or os.path.splitext(os.path.basename(bin_path))[0]
 
+        # 섹션 메타 바이너리 탐색 (같은 폴더의 sections_<id>_v*.bin)
+        sections = []
+        try:
+            bin_folder = os.path.dirname(bin_path)
+            for fname in sorted(os.listdir(bin_folder), reverse=True):
+                if fname.startswith("sections_") and fname.endswith(".bin"):
+                    fid = extract_music_id(fname)
+                    if fid == bin_id:
+                        _, sections = parse_section_meta_binary(os.path.join(bin_folder, fname))
+                        break
+        except Exception:
+            pass
+
         # 오디오 해시 기반 Music ID (SDK 동일 알고리즘)
         try:
             audio_hash_id = str(compute_music_id(audio_path))
@@ -2387,11 +2462,46 @@ class App(tk.Tk):
             self._log(f"완료 — F={f*100:.1f}%  P={p*100:.1f}%  R={r*100:.1f}%"
                       f"  BPM 앱{app_st.get('bpm',0):.0f}/GT{ref_bpm:.0f}", "green")
             self._save_result_to_item(audio_path, engine, grade, f)
-            # 카드 등급 즉시 반영
             sel = self._tree.selection()
             if sel:
                 self._update_engine_cards(sel[0])
         self.after(0, _update_ui)
+
+        # ── 섹션별 비트 정확도 분석 ──────────────────
+        section_results = []
+        if sections:
+            def _log_sections(secs=sections):
+                self._log("\n─── 섹션별 비트 정확도 ───────────────────────────", "gray")
+                self._log(f"  {'#':>2}  {'타입':<8}  {'구간':>17}  {'F':>5}  {'P':>5}  {'R':>5}  "
+                          f"{'TP':>4}  {'FP':>4}  {'FN':>4}  앱비트/GT비트")
+            self.after(0, _log_sections)
+            for i, sec in enumerate(sections):
+                s_beats_ms = sec.get("beat_times_ms", [])
+                s_start = sec["start_ms"] / 1000.0
+                s_end   = sec["end_ms"]   / 1000.0
+                sec_type = sec["type"]
+                sec_ref  = [t for t in ref_sec if s_start <= t < s_end]
+                sec_app  = [t / 1000.0 for t in s_beats_ms]
+                if sec_ref or sec_app:
+                    sf, sp, sr, stp, sfp, sfn = fmeasure(sec_ref, sec_app, tol_sec) \
+                        if sec_ref and sec_app else (0.0, 0.0, 0.0, 0, 0, len(sec_ref))
+                    section_results.append({
+                        "index": i, "type": sec_type,
+                        "start_ms": sec["start_ms"], "end_ms": sec["end_ms"],
+                        "beat_count_app": len(sec_app), "beat_count_gt": len(sec_ref),
+                        "f_measure": round(sf, 4), "precision": round(sp, 4), "recall": round(sr, 4),
+                        "tp": stp, "fp": sfp, "fn": sfn,
+                        "energy": sec.get("energy", 0), "beat_ms": sec.get("beat_ms", 0),
+                    })
+                    tag = "green" if sf >= 0.8 else ("yellow" if sf >= 0.6 else "red")
+                    def _ls(i=i, st=sec_type, ss=s_start, se=s_end,
+                             sf=sf, sp=sp, sr=sr, stp=stp, sfp=sfp, sfn=sfn,
+                             na=len(sec_app), ng=len(sec_ref), tag=tag):
+                        self._log(
+                            f"  {i:2d}  {st:<8}  {_fmt_sec(ss)}~{_fmt_sec(se)}"
+                            f"  {sf*100:5.1f}%  {sp*100:5.1f}%  {sr*100:5.1f}%"
+                            f"  {stp:4d}  {sfp:4d}  {sfn:4d}  {na}/{ng}", tag)
+                    self.after(0, _ls)
 
         # 결과 캐시
         self._last_result = dict(
@@ -2415,6 +2525,7 @@ class App(tk.Tk):
             f=f, p=p, r=r, tp=tp, fp_cnt=fp_cnt, fn=fn,
             bpm_app=app_st.get('bpm', 0), bpm_ref=ref_bpm,
             grade=grade,
+            section_results=section_results,
         )
         # 비트 타임라인 그리기 (전체 기본)
         def _draw():
