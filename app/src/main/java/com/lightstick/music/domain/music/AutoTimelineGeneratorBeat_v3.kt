@@ -264,7 +264,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         isClimax: Boolean, isBalladMode: Boolean
     ): FgEngine = when (type) {
         SectionDetector.SectionType.INTRO  -> FgEngine.BREATH
-        SectionDetector.SectionType.OUTRO  -> FgEngine.ON_PULSE
+        SectionDetector.SectionType.OUTRO  -> FgEngine.OFF_TRANSIT
         SectionDetector.SectionType.BREAK  -> FgEngine.BREATH
 
         SectionDetector.SectionType.CLIMAX -> when {
@@ -289,13 +289,13 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         SectionDetector.SectionType.VERSE  -> if (isBalladMode) FgEngine.BREATH else FgEngine.ON_PULSE
         SectionDetector.SectionType.CHORUS -> if (isClimax) FgEngine.STROBE else FgEngine.ON_TRANSIT_ROTATE
         SectionDetector.SectionType.BRIDGE -> FgEngine.BREATH
-        SectionDetector.SectionType.END    -> FgEngine.ON_PULSE
+        SectionDetector.SectionType.END    -> FgEngine.OFF_TRANSIT
     }
 
     private fun buildSourceName(type: SectionDetector.SectionType, engine: FgEngine, beats: Int): String =
         when (type) {
             SectionDetector.SectionType.INTRO  -> "intro-breath"
-            SectionDetector.SectionType.OUTRO  -> "outro-pulse"
+            SectionDetector.SectionType.OUTRO  -> "outro-off"
             SectionDetector.SectionType.BREAK  -> "break-breath"
             SectionDetector.SectionType.CLIMAX -> if (engine == FgEngine.STROBE) "climax-strobe" else "climax-rotate"
             SectionDetector.SectionType.BUILD  -> "build-rotate"
@@ -307,7 +307,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             SectionDetector.SectionType.VERSE  -> "verse-on-pulse"
             SectionDetector.SectionType.CHORUS -> "chorus-rotate"
             SectionDetector.SectionType.BRIDGE -> "bridge-breath"
-            SectionDetector.SectionType.END    -> "end-pulse"
+            SectionDetector.SectionType.END    -> "end-off"
         }
 
     // ──────────────────────────────────────────────────────────────
