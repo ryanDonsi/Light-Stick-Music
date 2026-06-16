@@ -38,10 +38,6 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         private const val INTRO_PRESTART_TRANSIT_MS = 1_000L
         private const val MIN_TRAILING_SILENCE_MS   = 1_500L
 
-        private const val CLIMAX_WINDOW_HALF_MS = 4_000L
-        private const val CLIMAX_MIN_CV         = 0.35f
-        private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
-
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
         private const val ON_PULSE_BG_TRANSIT     = 5
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
@@ -153,23 +149,14 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         Log.d(TAG, "v2 [PERF] sectionDetect=${System.currentTimeMillis() - t0Section}ms sections=${sectionGroups.size}")
 
         // ── 4. Music style + climax ───────────────────────────────
-        val styleResult  = MusicStyleClassifier.classify(
+        val musicStyle = MusicStyleClassifier.classify(
             lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beatMs = globalBeatMs, beats = beatInfoBeats, hopMs = effectiveHopMs
-        )
-        val musicStyle    = styleResult.style
-        val isBalladMode  = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
-                         || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
-        val needsClimax   = musicStyle == MusicStyleClassifier.MusicStyle.EDM
-                         || musicStyle == MusicStyleClassifier.MusicStyle.DANCE_POP
-                         || musicStyle == MusicStyleClassifier.MusicStyle.ROCK
-                         || musicStyle == MusicStyleClassifier.MusicStyle.POP
-        val climaxMoments = if (!needsClimax) emptyList()
-                            else detectClimaxPeakMoments(fullEnv, durationMs, globalBeatMs, effectiveHopMs)
-        Log.d(TAG, "v2 style=$musicStyle balladMode=$isBalladMode climax=${climaxMoments.size}")
+        ).style
+        Log.d(TAG, "v2 style=$musicStyle")
 
         // ── 5. Convert → V8Section (이펙트는 모두 ON_PULSE) ──────────
-        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, climaxMoments, isBalladMode)
+        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs)
 
         // ── 6. Frame building ─────────────────────────────────────
         val t0Build    = System.currentTimeMillis()
@@ -177,15 +164,13 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
             .coerceIn(0L, durationMs)
 
         val frames = buildFramesFromSections(
-            palette         = palette,
-            sections        = v8Sections,
-            beatTimesMs     = beatTimesMs,
-            durationMs      = durationMs,
-            climaxMoments   = climaxMoments,
-            isBalladMode    = isBalladMode,
-            finalOffMs      = finalOffMs,
-            downbeatMs      = downbeatMs,
-            beatsPerBar     = beatsPerBar
+            palette     = palette,
+            sections    = v8Sections,
+            beatTimesMs = beatTimesMs,
+            durationMs  = durationMs,
+            finalOffMs  = finalOffMs,
+            downbeatMs  = downbeatMs,
+            beatsPerBar = beatsPerBar
         )
         Log.d(TAG, "v2 [PERF] build=${System.currentTimeMillis() - t0Build}ms frames=${frames.size}")
         Log.d(TAG, "v2 [PERF] total=${System.currentTimeMillis() - t0Total}ms  file=$fileName durationMs=$durationMs")
@@ -217,9 +202,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
     private fun convertToV8Sections(
         groups: List<SectionGroup>,
-        beatMs: Long,
-        climaxMoments: List<Long>,
-        isBalladMode: Boolean
+        beatMs: Long
     ): List<V8Section> {
         if (groups.isEmpty()) return emptyList()
 
@@ -257,8 +240,6 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         sections: List<V8Section>,
         beatTimesMs: List<Long>,
         durationMs: Long,
-        climaxMoments: List<Long>,
-        isBalladMode: Boolean,
         finalOffMs: Long,
         downbeatMs: Long = 0L,
         beatsPerBar: Int = 4
@@ -395,42 +376,8 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Climax / silence detection (V3와 동일)
+    // Silence detection
     // ──────────────────────────────────────────────────────────────
-
-    private fun detectClimaxPeakMoments(fullEnv: List<Float>, durationMs: Long, beatMs: Long, hopMs: Long = HOP_MS): List<Long> {
-        if (fullEnv.size < 8) return emptyList()
-        val scoreArray = FloatArray(fullEnv.size)
-        for (i in 2 until fullEnv.size - 2) {
-            val energy   = fullEnv[i]
-            val rise     = max(0f, fullEnv[i] - fullEnv[i - 1])
-            val localAvg = (fullEnv[i-2] + fullEnv[i-1] + fullEnv[i+1] + fullEnv[i+2]) / 4f
-            scoreArray[i] = energy * 0.50f + rise * 0.30f + max(0f, energy - localAvg) * 0.20f
-        }
-        val scoreList = scoreArray.toList().filter { it > 0f }
-        if (scoreList.isEmpty()) return emptyList()
-        val envMean  = scoreList.average().toFloat()
-        val envStd   = sqrt(scoreList.fold(0f) { acc, v -> acc + (v - envMean) * (v - envMean) } / scoreList.size)
-        val cv       = if (envMean > 0f) envStd / envMean else 0f
-        val peakRatio = (scoreList.max()) / envMean.coerceAtLeast(1e-6f)
-        if (cv < CLIMAX_MIN_CV || peakRatio < CLIMAX_MIN_PEAK_RATIO) return emptyList()
-        val candidates = ArrayList<Pair<Long, Float>>()
-        for (i in 2 until scoreArray.size - 2) {
-            val sc = scoreArray[i]; if (sc <= 0f) continue
-            if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2])
-                candidates += (i.toLong() * hopMs) to sc
-        }
-        val p90 = scoreList.sorted().let { it[(it.lastIndex * 0.90f).toInt().coerceIn(0, it.lastIndex)] }
-        val strong = candidates.filter { it.second >= p90 * 1.18f && it.second >= envMean + envStd * 1.30f }
-            .sortedByDescending { it.second }
-        val minGapMs = max(800L, beatMs * 4L)
-        val selected = ArrayList<Pair<Long, Float>>()
-        for (c in strong) {
-            if (selected.none { abs(it.first - c.first) < minGapMs }) selected += c
-            if (selected.size >= 3) break
-        }
-        return selected.sortedBy { it.first }.map { it.first.coerceIn(0L, durationMs) }
-    }
 
     private fun detectLastMusicEndMs(frames: FloatArray, hopMs: Long, minTrailingSilenceMs: Long): Long {
         if (frames.isEmpty()) return 0L

@@ -5,6 +5,7 @@ import com.lightstick.music.core.util.Log
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /**
  * SectionDetectorV2
@@ -68,6 +69,10 @@ class SectionDetectorV2 : SectionDetector {
         private const val MEDIUM_CHANGE_TH = 0.12f
 
         private const val ALIGN_SNAP_MS     = 500L
+
+        private const val CLIMAX_WINDOW_HALF_MS = 4_000L
+        private const val CLIMAX_MIN_CV         = 0.35f
+        private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -119,15 +124,19 @@ class SectionDetectorV2 : SectionDetector {
         val rawSections = buildSectionsFromWindows(classified, durationMs)
         val sortedBeatTimes = beats.map { it.timeMs }.toLongArray().also { it.sort() }
         val aligned = alignBoundariesToBeats(rawSections, sortedBeatTimes, durationMs)
-        return annotateBeats(beats, toSections(aligned))
+        val climaxMoments = detectClimaxMoments(fullEnv, durationMs, hopMs, beatMs)
+        return annotateBeats(beats, toSections(aligned), climaxMoments)
     }
 
     private fun annotateBeats(
         beats: List<BeatDetectorRouter.BeatInfo.Beat>,
-        sections: List<SectionDetector.Section>
+        sections: List<SectionDetector.Section>,
+        climaxMoments: List<Long>
     ): List<SectionDetector.AnnotatedBeat> = beats.map { beat ->
-        val type = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
+        val sectionType = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
             ?: SectionDetector.SectionType.VOCAL
+        val type = if (climaxMoments.any { abs(it - beat.timeMs) <= CLIMAX_WINDOW_HALF_MS })
+            SectionDetector.SectionType.CLIMAX else sectionType
         SectionDetector.AnnotatedBeat(beat.timeMs, beat.confidence, type)
     }
 
@@ -450,6 +459,40 @@ class SectionDetectorV2 : SectionDetector {
             ratio in 1.70f..2.20f -> (beatMs / 2L).coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
             else                  -> beatMs
         }
+    }
+
+    private fun detectClimaxMoments(
+        fullEnv: List<Float>, durationMs: Long, hopMs: Long, beatMs: Long
+    ): List<Long> {
+        if (fullEnv.size < 8) return emptyList()
+        val scoreArray = FloatArray(fullEnv.size)
+        for (i in 2 until fullEnv.size - 2) {
+            val e = fullEnv[i]
+            val localAvg = (fullEnv[i-2] + fullEnv[i-1] + fullEnv[i+1] + fullEnv[i+2]) * 0.25f
+            scoreArray[i] = e * 0.50f + max(0f, e - fullEnv[i-1]) * 0.30f + max(0f, e - localAvg) * 0.20f
+        }
+        val scoreList = scoreArray.filter { it > 0f }
+        if (scoreList.isEmpty()) return emptyList()
+        val envMean = scoreList.average().toFloat()
+        val envStd  = sqrt(scoreList.fold(0f) { acc, v -> acc + (v - envMean) * (v - envMean) } / scoreList.size)
+        val cv = if (envMean > 0f) envStd / envMean else 0f
+        val peakRatio = if (envMean > 0f) scoreList.max() / envMean else 0f
+        if (cv < CLIMAX_MIN_CV || peakRatio < CLIMAX_MIN_PEAK_RATIO) return emptyList()
+        val p90 = scoreList.sorted().let { it[(it.lastIndex * 0.90f).toInt().coerceIn(0, it.lastIndex)] }
+        val minGapMs = max(800L, beatMs * 4L)
+        val selected = ArrayList<Long>()
+        for (i in 2 until scoreArray.size - 2) {
+            val sc = scoreArray[i]; if (sc <= 0f) continue
+            if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2] &&
+                sc >= p90 * 1.18f && sc >= envMean + envStd * 1.30f) {
+                val tMs = i.toLong() * hopMs
+                if (selected.none { abs(it - tMs) < minGapMs }) {
+                    selected += tMs
+                    if (selected.size >= 3) break
+                }
+            }
+        }
+        return selected.sorted().map { it.coerceIn(0L, durationMs) }
     }
 
     private fun percentile(values: List<Float>, p: Float): Float {

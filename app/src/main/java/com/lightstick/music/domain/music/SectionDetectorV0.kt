@@ -96,16 +96,18 @@ class SectionDetectorV0 : SectionDetector {
 
         val sections = toSections(alignedSections)
         val climaxMoments = detectClimaxMoments(fullEnv, durationMs, hopMs, beatMs)
-        val finalSections = reclassifyClimax(sections, climaxMoments)
-        return annotateBeats(beats, finalSections)
+        return annotateBeats(beats, sections, climaxMoments)
     }
 
     private fun annotateBeats(
         beats: List<BeatDetectorRouter.BeatInfo.Beat>,
-        sections: List<SectionDetector.Section>
+        sections: List<SectionDetector.Section>,
+        climaxMoments: List<Long>
     ): List<SectionDetector.AnnotatedBeat> = beats.map { beat ->
-        val type = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
+        val sectionType = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
             ?: SectionDetector.SectionType.VERSE
+        val type = if (climaxMoments.any { abs(it - beat.timeMs) <= CLIMAX_WINDOW_HALF_MS })
+            SectionDetector.SectionType.CLIMAX else sectionType
         SectionDetector.AnnotatedBeat(beat.timeMs, beat.confidence, type)
     }
 
@@ -629,26 +631,6 @@ class SectionDetectorV0 : SectionDetector {
         val result = selected.sortedBy { it.tMs }.map { it.tMs.coerceIn(0L, durationMs) }
         Log.d(TAG, "SectionDetectorV0 climax moments=${result.joinToString()}")
         return result
-    }
-
-    private fun reclassifyClimax(
-        sections: List<SectionDetector.Section>,
-        climaxMoments: List<Long>
-    ): List<SectionDetector.Section> {
-        if (climaxMoments.isEmpty()) return sections
-        return sections.map { s ->
-            val midMs = (s.startMs + s.endMs) / 2L
-            val nearClimax = climaxMoments.any { abs(it - midMs) <= CLIMAX_WINDOW_HALF_MS }
-            val isHighEnergy = s.energy >= 0.50f
-            when {
-                nearClimax && (s.type == SectionDetector.SectionType.CHORUS ||
-                              (s.type == SectionDetector.SectionType.VERSE && isHighEnergy)) -> {
-                    Log.d(TAG, "SectionDetectorV0 reclassify ${s.type}→CLIMAX [${s.startMs}~${s.endMs}] energy=${s.energy}")
-                    s.copy(type = SectionDetector.SectionType.CLIMAX)
-                }
-                else -> s
-            }
-        }
     }
 
     // ──────────────────────────────────────────────────────────────

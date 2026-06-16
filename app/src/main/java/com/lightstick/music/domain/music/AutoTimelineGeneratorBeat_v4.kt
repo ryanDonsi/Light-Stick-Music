@@ -8,7 +8,6 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToLong
-import kotlin.math.sqrt
 
 /**
  * AutoTimelineGeneratorBeat v4
@@ -37,10 +36,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         private const val ON_TRANSIT = 2
 
         private const val MIN_TRAILING_SILENCE_MS   = 1_500L
-
-        private const val CLIMAX_WINDOW_HALF_MS = 4_000L
-        private const val CLIMAX_MIN_CV         = 0.35f
-        private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
 
         private const val SECTION_GAP_BREATH_THRESHOLD_MS = 2_000L
 
@@ -156,17 +151,10 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         // BALLAD / HIPHOP_RNB 는 느리고 부드러운 이펙트 계열로 처리
         val isBalladMode  = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
                          || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
-        // EDM / DANCE_POP 는 클라이맥스 감지 필요, 나머지는 불필요
-        val needsClimax   = musicStyle == MusicStyleClassifier.MusicStyle.EDM
-                         || musicStyle == MusicStyleClassifier.MusicStyle.DANCE_POP
-                         || musicStyle == MusicStyleClassifier.MusicStyle.ROCK
-                         || musicStyle == MusicStyleClassifier.MusicStyle.POP
-        val climaxMoments = if (!needsClimax) emptyList()
-                            else detectClimaxPeakMoments(fullEnv, durationMs, globalBeatMs)
-        Log.d(TAG, "v4 style=$musicStyle balladMode=$isBalladMode climax=${climaxMoments.size}")
+        Log.d(TAG, "v4 style=$musicStyle balladMode=$isBalladMode")
 
         // ── 5. Convert → V8Section with FgEngine assignment ───────
-        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, climaxMoments, isBalladMode,
+        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode,
             fullEnv = fullEnv, durationMs = durationMs, hopMs = HOP_MS)
 
         // ── 6. Frame building (V8 규칙) ───────────────────────────
@@ -179,7 +167,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
             sections        = v8Sections,
             beatTimesMs     = beatTimesMs,
             durationMs      = durationMs,
-            climaxMoments   = climaxMoments,
             isBalladMode    = isBalladMode,
             finalOffMs      = finalOffMs,
             downbeatMs      = downbeatMs,
@@ -215,7 +202,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
     private fun convertToV8Sections(
         groups: List<SectionGroup>,
         beatMs: Long,
-        climaxMoments: List<Long>,
         isBalladMode: Boolean,
         fullEnv: List<Float>,
         durationMs: Long,
@@ -232,8 +218,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
             val energy   = energies[i]
             val beats    = g.annotatedBeats.size
             val relScore = ((energy - lowTh) / range).coerceIn(0f, 1f)
-            val midMs    = (g.startMs + g.endMs) / 2L
-            val isClimax = climaxMoments.any { abs(it - midMs) <= 6_000L }
 
             val normalizedType = when {
                 g.type == SectionDetector.SectionType.BRIDGE && beats < 6 ->
@@ -242,7 +226,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
             }
 
             val engine = assignFgEngine(normalizedType, relScore, beats, globalBeatMs = beatMs,
-                isClimax = isClimax, isBalladMode = isBalladMode)
+                isBalladMode = isBalladMode)
 
             val source = buildSourceName(normalizedType, engine, beats)
 
@@ -271,11 +255,10 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         return fullEnv.subList(startIdx, endIdx + 1).average().toFloat()
     }
 
-    @Suppress("UNUSED_PARAMETER")
     private fun assignFgEngine(
         type: SectionDetector.SectionType,
         rel: Float, beats: Int, globalBeatMs: Long,
-        isClimax: Boolean, isBalladMode: Boolean
+        isBalladMode: Boolean
     ): FgEngine = when (type) {
         SectionDetector.SectionType.INTRO  -> FgEngine.BREATH
         SectionDetector.SectionType.OUTRO  -> FgEngine.OFF_TRANSIT
@@ -301,7 +284,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
 
         // V1 legacy (V3+V2 detector에서는 나오지 않음)
         SectionDetector.SectionType.VERSE  -> if (isBalladMode) FgEngine.BREATH else FgEngine.ON_PULSE
-        SectionDetector.SectionType.CHORUS -> if (isClimax) FgEngine.STROBE else FgEngine.ON_TRANSIT_ROTATE
+        SectionDetector.SectionType.CHORUS -> FgEngine.ON_TRANSIT_ROTATE
         SectionDetector.SectionType.BRIDGE -> FgEngine.BREATH
         SectionDetector.SectionType.END    -> FgEngine.OFF_TRANSIT
     }
@@ -334,7 +317,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         sections: List<V8Section>,
         beatTimesMs: List<Long>,
         durationMs: Long,
-        climaxMoments: List<Long>,
         isBalladMode: Boolean,
         finalOffMs: Long,
         downbeatMs: Long = 0L,
@@ -345,8 +327,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
         fun put(t: Long, payload: ByteArray) {
             if (t >= 0L) frameMap[t] = payload
         }
-
-        fun isNearClimax(tMs: Long) = climaxMoments.any { abs(it - tMs) <= CLIMAX_WINDOW_HALF_MS }
 
         data class RepeatKey(
             val engine: FgEngine,
@@ -413,13 +393,6 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
             val firstBeat  = effectiveBeats.first()
             val coverGapMs = firstBeat - section.startMs
 
-            val sectionNearClimax = if (section.engine == FgEngine.STROBE) {
-                climaxMoments.any { c ->
-                    c + CLIMAX_WINDOW_HALF_MS >= section.startMs &&
-                    c - CLIMAX_WINDOW_HALF_MS <= section.endMs
-                }
-            } else false
-
             if (insertTransitionBreath) {
                 val (mFg, mBg) = palette.white to palette.breathSet.bg
                 put(section.startMs, buildPayload(FgEngine.BREATH, mFg, mBg, section.beatMs,
@@ -439,8 +412,7 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
                         val (cvFg, cvBg) = colorsForEngine(palette, section.engine, sameTypeIdx, fillIdx, section.type)
                         val fillRotateTransit = if (section.engine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
                             ON_ROTATE_BALLAD_TRANSIT else 0
-                        val fillPeriod = if (section.engine == FgEngine.STROBE)
-                            (if (sectionNearClimax) 1 else msToStrobePeriod(section.beatMs)) else null
+                        val fillPeriod = if (section.engine == FgEngine.STROBE) 1 else null
                         put(fillT, buildPayload(section.engine, cvFg, cvBg, section.beatMs,
                             period = fillPeriod, rotateTransit = fillRotateTransit))
                         if (section.engine == FgEngine.ON_PULSE) {
@@ -461,17 +433,11 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
                     continue
                 }
 
-                val nearClimax = if (section.engine == FgEngine.STROBE) sectionNearClimax
-                                 else isNearClimax(t)
-
                 val beatEngine = if (section.type == SectionDetector.SectionType.BRIDGE)
                     bridgePhaseEngine(beatIndex, effectiveBeats.size, section.beatMs, section.relScore, isBalladMode)
                 else section.engine
 
-                val effectiveEngine = when {
-                    beatEngine == FgEngine.STROBE && !nearClimax -> FgEngine.BREATH
-                    else -> beatEngine
-                }
+                val effectiveEngine = beatEngine
 
                 val (fg, bgNonNull) = colorsForEngine(palette, effectiveEngine, sameTypeIdx, beatIndex, section.type)
 
@@ -481,13 +447,13 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
                     else            -> null
                 }
                 val beatRandomDelay = when {
-                    effectiveEngine == FgEngine.STROBE && nearClimax   -> 1
-                    effectiveEngine == FgEngine.ON_TRANSIT_ROTATE      -> null
-                    effectiveEngine == FgEngine.ON_PULSE               -> null
+                    effectiveEngine == FgEngine.STROBE             -> 1
+                    effectiveEngine == FgEngine.ON_TRANSIT_ROTATE  -> null
+                    effectiveEngine == FgEngine.ON_PULSE           -> null
                     effectiveEngine == FgEngine.BREATH &&
                         section.type == SectionDetector.SectionType.VERSE -> 0
-                    effectiveEngine == FgEngine.BREATH                 -> msToBreathRandomDelay(section.beatMs)
-                    else                                               -> null
+                    effectiveEngine == FgEngine.BREATH             -> msToBreathRandomDelay(section.beatMs)
+                    else                                           -> null
                 }
                 val beatRotateTransit = if (effectiveEngine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
                     ON_ROTATE_BALLAD_TRANSIT else 0
@@ -672,42 +638,8 @@ class AutoTimelineGeneratorBeat_v4 : AutoTimelineGenerator, SectionAwareGenerato
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Climax / ballad / silence detection (V8와 동일)
+    // Silence detection
     // ──────────────────────────────────────────────────────────────
-
-    private fun detectClimaxPeakMoments(fullEnv: List<Float>, durationMs: Long, beatMs: Long): List<Long> {
-        if (fullEnv.size < 8) return emptyList()
-        val scoreArray = FloatArray(fullEnv.size)
-        for (i in 2 until fullEnv.size - 2) {
-            val energy   = fullEnv[i]
-            val rise     = max(0f, fullEnv[i] - fullEnv[i - 1])
-            val localAvg = (fullEnv[i-2] + fullEnv[i-1] + fullEnv[i+1] + fullEnv[i+2]) / 4f
-            scoreArray[i] = energy * 0.50f + rise * 0.30f + max(0f, energy - localAvg) * 0.20f
-        }
-        val scoreList = scoreArray.toList().filter { it > 0f }
-        if (scoreList.isEmpty()) return emptyList()
-        val envMean  = scoreList.average().toFloat()
-        val envStd   = sqrt(scoreList.fold(0f) { acc, v -> acc + (v - envMean) * (v - envMean) } / scoreList.size)
-        val cv       = if (envMean > 0f) envStd / envMean else 0f
-        val peakRatio = (scoreList.max()) / envMean.coerceAtLeast(1e-6f)
-        if (cv < CLIMAX_MIN_CV || peakRatio < CLIMAX_MIN_PEAK_RATIO) return emptyList()
-        val candidates = ArrayList<Pair<Long, Float>>()
-        for (i in 2 until scoreArray.size - 2) {
-            val sc = scoreArray[i]; if (sc <= 0f) continue
-            if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2])
-                candidates += (i.toLong() * HOP_MS) to sc
-        }
-        val p90 = scoreList.sorted().let { it[(it.lastIndex * 0.90f).toInt().coerceIn(0, it.lastIndex)] }
-        val strong = candidates.filter { it.second >= p90 * 1.18f && it.second >= envMean + envStd * 1.30f }
-            .sortedByDescending { it.second }
-        val minGapMs = max(800L, beatMs * 4L)
-        val selected = ArrayList<Pair<Long, Float>>()
-        for (c in strong) {
-            if (selected.none { abs(it.first - c.first) < minGapMs }) selected += c
-            if (selected.size >= 3) break
-        }
-        return selected.sortedBy { it.first }.map { it.first.coerceIn(0L, durationMs) }
-    }
 
     private fun detectLastMusicEndMs(frames: FloatArray): Long {
         if (frames.isEmpty()) return 0L
