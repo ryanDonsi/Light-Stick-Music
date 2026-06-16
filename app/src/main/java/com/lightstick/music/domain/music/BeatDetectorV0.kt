@@ -27,7 +27,7 @@ import kotlin.math.*
  */
 object BeatDetectorV0 {
 
-    private const val TAG = "BeatDetectorV0"
+    private const val TAG = "AutoTimeline_BeatDetectorV0"
 
     private const val FILL_CONFIDENCE = 0.20f
 

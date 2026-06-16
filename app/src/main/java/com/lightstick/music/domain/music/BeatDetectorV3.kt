@@ -16,7 +16,7 @@ import kotlin.math.*
  */
 object BeatDetectorV3 {
 
-    private const val TAG = "BeatDetectorV3"
+    private const val TAG = "AutoTimeline_BeatDetectorV3"
 
     // SuperFlux 파라미터
     private const val FFT_SIZE  = 2048
