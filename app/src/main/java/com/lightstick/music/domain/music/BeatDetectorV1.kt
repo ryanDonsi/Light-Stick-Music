@@ -211,8 +211,17 @@ object BeatDetectorV1 {
             beats.map { it.timeMs }, low, beatMs, timeSignature.beatsPerBar, params.hopMs)
         val downbeatOffsetMs = (downbeatMs - (beats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
+        // [DIAG] detect() 최종 출력에서 비정상 간격 탐지
+        val beatTimes = beats.map { it.timeMs }
+        for (i in 1 until beatTimes.size) {
+            val gap = beatTimes[i] - beatTimes[i - 1]
+            if (gap < beatMs / 4L) {
+                Log.w(TAG, "V1 detect() close-pair FINAL: ${beatTimes[i-1]}ms→${beatTimes[i]}ms gap=${gap}ms idx=$i reason=$reason")
+            }
+        }
+
         Log.d(TAG, "V1 OK beats=${beats.size} beatMs=$beatMs " +
-            "timeSig=${timeSignature.type} reason=$reason")
+            "timeSig=${timeSignature.type} reason=$reason first=${beatTimes.firstOrNull()} last=${beatTimes.lastOrNull()}")
 
         return DetectResult(
             beats            = beats,
@@ -390,15 +399,31 @@ object BeatDetectorV1 {
         }
 
         // ── Edge trimming (localscore < 0.5 * RMS) ──────────────────────────
-        val result = beats.reversed().toLongArray()
-        if (result.size < 2) return result
+        val preTrim = beats.reversed().toLongArray()
+        // [DIAG] pre-trim 에서 비정상 간격 탐지
+        for (i in 1 until preTrim.size) {
+            val gap = preTrim[i] - preTrim[i - 1]
+            if (gap < hopMs * 10L) {
+                Log.w(TAG, "V1 DP close-pair [PRE-TRIM]: ${preTrim[i-1]}ms→${preTrim[i]}ms gap=${gap}ms idx=$i")
+            }
+        }
+
+        if (preTrim.size < 2) return preTrim
         val rms    = sqrt(localscore.map { it * it }.average().toFloat())
         val trimTh = 0.5f * rms
         var s = 0
-        while (s < result.size && localscore[(result[s] / hopMs).toInt().coerceIn(0, n-1)] < trimTh) s++
-        var e = result.size - 1
-        while (e > s && localscore[(result[e] / hopMs).toInt().coerceIn(0, n-1)] < trimTh) e--
-        return if (s > e) result else result.sliceArray(s..e)
+        while (s < preTrim.size && localscore[(preTrim[s] / hopMs).toInt().coerceIn(0, n-1)] < trimTh) s++
+        var e = preTrim.size - 1
+        while (e > s && localscore[(preTrim[e] / hopMs).toInt().coerceIn(0, n-1)] < trimTh) e--
+        val result = if (s > e) preTrim else preTrim.sliceArray(s..e)
+        // [DIAG] post-trim 에서 비정상 간격 탐지
+        for (i in 1 until result.size) {
+            val gap = result[i] - result[i - 1]
+            if (gap < hopMs * 10L) {
+                Log.w(TAG, "V1 DP close-pair [POST-TRIM]: ${result[i-1]}ms→${result[i]}ms gap=${gap}ms idx=$i")
+            }
+        }
+        return result
     }
 
     // =========================================================================
