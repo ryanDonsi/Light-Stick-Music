@@ -281,7 +281,6 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                 "beats=${effectiveBeats.size}")
 
             // 모든 섹션에 1/4박 White-C1-C2-C3 패턴 적용
-            put(section.startMs, buildOffPayload())
             for (t in effectiveBeats) {
                 val beatInBar = beatInBar(t, downbeatMs, globalBeatMs = section.beatMs, beatsPerBar)
                 val (color, fade) = beatSectionColorAndFade(beatInBar, palette)
