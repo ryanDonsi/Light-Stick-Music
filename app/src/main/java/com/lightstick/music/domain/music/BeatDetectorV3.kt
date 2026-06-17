@@ -340,7 +340,7 @@ object BeatDetectorV3 {
             val durationMs = totalSamples * 1000L / sampleRate
 
             // odfTempo: V1 방식 smoothing + local normalization (BPM 추정 개선)
-            val smoothedTempo = smoothOdf(odfTempo, 3)
+            val smoothedTempo = smoothOdf(odfTempo, 5)
             val normTempo = localNormalizeMax(smoothedTempo, 200)
 
             // odfTrack: 기존 방식 유지 (비트 감지에 영향 없도록)
@@ -488,21 +488,6 @@ object BeatDetectorV3 {
             if (avg2x > avg1x * 0.73f) {
                 bestCorrMs = cMs
                 Log.d(TAG, "Octave DOUBLED: ${60000L / resultMs}BPM → ${60000L / cMs}BPM (ratio=${"%.3f".format(ratio)})")
-            } else {
-                Log.d(TAG, "Octave KEPT: ${60000L / resultMs}BPM (ratio=${"%.3f".format(ratio)} < 0.73)")
-            }
-        } else if (dMs <= maxBeatMs && resultMs <= 910L) {
-            // 하향 옥타브: 절반 속도로 저속화된 경우
-            val avgHalf = getGridAverage(dMs)
-            val ratio = if (avg1x > 1e-6f) avgHalf / avg1x else 0f
-
-            Log.d(TAG, "Octave (down): avg1x=$avg1x avgHalf=$avgHalf ratio=${"%.3f".format(ratio)} threshold=0.73")
-
-            // 발라드: 비트 간 지속음 에너지 희박 → 2배 주기 평균이 73% 이상 유지
-            // 댄스곡: 오프비트 스네어 밀집 → 2배 주기 평균이 크게 낮아짐
-            if (avgHalf > avg1x * 0.73f) {
-                bestCorrMs = dMs
-                Log.d(TAG, "Octave HALVED: ${60000L / resultMs}BPM → ${60000L / dMs}BPM (ratio=${"%.3f".format(ratio)})")
             } else {
                 Log.d(TAG, "Octave KEPT: ${60000L / resultMs}BPM (ratio=${"%.3f".format(ratio)} < 0.73)")
             }
