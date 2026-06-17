@@ -337,9 +337,11 @@ object BeatDetectorV3 {
 
             val durationMs = totalSamples * 1000L / sampleRate
 
-            val maxTempo = odfTempo.maxOrNull() ?: 1f
-            val normTempo = if (maxTempo > 1e-6f) odfTempo.map { it / maxTempo } else odfTempo
+            // odfTempo: V1 방식 smoothing + local normalization (BPM 추정 개선)
+            val smoothedTempo = smoothOdf(odfTempo, 3)
+            val normTempo = localNormalizeMax(smoothedTempo, 200)
 
+            // odfTrack: 기존 방식 유지 (비트 감지에 영향 없도록)
             val maxTrack = odfTrack.maxOrNull() ?: 1f
             val normTrack = if (maxTrack > 1e-6f) odfTrack.map { it / maxTrack } else odfTrack
 
@@ -695,5 +697,34 @@ object BeatDetectorV3 {
         } ?: 0
 
         return beatTimesMs.getOrElse(bestPhase) { beatTimesMs.first() }
+    }
+
+    // V1 방식 ODF Post-processing: Smoothing + Local Normalization
+    private fun smoothOdf(odf: List<Float>, windowSize: Int = 3): List<Float> {
+        if (odf.size <= 1 || windowSize <= 1) return odf
+        val result = ArrayList<Float>(odf.size)
+        for (i in odf.indices) {
+            val start = max(0, i - windowSize / 2)
+            val end = min(odf.lastIndex, i + windowSize / 2)
+            val sum = odf.subList(start, end + 1).sum()
+            val avg = sum / (end - start + 1)
+            result.add(avg)
+        }
+        return result
+    }
+
+    private fun localNormalizeMax(src: List<Float>, windowFrames: Int = 200): List<Float> {
+        if (src.isEmpty()) return emptyList()
+        val out = ArrayList<Float>(src.size)
+        for (i in src.indices) {
+            val lo = max(0, i - windowFrames)
+            val hi = min(src.lastIndex, i + windowFrames)
+            var localMax = 0f
+            for (j in lo..hi) {
+                if (src[j] > localMax) localMax = src[j]
+            }
+            out.add(if (localMax > 1e-6f) (src[i] / localMax).coerceIn(0f, 1f) else 0f)
+        }
+        return out
     }
 }
