@@ -468,24 +468,41 @@ object BeatDetectorV3 {
 
         val avg1x = getGridAverage(resultMs)
         val cMs = resultMs / 2
+        val dMs = resultMs * 2
 
-        Log.d(TAG, "DBN raw: ${resultMs}ms (${60000L / resultMs} BPM) | half: ${cMs}ms (${if (cMs > 0) 60000L / cMs else 0} BPM)")
-        Log.d(TAG, "Octave gate: resultMs=$resultMs > 910ms = ${resultMs > 910L} | cMs=$cMs >= minBeatMs=$minBeatMs = ${cMs >= minBeatMs}")
+        Log.d(TAG, "DBN raw: ${resultMs}ms (${60000L / resultMs} BPM) | half: ${cMs}ms (${if (cMs > 0) 60000L / cMs else 0} BPM) | double: ${dMs}ms (${60000L / dMs} BPM)")
+        Log.d(TAG, "Octave gate: resultMs=$resultMs > 910ms = ${resultMs > 910L} | cMs=$cMs >= minBeatMs=$minBeatMs = ${cMs >= minBeatMs} | dMs=$dMs <= maxBeatMs=$maxBeatMs = ${dMs <= maxBeatMs}")
 
-        // V2와 동일하게 910ms 초과(≈65 BPM 이하)인 경우에만 2배속 검사
-        // 이전 680ms 게이트는 ~900ms 발라드(66 BPM)가 게이트를 통과하면서
-        // 비트 사이 지속음 에너지로 인해 avg2x > avg1x * 0.73f 조건을 False Positive로 통과해 오배속 유발
+        // [방법 A] 상향/하향 옥타브 모두 검사
+        // 상향: 910ms 초과(≈65 BPM 이하)에서 절반 주기 검사 (2배속 오류)
+        // 하향: 910ms 이하에서 2배 주기 검사 (절반속 오류)
         if (cMs >= minBeatMs && resultMs > 910L) {
+            // 상향 옥타브: 반토막으로 고속화된 경우
             val avg2x = getGridAverage(cMs)
             val ratio = if (avg1x > 1e-6f) avg2x / avg1x else 0f
 
-            Log.d(TAG, "Octave grid: avg1x=$avg1x avg2x=$avg2x ratio=${"%.3f".format(ratio)} threshold=0.73")
+            Log.d(TAG, "Octave (up): avg1x=$avg1x avg2x=$avg2x ratio=${"%.3f".format(ratio)} threshold=0.73")
 
             // 댄스곡: 오프비트 스네어 에너지 → 절반 주기 평균이 73% 이상 유지
             // 발라드: 비트 사이 에너지 부족 → 절반 주기 평균이 크게 낮아짐
             if (avg2x > avg1x * 0.73f) {
                 bestCorrMs = cMs
                 Log.d(TAG, "Octave DOUBLED: ${60000L / resultMs}BPM → ${60000L / cMs}BPM (ratio=${"%.3f".format(ratio)})")
+            } else {
+                Log.d(TAG, "Octave KEPT: ${60000L / resultMs}BPM (ratio=${"%.3f".format(ratio)} < 0.73)")
+            }
+        } else if (dMs <= maxBeatMs && resultMs <= 910L) {
+            // 하향 옥타브: 절반 속도로 저속화된 경우
+            val avgHalf = getGridAverage(dMs)
+            val ratio = if (avg1x > 1e-6f) avgHalf / avg1x else 0f
+
+            Log.d(TAG, "Octave (down): avg1x=$avg1x avgHalf=$avgHalf ratio=${"%.3f".format(ratio)} threshold=0.73")
+
+            // 발라드: 비트 간 지속음 에너지 희박 → 2배 주기 평균이 73% 이상 유지
+            // 댄스곡: 오프비트 스네어 밀집 → 2배 주기 평균이 크게 낮아짐
+            if (avgHalf > avg1x * 0.73f) {
+                bestCorrMs = dMs
+                Log.d(TAG, "Octave HALVED: ${60000L / resultMs}BPM → ${60000L / dMs}BPM (ratio=${"%.3f".format(ratio)})")
             } else {
                 Log.d(TAG, "Octave KEPT: ${60000L / resultMs}BPM (ratio=${"%.3f".format(ratio)} < 0.73)")
             }
