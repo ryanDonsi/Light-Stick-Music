@@ -46,7 +46,7 @@ object AutoTimelineConfig {
      *  4 : BeatDetector(버전별) + SectionDetectorV2 + V8 이펙트 룰 (→ AutoTimelineGeneratorBeat_v4)
      *  6 : BeatDetector(버전별) + SectionDetector(버전별) + V8 확장 이펙트 (→ AutoTimelineGeneratorBeat_v6)
      */
-    const val GENERATOR_VERSION = 0
+    const val GENERATOR_VERSION = 2
 
     const val PALETTE_SIZE = 4
 
