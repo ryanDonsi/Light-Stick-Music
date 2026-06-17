@@ -97,7 +97,9 @@ object BeatDetectorV3 {
 
         // [위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
         val phaseMs = estimatePhaseFromOdf(odfTrack, beatMs, hopMs)
+        Log.d(TAG, "====== DP Start: beatMs=$beatMs phaseMs=$phaseMs ======")
         val dpTimes = dpBeatTracker(odfTrack, beatMs, hopMs, durationMs, anchorMs = phaseMs)
+        Log.d(TAG, "====== DP End: got ${dpTimes.size} beats ======")
 
         val expectedBeats = max(1, (durationMs / beatMs).toInt())
         val dpOk = dpTimes.size >= max(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
@@ -503,7 +505,9 @@ object BeatDetectorV3 {
             while (f < odf.size) { score += odf[f]; f += fpb }
             if (score > bestScore) { bestScore = score; bestPhase = ph }
         }
-        return bestPhase.toLong() * hopMs
+        val phaseMs = bestPhase.toLong() * hopMs
+        Log.d(TAG, "Phase: beatMs=$beatMs fpb=$fpb bestPhase=$bestPhase phaseMs=$phaseMs (offset=${bestPhase}frames, score=${"%.3f".format(bestScore)})")
+        return phaseMs
     }
 
     private fun dpBeatTracker(
@@ -515,6 +519,7 @@ object BeatDetectorV3 {
         val fpb         = (targetPeriodMs / hopMs).toInt().coerceAtLeast(1)
         val tightness   = 100.0f
         val anchorFrame = if (anchorMs > 0L) (anchorMs / hopMs).toInt().coerceIn(0, n - 1) else -1
+        Log.d(TAG, "DP Input: targetPeriodMs=$targetPeriodMs fpb=$fpb anchorMs=$anchorMs anchorFrame=$anchorFrame odfSize=$n")
 
         val gaussHalf = fpb; val gaussSize = gaussHalf * 2 + 1
         val gaussWin  = FloatArray(gaussSize) { k ->
@@ -572,14 +577,27 @@ object BeatDetectorV3 {
         }
 
         val result = beats.reversed().toLongArray()
-        if (result.size < 2) return result
+        if (result.size < 2) {
+            Log.d(TAG, "DP Result (pre-trim): ${result.size} beats")
+            return result
+        }
 
         val rms = sqrt(localscore.map { it * it }.average().toFloat()); val trimTh = 0.15f * rms
         var ss = 0
         while (ss < result.size && localscore[(result[ss] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) ss++
         var e = result.size - 1
         while (e > ss && localscore[(result[e] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) e--
-        return if (ss > e) result else result.sliceArray(ss..e)
+        val finalResult = if (ss > e) result else result.sliceArray(ss..e)
+
+        if (finalResult.size >= 3) {
+            val gap1 = finalResult[1] - finalResult[0]
+            val gap2 = finalResult[2] - finalResult[1]
+            Log.d(TAG, "DP Result: ${finalResult.size} beats, spacing: ${finalResult[0]}ms, gap1=${gap1}ms, gap2=${gap2}ms, expectedGap=$targetPeriodMs")
+        } else {
+            Log.d(TAG, "DP Result: ${finalResult.size} beats")
+        }
+
+        return finalResult
     }
 
     private fun fallbackSegmentBeats(
