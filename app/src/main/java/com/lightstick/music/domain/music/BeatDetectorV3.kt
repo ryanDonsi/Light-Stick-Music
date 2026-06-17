@@ -340,7 +340,7 @@ object BeatDetectorV3 {
             val durationMs = totalSamples * 1000L / sampleRate
 
             // odfTempo: V1 방식 smoothing + local normalization (BPM 추정 개선)
-            val smoothedTempo = smoothOdf(odfTempo, 5)
+            val smoothedTempo = smoothOdf(odfTempo, 3)
             val normTempo = localNormalizeMax(smoothedTempo, 200)
 
             // odfTrack: 기존 방식 유지 (비트 감지에 영향 없도록)
