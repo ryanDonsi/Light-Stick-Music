@@ -300,16 +300,21 @@ object BeatDetectorV3 {
 
                                             val diff = curBand[b] - prevMax
                                             if (diff > 0f) {
-                                                // 순정 에너지는 Tempo 산출용으로 적립
-                                                fluxTempo += diff
+                                                // 순정 에너지는 Tempo 산출용으로 적립 - V1처럼 Mid 대역 강조
+                                                val tempoWeight = when {
+                                                    b in 8..16 -> 1.8f   // Mid 대역 강조 (V1 방식: 킥음, 스넥 대역)
+                                                    b <= 5 -> 1.0f       // Low 대역 (베이스)
+                                                    else -> 0.8f         // High 대역 (하이햇)
+                                                }
+                                                fluxTempo += diff * tempoWeight
 
                                                 // 가중치 에너지는 Phase/DP 트래킹용으로 적립
-                                                val weight = when {
+                                                val trackWeight = when {
                                                     b <= 5 -> 1.5f   // Kick 대역
                                                     b >= 16 -> 0.5f  // Hi-hat 대역
                                                     else -> 1.0f
                                                 }
-                                                fluxTrack += diff * weight
+                                                fluxTrack += diff * trackWeight
                                             }
                                         }
                                         odfTempo.add(fluxTempo)
