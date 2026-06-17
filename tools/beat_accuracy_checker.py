@@ -2371,7 +2371,7 @@ class App(tk.Tk):
         # ── GT 스타일 레인 (Librosa) ──
         style_col = _STYLE_COLORS.get(librosa_style, '#546e7a')
         c.create_rectangle(0,        GT_STY_TOP, W, GT_STY_BOT, fill="#0a0e1a", outline="")
-        c.create_rectangle(LABEL_W,  GT_STY_TOP, W, GT_STY_BOT, fill=style_col+"22", outline="")
+        c.create_rectangle(LABEL_W,  GT_STY_TOP, W, GT_STY_BOT, fill="#1a2a3a", outline="")  # 배경 (투명도 제거)
         c.create_rectangle(0,        GT_STY_TOP, LABEL_W-2, GT_STY_BOT, fill="#0a0a1a", outline="")
         c.create_text(LABEL_W//2,   (GT_STY_TOP+GT_STY_BOT)//2,
                       text="Librosa\n스타일", fill="#82b1ff", font=("",7,"bold"), anchor="center")
@@ -2405,7 +2405,7 @@ class App(tk.Tk):
                     continue
                 idx = sec.get("index", 0)
                 col = palette[idx % len(palette)]
-                c.create_rectangle(x1, GT_SEC_TOP+1, x2, GT_SEC_BOT-1, fill=col+"55", outline=col, width=1)
+                c.create_rectangle(x1, GT_SEC_TOP+1, x2, GT_SEC_BOT-1, fill="#1a2a3a", outline=col, width=1)
                 mid_x = (x1 + x2) // 2
                 lbl = sec.get("type", str(idx+1))
                 if x2 - x1 > 20:
@@ -2415,7 +2415,7 @@ class App(tk.Tk):
         # ── 앱 스타일 레인 ──
         app_style_col = _STYLE_COLORS.get(app_style, '#546e7a')
         c.create_rectangle(0,        APP_STY_TOP, W, APP_STY_BOT, fill="#0a1a0a", outline="")
-        c.create_rectangle(LABEL_W,  APP_STY_TOP, W, APP_STY_BOT, fill=app_style_col+"22", outline="")
+        c.create_rectangle(LABEL_W,  APP_STY_TOP, W, APP_STY_BOT, fill="#1a2a1a", outline="")  # 배경 (투명도 제거)
         c.create_rectangle(0,        APP_STY_TOP, LABEL_W-2, APP_STY_BOT, fill="#0a1a0a", outline="")
         c.create_text(LABEL_W//2,   (APP_STY_TOP+APP_STY_BOT)//2,
                       text="앱\n스타일", fill="#69f0ae", font=("",7,"bold"), anchor="center")
@@ -2440,7 +2440,7 @@ class App(tk.Tk):
                     continue
                 sec_type = sec.get("type", "?")
                 col = _SECTION_COLORS.get(sec_type, "#546e7a")
-                c.create_rectangle(x1, APP_SEC_TOP+1, x2, APP_SEC_BOT-1, fill=col+"55", outline=col, width=1)
+                c.create_rectangle(x1, APP_SEC_TOP+1, x2, APP_SEC_BOT-1, fill="#1a2a3a", outline=col, width=1)
                 mid_x = (x1 + x2) // 2
                 if x2 - x1 > 24:
                     c.create_text(mid_x, (APP_SEC_TOP+APP_SEC_BOT)//2, text=sec_type,
