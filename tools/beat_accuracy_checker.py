@@ -586,7 +586,7 @@ def compute_music_style_librosa(audio_path, beats_sec, bpm):
 
 
 def detect_librosa_sections(audio_path, duration_sec, n_segments=10):
-    """librosa structural segmentation으로 섹션 경계를 감지한다."""
+    """librosa structural segmentation으로 섹션 경계를 감지하고 의미있는 이름을 부여한다."""
     if not HAS_LIBROSA:
         return []
     try:
@@ -596,17 +596,61 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=10):
         chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_length)
         k = min(n_segments, chroma.shape[1] // 2)
         if k < 2:
-            return [{"start_ms": 0, "end_ms": int(len(y)/sr*1000), "index": 0, "type": "?"}]
+            return [{"start_ms": 0, "end_ms": int(len(y)/sr*1000), "index": 0, "type": "INTRO"}]
         bounds = librosa.segment.agglomerative(chroma, k)
         bound_times = librosa.frames_to_time(bounds, sr=sr, hop_length=hop_length).tolist()
         all_times = [0.0] + bound_times + [len(y) / sr]
+        n = len(all_times) - 1
+
+        # 각 섹션의 평균 크로마 벡터 계산 → 섹션 간 유사도로 CHORUS 추정
+        seg_means = []
+        for i in range(n):
+            f0 = librosa.time_to_frames(all_times[i],   sr=sr, hop_length=hop_length)
+            f1 = librosa.time_to_frames(all_times[i+1], sr=sr, hop_length=hop_length)
+            f1 = min(f1, chroma.shape[1])
+            seg = chroma[:, f0:f1]
+            seg_means.append(seg.mean(axis=1) if seg.shape[1] > 0 else np.zeros(12))
+
+        # 코사인 유사도 기반 클러스터링 (중간 섹션만)
+        def _cos_sim(a, b):
+            na, nb = np.linalg.norm(a), np.linalg.norm(b)
+            if na < 1e-6 or nb < 1e-6: return 0.0
+            return float(np.dot(a, b) / (na * nb))
+
+        # 반복 패턴 추정: 유사도 0.90 이상이면 같은 그룹
+        labels = [-1] * n
+        group_id = 0
+        for i in range(n):
+            if labels[i] >= 0:
+                continue
+            labels[i] = group_id
+            for j in range(i+1, n):
+                if labels[j] < 0 and _cos_sim(seg_means[i], seg_means[j]) >= 0.90:
+                    labels[j] = group_id
+            group_id += 1
+
+        # 그룹별 등장 횟수 → 가장 많이 반복 = CHORUS, 두 번째 = VERSE
+        from collections import Counter
+        mid_labels = labels[1:-1] if n > 2 else labels
+        cnt = Counter(mid_labels)
+        sorted_groups = [g for g, _ in cnt.most_common()]
+        chorus_grp = sorted_groups[0] if sorted_groups else -1
+        verse_grp  = sorted_groups[1] if len(sorted_groups) > 1 else -1
+
+        def _assign_name(i, grp):
+            if i == 0:     return "INTRO"
+            if i == n - 1: return "OUTRO"
+            if grp == chorus_grp: return "CHORUS"
+            if grp == verse_grp:  return "VERSE"
+            return "BRIDGE"
+
         sections = []
-        for i in range(len(all_times) - 1):
+        for i in range(n):
             sections.append({
                 "start_ms": int(all_times[i] * 1000),
                 "end_ms":   int(all_times[i+1] * 1000),
                 "index":    i,
-                "type":     str(i + 1),  # 번호로 표시
+                "type":     _assign_name(i, labels[i]),
             })
         return sections
     except Exception:
@@ -1394,6 +1438,26 @@ class App(tk.Tk):
         tk.Label(song_info_inner, textvariable=self.v_song_id,
                  bg="#1e272e", fg="#546e7a", font=("", 8), anchor="w").pack(anchor="w")
 
+        # 스타일 표시 (우측)
+        style_badge_frame = tk.Frame(song_info_frame, bg="#1e272e")
+        style_badge_frame.pack(side="right", padx=(4, 10), pady=3)
+        self.v_app_style      = tk.StringVar(value="N/A")
+        self.v_librosa_style  = tk.StringVar(value="N/A")
+        # GT 엔진 스타일
+        gt_row = tk.Frame(style_badge_frame, bg="#1e272e")
+        gt_row.pack(anchor="e")
+        tk.Label(gt_row, text="GT :", bg="#1e272e", fg="#546e7a", font=("", 8)).pack(side="left")
+        self._lbl_librosa_style = tk.Label(gt_row, textvariable=self.v_librosa_style,
+                 bg="#1e272e", fg="#82b1ff", font=("", 9, "bold"))
+        self._lbl_librosa_style.pack(side="left", padx=(2, 0))
+        # 앱 스타일
+        app_row = tk.Frame(style_badge_frame, bg="#1e272e")
+        app_row.pack(anchor="e")
+        tk.Label(app_row, text="앱:", bg="#1e272e", fg="#546e7a", font=("", 8)).pack(side="left")
+        self._lbl_app_style = tk.Label(app_row, textvariable=self.v_app_style,
+                 bg="#1e272e", fg="#69f0ae", font=("", 9, "bold"))
+        self._lbl_app_style.pack(side="left", padx=(2, 0))
+
         # ── 엔진 카드 3개 (풀 상세, 세로 꽉 채움) ──
         cards_outer = tk.Frame(results_frame, bg="#1a1a2e")
         cards_outer.grid(row=1, column=0, sticky="nsew", padx=4, pady=(4, 4))
@@ -1901,6 +1965,19 @@ class App(tk.Tk):
             self._update_cards(engine, f_val, p_val, r_val, tp, fp_cnt, fn,
                                bpm_app, bpm_ref, bpm_err, cov_pct, gaps)
 
+            # 스타일/섹션 복원
+            _app_style     = record.get("app_style", "N/A")
+            _lib_style     = record.get("librosa_style", "N/A")
+            _lib_feats     = record.get("librosa_style_features", {})
+            _lib_sections  = record.get("librosa_sections", [])
+            _app_sections  = record.get("app_sections", [])
+
+            # 헤더 스타일 레이블 갱신
+            self.v_app_style.set(_app_style)
+            self.v_librosa_style.set(_lib_style)
+            self._lbl_app_style.config(fg=_STYLE_COLORS.get(_app_style, '#69f0ae'))
+            self._lbl_librosa_style.config(fg=_STYLE_COLORS.get(_lib_style, '#82b1ff'))
+
             # 결과 먼저 저장 (파형 없이) → 타임라인 즉시 렌더
             self._last_result = dict(
                 ref_sec=ref_sec, app_sec=app_sec,
@@ -1912,6 +1989,11 @@ class App(tk.Tk):
                 engine_name=eng_name,
                 audio_name=os.path.basename(item.get("path", "")),
                 music_id=music_id, tol_ms=tol_ms,
+                sections=_app_sections,
+                app_style=_app_style,
+                librosa_style=_lib_style,
+                librosa_style_features=_lib_feats,
+                librosa_sections=_lib_sections,
             )
             self.zoom_s_var.set(0.0)
             self.zoom_e_var.set(round(dur, 1))
@@ -2034,7 +2116,10 @@ class App(tk.Tk):
                                  tol_ms, music_id, duration_sec,
                                  app_ms, ref_ms, tp_est, fp_est, fn_ref,
                                  f, p, r, tp, fp_cnt, fn,
-                                 bpm_app, bpm_ref, grade, section_results=None):
+                                 bpm_app, bpm_ref, grade, section_results=None,
+                                 app_style=None, librosa_style=None,
+                                 librosa_style_features=None, librosa_sections=None,
+                                 app_sections=None):
         """분석 결과를 beat_analysis_records.json 에 누적 저장한다."""
         import datetime
 
@@ -2115,6 +2200,13 @@ class App(tk.Tk):
 
             # 섹션별 비트 정확도 (section meta 바이너리가 있을 때만 채워짐)
             "sections": section_results or [],
+
+            # 음악 스타일 및 구조 섹션 정보
+            "app_style":              app_style or "N/A",
+            "librosa_style":          librosa_style or "N/A",
+            "librosa_style_features": librosa_style_features or {},
+            "librosa_sections":       librosa_sections or [],
+            "app_sections":           app_sections or [],
         }
 
         records.append(record)
@@ -2223,53 +2315,45 @@ class App(tk.Tk):
         TICK_H  = 16    # 상단 시간 눈금 영역 높이
         PAD     = 4
 
-        # 7-레인 Y 분할:
-        # 파형(16%) | GT비트(14%) | GT스타일(8%) | GT섹션(10%)
-        # 앱비트(14%) | 앱스타일(8%) | 앱섹션(remaining)
+        # 5-레인 Y 분할:
+        # 파형(16%) | GT비트(16%) | GT섹션(16%)
+        # 앱비트(16%) | 앱섹션(remaining)
         usable = H - TICK_H
         WAVE_BOT   = TICK_H + int(usable * 0.16)
-        GT_BOT     = WAVE_BOT + int(usable * 0.14)
-        GT_STY_BOT = GT_BOT + int(usable * 0.08)
-        GT_SEC_BOT = GT_STY_BOT + int(usable * 0.10)
-        APP_BOT    = GT_SEC_BOT + int(usable * 0.14)
-        APP_STY_BOT= APP_BOT + int(usable * 0.08)
+        GT_BOT     = WAVE_BOT + int(usable * 0.16)
+        GT_SEC_BOT = GT_BOT + int(usable * 0.16)
+        APP_BOT    = GT_SEC_BOT + int(usable * 0.16)
         APP_SEC_BOT= H
 
         WAVE_TOP   = TICK_H + PAD
         WAVE_MID   = (WAVE_TOP + WAVE_BOT) // 2
         GT_TOP     = WAVE_BOT + PAD
         GT_MID     = (GT_TOP + GT_BOT) // 2
-        GT_STY_TOP = GT_BOT + 1
-        GT_SEC_TOP = GT_STY_BOT + 1
+        GT_SEC_TOP = GT_BOT + 1
         APP_TOP    = GT_SEC_BOT + PAD
         APP_MID    = (APP_TOP + APP_BOT) // 2
-        APP_STY_TOP= APP_BOT + 1
-        APP_SEC_TOP= APP_STY_BOT + 1
+        APP_SEC_TOP= APP_BOT + 1
 
         def tx(t):
             return int(LABEL_W + (t - z_start) / span * (W - LABEL_W))
 
         in_range = lambda t: z_start <= t <= z_end
 
-        # ── 배경 레인 (7레인) ──
-        c.create_rectangle(0, TICK_H,      W, WAVE_BOT,    fill="#0d1117", outline="")   # 파형
-        c.create_rectangle(0, WAVE_BOT,    W, GT_BOT,      fill="#0a1520", outline="")   # GT 비트
-        c.create_rectangle(0, GT_BOT,      W, GT_STY_BOT,  fill="#080f1a", outline="")   # GT 스타일
-        c.create_rectangle(0, GT_STY_BOT,  W, GT_SEC_BOT,  fill="#060c14", outline="")   # GT 섹션
-        c.create_rectangle(0, GT_SEC_BOT,  W, APP_BOT,     fill="#0e1a0e", outline="")   # 앱 비트
-        c.create_rectangle(0, APP_BOT,     W, APP_STY_BOT, fill="#0a150a", outline="")   # 앱 스타일
-        c.create_rectangle(0, APP_STY_BOT, W, H,           fill="#071007", outline="")   # 앱 섹션
+        # ── 배경 레인 (5레인) ──
+        c.create_rectangle(0, TICK_H,     W, WAVE_BOT,    fill="#0d1117", outline="")   # 파형
+        c.create_rectangle(0, WAVE_BOT,   W, GT_BOT,      fill="#0a1520", outline="")   # GT 비트
+        c.create_rectangle(0, GT_BOT,     W, GT_SEC_BOT,  fill="#060c14", outline="")   # GT 섹션
+        c.create_rectangle(0, GT_SEC_BOT, W, APP_BOT,     fill="#0e1a0e", outline="")   # 앱 비트
+        c.create_rectangle(0, APP_BOT,    W, H,           fill="#071007", outline="")   # 앱 섹션
 
         # ── 레인 구분선 ──
         c.create_line(0, WAVE_BOT,    W, WAVE_BOT,    fill="#263238", width=2)   # 파형/GT 경계
-        c.create_line(0, GT_BOT,      W, GT_BOT,      fill="#1a2a38", width=1)   # GT비트/스타일
-        c.create_line(0, GT_STY_BOT,  W, GT_STY_BOT,  fill="#1a2a38", width=1)   # GT스타일/섹션
+        c.create_line(0, GT_BOT,      W, GT_BOT,      fill="#1a2a38", width=1)   # GT비트/섹션
         c.create_line(0, GT_SEC_BOT,  W, GT_SEC_BOT,  fill="#263238", width=2)   # GT/앱 경계
-        c.create_line(0, APP_BOT,     W, APP_BOT,     fill="#1a2a38", width=1)   # 앱비트/스타일
-        c.create_line(0, APP_STY_BOT, W, APP_STY_BOT, fill="#1a2a38", width=1)   # 앱스타일/섹션
+        c.create_line(0, APP_BOT,     W, APP_BOT,     fill="#1a2a38", width=1)   # 앱비트/섹션
         c.create_line(LABEL_W, TICK_H, LABEL_W, H, fill="#1e2d3a", width=1, dash=(3, 3))
 
-        # ── 레인 라벨 (7레인 각각) ──
+        # ── 레인 라벨 (5레인) ──
         eng_label = (self._last_result or {}).get("engine_name", "GT 엔진")
 
         def _lane_label(y0, y1, txt, fg, bg):
@@ -2277,13 +2361,11 @@ class App(tk.Tk):
             c.create_text(LABEL_W // 2, (y0 + y1) // 2, text=txt, fill=fg,
                           font=("", 7, "bold"), anchor="center", justify="center")
 
-        _lane_label(TICK_H,     WAVE_BOT,    "파형",               "#b0bec5", "#111318")
-        _lane_label(WAVE_BOT,   GT_BOT,      f"{eng_label}\n비트",  "#82b1ff", "#0d1b2a")
-        _lane_label(GT_BOT,     GT_STY_BOT,  "Librosa\n스타일",    "#82b1ff", "#090f1c")
-        _lane_label(GT_STY_BOT, GT_SEC_BOT,  "Librosa\n섹션",     "#82b1ff", "#060b14")
-        _lane_label(GT_SEC_BOT, APP_BOT,     "앱\n비트",           "#69f0ae", "#0d1a0d")
-        _lane_label(APP_BOT,    APP_STY_BOT, "앱\n스타일",         "#69f0ae", "#0a150a")
-        _lane_label(APP_STY_BOT,H,           "앱\n섹션",           "#69f0ae", "#071007")
+        _lane_label(TICK_H,     WAVE_BOT,   "파형",              "#b0bec5", "#111318")
+        _lane_label(WAVE_BOT,   GT_BOT,     f"{eng_label}\n비트", "#82b1ff", "#0d1b2a")
+        _lane_label(GT_BOT,     GT_SEC_BOT, "Librosa\n섹션",    "#82b1ff", "#060b14")
+        _lane_label(GT_SEC_BOT, APP_BOT,    "앱\n비트",          "#69f0ae", "#0d1a0d")
+        _lane_label(APP_BOT,    H,          "앱\n섹션",          "#69f0ae", "#071007")
 
         # ── 시간 눈금 ──
         target_ticks = max(5, (W - LABEL_W) // 60)
@@ -2368,27 +2450,7 @@ class App(tk.Tk):
                     c.create_rectangle(x-1, APP_TOP, x+1, APP_BOT,
                                        fill="#ff5252", outline="")
 
-        # ── GT 스타일 레인 (Librosa) ──
-        style_col = _STYLE_COLORS.get(librosa_style, '#546e7a')
-        c.create_rectangle(0,        GT_STY_TOP, W, GT_STY_BOT, fill="#0a0e1a", outline="")
-        c.create_rectangle(LABEL_W,  GT_STY_TOP, W, GT_STY_BOT, fill="#1a2a3a", outline="")  # 배경 (투명도 제거)
-        c.create_rectangle(0,        GT_STY_TOP, LABEL_W-2, GT_STY_BOT, fill="#0a0a1a", outline="")
-        c.create_text(LABEL_W//2,   (GT_STY_TOP+GT_STY_BOT)//2,
-                      text="Librosa\n스타일", fill="#82b1ff", font=("",7,"bold"), anchor="center")
-        feat_str = ""
-        if librosa_style_features:
-            f = librosa_style_features
-            feat_str = (f"low={f.get('low_ratio',0):.2f}  period={f.get('periodicity',0):.2f}"
-                       f"  onset={f.get('onset_density',0):.1f}  energy={f.get('avg_energy',0):.2f}")
-        c.create_text(LABEL_W+8, (GT_STY_TOP+GT_STY_BOT)//2,
-                      text=f"{librosa_style}   {feat_str}", anchor="w",
-                      fill=style_col, font=("",8,"bold"))
-
         # ── GT 섹션 레인 (Librosa 구조 분석) ──
-        c.create_rectangle(0, GT_SEC_TOP, W, GT_SEC_BOT, fill="#050a0f", outline="")
-        c.create_rectangle(0, GT_SEC_TOP, LABEL_W-2, GT_SEC_BOT, fill="#070a0f", outline="")
-        c.create_text(LABEL_W//2, (GT_SEC_TOP+GT_SEC_BOT)//2,
-                      text="Librosa\n섹션", fill="#82b1ff", font=("",7,"bold"), anchor="center")
         if librosa_sections:
             palette = ["#1565c0","#0277bd","#00838f","#2e7d32","#558b2f",
                        "#f57f17","#e65100","#6a1b9a","#ad1457","#c62828","#4a148c"]
@@ -2405,29 +2467,14 @@ class App(tk.Tk):
                     continue
                 idx = sec.get("index", 0)
                 col = palette[idx % len(palette)]
-                c.create_rectangle(x1, GT_SEC_TOP+1, x2, GT_SEC_BOT-1, fill="#1a2a3a", outline=col, width=1)
+                c.create_rectangle(x1, GT_SEC_TOP+1, x2, GT_SEC_BOT-1, fill="#0d1520", outline=col, width=1)
                 mid_x = (x1 + x2) // 2
                 lbl = sec.get("type", str(idx+1))
                 if x2 - x1 > 20:
                     c.create_text(mid_x, (GT_SEC_TOP+GT_SEC_BOT)//2, text=lbl,
                                   fill="white", font=("",7), anchor="center")
 
-        # ── 앱 스타일 레인 ──
-        app_style_col = _STYLE_COLORS.get(app_style, '#546e7a')
-        c.create_rectangle(0,        APP_STY_TOP, W, APP_STY_BOT, fill="#0a1a0a", outline="")
-        c.create_rectangle(LABEL_W,  APP_STY_TOP, W, APP_STY_BOT, fill="#1a2a1a", outline="")  # 배경 (투명도 제거)
-        c.create_rectangle(0,        APP_STY_TOP, LABEL_W-2, APP_STY_BOT, fill="#0a1a0a", outline="")
-        c.create_text(LABEL_W//2,   (APP_STY_TOP+APP_STY_BOT)//2,
-                      text="앱\n스타일", fill="#69f0ae", font=("",7,"bold"), anchor="center")
-        c.create_text(LABEL_W+8,    (APP_STY_TOP+APP_STY_BOT)//2,
-                      text=app_style, anchor="w",
-                      fill=app_style_col, font=("",9,"bold"))
-
         # ── 앱 섹션 레인 ──
-        c.create_rectangle(0, APP_SEC_TOP, W, APP_SEC_BOT, fill="#050f05", outline="")
-        c.create_rectangle(0, APP_SEC_TOP, LABEL_W-2, APP_SEC_BOT, fill="#050f0a", outline="")
-        c.create_text(LABEL_W//2, (APP_SEC_TOP+APP_SEC_BOT)//2,
-                      text="앱\n섹션", fill="#69f0ae", font=("",7,"bold"), anchor="center")
         if sections:
             for sec in sections:
                 s_t = sec["start_ms"] / 1000.0
@@ -2440,15 +2487,11 @@ class App(tk.Tk):
                     continue
                 sec_type = sec.get("type", "?")
                 col = _SECTION_COLORS.get(sec_type, "#546e7a")
-                c.create_rectangle(x1, APP_SEC_TOP+1, x2, APP_SEC_BOT-1, fill="#1a2a3a", outline=col, width=1)
+                c.create_rectangle(x1, APP_SEC_TOP+1, x2, APP_SEC_BOT-1, fill="#0d1a0d", outline=col, width=1)
                 mid_x = (x1 + x2) // 2
                 if x2 - x1 > 24:
                     c.create_text(mid_x, (APP_SEC_TOP+APP_SEC_BOT)//2, text=sec_type,
                                   fill="white", font=("",7), anchor="center")
-
-        # ── 레인 구분선 (추가된 레인들) ──
-        for y_sep in [GT_STY_TOP, GT_SEC_TOP, APP_STY_TOP, APP_SEC_TOP]:
-            c.create_line(0, y_sep, W, y_sep, fill="#1a2a38", width=1)
 
     # ── 분석 ──────────────────────────────────────
 
@@ -2790,6 +2833,14 @@ class App(tk.Tk):
             librosa_style_features=librosa_style_features,
             librosa_sections=librosa_sections,
         )
+        # 헤더 스타일 레이블 업데이트
+        _as, _ls = app_style or 'N/A', librosa_style or 'N/A'
+        self.after(0, lambda a=_as, l=_ls: (
+            self.v_app_style.set(a),
+            self.v_librosa_style.set(l),
+            self._lbl_app_style.config(fg=_STYLE_COLORS.get(a, '#69f0ae')),
+            self._lbl_librosa_style.config(fg=_STYLE_COLORS.get(l, '#82b1ff')),
+        ))
 
         # 진단 데이터 저장
         self._export_analysis_record(
@@ -2802,6 +2853,11 @@ class App(tk.Tk):
             bpm_app=app_st.get('bpm', 0), bpm_ref=ref_bpm,
             grade=grade,
             section_results=section_results,
+            app_style=app_style,
+            librosa_style=librosa_style,
+            librosa_style_features=librosa_style_features,
+            librosa_sections=librosa_sections,
+            app_sections=sections,
         )
         # 비트 타임라인 그리기 (전체 기본)
         def _draw():
