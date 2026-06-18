@@ -1411,7 +1411,7 @@ class App(tk.Tk):
         col2 = tk.Frame(main)
         col2.grid(row=0, column=1, sticky="nsew", padx=(3, 0))
         col2.columnconfigure(0, weight=1)
-        col2.rowconfigure(0, weight=4)
+        col2.rowconfigure(0, weight=5)
         col2.rowconfigure(1, weight=1)
 
         # 2열 1행: 분석 결과 — 엔진별 풀 상세 카드 3개
