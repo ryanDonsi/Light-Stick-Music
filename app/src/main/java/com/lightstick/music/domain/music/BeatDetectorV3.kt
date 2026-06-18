@@ -86,20 +86,15 @@ object BeatDetectorV3 {
             return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
 
-        Log.d(TAG, "ODF: frames=${odfTempo.size} hopMs=$hopMs durationMs=$durationMs")
-
-        // [BPM은 반드시 odfTempo(순정)를 사용하여 반토막 함정을 피합니다]
+        // [🔥 BPM은 반드시 odfTempo(순정)를 사용하여 반토막 함정을 피합니다]
         val beatMs = dbnEstimateTempo(
             odfTempo, hopMs, params.minBeatMs, params.maxBeatMs,
             DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA
         )
-        Log.d(TAG, "BPM final: ${beatMs}ms (${60000L / beatMs} BPM)")
 
-        // [위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
+        // [🔥 위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
         val phaseMs = estimatePhaseFromOdf(odfTrack, beatMs, hopMs)
-        Log.d(TAG, "====== DP Start: beatMs=$beatMs phaseMs=$phaseMs ======")
         val dpTimes = dpBeatTracker(odfTrack, beatMs, hopMs, durationMs, anchorMs = phaseMs)
-        Log.d(TAG, "====== DP End: got ${dpTimes.size} beats ======")
 
         val expectedBeats = max(1, (durationMs / beatMs).toInt())
         val dpOk = dpTimes.size >= max(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
@@ -302,21 +297,16 @@ object BeatDetectorV3 {
 
                                             val diff = curBand[b] - prevMax
                                             if (diff > 0f) {
-                                                // 순정 에너지는 Tempo 산출용으로 적립 - V1처럼 Mid 대역 강조
-                                                val tempoWeight = when {
-                                                    b in 8..16 -> 1.8f   // Mid 대역 강조 (V1 방식: 킥음, 스넥 대역)
-                                                    b <= 5 -> 1.0f       // Low 대역 (베이스)
-                                                    else -> 0.8f         // High 대역 (하이햇)
-                                                }
-                                                fluxTempo += diff * tempoWeight
+                                                // 순정 에너지는 Tempo 산출용으로 적립
+                                                fluxTempo += diff
 
                                                 // 가중치 에너지는 Phase/DP 트래킹용으로 적립
-                                                val trackWeight = when {
+                                                val weight = when {
                                                     b <= 5 -> 1.5f   // Kick 대역
                                                     b >= 16 -> 0.5f  // Hi-hat 대역
                                                     else -> 1.0f
                                                 }
-                                                fluxTrack += diff * trackWeight
+                                                fluxTrack += diff * weight
                                             }
                                         }
                                         odfTempo.add(fluxTempo)
@@ -339,11 +329,9 @@ object BeatDetectorV3 {
 
             val durationMs = totalSamples * 1000L / sampleRate
 
-            // odfTempo: V1 방식 smoothing + local normalization (BPM 추정 개선)
-            val smoothedTempo = smoothOdf(odfTempo, 3)
-            val normTempo = localNormalizeMax(smoothedTempo, 200)
+            val maxTempo = odfTempo.maxOrNull() ?: 1f
+            val normTempo = if (maxTempo > 1e-6f) odfTempo.map { it / maxTempo } else odfTempo
 
-            // odfTrack: 기존 방식 유지 (비트 감지에 영향 없도록)
             val maxTrack = odfTrack.maxOrNull() ?: 1f
             val normTrack = if (maxTrack > 1e-6f) odfTrack.map { it / maxTrack } else odfTrack
 
@@ -468,31 +456,19 @@ object BeatDetectorV3 {
 
         val avg1x = getGridAverage(resultMs)
         val cMs = resultMs / 2
-        val dMs = resultMs * 2
 
-        Log.d(TAG, "DBN raw: ${resultMs}ms (${60000L / resultMs} BPM) | half: ${cMs}ms (${if (cMs > 0) 60000L / cMs else 0} BPM) | double: ${dMs}ms (${60000L / dMs} BPM)")
-        Log.d(TAG, "Octave gate: resultMs=$resultMs > 910ms = ${resultMs > 910L} | cMs=$cMs >= minBeatMs=$minBeatMs = ${cMs >= minBeatMs} | dMs=$dMs <= maxBeatMs=$maxBeatMs = ${dMs <= maxBeatMs}")
-
-        // [방법 A] 상향/하향 옥타브 모두 검사
-        // 상향: 910ms 초과(≈65 BPM 이하)에서 절반 주기 검사 (2배속 오류)
-        // 하향: 910ms 이하에서 2배 주기 검사 (절반속 오류)
-        if (cMs >= minBeatMs && resultMs > 910L) {
-            // 상향 옥타브: 반토막으로 고속화된 경우
+        // 엔진이 느린 곡(680ms 초과 = 약 88 BPM 이하)으로 추정했을 때만 2배속 여부 검사
+        if (cMs >= minBeatMs && resultMs > 680L) {
             val avg2x = getGridAverage(cMs)
-            val ratio = if (avg1x > 1e-6f) avg2x / avg1x else 0f
 
-            Log.d(TAG, "Octave (up): avg1x=$avg1x avg2x=$avg2x ratio=${"%.3f".format(ratio)} threshold=0.73")
-
-            // 댄스곡: 오프비트 스네어 에너지 → 절반 주기 평균이 73% 이상 유지
-            // 발라드: 비트 사이 에너지 부족 → 절반 주기 평균이 크게 낮아짐
+            // 댄스곡: 엇박자에 스네어가 강하게 찍혀서 절반 템포의 평균 에너지가 73% 이상 높게 유지됨
+            // 발라드: 엇박자가 비어 있어서 절반 템포의 평균 에너지가 크게 떨어짐
             if (avg2x > avg1x * 0.73f) {
                 bestCorrMs = cMs
-                Log.d(TAG, "Octave DOUBLED: ${60000L / resultMs}BPM → ${60000L / cMs}BPM (ratio=${"%.3f".format(ratio)})")
+                Log.d(TAG, "Octave Check: Doubled to ${60000/cMs} BPM (avg1x=$avg1x, avg2x=$avg2x)")
             } else {
-                Log.d(TAG, "Octave KEPT: ${60000L / resultMs}BPM (ratio=${"%.3f".format(ratio)} < 0.73)")
+                Log.d(TAG, "Octave Check: Kept at ${60000/resultMs} BPM (avg1x=$avg1x, avg2x=$avg2x)")
             }
-        } else {
-            Log.d(TAG, "Octave SKIPPED → final=${60000L / resultMs}BPM (${resultMs}ms)")
         }
 
         return bestCorrMs
@@ -507,9 +483,7 @@ object BeatDetectorV3 {
             while (f < odf.size) { score += odf[f]; f += fpb }
             if (score > bestScore) { bestScore = score; bestPhase = ph }
         }
-        val phaseMs = bestPhase.toLong() * hopMs
-        Log.d(TAG, "Phase: beatMs=$beatMs fpb=$fpb bestPhase=$bestPhase phaseMs=$phaseMs (offset=${bestPhase}frames, score=${"%.3f".format(bestScore)})")
-        return phaseMs
+        return bestPhase.toLong() * hopMs
     }
 
     private fun dpBeatTracker(
@@ -521,7 +495,6 @@ object BeatDetectorV3 {
         val fpb         = (targetPeriodMs / hopMs).toInt().coerceAtLeast(1)
         val tightness   = 100.0f
         val anchorFrame = if (anchorMs > 0L) (anchorMs / hopMs).toInt().coerceIn(0, n - 1) else -1
-        Log.d(TAG, "DP Input: targetPeriodMs=$targetPeriodMs fpb=$fpb anchorMs=$anchorMs anchorFrame=$anchorFrame odfSize=$n")
 
         val gaussHalf = fpb; val gaussSize = gaussHalf * 2 + 1
         val gaussWin  = FloatArray(gaussSize) { k ->
@@ -579,27 +552,14 @@ object BeatDetectorV3 {
         }
 
         val result = beats.reversed().toLongArray()
-        if (result.size < 2) {
-            Log.d(TAG, "DP Result (pre-trim): ${result.size} beats")
-            return result
-        }
+        if (result.size < 2) return result
 
         val rms = sqrt(localscore.map { it * it }.average().toFloat()); val trimTh = 0.15f * rms
         var ss = 0
         while (ss < result.size && localscore[(result[ss] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) ss++
         var e = result.size - 1
         while (e > ss && localscore[(result[e] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) e--
-        val finalResult = if (ss > e) result else result.sliceArray(ss..e)
-
-        if (finalResult.size >= 3) {
-            val gap1 = finalResult[1] - finalResult[0]
-            val gap2 = finalResult[2] - finalResult[1]
-            Log.d(TAG, "DP Result: ${finalResult.size} beats, spacing: ${finalResult[0]}ms, gap1=${gap1}ms, gap2=${gap2}ms, expectedGap=$targetPeriodMs")
-        } else {
-            Log.d(TAG, "DP Result: ${finalResult.size} beats")
-        }
-
-        return finalResult
+        return if (ss > e) result else result.sliceArray(ss..e)
     }
 
     private fun fallbackSegmentBeats(
@@ -717,34 +677,5 @@ object BeatDetectorV3 {
         } ?: 0
 
         return beatTimesMs.getOrElse(bestPhase) { beatTimesMs.first() }
-    }
-
-    // V1 방식 ODF Post-processing: Smoothing + Local Normalization
-    private fun smoothOdf(odf: List<Float>, windowSize: Int = 3): List<Float> {
-        if (odf.size <= 1 || windowSize <= 1) return odf
-        val result = ArrayList<Float>(odf.size)
-        for (i in odf.indices) {
-            val start = max(0, i - windowSize / 2)
-            val end = min(odf.lastIndex, i + windowSize / 2)
-            val sum = odf.subList(start, end + 1).sum()
-            val avg = sum / (end - start + 1)
-            result.add(avg)
-        }
-        return result
-    }
-
-    private fun localNormalizeMax(src: List<Float>, windowFrames: Int = 200): List<Float> {
-        if (src.isEmpty()) return emptyList()
-        val out = ArrayList<Float>(src.size)
-        for (i in src.indices) {
-            val lo = max(0, i - windowFrames)
-            val hi = min(src.lastIndex, i + windowFrames)
-            var localMax = 0f
-            for (j in lo..hi) {
-                if (src[j] > localMax) localMax = src[j]
-            }
-            out.add(if (localMax > 1e-6f) (src[i] / localMax).coerceIn(0f, 1f) else 0f)
-        }
-        return out
     }
 }
