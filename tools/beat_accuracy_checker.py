@@ -858,10 +858,8 @@ def detect_msaf_sections(audio_path, duration_sec):
                         reverse=True)
         chorus_c = ranked[0] if len(ranked) > 0 else -1
         verse_c  = ranked[1] if len(ranked) > 1 else -1
-        bridge_c = ranked[2] if len(ranked) > 2 else -1
 
-        flat_p33  = float(np.percentile([s['flatness'] for s in segs], 33))
-        onset_p66 = float(np.percentile([s['onset']    for s in segs], 66))
+        flat_p30 = float(np.percentile([s['flatness'] for s in segs], 30))
 
         # ── 5. 시맨틱 라벨 할당 (allin1 8종) ──
         total = max(duration_sec, 1.0)
@@ -876,24 +874,25 @@ def detect_msaf_sections(audio_path, duration_sec):
             is_first  = (i == 0)
             is_last   = (i == n - 1)
             is_unique = (cnt[c] == 1)
+            seg_dur   = s['t1'] - s['t0']
 
             if is_first and pos < 0.15:
                 lbl = 'INTRO'
             elif is_last and pos > 0.80:
                 lbl = 'OUTRO'
-            elif s['flatness'] < flat_p33 and on <= 0.35:
-                # 보컬 없음(tonal) + 조용 → 연주 계열
-                lbl = 'SOLO' if cn >= 0.55 else 'INST'
-            elif s['flatness'] >= flat_p33 * 1.8 and on >= onset_p66:
-                # 잡음성 + 타악기 강함 → 브레이크
+            # BREAK: 에너지 낮고 짧고 1회성 전환 구간 (알린1 기준: 악기 구성 줄어드는 브레이크다운)
+            elif rn <= 0.25 and is_unique and seg_dur < 25.0:
                 lbl = 'BREAK'
-            elif c == chorus_c and rn >= 0.30:
+            # INST/SOLO: 에너지 있음 + 매우 tonal + chorus/verse 클러스터 아님
+            # (보컬 스템 분리 없이 보수적 적용)
+            elif s['flatness'] < flat_p30 and rn > 0.20 and c not in (chorus_c, verse_c):
+                lbl = 'SOLO' if cn >= 0.60 else 'INST'
+            elif c == chorus_c and rn >= 0.35:
                 lbl = 'CHORUS'
             elif c == verse_c:
                 lbl = 'VERSE'
+            # BRIDGE: 1회 등장 + 곡 중간부 (intro/outro 제외)
             elif is_unique and 0.15 < pos < 0.85:
-                lbl = 'BRIDGE'
-            elif c == bridge_c:
                 lbl = 'BRIDGE'
             elif rn >= 0.45:
                 lbl = 'CHORUS'
