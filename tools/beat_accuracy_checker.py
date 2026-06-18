@@ -1356,25 +1356,55 @@ class App(tk.Tk):
             sc = _SECTION_COLORS.get(stype, "#546e7a")
             tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
                      font=("", 6, "bold")).pack(side="left", padx=1, pady=1)
-        tk.Label(tl_ctrl, text="시작(초/mm:ss):", bg="#1a1a2e", fg="#90a4ae",
-                 font=("", 8)).pack(side="left", padx=(8, 0))
-        self.zoom_s_var = tk.DoubleVar(value=0.0)
-        tk.Entry(tl_ctrl, textvariable=self.zoom_s_var, width=5,
-                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
-        tk.Label(tl_ctrl, text="끝(초/mm:ss):", bg="#1a1a2e", fg="#90a4ae",
+        # ── 줌/스크롤 컨트롤 행 ──────────────────────
+        tl_ctrl2 = tk.Frame(tl_frame, bg="#1a1a2e")
+        tl_ctrl2.pack(fill="x", padx=6, pady=(0, 2))
+
+        self.zoom_s_var   = tk.DoubleVar(value=0.0)
+        self.zoom_e_var   = tk.DoubleVar(value=30.0)
+        self.zoom_mode_var = tk.StringVar(value="full")
+
+        btn_cfg = dict(bg="#263238", fg="#90a4ae", activebackground="#37474f",
+                       activeforeground="white", font=("", 8), pady=1, padx=6,
+                       relief="flat", bd=0)
+        btn_sel = dict(bg="#455a64", fg="white", activebackground="#546e7a",
+                       activeforeground="white", font=("", 8, "bold"), pady=1, padx=6,
+                       relief="flat", bd=0)
+
+        self._zoom_btns = {}
+        for label, mode in [("전체", "full"), ("10초", "10"), ("30초", "30"), ("60초", "60")]:
+            b = tk.Button(tl_ctrl2, text=label,
+                          command=lambda m=mode: self._set_zoom_mode(m), **btn_cfg)
+            b.pack(side="left", padx=1)
+            self._zoom_btns[mode] = b
+        self._zoom_btns["full"].config(**btn_sel)   # 기본 선택
+
+        tk.Label(tl_ctrl2, text="  |", bg="#1a1a2e", fg="#37474f",
                  font=("", 8)).pack(side="left")
-        self.zoom_e_var = tk.DoubleVar(value=30.0)
-        tk.Entry(tl_ctrl, textvariable=self.zoom_e_var, width=5,
-                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
-        tk.Button(tl_ctrl, text="갱신", command=self._redraw_timeline,
-                  bg="#455a64", fg="white", font=("", 8), pady=1).pack(side="left", padx=4)
-        tk.Label(tl_ctrl, text="전체보기: 시작=0, 끝=곡길이",
-                 bg="#1a1a2e", fg="#546e7a", font=("", 7)).pack(side="left")
+
+        tk.Button(tl_ctrl2, text="◀◀", command=self._scroll_to_start,
+                  **btn_cfg).pack(side="left", padx=1)
+        tk.Button(tl_ctrl2, text="◀", command=self._scroll_left,
+                  **btn_cfg).pack(side="left", padx=1)
+        tk.Button(tl_ctrl2, text="▶", command=self._scroll_right,
+                  **btn_cfg).pack(side="left", padx=1)
+        tk.Button(tl_ctrl2, text="▶▶", command=self._scroll_to_end,
+                  **btn_cfg).pack(side="left", padx=1)
+
+        tk.Label(tl_ctrl2, text="  |", bg="#1a1a2e", fg="#37474f",
+                 font=("", 8)).pack(side="left")
+
+        self.v_zoom_pos = tk.StringVar(value="0:00 ~ 0:00")
+        tk.Label(tl_ctrl2, textvariable=self.v_zoom_pos,
+                 bg="#1a1a2e", fg="#546e7a", font=("", 8)).pack(side="left", padx=4)
 
         # 캔버스 높이: TICK_H(16) + BEAT_H*3(132) + SEC_H*2(44) = 192px (공백 없음)
         self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=192, highlightthickness=0)
         self.tl_canvas.pack(fill="x", padx=4, pady=(0, 4))
         self.tl_canvas.bind("<Configure>", lambda e: self._redraw_timeline())
+        self.tl_canvas.bind("<MouseWheel>",  self._on_tl_scroll)
+        self.tl_canvas.bind("<Button-4>",    self._on_tl_scroll)
+        self.tl_canvas.bind("<Button-5>",    self._on_tl_scroll)
 
         # ── 2열 메인 영역 ──────────────────────────
         main = tk.Frame(self)
@@ -2067,6 +2097,7 @@ class App(tk.Tk):
             self._lbl_app_style.config(fg=_STYLE_COLORS.get(_app_style, '#69f0ae'))
             self._lbl_librosa_style.config(fg=_STYLE_COLORS.get(_lib_style, '#82b1ff'))
 
+            self._set_zoom_mode("full")
             # 결과 먼저 저장 (파형 없이) → 타임라인 즉시 렌더
             self._last_result = dict(
                 ref_sec=ref_sec, app_sec=app_sec,
@@ -2357,6 +2388,70 @@ class App(tk.Tk):
         cw["v_cov"].set(f"{cov_pct:.1f}%")
         cw["v_gaps"].set(f"{gaps}개")
 
+    # ── 타임라인 줌/스크롤 ────────────────────────
+
+    def _fmt_pos(self, sec):
+        m, s = divmod(int(sec), 60)
+        return f"{m}:{s:02d}"
+
+    def _zoom_window(self):
+        """현재 뷰 모드의 윈도우 길이(초). full → None."""
+        m = self.zoom_mode_var.get()
+        return None if m == "full" else int(m)
+
+    def _apply_zoom(self, start_sec):
+        """zoom_s/e_var 를 갱신하고 타임라인을 다시 그린다."""
+        dur = (self._last_result or {}).get("duration_sec", 0)
+        w   = self._zoom_window()
+        if w is None:
+            self.zoom_s_var.set(0.0)
+            self.zoom_e_var.set(round(dur, 1))
+        else:
+            s = max(0.0, min(start_sec, max(0.0, dur - w)))
+            self.zoom_s_var.set(round(s, 2))
+            self.zoom_e_var.set(round(s + w, 2))
+        self._redraw_timeline()
+
+    def _set_zoom_mode(self, mode):
+        self.zoom_mode_var.set(mode)
+        for m, b in self._zoom_btns.items():
+            if m == mode:
+                b.config(bg="#455a64", fg="white", font=("", 8, "bold"))
+            else:
+                b.config(bg="#263238", fg="#90a4ae", font=("", 8))
+        cur_s = self.zoom_s_var.get()
+        self._apply_zoom(cur_s)
+
+    def _scroll_left(self):
+        w = self._zoom_window()
+        if w:
+            self._apply_zoom(self.zoom_s_var.get() - w)
+
+    def _scroll_right(self):
+        w = self._zoom_window()
+        if w:
+            self._apply_zoom(self.zoom_s_var.get() + w)
+
+    def _scroll_to_start(self):
+        self._apply_zoom(0.0)
+
+    def _scroll_to_end(self):
+        dur = (self._last_result or {}).get("duration_sec", 0)
+        w   = self._zoom_window()
+        self._apply_zoom(max(0.0, dur - (w or dur)))
+
+    def _on_tl_scroll(self, event):
+        w = self._zoom_window()
+        if not w:
+            return
+        # Windows: event.delta (+/-120), Linux: Button-4/5
+        if event.num == 4 or (hasattr(event, "delta") and event.delta > 0):
+            self._apply_zoom(self.zoom_s_var.get() - w * 0.5)
+        else:
+            self._apply_zoom(self.zoom_s_var.get() + w * 0.5)
+
+    # ─────────────────────────────────────────────
+
     def _redraw_timeline(self):
         """비트 타임라인 캔버스를 현재 _last_result 기준으로 다시 그린다."""
         if not self._last_result:
@@ -2369,6 +2464,11 @@ class App(tk.Tk):
             z_s, z_e = 0.0, r["duration_sec"]
         if z_e <= z_s:
             z_e = z_s + 1.0
+        # 현재 위치 표시 갱신
+        try:
+            self.v_zoom_pos.set(f"{self._fmt_pos(z_s)} ~ {self._fmt_pos(z_e)}")
+        except Exception:
+            pass
         self._draw_beat_timeline(
             r["tp_est"], r["fp_est"], r["fn_ref"],
             r["ref_sec"], r["app_sec"],
@@ -2970,6 +3070,7 @@ class App(tk.Tk):
         )
         # 비트 타임라인 그리기 (전체 기본)
         def _draw():
+            self._set_zoom_mode("full")
             self.zoom_e_var.set(round(duration_sec, 1))
             self._redraw_timeline()
         self.after(200, _draw)   # 캔버스 레이아웃 완성 후 실행
