@@ -238,6 +238,19 @@ try:
 except Exception as _e:
     _allin1_err = str(_e)
 
+HAS_MSAF = False
+_msaf_mod = None
+_msaf_err = None
+try:
+    import scipy as _scipy_tmp
+    if not hasattr(_scipy_tmp, 'inf'):
+        _scipy_tmp.inf = float('inf')
+    del _scipy_tmp
+    import msaf as _msaf_mod
+    HAS_MSAF = True
+except Exception as _e:
+    _msaf_err = str(_e)
+
 # ──────────────────────────────────────────────
 # 의존 라이브러리 감지
 # ──────────────────────────────────────────────
@@ -397,10 +410,15 @@ try:
 except Exception as _e:
     _allin1_err = str(_e)
 
-# msaf
+# msaf (scipy>=1.12에서 scipy.inf 제거 → import 전 monkey-patch로 복원)
 HAS_MSAF = False
+_msaf_mod = None
 _msaf_err = None
 try:
+    import scipy as _scipy_tmp
+    if not hasattr(_scipy_tmp, 'inf'):
+        _scipy_tmp.inf = float('inf')
+    del _scipy_tmp
     import msaf as _msaf_mod
     HAS_MSAF = True
 except Exception as _e:
