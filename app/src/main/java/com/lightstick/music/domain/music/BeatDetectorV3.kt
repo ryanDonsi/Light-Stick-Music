@@ -439,7 +439,7 @@ object BeatDetectorV3 {
         }
 
         val LOG_BPM_CENTER = ln(120f)
-        val LOG_BPM_SX2    = 2f * 0.8f * 0.8f
+        val LOG_BPM_SX2    = 2f * 0.5f * 0.5f
 
         fun combPriorScore(beatMs: Long): Float {
             val fpb = max(1, (beatMs / hopMs).toInt())
@@ -463,7 +463,7 @@ object BeatDetectorV3 {
         var bestCorrPS = combPriorScore(resultMs)
 
         for (r in HARM_RATIOS) {
-            if (r == 0.5f && resultMs < 910L) continue
+            if (r == 0.5f && resultMs < 840L) continue
             val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt().coerceAtLeast(1)
             val cMs = frames.toLong() * hopMs
             if (cMs < minBeatMs || cMs > maxBeatMs) continue
