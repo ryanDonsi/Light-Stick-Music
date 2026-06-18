@@ -1565,7 +1565,7 @@ class App(tk.Tk):
         log_frame.rowconfigure(0, weight=1)
         log_frame.columnconfigure(0, weight=1)
         self.out = scrolledtext.ScrolledText(log_frame, font=("Courier", 9),
-                                             state="disabled",
+                                             state="disabled", height=4,
                                              bg="#0d1117", fg="#7c8b9c")
         self.out.tag_config("green",  foreground="#69f0ae")
         self.out.tag_config("yellow", foreground="#ffcc02")
