@@ -1968,6 +1968,17 @@ class App(tk.Tk):
             _lib_sections  = record.get("librosa_sections", [])
             _app_sections  = record.get("app_sections", [])
 
+            # 기존 레코드에 app_sections 없으면 바이너리 파일에서 직접 읽기
+            if not _app_sections:
+                bin_path = item.get("bin_path", "")
+                if bin_path and os.path.exists(bin_path):
+                    try:
+                        _, style_from_bin, _app_sections = parse_section_meta_binary(bin_path)
+                        if style_from_bin and style_from_bin != "N/A" and _app_style == "N/A":
+                            _app_style = style_from_bin
+                    except Exception:
+                        _app_sections = []
+
             # 헤더 스타일 레이블 갱신
             self.v_app_style.set(_app_style)
             self.v_librosa_style.set(_lib_style)
@@ -2469,7 +2480,7 @@ class App(tk.Tk):
                 # 채운 바
                 c.create_rectangle(x1, y_top+1, x2, y_bot-1, fill=col, outline="")
                 # 경계 구분선 (좌측 1px 어두운 선)
-                c.create_line(x1, y_top+1, x1, y_bot-1, fill="#00000066" if bar_w > 1 else col, width=1)
+                c.create_line(x1, y_top+1, x1, y_bot-1, fill="#1a1a1a", width=1)
                 # 텍스트 (최소 1자, 영역 초과 시 트런케이션)
                 txt = _sec_text(lbl, bar_w)
                 if txt:
