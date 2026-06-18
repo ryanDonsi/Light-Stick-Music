@@ -1265,6 +1265,15 @@ class App(tk.Tk):
             tk.Label(legend_frame, text=lt, bg="#1a1a2e", fg=lc,
                      font=("", 8, "bold")).pack(side="left", padx=6)
         tk.Label(tl_ctrl, text="  |", bg="#1a1a2e", fg="#37474f", font=("", 8)).pack(side="left")
+        # 섹션 범례 (우측)
+        sec_legend = tk.Frame(tl_ctrl, bg="#1a1a2e")
+        sec_legend.pack(side="right", padx=(0, 6))
+        tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
+                 font=("", 7)).pack(side="left", padx=(0, 3))
+        for stype in ["INTRO", "VERSE", "CHORUS", "BRIDGE", "OUTRO", "VOCAL", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]:
+            sc = _SECTION_COLORS.get(stype, "#546e7a")
+            tk.Label(sec_legend, text=f"■{stype}", bg="#1a1a2e", fg=sc,
+                     font=("", 7, "bold")).pack(side="left", padx=2)
         tk.Label(tl_ctrl, text="시작(초/mm:ss):", bg="#1a1a2e", fg="#90a4ae",
                  font=("", 8)).pack(side="left", padx=(8, 0))
         self.zoom_s_var = tk.DoubleVar(value=0.0)
@@ -1280,7 +1289,7 @@ class App(tk.Tk):
         tk.Label(tl_ctrl, text="전체보기: 시작=0, 끝=곡길이",
                  bg="#1a1a2e", fg="#546e7a", font=("", 7)).pack(side="left")
 
-        self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=280, highlightthickness=0)
+        self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=220, highlightthickness=0)
         self.tl_canvas.pack(fill="x", padx=4, pady=(0, 4))
         self.tl_canvas.bind("<Configure>", lambda e: self._redraw_timeline())
 
@@ -2315,15 +2324,17 @@ class App(tk.Tk):
         TICK_H  = 16    # 상단 시간 눈금 영역 높이
         PAD     = 4
 
-        # 5-레인 Y 분할:
-        # 파형(16%) | GT비트(16%) | GT섹션(16%)
-        # 앱비트(16%) | 앱섹션(remaining)
+        # 5-레인 Y 분할 (섹션 높이 = 비트 높이의 절반)
+        # 파형(22%) | GT비트(22%) | GT섹션(11%) | 앱비트(22%) | 앱섹션(11%)
         usable = H - TICK_H
-        WAVE_BOT   = TICK_H + int(usable * 0.16)
-        GT_BOT     = WAVE_BOT + int(usable * 0.16)
-        GT_SEC_BOT = GT_BOT + int(usable * 0.16)
-        APP_BOT    = GT_SEC_BOT + int(usable * 0.16)
-        APP_SEC_BOT= H
+        BEAT_H  = int(usable * 0.22)   # 비트 레인 높이
+        SEC_H   = int(usable * 0.11)   # 섹션 레인 높이 (비트의 절반)
+
+        WAVE_BOT   = TICK_H + BEAT_H
+        GT_BOT     = WAVE_BOT + BEAT_H
+        GT_SEC_BOT = GT_BOT + SEC_H
+        APP_BOT    = GT_SEC_BOT + BEAT_H
+        APP_SEC_BOT= APP_BOT + SEC_H
 
         WAVE_TOP   = TICK_H + PAD
         WAVE_MID   = (WAVE_TOP + WAVE_BOT) // 2
@@ -2340,18 +2351,18 @@ class App(tk.Tk):
         in_range = lambda t: z_start <= t <= z_end
 
         # ── 배경 레인 (5레인) ──
-        c.create_rectangle(0, TICK_H,     W, WAVE_BOT,    fill="#0d1117", outline="")   # 파형
-        c.create_rectangle(0, WAVE_BOT,   W, GT_BOT,      fill="#0a1520", outline="")   # GT 비트
-        c.create_rectangle(0, GT_BOT,     W, GT_SEC_BOT,  fill="#060c14", outline="")   # GT 섹션
-        c.create_rectangle(0, GT_SEC_BOT, W, APP_BOT,     fill="#0e1a0e", outline="")   # 앱 비트
-        c.create_rectangle(0, APP_BOT,    W, H,           fill="#071007", outline="")   # 앱 섹션
+        c.create_rectangle(0, TICK_H,      W, WAVE_BOT,    fill="#0d1117", outline="")   # 파형
+        c.create_rectangle(0, WAVE_BOT,    W, GT_BOT,      fill="#0a1520", outline="")   # GT 비트
+        c.create_rectangle(0, GT_BOT,      W, GT_SEC_BOT,  fill="#060c14", outline="")   # GT 섹션
+        c.create_rectangle(0, GT_SEC_BOT,  W, APP_BOT,     fill="#0e1a0e", outline="")   # 앱 비트
+        c.create_rectangle(0, APP_BOT,     W, APP_SEC_BOT, fill="#071007", outline="")   # 앱 섹션
 
         # ── 레인 구분선 ──
         c.create_line(0, WAVE_BOT,    W, WAVE_BOT,    fill="#263238", width=2)   # 파형/GT 경계
         c.create_line(0, GT_BOT,      W, GT_BOT,      fill="#1a2a38", width=1)   # GT비트/섹션
         c.create_line(0, GT_SEC_BOT,  W, GT_SEC_BOT,  fill="#263238", width=2)   # GT/앱 경계
         c.create_line(0, APP_BOT,     W, APP_BOT,     fill="#1a2a38", width=1)   # 앱비트/섹션
-        c.create_line(LABEL_W, TICK_H, LABEL_W, H, fill="#1e2d3a", width=1, dash=(3, 3))
+        c.create_line(LABEL_W, TICK_H, LABEL_W, APP_SEC_BOT, fill="#1e2d3a", width=1, dash=(3, 3))
 
         # ── 레인 라벨 (5레인) ──
         eng_label = (self._last_result or {}).get("engine_name", "GT 엔진")
@@ -2361,11 +2372,11 @@ class App(tk.Tk):
             c.create_text(LABEL_W // 2, (y0 + y1) // 2, text=txt, fill=fg,
                           font=("", 7, "bold"), anchor="center", justify="center")
 
-        _lane_label(TICK_H,     WAVE_BOT,   "파형",              "#b0bec5", "#111318")
-        _lane_label(WAVE_BOT,   GT_BOT,     f"{eng_label}\n비트", "#82b1ff", "#0d1b2a")
-        _lane_label(GT_BOT,     GT_SEC_BOT, "Librosa\n섹션",    "#82b1ff", "#060b14")
-        _lane_label(GT_SEC_BOT, APP_BOT,    "앱\n비트",          "#69f0ae", "#0d1a0d")
-        _lane_label(APP_BOT,    H,          "앱\n섹션",          "#69f0ae", "#071007")
+        _lane_label(TICK_H,      WAVE_BOT,    "파형",              "#b0bec5", "#111318")
+        _lane_label(WAVE_BOT,    GT_BOT,      f"{eng_label}\n비트", "#82b1ff", "#0d1b2a")
+        _lane_label(GT_BOT,      GT_SEC_BOT,  "GT\n섹션",         "#82b1ff", "#060b14")
+        _lane_label(GT_SEC_BOT,  APP_BOT,     "앱\n비트",          "#69f0ae", "#0d1a0d")
+        _lane_label(APP_BOT,     APP_SEC_BOT, "앱\n섹션",          "#69f0ae", "#071007")
 
         # ── 시간 눈금 ──
         target_ticks = max(5, (W - LABEL_W) // 60)
@@ -2384,7 +2395,7 @@ class App(tk.Tk):
             x = tx(t)
             if x < LABEL_W:
                 t += tick_interval; continue
-            c.create_line(x, TICK_H, x, H, fill="#1a2a38", width=1)
+            c.create_line(x, TICK_H, x, APP_SEC_BOT, fill="#1a2a38", width=1)
             mins, secs = divmod(int(t), 60)
             label = f"{mins}:{secs:02d}" if mins else f"{secs}s"
             c.create_text(x + 2, 2, anchor="nw", text=label,
@@ -2450,29 +2461,27 @@ class App(tk.Tk):
                     c.create_rectangle(x-1, APP_TOP, x+1, APP_BOT,
                                        fill="#ff5252", outline="")
 
-        # ── GT 섹션 레인 (Librosa 구조 분석) ──
+        # ── GT 섹션 레인 ──
         if librosa_sections:
-            palette = ["#1565c0","#0277bd","#00838f","#2e7d32","#558b2f",
-                       "#f57f17","#e65100","#6a1b9a","#ad1457","#c62828","#4a148c"]
             for sec in librosa_sections:
-                s_ms = sec["start_ms"]
-                e_ms = sec["end_ms"]
-                s_t  = s_ms / 1000.0
-                e_t  = e_ms / 1000.0
+                s_t = sec["start_ms"] / 1000.0
+                e_t = sec["end_ms"]   / 1000.0
                 if e_t < z_start or s_t > z_end:
                     continue
                 x1 = tx(max(s_t, z_start))
                 x2 = tx(min(e_t, z_end))
                 if x2 <= x1:
                     continue
-                idx = sec.get("index", 0)
-                col = palette[idx % len(palette)]
-                c.create_rectangle(x1, GT_SEC_TOP+1, x2, GT_SEC_BOT-1, fill="#0d1520", outline=col, width=1)
-                mid_x = (x1 + x2) // 2
-                lbl = sec.get("type", str(idx+1))
+                lbl = sec.get("type", "?")
+                col = _SECTION_COLORS.get(lbl, "#546e7a")
+                c.create_rectangle(x1, GT_SEC_TOP+1, x2, GT_SEC_BOT-1, fill=col, outline="")
                 if x2 - x1 > 20:
-                    c.create_text(mid_x, (GT_SEC_TOP+GT_SEC_BOT)//2, text=lbl,
-                                  fill="white", font=("",7), anchor="center")
+                    mid_x = (x1 + x2) // 2
+                    mid_y = (GT_SEC_TOP + GT_SEC_BOT) // 2
+                    c.create_text(mid_x+1, mid_y+1, text=lbl, fill="#000000",
+                                  font=("", 7, "bold"), anchor="center")
+                    c.create_text(mid_x, mid_y, text=lbl, fill="white",
+                                  font=("", 7, "bold"), anchor="center")
 
         # ── 앱 섹션 레인 ──
         if sections:
@@ -2487,11 +2496,14 @@ class App(tk.Tk):
                     continue
                 sec_type = sec.get("type", "?")
                 col = _SECTION_COLORS.get(sec_type, "#546e7a")
-                c.create_rectangle(x1, APP_SEC_TOP+1, x2, APP_SEC_BOT-1, fill="#0d1a0d", outline=col, width=1)
-                mid_x = (x1 + x2) // 2
+                c.create_rectangle(x1, APP_SEC_TOP+1, x2, APP_SEC_BOT-1, fill=col, outline="")
                 if x2 - x1 > 24:
-                    c.create_text(mid_x, (APP_SEC_TOP+APP_SEC_BOT)//2, text=sec_type,
-                                  fill="white", font=("",7), anchor="center")
+                    mid_x = (x1 + x2) // 2
+                    mid_y = (APP_SEC_TOP + APP_SEC_BOT) // 2
+                    c.create_text(mid_x+1, mid_y+1, text=sec_type, fill="#000000",
+                                  font=("", 7, "bold"), anchor="center")
+                    c.create_text(mid_x, mid_y, text=sec_type, fill="white",
+                                  font=("", 7, "bold"), anchor="center")
 
     # ── 분석 ──────────────────────────────────────
 
