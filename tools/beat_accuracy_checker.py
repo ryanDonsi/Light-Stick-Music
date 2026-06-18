@@ -1411,7 +1411,7 @@ class App(tk.Tk):
         col2 = tk.Frame(main)
         col2.grid(row=0, column=1, sticky="nsew", padx=(3, 0))
         col2.columnconfigure(0, weight=1)
-        col2.rowconfigure(0, weight=5)
+        col2.rowconfigure(0, weight=9)
         col2.rowconfigure(1, weight=1)
 
         # 2열 1행: 분석 결과 — 엔진별 풀 상세 카드 3개
@@ -2486,7 +2486,7 @@ class App(tk.Tk):
                 if txt:
                     mid_x = (x1 + x2) // 2
                     mid_y = (y_top + y_bot) // 2
-                    c.create_text(mid_x+1, mid_y+1, text=txt, fill="#00000080",
+                    c.create_text(mid_x+1, mid_y+1, text=txt, fill="#111111",
                                   font=("", 7, "bold"), anchor="center")
                     c.create_text(mid_x, mid_y, text=txt, fill="white",
                                   font=("", 7, "bold"), anchor="center")
