@@ -397,6 +397,15 @@ try:
 except Exception as _e:
     _allin1_err = str(_e)
 
+# msaf
+HAS_MSAF = False
+_msaf_err = None
+try:
+    import msaf as _msaf_mod
+    HAS_MSAF = True
+except Exception as _e:
+    _msaf_err = str(_e)
+
 # ──────────────────────────────────────────────
 # 엔진 정보
 # ──────────────────────────────────────────────
@@ -768,8 +777,144 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
         return []
 
 
+def detect_msaf_sections(audio_path, duration_sec):
+    """msaf 경계 검출 + allin1 기준 시맨틱 라벨 할당.
+
+    msaf → 정확한 경계 + 클러스터 ID
+    librosa 특징 → 에너지/보컬/반복 패턴 → allin1 8종 라벨
+    """
+    if not (HAS_MSAF and HAS_LIBROSA):
+        return []
+    try:
+        import numpy as np
+        from collections import Counter
+
+        # ── 1. msaf 경계 + 클러스터 ID 검출 ──
+        bounds, cluster_ids = _msaf_mod.process(
+            audio_path, boundaries_id='scluster', labels_id='fmc2d')
+        cluster_ids = list(cluster_ids)
+        n = len(cluster_ids)
+        if n == 0:
+            return []
+
+        # bounds 가 0을 포함하지 않으면 prepend
+        if bounds[0] > 0.1:
+            bounds = np.concatenate([[0.0], bounds])
+        # end time 보정
+        if len(bounds) < n + 1:
+            bounds = np.concatenate([bounds, [duration_sec]])
+
+        # ── 2. 구간별 librosa 특징 추출 ──
+        load_dur = min(300.0, duration_sec) if duration_sec > 0 else 300.0
+        y, sr    = librosa.load(audio_path, sr=22050, mono=True, duration=load_dur)
+        hop      = 512
+        rms_f    = librosa.feature.rms(y=y, hop_length=hop)[0]
+        cent_f   = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop)[0]
+        flat_f   = librosa.feature.spectral_flatness(y=y, hop_length=hop)[0]
+        onset_f  = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
+
+        def _fr(t):
+            return min(int(t * sr / hop), len(rms_f) - 1)
+
+        segs = []
+        for i in range(n):
+            t0, t1 = float(bounds[i]), float(bounds[i + 1])
+            f0, f1 = _fr(t0), _fr(t1)
+            if f1 <= f0:
+                f1 = f0 + 1
+            segs.append({
+                'cluster':  int(cluster_ids[i]),
+                't0': t0,   't1': t1,
+                'rms':      float(rms_f[f0:f1].mean()),
+                'centroid': float(cent_f[f0:f1].mean()),
+                'flatness': float(flat_f[f0:f1].mean()),
+                'onset':    float(onset_f[f0:f1].mean()),
+            })
+
+        # ── 3. 정규화 ──
+        def _norm(vals):
+            mn, mx = min(vals), max(vals)
+            if mx == mn:
+                return [0.5] * len(vals)
+            return [(v - mn) / (mx - mn) for v in vals]
+
+        rms_n   = _norm([s['rms']      for s in segs])
+        cent_n  = _norm([s['centroid'] for s in segs])
+        flat_n  = _norm([s['flatness'] for s in segs])
+        onset_n = _norm([s['onset']    for s in segs])
+
+        # ── 4. 클러스터 분석 ──
+        cnt = Counter(s['cluster'] for s in segs)
+
+        # 클러스터별 평균 에너지
+        crms = {}
+        for s in segs:
+            crms.setdefault(s['cluster'], []).append(s['rms'])
+        crms_avg = {c: sum(v) / len(v) for c, v in crms.items()}
+
+        # 반복 많고 에너지 높은 클러스터 순
+        ranked = sorted(cnt.keys(),
+                        key=lambda c: (cnt[c], crms_avg.get(c, 0)),
+                        reverse=True)
+        chorus_c = ranked[0] if len(ranked) > 0 else -1
+        verse_c  = ranked[1] if len(ranked) > 1 else -1
+        bridge_c = ranked[2] if len(ranked) > 2 else -1
+
+        flat_p33  = float(np.percentile([s['flatness'] for s in segs], 33))
+        onset_p66 = float(np.percentile([s['onset']    for s in segs], 66))
+
+        # ── 5. 시맨틱 라벨 할당 (allin1 8종) ──
+        total = max(duration_sec, 1.0)
+        labels_out = []
+        for i, s in enumerate(segs):
+            c         = s['cluster']
+            pos       = s['t0'] / total
+            rn        = rms_n[i]
+            cn        = cent_n[i]
+            fn        = flat_n[i]
+            on        = onset_n[i]
+            is_first  = (i == 0)
+            is_last   = (i == n - 1)
+            is_unique = (cnt[c] == 1)
+
+            if is_first and pos < 0.15:
+                lbl = 'INTRO'
+            elif is_last and pos > 0.80:
+                lbl = 'OUTRO'
+            elif s['flatness'] < flat_p33 and on <= 0.35:
+                # 보컬 없음(tonal) + 조용 → 연주 계열
+                lbl = 'SOLO' if cn >= 0.55 else 'INST'
+            elif s['flatness'] >= flat_p33 * 1.8 and on >= onset_p66:
+                # 잡음성 + 타악기 강함 → 브레이크
+                lbl = 'BREAK'
+            elif c == chorus_c and rn >= 0.30:
+                lbl = 'CHORUS'
+            elif c == verse_c:
+                lbl = 'VERSE'
+            elif is_unique and 0.15 < pos < 0.85:
+                lbl = 'BRIDGE'
+            elif c == bridge_c:
+                lbl = 'BRIDGE'
+            elif rn >= 0.45:
+                lbl = 'CHORUS'
+            else:
+                lbl = 'VERSE'
+
+            labels_out.append(lbl)
+
+        return [
+            {'start_ms': int(segs[i]['t0'] * 1000),
+             'end_ms':   int(segs[i]['t1'] * 1000),
+             'index':    i,
+             'type':     labels_out[i]}
+            for i in range(n)
+        ]
+    except Exception:
+        return []
+
+
 def detect_gt_sections(audio_path, duration_sec):
-    """GT 섹션 감지: allin1 우선, 실패 시 librosa 폴백.
+    """GT 섹션 감지 우선순위: allin1 → msaf → librosa
 
     allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
     (start/end 마커는 제외)
@@ -790,6 +935,13 @@ def detect_gt_sections(audio_path, duration_sec):
                 })
             if sections:
                 return sections
+        except Exception:
+            pass
+    if HAS_MSAF:
+        try:
+            result = detect_msaf_sections(audio_path, duration_sec)
+            if result:
+                return result
         except Exception:
             pass
     return detect_librosa_sections(audio_path, duration_sec)
@@ -1381,8 +1533,11 @@ class App(tk.Tk):
             (("● librosa"          if HAS_LIBROSA else "✗ librosa (미설치)"),
              "#69f0ae" if HAS_LIBROSA else "#ef9a9a"),
             (("● allin1 (GT섹션)"  if HAS_ALLIN1  else
-              f"○ allin1: {_allin1_err[:50]}" if _allin1_err else "○ allin1 (미설치→librosa 폴백)"),
+              f"○ allin1: {_allin1_err[:45]}" if _allin1_err else "○ allin1 (미설치)"),
              "#69f0ae" if HAS_ALLIN1 else "#ffcc02"),
+            (("● msaf (GT섹션)"    if HAS_MSAF    else
+              f"○ msaf: {_msaf_err[:45]}"  if _msaf_err  else "○ msaf (미설치→pip install msaf)"),
+             "#69f0ae" if HAS_MSAF  else "#ffcc02"),
             (("● matplotlib"       if HAS_MPL     else "✗ matplotlib (미설치 → 비트맵 불가)"),
              "#69f0ae" if HAS_MPL     else "#ffcc02"),
         ]:
@@ -2273,9 +2428,9 @@ class App(tk.Tk):
 
             # GT 섹션 분석: 오디오당 1회만 실행 후 엔진별로 공유
             pre_lib_sections = []
-            if HAS_ALLIN1 or HAS_LIBROSA:
+            if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
                 try:
-                    src = "allin1" if HAS_ALLIN1 else "librosa"
+                    src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
                     self.after(0, lambda n=name, i=idx, t=total, s=src:
                                self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션/{s})"))
                     _dur = get_audio_duration(audio)
@@ -3078,10 +3233,10 @@ class App(tk.Tk):
                     self._log(f"  Librosa Style : {s}  |  {f}", "cyan"))
             except Exception as _ex:
                 self.after(0, lambda e=str(_ex): self._log(f"  Librosa 분석 오류: {e}", "red"))
-        if HAS_ALLIN1 or HAS_LIBROSA:
+        if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
             try:
                 if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
-                    src = "allin1" if HAS_ALLIN1 else "librosa"
+                    src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
                     self.after(0, lambda s=src: self._log(f"[+GT]  GT 섹션 감지 ({s})…", "gray"))
                     librosa_sections = detect_gt_sections(audio_path, duration_sec)
                     self.after(0, lambda n=len(librosa_sections):
