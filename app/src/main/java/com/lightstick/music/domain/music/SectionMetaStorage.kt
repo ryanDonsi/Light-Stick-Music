@@ -28,8 +28,11 @@ import java.io.FileOutputStream
  *     Float: peakEnergy
  *     Float: lowRatio
  *     Float: midRatio
+ *     Float: highRatio
  *     Float: onsetDensity
  *     Float: periodicity
+ *     Int:   beatTimesMs.size
+ *     Long[]: beatTimesMs
  */
 class SectionMetaStorage(private val version: Int) {
 
@@ -62,6 +65,8 @@ class SectionMetaStorage(private val version: Int) {
                     out.writeFloat(s.highRatio)
                     out.writeFloat(s.onsetDensity)
                     out.writeFloat(s.periodicity)
+                    out.writeInt(s.beatTimesMs.size)
+                    s.beatTimesMs.forEach { out.writeLong(it) }
                 }
             }
         } catch (t: Throwable) {
@@ -102,6 +107,8 @@ class SectionMetaStorage(private val version: Int) {
                     val highRatio       = input.readFloat()
                     val onsetDensity    = input.readFloat()
                     val periodicity     = input.readFloat()
+                    val beatCount       = input.readInt()
+                    val beatTimesMs     = LongArray(beatCount) { input.readLong() }.toList()
 
                     sections.add(
                         SectionMeta(
@@ -118,7 +125,8 @@ class SectionMetaStorage(private val version: Int) {
                             highRatio      = highRatio,
                             onsetDensity   = onsetDensity,
                             periodicity    = periodicity,
-                            musicStyle     = if (idx == 0) songStyle else null
+                            musicStyle     = if (idx == 0) songStyle else null,
+                            beatTimesMs    = beatTimesMs
                         )
                     )
                 }

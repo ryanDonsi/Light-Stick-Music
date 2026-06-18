@@ -7,7 +7,6 @@ import com.lightstick.types.LSEffectPayload
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sqrt
 
 /**
  * AutoTimelineGeneratorBeat v3
@@ -30,21 +29,13 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
         private const val HOP_MS      = 50L
-        private const val MIN_BEAT_MS = 430L   // Fix 1: 290 → 430ms (8분음표 오탐 방지)
-        private const val MAX_BEAT_MS = 1000L  // Fix 1: 1200 → 1000ms
+        private val MIN_BEAT_MS = AutoTimelineConfig.MIN_BEAT_MS
+        private val MAX_BEAT_MS = AutoTimelineConfig.MAX_BEAT_MS
 
         private const val ON_TRANSIT = 2
 
         private const val INTRO_PRESTART_TRANSIT_MS = 1_000L
         private const val MIN_TRAILING_SILENCE_MS   = 1_500L
-
-        private const val ACTUAL_BEAT_USE_RATIO = 0.45f
-
-        private const val CLIMAX_WINDOW_HALF_MS = 4_000L
-        private const val CLIMAX_MIN_CV         = 0.35f
-        private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
-
-        private const val SECTION_GAP_BREATH_THRESHOLD_MS = 2_000L
 
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
         private const val ON_PULSE_BG_TRANSIT     = 5
@@ -85,7 +76,14 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         val engine: FgEngine,
         val beatMs: Long, val beats: Int,
         val source: String, val change: ChangeLevel,
-        val energyScore: Float = 0f, val relScore: Float = 0f
+        val energyScore: Float = 0f, val relScore: Float = 0f,
+        val beatTimesMs: List<Long> = emptyList()
+    )
+
+    private data class SectionGroup(
+        val startMs: Long, val endMs: Long,
+        val type: SectionDetector.SectionType,
+        val annotatedBeats: List<SectionDetector.AnnotatedBeat>
     )
 
     // ──────────────────────────────────────────────────────────────
@@ -126,7 +124,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         val midEnv  = envelopes.mid
         val fullEnv = envelopes.full
         val highEnv = envelopes.high
-        Log.d(TAG, "v3 [PERF] decode+beat=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs")
+        Log.d(TAG, "v3 [PERF] decode+beat=${System.currentTimeMillis() - t0Decode}ms frames=${fullEnv.size} hopMs=$effectiveHopMs beatMs=${beatInfo.beatMs} beats=${beatInfo.beats.size} beatDetectorVer=$detectorVer")
 
         val durationMs = fullEnv.size.toLong() * effectiveHopMs
 
@@ -141,48 +139,45 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         }
 
         // ── 3. Section detection ─────────────────────────────────────
-        val t0Section        = System.currentTimeMillis()
-        val detectedSections = SectionDetectorRouter.detect(
+        // finalOffMs를 먼저 계산해 실제 음악 종료 이후 비트를 END로 재태깅
+        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
+            .coerceIn(0L, durationMs)
+        val t0Section         = System.currentTimeMillis()
+        val detectedAnnotated = SectionDetectorRouter.detect(
             version    = AutoTimelineConfig.SECTION_DETECTOR_VERSION,
             lowEnv     = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beats      = beatInfoBeats,
             beatMs     = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
             beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
-        )
-        Log.d(TAG, "v3 [PERF] sectionDetect=${System.currentTimeMillis() - t0Section}ms sections=${detectedSections.size}")
+        ).map { ab ->
+            if (ab.timeMs >= finalOffMs)
+                SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
+            else ab
+        }
+        val sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
+        Log.d(TAG, "v3 [PERF] sectionDetect=${System.currentTimeMillis() - t0Section}ms sections=${sectionGroups.size}")
 
         // ── 4. Music style + climax ───────────────────────────────
-        val styleResult  = MusicStyleClassifier.classify(
+        val musicStyle = MusicStyleClassifier.classify(
             lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beatMs = globalBeatMs, beats = beatInfoBeats, hopMs = effectiveHopMs
-        )
-        val musicStyle    = styleResult.style
-        // BALLAD / HIPHOP_RNB 는 느리고 부드러운 이펙트 계열로 처리
-        val isBalladMode  = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
-                         || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
-        // EDM / DANCE_POP 는 클라이맥스 감지 필요, 나머지는 불필요
-        val needsClimax   = musicStyle == MusicStyleClassifier.MusicStyle.EDM
-                         || musicStyle == MusicStyleClassifier.MusicStyle.DANCE_POP
-                         || musicStyle == MusicStyleClassifier.MusicStyle.ROCK
-                         || musicStyle == MusicStyleClassifier.MusicStyle.POP
-        val climaxMoments = if (!needsClimax) emptyList()
-                            else detectClimaxPeakMoments(fullEnv, durationMs, globalBeatMs, effectiveHopMs)
-        Log.d(TAG, "v3 style=$musicStyle balladMode=$isBalladMode climax=${climaxMoments.size}")
+        ).style
+        val isBalladMode = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
+                        || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
+        Log.d(TAG, "v3 style=$musicStyle balladMode=$isBalladMode")
 
         // ── 5. Convert → V8Section with FgEngine assignment ───────
-        val v8Sections = convertToV8Sections(detectedSections, globalBeatMs, climaxMoments, isBalladMode)
+        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode,
+            fullEnv = fullEnv, durationMs = durationMs, hopMs = effectiveHopMs)
 
         // ── 6. Frame building (V8 규칙) ───────────────────────────
         val t0Build    = System.currentTimeMillis()
-        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
-            .coerceIn(0L, durationMs)
 
         val frames = buildFramesFromSections(
             palette         = palette,
             sections        = v8Sections,
             beatTimesMs     = beatTimesMs,
             durationMs      = durationMs,
-            climaxMoments   = climaxMoments,
             isBalladMode    = isBalladMode,
             finalOffMs      = finalOffMs,
             downbeatMs      = downbeatMs,
@@ -192,19 +187,19 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         Log.d(TAG, "v3 [PERF] total=${System.currentTimeMillis() - t0Total}ms  file=$fileName durationMs=$durationMs")
 
         // ── 6. SectionMeta for overlay ────────────────────────────
-        val sectionMetas = detectedSections.mapIndexed { idx, s ->
-            val sectionBeats = beatInfoBeats.filter { it.timeMs >= s.startMs && it.timeMs < s.endMs }
-            val confidence   = if (sectionBeats.isNotEmpty())
-                sectionBeats.map { it.confidence }.average().toFloat() else 0.20f
+        val sectionMetas = sectionGroups.mapIndexed { idx, g ->
+            val confidence = if (g.annotatedBeats.isNotEmpty())
+                g.annotatedBeats.map { it.confidence }.average().toFloat() else 0.20f
+            val changeStrength = when {
+                g.annotatedBeats.size < 8 -> SectionDetector.ChangeStrength.MEDIUM
+                else                      -> SectionDetector.ChangeStrength.STRONG
+            }
             SectionMeta(
-                startMs        = s.startMs,    endMs          = s.endMs,
-                type           = s.type,       changeStrength = s.changeStrength,
-                beatMs         = globalBeatMs, beatConfidence = confidence,
-                energy         = s.energy,     peakEnergy     = s.peakEnergy,
-                lowRatio       = s.lowRatio,   midRatio       = s.midRatio,
-                highRatio      = s.highRatio,  onsetDensity   = s.onsetDensity,
-                periodicity    = s.periodicity,
-                musicStyle     = if (idx == 0) musicStyle else null
+                startMs        = g.startMs,      endMs          = g.endMs,
+                type           = g.type,         changeStrength = changeStrength,
+                beatMs         = globalBeatMs,   beatConfidence = confidence,
+                musicStyle     = if (idx == 0) musicStyle else null,
+                beatTimesMs    = g.annotatedBeats.map { it.timeMs }
             )
         }
 
@@ -212,36 +207,37 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Section 변환: SectionDetector.Section → V8Section
+    // Section 변환: SectionGroup → V8Section
     // ──────────────────────────────────────────────────────────────
 
     private fun convertToV8Sections(
-        detected: List<SectionDetector.Section>,
+        groups: List<SectionGroup>,
         beatMs: Long,
-        climaxMoments: List<Long>,
-        isBalladMode: Boolean
+        isBalladMode: Boolean,
+        fullEnv: List<Float>,
+        durationMs: Long,
+        hopMs: Long
     ): List<V8Section> {
-        if (detected.isEmpty()) return emptyList()
+        if (groups.isEmpty()) return emptyList()
 
-        val energies = detected.map { it.energy }
+        val energies = groups.map { g -> computeGroupEnergy(g.startMs, g.endMs, fullEnv, durationMs, hopMs) }
         val lowTh    = percentile(energies, 0.35f)
         val highTh   = percentile(energies, 0.70f)
         val range    = (highTh - lowTh).coerceAtLeast(1e-6f)
 
-        return detected.map { s ->
-            val beats    = estimateBeatCount(s.startMs, s.endMs, beatMs)
-            val relScore = ((s.energy - lowTh) / range).coerceIn(0f, 1f)
-            val midMs    = (s.startMs + s.endMs) / 2L
-            val isClimax = climaxMoments.any { abs(it - midMs) <= 6_000L }
+        return groups.mapIndexed { i, g ->
+            val energy   = energies[i]
+            val beats    = g.annotatedBeats.size
+            val relScore = ((energy - lowTh) / range).coerceIn(0f, 1f)
 
             val normalizedType = when {
-                s.type == SectionDetector.SectionType.BRIDGE && beats < 6 ->
+                g.type == SectionDetector.SectionType.BRIDGE && beats < 6 ->
                     SectionDetector.SectionType.VERSE
-                else -> s.type
+                else -> g.type
             }
 
             val engine = assignFgEngine(normalizedType, relScore, beats, globalBeatMs = beatMs,
-                isClimax = isClimax, isBalladMode = isBalladMode)
+                isBalladMode = isBalladMode)
 
             val source = buildSourceName(normalizedType, engine, beats)
 
@@ -252,20 +248,29 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             }
 
             V8Section(
-                startMs     = s.startMs, endMs     = s.endMs,
-                type        = normalizedType,  engine    = engine,
-                beatMs      = beatMs,          beats     = beats,
-                source      = source,          change    = change,
-                energyScore = s.energy,        relScore  = relScore
+                startMs     = g.startMs,      endMs       = g.endMs,
+                type        = normalizedType,  engine      = engine,
+                beatMs      = beatMs,          beats       = beats,
+                source      = source,          change      = change,
+                energyScore = energy,          relScore    = relScore,
+                beatTimesMs = g.annotatedBeats.map { it.timeMs }
             )
         }
+    }
+
+    private fun computeGroupEnergy(startMs: Long, endMs: Long, fullEnv: List<Float>, durationMs: Long, hopMs: Long): Float {
+        if (fullEnv.isEmpty()) return 0f
+        val startIdx = (startMs / hopMs).toInt().coerceIn(0, fullEnv.lastIndex)
+        val endIdx   = (endMs   / hopMs).toInt().coerceAtMost(fullEnv.lastIndex)
+        if (endIdx <= startIdx) return fullEnv.getOrElse(startIdx) { 0f }
+        return fullEnv.subList(startIdx, endIdx + 1).average().toFloat()
     }
 
     /** 섹션 타입별 FgEngine 할당 */
     private fun assignFgEngine(
         type: SectionDetector.SectionType,
         rel: Float, beats: Int, globalBeatMs: Long,
-        isClimax: Boolean, isBalladMode: Boolean
+        isBalladMode: Boolean
     ): FgEngine = when (type) {
         SectionDetector.SectionType.INTRO  -> FgEngine.BREATH
         SectionDetector.SectionType.OUTRO  -> FgEngine.OFF_TRANSIT
@@ -291,7 +296,7 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
 
         // V1 legacy (V3+V2 detector에서는 나오지 않음)
         SectionDetector.SectionType.VERSE  -> if (isBalladMode) FgEngine.BREATH else FgEngine.ON_PULSE
-        SectionDetector.SectionType.CHORUS -> if (isClimax) FgEngine.STROBE else FgEngine.ON_TRANSIT_ROTATE
+        SectionDetector.SectionType.CHORUS -> FgEngine.ON_TRANSIT_ROTATE
         SectionDetector.SectionType.BRIDGE -> FgEngine.BREATH
         SectionDetector.SectionType.END    -> FgEngine.OFF_TRANSIT
     }
@@ -323,7 +328,6 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         sections: List<V8Section>,
         beatTimesMs: List<Long>,
         durationMs: Long,
-        climaxMoments: List<Long>,
         isBalladMode: Boolean,
         finalOffMs: Long,
         downbeatMs: Long = 0L,
@@ -335,8 +339,6 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
             if (t >= 0L) frameMap[t] = payload
         }
 
-        fun isNearClimax(tMs: Long) = climaxMoments.any { abs(it - tMs) <= CLIMAX_WINDOW_HALF_MS }
-
         data class RepeatKey(
             val engine: FgEngine,
             val fgR: Int, val fgG: Int, val fgB: Int,
@@ -345,122 +347,38 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         )
         var lastRepeatKey: RepeatKey? = null
 
-        put(0L, buildOffPayload())
-
-        var prevSectionEndMs  = 0L
-        val sameTypeCountMap  = mutableMapOf<SectionDetector.SectionType, Int>()
+        val sameTypeCountMap = mutableMapOf<SectionDetector.SectionType, Int>()
 
         for ((index, section) in sections.withIndex()) {
             val sameTypeIdx = sameTypeCountMap.getOrDefault(section.type, 0)
             sameTypeCountMap[section.type] = sameTypeIdx + 1
             lastRepeatKey = null
 
-            val interGapMs = if (index > 0) (section.startMs - prevSectionEndMs).coerceAtLeast(0L) else 0L
-            val insertTransitionBreath = interGapMs >= SECTION_GAP_BREATH_THRESHOLD_MS &&
-                section.engine != FgEngine.BREATH && section.engine != FgEngine.OFF_TRANSIT
-
-            val actualBeats    = beatTimesMs.filter { it >= section.startMs && it < section.endMs }
-            val effectiveBeats = buildSectionBeatGrid(section, actualBeats)
+            val effectiveBeats = section.beatTimesMs
 
             Log.d(TAG, "v3 section[$index] ${section.type} ${section.startMs}~${section.endMs} " +
                 "engine=${section.engine} beats=${effectiveBeats.size} ballad=$isBalladMode")
 
-            // ── BEAT 섹션 전용: 1/4박 White-C1-C2-C3 패턴 ─────────
+            // ── BEAT 섹션: 1/4박 White-C1-C2-C3 패턴 ─────────────────
             if (section.type == SectionDetector.SectionType.BEAT) {
-                put(section.startMs, buildOffPayload())
                 for (t in effectiveBeats) {
                     val beatInBar = beatInBar(t, downbeatMs, globalBeatMs = section.beatMs, beatsPerBar)
                     val (color, fade) = beatSectionColorAndFade(beatInBar, palette)
                     put(t, LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
                 }
-                prevSectionEndMs = section.endMs; continue
-            }
-
-            if (section.engine == FgEngine.OFF_TRANSIT) {
-                put(section.startMs, buildOffPayload())
-                prevSectionEndMs = section.endMs; continue
-            }
-
-            if (section.engine == FgEngine.BREATH) {
-                val (fg, bg) = colorsForEngine(palette, FgEngine.BREATH, sameTypeIdx)
-                val delay = if (section.type == SectionDetector.SectionType.VERSE) 0
-                            else msToBreathRandomDelay(section.beatMs)
-                put(section.startMs, buildPayload(FgEngine.BREATH, fg, bg, section.beatMs,
-                    randomDelay = delay))
-                prevSectionEndMs = section.endMs; continue
-            }
-
-            if (effectiveBeats.isEmpty()) {
-                val (fg, bg) = colorsForEngine(palette, section.engine, sameTypeIdx)
-                val rotateTransit = if (section.engine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
-                    ON_ROTATE_BALLAD_TRANSIT else 0
-                put(section.startMs, buildPayload(section.engine, fg, bg, section.beatMs,
-                    rotateTransit = rotateTransit))
                 continue
             }
 
-            val firstBeat  = effectiveBeats.first()
-            val coverGapMs = firstBeat - section.startMs
+            // OFF_TRANSIT (OUTRO/END): beat에 이펙트 없음
+            if (section.engine == FgEngine.OFF_TRANSIT) continue
 
-            val sectionNearClimax = if (section.engine == FgEngine.STROBE) {
-                climaxMoments.any { c ->
-                    c + CLIMAX_WINDOW_HALF_MS >= section.startMs &&
-                    c - CLIMAX_WINDOW_HALF_MS <= section.endMs
-                }
-            } else false
-
-            if (insertTransitionBreath) {
-                val (mFg, mBg) = palette.white to palette.breathSet.bg
-                put(section.startMs, buildPayload(FgEngine.BREATH, mFg, mBg, section.beatMs,
-                    randomDelay = msToBreathRandomDelay(section.beatMs)))
-            } else if (coverGapMs > 0L && section.type != SectionDetector.SectionType.INTRO) {
-                val longThMs = section.beatMs * 3L / 2L
-                if (coverGapMs <= longThMs) {
-                    val coverEngine = when (section.engine) {
-                        FgEngine.ON_TRANSIT_ROTATE, FgEngine.STROBE -> FgEngine.BREATH
-                        else -> section.engine
-                    }
-                    val (cvFg, cvBg) = colorsForEngine(palette, coverEngine, sameTypeIdx)
-                    put(section.startMs, buildPayload(coverEngine, cvFg, cvBg, section.beatMs))
-                } else {
-                    var fillT = section.startMs; var fillIdx = 0
-                    while (fillT < firstBeat) {
-                        val (cvFg, cvBg) = colorsForEngine(palette, section.engine, sameTypeIdx, fillIdx, section.type)
-                        val fillRotateTransit = if (section.engine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
-                            ON_ROTATE_BALLAD_TRANSIT else 0
-                        val fillPeriod = if (section.engine == FgEngine.STROBE)
-                            (if (sectionNearClimax) 1 else msToStrobePeriod(section.beatMs)) else null
-                        put(fillT, buildPayload(section.engine, cvFg, cvBg, section.beatMs,
-                            period = fillPeriod, rotateTransit = fillRotateTransit))
-                        if (section.engine == FgEngine.ON_PULSE) {
-                            val offT = min(firstBeat, fillT + section.beatMs * 3L / 10L)
-                            if (offT > fillT)
-                                put(offT, buildPayload(FgEngine.ON_PULSE, cvBg, cvBg, section.beatMs))
-                        }
-                        fillT += section.beatMs; fillIdx++
-                    }
-                }
-            }
-
+            // 일반 섹션: beat마다 section 속성 이펙트
             for ((beatIndex, t) in effectiveBeats.withIndex()) {
-                if (beatIndex == 0 && section.type == SectionDetector.SectionType.INTRO) {
-                    val (introFg, _) = colorsForEngine(palette, FgEngine.BREATH, sameTypeIdx)
-                    put(section.startMs, buildPayload(FgEngine.BREATH, introFg, LSColor(0, 0, 0), section.beatMs,
-                        randomDelay = 3))
-                    continue
-                }
-
-                val nearClimax = if (section.engine == FgEngine.STROBE) sectionNearClimax
-                                 else isNearClimax(t)
-
                 val beatEngine = if (section.type == SectionDetector.SectionType.BRIDGE)
                     bridgePhaseEngine(beatIndex, effectiveBeats.size, section.beatMs, section.relScore, isBalladMode)
                 else section.engine
 
-                val effectiveEngine = when {
-                    beatEngine == FgEngine.STROBE && !nearClimax -> FgEngine.BREATH
-                    else -> beatEngine
-                }
+                val effectiveEngine = beatEngine
 
                 val (fg, bg) = colorsForEngine(palette, effectiveEngine, sameTypeIdx, beatIndex, section.type)
                 val bgNonNull = bg ?: LSColor(0, 0, 0)
@@ -471,13 +389,13 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
                     else            -> null
                 }
                 val beatRandomDelay = when {
-                    effectiveEngine == FgEngine.STROBE && nearClimax   -> 1
-                    effectiveEngine == FgEngine.ON_TRANSIT_ROTATE      -> null
-                    effectiveEngine == FgEngine.ON_PULSE               -> null
+                    effectiveEngine == FgEngine.STROBE             -> 1
+                    effectiveEngine == FgEngine.ON_TRANSIT_ROTATE  -> null
+                    effectiveEngine == FgEngine.ON_PULSE           -> null
                     effectiveEngine == FgEngine.BREATH &&
                         section.type == SectionDetector.SectionType.VERSE -> 0
-                    effectiveEngine == FgEngine.BREATH                 -> msToBreathRandomDelay(section.beatMs)
-                    else                                               -> null
+                    effectiveEngine == FgEngine.BREATH             -> msToBreathRandomDelay(section.beatMs)
+                    else                                           -> null
                 }
                 val beatRotateTransit = if (effectiveEngine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
                     ON_ROTATE_BALLAD_TRANSIT else 0
@@ -510,54 +428,16 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
                 }
             }
 
-            prevSectionEndMs = section.endMs
         }
 
-        if (finalOffMs < durationMs) frameMap.keys.filter { it > finalOffMs }.forEach { frameMap.remove(it) }
-        if (frameMap.keys.none { it >= finalOffMs }) {
-            frameMap[finalOffMs] = buildOffPayload()
-        }
+        // finalOffMs 이후 프레임 제거 (경계 포함) → finalOffMs 위치는 off 페이로드로 덮어씀
+        frameMap.keys.filter { it >= finalOffMs }.forEach { frameMap.remove(it) }
+        frameMap[finalOffMs] = buildOffPayload()
 
         return frameMap.entries.sortedBy { it.key }.map { it.key to it.value }
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Beat grid (V8와 동일)
-    // ──────────────────────────────────────────────────────────────
-
-    private fun buildSectionBeatGrid(section: V8Section, actualBeats: List<Long>): List<Long> {
-        if (section.endMs <= section.startMs || section.beatMs <= 0L) return emptyList()
-        val expected = estimateBeatCount(section.startMs, section.endMs, section.beatMs)
-        val minRequired = (expected * ACTUAL_BEAT_USE_RATIO).toInt().coerceAtLeast(2)
-        if (actualBeats.size >= minRequired) return fillBeatGaps(actualBeats.sorted(), section.beatMs, section.endMs)
-        val grid = ArrayList<Long>(); var t = section.startMs
-        while (t < section.endMs) { grid += t; t += section.beatMs }
-        if (actualBeats.isEmpty()) return grid
-        val snapMs = section.beatMs / 4L
-        return grid.map { g ->
-            val closest = actualBeats.minByOrNull { abs(it - g) }
-            if (closest != null && abs(closest - g) <= snapMs) closest else g
-        }.distinct().sorted()
-    }
-
-    private fun fillBeatGaps(beats: List<Long>, beatMs: Long, sectionEndMs: Long): List<Long> {
-        if (beats.size < 2 || beatMs <= 0L) return beats
-        val gapTh = beatMs * 3L / 2L
-        val out = ArrayList<Long>(beats.size * 2); out += beats.first()
-        for (i in 1 until beats.size) {
-            val prev = beats[i - 1]; val cur = beats[i]; val gap = cur - prev
-            if (gap > gapTh) {
-                val fillCount = ((gap + beatMs / 2L) / beatMs).toInt() - 1
-                if (fillCount > 0) {
-                    val step = gap / (fillCount + 1).toLong()
-                    for (k in 1..fillCount) { val interp = prev + step * k; if (interp < sectionEndMs) out += interp }
-                }
-            }
-            out += cur
-        }
-        return out.distinct().sorted()
-    }
-
     // ──────────────────────────────────────────────────────────────
     // Payload builder (V8와 동일)
     // ──────────────────────────────────────────────────────────────
@@ -698,42 +578,8 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Climax / ballad / silence detection (V8와 동일)
+    // Silence detection
     // ──────────────────────────────────────────────────────────────
-
-    private fun detectClimaxPeakMoments(fullEnv: List<Float>, durationMs: Long, beatMs: Long, hopMs: Long = HOP_MS): List<Long> {
-        if (fullEnv.size < 8) return emptyList()
-        val scoreArray = FloatArray(fullEnv.size)
-        for (i in 2 until fullEnv.size - 2) {
-            val energy   = fullEnv[i]
-            val rise     = max(0f, fullEnv[i] - fullEnv[i - 1])
-            val localAvg = (fullEnv[i-2] + fullEnv[i-1] + fullEnv[i+1] + fullEnv[i+2]) / 4f
-            scoreArray[i] = energy * 0.50f + rise * 0.30f + max(0f, energy - localAvg) * 0.20f
-        }
-        val scoreList = scoreArray.toList().filter { it > 0f }
-        if (scoreList.isEmpty()) return emptyList()
-        val envMean  = scoreList.average().toFloat()
-        val envStd   = sqrt(scoreList.fold(0f) { acc, v -> acc + (v - envMean) * (v - envMean) } / scoreList.size)
-        val cv       = if (envMean > 0f) envStd / envMean else 0f
-        val peakRatio = (scoreList.max()) / envMean.coerceAtLeast(1e-6f)
-        if (cv < CLIMAX_MIN_CV || peakRatio < CLIMAX_MIN_PEAK_RATIO) return emptyList()
-        val candidates = ArrayList<Pair<Long, Float>>()
-        for (i in 2 until scoreArray.size - 2) {
-            val sc = scoreArray[i]; if (sc <= 0f) continue
-            if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2])
-                candidates += (i.toLong() * hopMs) to sc
-        }
-        val p90 = scoreList.sorted().let { it[(it.lastIndex * 0.90f).toInt().coerceIn(0, it.lastIndex)] }
-        val strong = candidates.filter { it.second >= p90 * 1.18f && it.second >= envMean + envStd * 1.30f }
-            .sortedByDescending { it.second }
-        val minGapMs = max(800L, beatMs * 4L)
-        val selected = ArrayList<Pair<Long, Float>>()
-        for (c in strong) {
-            if (selected.none { abs(it.first - c.first) < minGapMs }) selected += c
-            if (selected.size >= 3) break
-        }
-        return selected.sortedBy { it.first }.map { it.first.coerceIn(0L, durationMs) }
-    }
 
     private fun detectLastMusicEndMs(frames: FloatArray, hopMs: Long, minTrailingSilenceMs: Long): Long {
         if (frames.isEmpty()) return 0L
@@ -787,9 +633,24 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
         return out
     }
 
-    private fun estimateBeatCount(startMs: Long, endMs: Long, beatMs: Long): Int {
-        if (endMs <= startMs || beatMs <= 0L) return 0
-        return max(1, ((endMs - startMs) / beatMs).toInt())
+    private fun groupAnnotatedBeats(
+        annotated: List<SectionDetector.AnnotatedBeat>,
+        durationMs: Long
+    ): List<SectionGroup> {
+        if (annotated.isEmpty()) return emptyList()
+        val groups = mutableListOf<SectionGroup>()
+        var groupStart = 0
+        for (i in 1..annotated.size) {
+            val isLast = (i == annotated.size)
+            if (isLast || annotated[i].sectionType != annotated[groupStart].sectionType) {
+                val beats  = annotated.subList(groupStart, i)
+                val startMs = beats.first().timeMs
+                val endMs   = if (isLast) durationMs else annotated[i].timeMs
+                groups += SectionGroup(startMs, endMs, beats.first().sectionType, beats)
+                groupStart = i
+            }
+        }
+        return groups
     }
 
     private fun percentile(values: List<Float>, p: Float): Float {

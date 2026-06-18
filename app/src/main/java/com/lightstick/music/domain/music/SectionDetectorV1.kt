@@ -22,16 +22,17 @@ class SectionDetectorV1 : SectionDetector {
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
-        private const val WINDOW_MS     = 2_000L
-        private const val STRIDE_MS     = 2_000L   // V0=1000ms → 2배 스트라이드
-        private const val MIN_SECTION_MS = 4_000L
+        private const val WINDOW_MS      = 2_000L
+        private const val STRIDE_MS      = 2_000L   // V0=1000ms → 2배 스트라이드
+        private const val MIN_SECTION_MS  = 4_000L
+        private const val COMPACT_MIN_MS  = 10_000L  // 10s 미만 파편 흡수
 
         private const val SECTION_STRONG_CHANGE_TH = 0.24f
         private const val SECTION_MEDIUM_CHANGE_TH = 0.14f
 
         private const val ALIGN_SNAP_MS = 500L
 
-        private const val CLIMAX_WINDOW_HALF_MS = 4_000L
+        private const val CLIMAX_WINDOW_HALF_MS = 2_000L
         private const val CLIMAX_MIN_CV         = 0.35f
         private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
     }
@@ -67,7 +68,7 @@ class SectionDetectorV1 : SectionDetector {
         highEnv: List<Float>,
         beatsPerBar: Int,
         downbeatMs: Long
-    ): List<SectionDetector.Section> {
+    ): List<SectionDetector.AnnotatedBeat> {
         if (fullEnv.isEmpty()) return emptyList()
 
         // FloatArray로 변환 (인덱스 직접 접근용)
@@ -89,13 +90,29 @@ class SectionDetectorV1 : SectionDetector {
 
         val rawSections = buildSectionsFromWindows(windows, durationMs, lowTh, highTh)
 
-        val barMs = beatMs * beatsPerBar.coerceAtLeast(1)
-        val barBoundaries = generateBarBoundaries(downbeatMs, durationMs, barMs)
-        val alignedSections = alignBoundariesToBars(rawSections, barBoundaries, durationMs)
+        // 실제 beat 타임스탬프로 경계 정렬 (synthetic bar grid 대신)
+        // → section.startMs가 항상 실제 beat 위치에 snap됨
+        val beatBoundaries = beats.map { it.timeMs }.sorted().toLongArray()
+        val alignedSections = alignBoundariesToBars(rawSections, beatBoundaries, durationMs)
 
         val sections = toSections(alignedSections)
         val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs)
-        return reclassifyClimax(sections, climaxMoments)
+        return annotateBeats(beats, sections, climaxMoments)
+    }
+
+    // 입력 비트에 sectionType 태깅 후 반환 (순서 유지, climax peak ±4s 비트는 CLIMAX로 덮어씀)
+    private fun annotateBeats(
+        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
+        sections: List<SectionDetector.Section>,
+        climaxMoments: List<Long>
+    ): List<SectionDetector.AnnotatedBeat> = beats.map { beat ->
+        val sectionType = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
+            ?: SectionDetector.SectionType.VERSE
+        // CLIMAX는 CHORUS 구간 안에서만 적용 — BRIDGE/VERSE 초반 에너지 스파이크 제외
+        val type = if (sectionType == SectionDetector.SectionType.CHORUS &&
+                       climaxMoments.any { abs(it - beat.timeMs) <= CLIMAX_WINDOW_HALF_MS })
+            SectionDetector.SectionType.CLIMAX else sectionType
+        SectionDetector.AnnotatedBeat(beat.timeMs, beat.confidence, type)
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -239,7 +256,8 @@ class SectionDetectorV1 : SectionDetector {
             }
         }
         merged += cur.copy(endMs = durationMs)
-        return normalizeSections(merged, durationMs)
+        val normalized = normalizeSections(merged, durationMs)
+        return compactSections(normalized)
     }
 
     private fun normalizeSections(sections: List<FeatureWindow>, durationMs: Long): List<FeatureWindow> {
@@ -274,6 +292,66 @@ class SectionDetectorV1 : SectionDetector {
         if (out.isNotEmpty() && out.last().endMs < durationMs)
             out[out.lastIndex] = out.last().copy(endMs = durationMs)
         return out
+    }
+
+    // COMPACT_MIN_MS 미만 파편을 인접한 긴 구간으로 반복 흡수
+    private fun compactSections(input: List<FeatureWindow>): List<FeatureWindow> {
+        if (input.size <= 1) return input
+        val list = input.toMutableList()
+        var changed = true
+        while (changed && list.size > 1) {
+            changed = false
+            var shortIdx = -1; var shortDur = Long.MAX_VALUE
+            for (i in list.indices) {
+                val d = list[i].endMs - list[i].startMs
+                if (d < COMPACT_MIN_MS && d < shortDur) { shortDur = d; shortIdx = i }
+            }
+            if (shortIdx < 0) break
+            val s = list[shortIdx]
+            val prevOk = shortIdx > 0
+            val nextOk = shortIdx < list.lastIndex
+            val absorberIdx = when {
+                !prevOk  -> shortIdx + 1
+                !nextOk  -> shortIdx - 1
+                list[shortIdx - 1].sectionType == s.sectionType -> shortIdx - 1
+                list[shortIdx + 1].sectionType == s.sectionType -> shortIdx + 1
+                else     -> {
+                    val pd = list[shortIdx - 1].endMs - list[shortIdx - 1].startMs
+                    val nd = list[shortIdx + 1].endMs - list[shortIdx + 1].startMs
+                    if (pd >= nd) shortIdx - 1 else shortIdx + 1
+                }
+            }
+            if (absorberIdx < shortIdx) {
+                list[absorberIdx] = list[absorberIdx].copy(
+                    endMs        = s.endMs,
+                    energy       = (list[absorberIdx].energy       + s.energy)       * 0.5f,
+                    lowRatio     = (list[absorberIdx].lowRatio     + s.lowRatio)     * 0.5f,
+                    midRatio     = (list[absorberIdx].midRatio     + s.midRatio)     * 0.5f,
+                    highRatio    = (list[absorberIdx].highRatio    + s.highRatio)    * 0.5f,
+                    onsetDensity = (list[absorberIdx].onsetDensity + s.onsetDensity) * 0.5f,
+                    periodicity  = (list[absorberIdx].periodicity  + s.periodicity)  * 0.5f,
+                    peakEnergy   = max(list[absorberIdx].peakEnergy, s.peakEnergy),
+                    score        = (list[absorberIdx].score        + s.score)        * 0.5f,
+                    activity     = (list[absorberIdx].activity     + s.activity)     * 0.5f
+                )
+            } else {
+                list[absorberIdx] = list[absorberIdx].copy(
+                    startMs      = s.startMs,
+                    energy       = (s.energy       + list[absorberIdx].energy)       * 0.5f,
+                    lowRatio     = (s.lowRatio     + list[absorberIdx].lowRatio)     * 0.5f,
+                    midRatio     = (s.midRatio     + list[absorberIdx].midRatio)     * 0.5f,
+                    highRatio    = (s.highRatio    + list[absorberIdx].highRatio)    * 0.5f,
+                    onsetDensity = (s.onsetDensity + list[absorberIdx].onsetDensity) * 0.5f,
+                    periodicity  = (s.periodicity  + list[absorberIdx].periodicity)  * 0.5f,
+                    peakEnergy   = max(s.peakEnergy, list[absorberIdx].peakEnergy),
+                    score        = (s.score        + list[absorberIdx].score)        * 0.5f,
+                    activity     = (s.activity     + list[absorberIdx].activity)     * 0.5f
+                )
+            }
+            list.removeAt(shortIdx)
+            changed = true
+        }
+        return list
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -409,11 +487,13 @@ class SectionDetectorV1 : SectionDetector {
         val minGapMs = max(800L, beatMs * 4L)
         val selected = ArrayList<Long>()
 
+        val climaxIntroLimit = (durationMs * 0.30f).toLong()   // 곡 앞 30% 제외
         for (i in 2 until scoreArray.size - 2) {
             val sc = scoreArray[i]; if (sc <= 0f) continue
+            val tMs = i.toLong() * hopMs
+            if (tMs < climaxIntroLimit) continue                // 앞 30% 스킵
             if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2] &&
                 sc >= p90 * 1.18f && sc >= envMean + envStd * 1.30f) {
-                val tMs = i.toLong() * hopMs
                 if (selected.none { abs(it - tMs) < minGapMs }) {
                     selected += tMs
                     if (selected.size >= 3) break
@@ -424,21 +504,6 @@ class SectionDetectorV1 : SectionDetector {
         val result = selected.sorted().map { it.coerceIn(0L, durationMs) }
         Log.d(TAG, "SectionDetectorV1 climax moments=${result.joinToString()}")
         return result
-    }
-
-    private fun reclassifyClimax(
-        sections: List<SectionDetector.Section>, climaxMoments: List<Long>
-    ): List<SectionDetector.Section> {
-        if (climaxMoments.isEmpty()) return sections
-        return sections.map { s ->
-            val midMs = (s.startMs + s.endMs) / 2L
-            val nearClimax = climaxMoments.any { abs(it - midMs) <= CLIMAX_WINDOW_HALF_MS }
-            if (nearClimax && (s.type == SectionDetector.SectionType.CHORUS ||
-                    (s.type == SectionDetector.SectionType.VERSE && s.energy >= 0.50f))) {
-                Log.d(TAG, "SectionDetectorV1 reclassify ${s.type}→CLIMAX [${s.startMs}~${s.endMs}]")
-                s.copy(type = SectionDetector.SectionType.CLIMAX)
-            } else s
-        }
     }
 
     // ──────────────────────────────────────────────────────────────

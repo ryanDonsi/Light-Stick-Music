@@ -25,7 +25,7 @@ import kotlin.math.*
  */
 object BeatDetectorV2 {
 
-    private const val TAG = "AutoTimeline"
+    private const val TAG = "AutoTimeline_BeatDetectorV2"
 
     // SuperFlux 파라미터 (madmom 기본값과 동일)
     private const val FFT_SIZE  = 2048

@@ -23,7 +23,7 @@ object SectionDetectorRouter {
         hopMs: Long,
         beatsPerBar: Int = 4,
         downbeatMs: Long = 0L
-    ): List<SectionDetector.Section> = when (version) {
+    ): List<SectionDetector.AnnotatedBeat> = when (version) {
         0    -> SectionDetectorV0().detect(
             lowEnv     = lowEnv, midEnv     = midEnv,
             fullEnv    = fullEnv, highEnv   = highEnv,

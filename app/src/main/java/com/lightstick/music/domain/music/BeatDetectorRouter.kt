@@ -21,7 +21,7 @@ import kotlin.math.sqrt
  */
 object BeatDetectorRouter {
 
-    private const val TAG = "BeatDetectorRouter"
+    private const val TAG = "AutoTimeline_BeatDetectorRouter"
 
     // IIR 필터 계수 (SectionDetector/MusicStyleClassifier 공통)
     private const val LOW_ALPHA     = 0.12f

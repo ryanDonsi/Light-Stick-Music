@@ -37,70 +37,69 @@ def _show_splash():
     splash.overrideredirect(True)
     splash.configure(bg="#1e272e")
 
-    # 💡 OS별 설치된 한글 폰트를 동적으로 찾기
     from tkinter import font as tkfont
     available_fonts = tkfont.families(splash)
-    kr_font = ""  # 기본 폰트
-    font_candidates = [
-        "Malgun Gothic", "맑은 고딕",            # Windows
-        "AppleGothic", "Apple SD Gothic Neo",  # Mac
-        "NanumGothic", "NanumSquare",          # Linux / 기타
-        "Noto Sans KR", "Noto Sans CJK KR"     # 범용
-    ]
-    for f in font_candidates:
+    kr_font = ""
+    for f in ["Malgun Gothic", "맑은 고딕", "AppleGothic", "Apple SD Gothic Neo",
+              "NanumGothic", "NanumSquare", "Noto Sans KR", "Noto Sans CJK KR"]:
         if f in available_fonts:
             kr_font = f
             break
 
-    # 스플래시 이미지 경로 (installer/ 폴더 또는 번들 내부)
     _is_frozen = getattr(sys, "frozen", False)
     _img_base  = sys._MEIPASS if _is_frozen else os.path.join(os.path.dirname(os.path.abspath(__file__)), "installer")
     splash_img_path = os.path.join(_img_base, "splash.png")
 
     W, H = 480, 200
-    lbl_status = None
+    tk_img = None
+    use_image = False
     try:
         from PIL import Image as _PILImage, ImageTk as _PILImageTk
         pil_img = _PILImage.open(splash_img_path).resize((W, H))
         tk_img  = _PILImageTk.PhotoImage(pil_img)
-        lbl_img = tk.Label(splash, image=tk_img, bd=0)
-        lbl_img.image = tk_img   # 참조 유지
-        lbl_img.pack()
         use_image = True
     except Exception:
-        use_image = False
-
-    if not use_image:
-        splash.configure(bg="#1e272e")
         W, H = 380, 160
-        tk.Label(splash, text="Beat Accuracy Checker",
-                 bg="#1e272e", fg="#ecf0f1").pack(pady=(28, 4))
-        lbl_status = tk.Label(splash, text="Loading ...",
-                 bg="#1e272e", fg="#78909c")
-        lbl_status.pack()
 
     sw, sh = splash.winfo_screenwidth(), splash.winfo_screenheight()
     splash.geometry(f"{W}x{H}+{(sw-W)//2}+{(sh-H)//2}")
 
-    # 진행 바 (이미지 위 오버레이 or 별도 프레임)
-    bar_frame = tk.Frame(splash, bg="#1e272e" if not use_image else "#37474f")
-    bar_frame.place(x=28, y=H-22, width=W-56, height=6)
-    canvas = tk.Canvas(bar_frame, width=W-56, height=6, bg="#37474f",
-                       highlightthickness=0, bd=0)
-    canvas.pack()
-    bar = canvas.create_rectangle(0, 0, 0, 6, fill="#42a5f5", outline="")
+    # 캔버스 하나로 이미지 + 프로그래스바를 모두 관리 (위젯 겹침 방지)
+    cv = tk.Canvas(splash, width=W, height=H, bg="#1e272e",
+                   highlightthickness=0, bd=0)
+    cv.pack()
+
+    if use_image:
+        cv.create_image(0, 0, anchor="nw", image=tk_img)
+        cv._tk_img = tk_img   # 참조 유지
+        status_id = None
+    else:
+        cv.create_text(W // 2, 68, text="Beat Accuracy Checker",
+                       fill="#ecf0f1", font=(kr_font, 13, "bold"), anchor="center")
+        status_id = cv.create_text(W // 2, 96, text="Loading ...",
+                                   fill="#78909c", font=(kr_font, 9), anchor="center")
+
+    # 프로그래스바: 이미지와 독립적으로 캔버스 위에 직접 오버레이
+    PAD   = 28
+    BAR_H = 6
+    BX1   = PAD
+    BX2   = W - PAD
+    BY2   = H - 14          # 하단에서 14px 위
+    BY1   = BY2 - BAR_H
+    cv.create_rectangle(BX1, BY1, BX2, BY2, fill="#37474f", outline="")
+    bar_id = cv.create_rectangle(BX1, BY1, BX1, BY2, fill="#42a5f5", outline="")
+    bar_w  = BX2 - BX1
 
     _splash_state = {"pos": 0, "running": True, "job": None}
-    bar_w = W - 56
 
     def _step_splash(msg, progress_pct):
-        """라이브러리 로드 구간마다 텍스트와 프로그래스바를 수동 갱신"""
-        if not _splash_state["running"]: return
+        if not _splash_state["running"]:
+            return
         try:
-            if lbl_status and not use_image:
-                lbl_status.config(text=msg)
-            p = int((progress_pct / 100.0) * bar_w)
-            canvas.coords(bar, 0, 0, p, 6)
+            if status_id is not None:
+                cv.itemconfig(status_id, text=msg)
+            p = BX1 + int((progress_pct / 100.0) * bar_w)
+            cv.coords(bar_id, BX1, BY1, p, BY2)
             splash.update()
         except tk.TclError:
             pass
@@ -223,6 +222,34 @@ try:
     HAS_LIBROSA = True
 except ImportError:
     pass
+
+HAS_ALLIN1 = False
+_allin1_mod = None
+_allin1_err = None
+try:
+    import torch as _torch_tmp
+    _has_cuda = _torch_tmp.cuda.is_available()
+    del _torch_tmp
+    if _has_cuda:
+        import allin1 as _allin1_mod
+        HAS_ALLIN1 = True
+    else:
+        _allin1_err = "GPU(CUDA) 없음"
+except Exception as _e:
+    _allin1_err = str(_e)
+
+HAS_MSAF = False
+_msaf_mod = None
+_msaf_err = None
+try:
+    import scipy as _scipy_tmp
+    if not hasattr(_scipy_tmp, 'inf'):
+        _scipy_tmp.inf = float('inf')
+    del _scipy_tmp
+    import msaf as _msaf_mod
+    HAS_MSAF = True
+except Exception as _e:
+    _msaf_err = str(_e)
 
 # ──────────────────────────────────────────────
 # 의존 라이브러리 감지
@@ -367,6 +394,36 @@ try:
 except ImportError:
     pass
 
+# allin1
+HAS_ALLIN1 = False
+_allin1_mod = None
+_allin1_err = None
+try:
+    import torch as _torch_tmp
+    _has_cuda = _torch_tmp.cuda.is_available()
+    del _torch_tmp
+    if _has_cuda:
+        import allin1 as _allin1_mod
+        HAS_ALLIN1 = True
+    else:
+        _allin1_err = "GPU(CUDA) 없음"
+except Exception as _e:
+    _allin1_err = str(_e)
+
+# msaf (scipy>=1.12에서 scipy.inf 제거 → import 전 monkey-patch로 복원)
+HAS_MSAF = False
+_msaf_mod = None
+_msaf_err = None
+try:
+    import scipy as _scipy_tmp
+    if not hasattr(_scipy_tmp, 'inf'):
+        _scipy_tmp.inf = float('inf')
+    del _scipy_tmp
+    import msaf as _msaf_mod
+    HAS_MSAF = True
+except Exception as _e:
+    _msaf_err = str(_e)
+
 # ──────────────────────────────────────────────
 # 엔진 정보
 # ──────────────────────────────────────────────
@@ -497,6 +554,325 @@ def detect_beats_librosa(audio_path, bpm_hint=0.0):
     beats_sec = sorted(librosa.frames_to_time(frames, sr=sr).tolist())
     return beats_sec, bpm
 
+def compute_music_style_librosa(audio_path, beats_sec, bpm):
+    """librosa로 음악 스타일 분류 (MusicStyleClassifier.kt와 동일한 로직)."""
+    if not HAS_LIBROSA:
+        return 'N/A', {}
+    try:
+        import numpy as _np
+        y, sr = librosa.load(audio_path, sr=22050, mono=True, duration=300.0)
+        beat_ms = int(60000 / bpm) if bpm > 0 else 500
+
+        # 주파수 대역별 에너지
+        hop_len = 512
+        S = np.abs(librosa.stft(y, n_fft=2048, hop_length=hop_len))
+        freqs = librosa.fft_frequencies(sr=sr, n_fft=2048)
+        low_mask  = freqs < 300
+        mid_mask  = (freqs >= 300) & (freqs < 3000)
+        high_mask = freqs >= 3000
+
+        low_env  = S[low_mask].mean(axis=0)
+        mid_env  = S[mid_mask].mean(axis=0)
+        high_env = S[high_mask].mean(axis=0)
+        full_env = S.mean(axis=0)
+
+        # 활성 프레임 (max의 5% 이상)
+        threshold = full_env.max() * 0.05
+        active = full_env > threshold
+        if not active.any():
+            active = np.ones(len(full_env), dtype=bool)
+
+        def aavg(e): return float(e[active].mean()) if active.any() else 0.0
+
+        avg_full = max(aavg(full_env), 1e-6)
+        avg_low  = aavg(low_env)
+        avg_mid  = aavg(mid_env)
+        avg_high = aavg(high_env)
+        band_sum = max(avg_low + avg_mid + avg_high, 1e-9)
+        low_ratio  = avg_low  / band_sum
+        mid_ratio  = avg_mid  / band_sum
+        high_ratio = avg_high / band_sum
+
+        # 에너지 정규화 (0~1 스케일로)
+        rms = librosa.feature.rms(y=y, hop_length=hop_len)[0]
+        rms_max = rms.max() + 1e-9
+        rms_norm = rms / rms_max
+        active_rms = rms_norm > 0.05
+        avg_energy = float(rms_norm[active_rms].mean()) if active_rms.any() else 0.0
+
+        # 비트 규칙성
+        if len(beats_sec) >= 4:
+            ivs = np.diff(beats_sec)
+            mean_iv = float(ivs.mean())
+            cv = float(ivs.std()) / max(mean_iv, 1e-9)
+            periodicity = max(0.0, min(1.0, 1.0 - cv * 2.0))
+        else:
+            periodicity = 0.0
+
+        # onset 밀도
+        onset_frames = librosa.onset.onset_detect(y=y, sr=sr, hop_length=hop_len, backtrack=False)
+        duration_sec = len(y) / sr
+        onset_density = len(onset_frames) / duration_sec if duration_sec > 0 else 0.0
+
+        # energy flux
+        diff = np.diff(rms_norm)
+        pos = diff[diff > 0]
+        energy_flux = float(pos.mean()) if len(pos) > 0 else 0.0
+
+        # MusicStyleClassifier와 동일한 분류 로직
+        if beat_ms >= 700 and avg_energy < (0.62 if beat_ms >= 900 else 0.52):
+            style = 'BALLAD'
+        elif beat_ms < 480 and low_ratio >= 0.38 and periodicity >= 0.65 and onset_density >= 4.0:
+            style = 'EDM'
+        elif beat_ms < 545 and (low_ratio >= 0.36 or periodicity >= 0.50):
+            style = 'DANCE_POP'
+        elif 545 <= beat_ms < 750 and low_ratio >= 0.38 and periodicity < 0.62:
+            style = 'HIPHOP_RNB'
+        elif high_ratio >= 0.28 and energy_flux >= 0.040:
+            style = 'ROCK'
+        else:
+            style = 'POP'
+
+        features = dict(beat_ms=beat_ms, avg_energy=round(avg_energy,3),
+                        low_ratio=round(low_ratio,3), mid_ratio=round(mid_ratio,3),
+                        high_ratio=round(high_ratio,3), periodicity=round(periodicity,3),
+                        onset_density=round(onset_density,2), energy_flux=round(energy_flux,4))
+        return style, features
+    except Exception as e:
+        return 'N/A', {}
+
+
+def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
+    """다중 특징 기반 섹션 분류.
+    RMS 에너지 + Spectral centroid + Onset density + Chroma 유사도 + 시간적 위치
+    를 복합 사용하여 INTRO/VERSE/PRE-CHORUS/CHORUS/BRIDGE/OUTRO 를 판별한다.
+    """
+    if not HAS_LIBROSA:
+        return []
+    try:
+        load_dur = min(300.0, duration_sec) if duration_sec > 0 else 300.0
+        y, sr = librosa.load(audio_path, sr=22050, mono=True, duration=load_dur)
+        total_dur = len(y) / sr
+
+        # ── 1. 구조적 경계 검출 (coarse chroma) ──
+        hop_seg = 4096
+        chroma_seg = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_seg)
+        k = min(n_segments, chroma_seg.shape[1] // 2)
+        if k < 2:
+            return [{"start_ms": 0, "end_ms": int(total_dur * 1000), "index": 0, "type": "INTRO"}]
+        bounds = librosa.segment.agglomerative(chroma_seg, k)
+        bound_times = librosa.frames_to_time(bounds, sr=sr, hop_length=hop_seg).tolist()
+        all_times = [0.0] + bound_times + [total_dur]
+        n = len(all_times) - 1
+
+        # ── 2. 세부 특징 추출 ──
+        hop_feat = 512
+        chroma_f   = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_feat)
+        rms_f      = librosa.feature.rms(y=y, hop_length=hop_feat)[0]
+        centroid_f = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_feat)[0]
+        flatness_f = librosa.feature.spectral_flatness(y=y, hop_length=hop_feat)[0]
+        onset_f    = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_feat)
+
+        # ── 3. 구간별 특징 집계 ──
+        def _frames(t):
+            return min(int(t * sr / hop_feat), chroma_f.shape[1])
+
+        seg_feats = []
+        for i in range(n):
+            t0, t1 = all_times[i], all_times[i + 1]
+            f0, f1 = _frames(t0), _frames(t1)
+            if f1 <= f0:
+                f1 = f0 + 1
+            chroma_mean = chroma_f[:, f0:f1].mean(axis=1)
+            rms_mean      = float(rms_f[f0:min(f1, len(rms_f))].mean())
+            cent_mean     = float(centroid_f[f0:min(f1, len(centroid_f))].mean())
+            flat_mean     = float(flatness_f[f0:min(f1, len(flatness_f))].mean())
+            onset_mean    = float(onset_f[f0:min(f1, len(onset_f))].mean())
+            seg_feats.append({
+                'chroma':    chroma_mean,
+                'rms':       rms_mean,
+                'centroid':  cent_mean,
+                'flatness':  flat_mean,
+                'onset':     onset_mean,
+                'pos':       (t0 + t1) / 2 / total_dur,
+            })
+
+        # ── 4. 특징 정규화 (0–1) ──
+        def _norm(vals):
+            a = np.array(vals, dtype=float)
+            mn, mx = a.min(), a.max()
+            return (a - mn) / (mx - mn + 1e-8)
+
+        rms_n    = _norm([f['rms']       for f in seg_feats])
+        cent_n   = _norm([f['centroid']  for f in seg_feats])
+        flat_n   = _norm([f['flatness']  for f in seg_feats])
+        onset_n  = _norm([f['onset']     for f in seg_feats])
+
+        # ── 5. 크로마 유사도 그룹화 ──
+        def _cos_sim(a, b):
+            na, nb = np.linalg.norm(a), np.linalg.norm(b)
+            return float(np.dot(a, b) / (na * nb)) if na > 1e-6 and nb > 1e-6 else 0.0
+
+        labels = [-1] * n
+        gid = 0
+        for i in range(n):
+            if labels[i] >= 0:
+                continue
+            labels[i] = gid
+            for j in range(i + 1, n):
+                if labels[j] < 0 and _cos_sim(seg_feats[i]['chroma'], seg_feats[j]['chroma']) >= 0.90:
+                    labels[j] = gid
+            gid += 1
+
+        from collections import Counter
+        grp_cnt = Counter(labels)
+        rep_n = _norm([float(grp_cnt[labels[i]]) for i in range(n)])
+
+        # ── 6. CHORUS 그룹 판별 복합 점수 (첫/마지막 제외) ──
+        # 반복도 30% + 에너지 35% + 밝기 20% + onset 15%
+        chorus_score = 0.30 * rep_n + 0.35 * rms_n + 0.20 * cent_n + 0.15 * onset_n
+
+        grp_scores: dict = {}
+        for i in range(1, n - 1):          # 첫·마지막 구간 제외
+            grp_scores.setdefault(labels[i], []).append(chorus_score[i])
+        grp_avg = {g: float(np.mean(v)) for g, v in grp_scores.items()}
+        ranked  = sorted(grp_avg.items(), key=lambda x: x[1], reverse=True)
+
+        chorus_grp = ranked[0][0] if ranked else -1
+        verse_grp  = ranked[1][0] if len(ranked) > 1 else -1
+        bridge_grp = ranked[2][0] if len(ranked) > 2 else -1   # 3순위 → BRIDGE 후보
+
+        # ── 7. 1차 레이블 부여 ──
+        types = []
+        for i in range(n):
+            g = labels[i]
+            if i == 0:                                           # 첫 구간만 INTRO
+                types.append("INTRO")
+            elif i == n - 1:                                     # 마지막 구간만 OUTRO
+                types.append("OUTRO")
+            elif g == chorus_grp and rms_n[i] >= 0.30:
+                types.append("CHORUS")
+            elif g == verse_grp:
+                types.append("VERSE")
+            elif g == bridge_grp or grp_cnt[g] == 1:            # 3순위 or 1회 등장
+                types.append("BRIDGE")
+            else:
+                types.append("VERSE")
+
+        # ── 8. POST: PRE-CHORUS 탐지 ──
+        # VERSE/BRIDGE 다음에 CHORUS가 오고 에너지가 높거나 직전보다 상승이면 PRE-CHORUS
+        verse_e = [rms_n[i] for i in range(n) if types[i] == "VERSE"]
+        verse_mean = float(np.mean(verse_e)) if verse_e else 0.5
+        for i in range(1, n - 1):
+            if types[i] in ("VERSE", "BRIDGE") and types[i + 1] == "CHORUS":
+                rising = i > 0 and rms_n[i] > rms_n[i - 1] + 0.05
+                high   = rms_n[i] > verse_mean + 0.08
+                if rising or high:
+                    types[i] = "PRE-CHORUS"
+
+        # ── 9. VOCAL / INST 탐지 ──
+        # tonal(저 flatness) + 저 onset → 조용한 선율 구간
+        # centroid 높음 → 보컬(고음역), centroid 낮음 → 연주(저·중음역)
+        onset_low_th = float(np.percentile(onset_n[1:-1], 33))  # 하위 33%
+        for i in range(1, n - 1):
+            if types[i] in ("VERSE",):
+                tonal = flat_n[i] < 0.40          # 저 flatness → tonal (비잡음)
+                quiet = onset_n[i] <= onset_low_th # 저 onset → 타악기 적음
+                if tonal and quiet:
+                    if cent_n[i] >= 0.55:          # 고 centroid → 보컬 음역
+                        types[i] = "VOCAL"
+                    else:                           # 저·중 centroid → 악기 선율
+                        types[i] = "INST"
+
+        return [
+            {"start_ms": int(all_times[i] * 1000),
+             "end_ms":   int(all_times[i + 1] * 1000),
+             "index":    i,
+             "type":     types[i]}
+            for i in range(n)
+        ]
+    except Exception:
+        return []
+
+
+def detect_msaf_sections(audio_path, duration_sec):
+    """msaf 경계 검출 + 클러스터 ID 넘버링.
+
+    시맨틱 라벨(CHORUS/VERSE 등) 없이 msaf가 감지한 경계와
+    음향적으로 유사한 구간을 같은 그룹(A/B/C...)으로 표기한다.
+    같은 글자 = 같은 음향적 특성의 구간.
+    """
+    if not HAS_MSAF:
+        return []
+    try:
+        import numpy as np
+        _CLUSTER_LETTERS = 'ABCDEFGHIJ'
+
+        # ── 1. msaf 경계 + 클러스터 ID 검출 ──
+        bounds, cluster_ids = _msaf_mod.process(
+            audio_path, boundaries_id='scluster', labels_id='fmc2d')
+        cluster_ids = list(cluster_ids)
+        n = len(cluster_ids)
+        if n == 0:
+            return []
+
+        # bounds가 0을 포함하지 않으면 prepend
+        if float(bounds[0]) > 0.1:
+            bounds = np.concatenate([[0.0], bounds])
+        if len(bounds) < n + 1:
+            bounds = np.concatenate([bounds, [duration_sec]])
+
+        # 클러스터 ID → 등장 순서 기준 알파벳 매핑 (A=첫 등장, B=두 번째 ...)
+        seen = {}
+        for cid in cluster_ids:
+            if cid not in seen:
+                seen[cid] = _CLUSTER_LETTERS[len(seen) % len(_CLUSTER_LETTERS)]
+
+        return [
+            {'start_ms': int(float(bounds[i]) * 1000),
+             'end_ms':   int(float(bounds[i + 1]) * 1000),
+             'index':    i,
+             'type':     seen[int(cluster_ids[i])]}
+            for i in range(n)
+        ]
+    except Exception:
+        return []
+
+
+def detect_gt_sections(audio_path, duration_sec):
+    """GT 섹션 감지 우선순위: allin1 → msaf → librosa
+
+    allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
+    (start/end 마커는 제외)
+    """
+    if HAS_ALLIN1:
+        try:
+            result = _allin1_mod.analyze(audio_path)
+            sections = []
+            for seg in result.segments:
+                lbl = seg.label.upper()
+                if lbl in ('START', 'END'):
+                    continue
+                sections.append({
+                    "start_ms": int(seg.start * 1000),
+                    "end_ms":   int(seg.end * 1000),
+                    "index":    len(sections),
+                    "type":     lbl,
+                })
+            if sections:
+                return sections
+        except Exception:
+            pass
+    if HAS_MSAF:
+        try:
+            result = detect_msaf_sections(audio_path, duration_sec)
+            if result:
+                return result
+        except Exception:
+            pass
+    return detect_librosa_sections(audio_path, duration_sec)
+
+
 def load_waveform(audio_path, max_sr=22050, max_duration=600.0):
     """파형 로드 (librosa 있을 때만). → (y, sr) or (None, 0)
     max_duration 초 초과 파일은 앞부분만 로드 (앨범 통합 mp3 대응).
@@ -587,6 +963,92 @@ def parse_timeline_binary(path):
         offset     += payload_len
         times_ms.append(time_ms)
     return version, frame_count, times_ms
+
+# SectionDetector.SectionType enum 순서 (Kotlin 정의와 동일해야 함)
+_SECTION_TYPES = ['INTRO', 'VERSE', 'CHORUS', 'BRIDGE', 'END',
+                  'VOCAL', 'BEAT', 'BUILD', 'CLIMAX', 'BREAK', 'OUTRO']
+
+def parse_section_meta_binary(path):
+    """SectionMetaStorage 바이너리 파싱.
+    반환: (version, list of section dicts)
+    각 dict: start_ms, end_ms, type, beat_ms, beat_confidence,
+             energy, peak_energy, low_ratio, mid_ratio, high_ratio,
+             onset_density, periodicity, beat_times_ms (List[int])
+    """
+    with open(path, "rb") as f:
+        data = f.read()
+    offset = 0
+    if len(data) < 12:
+        return 0, 'N/A', []
+    version   = struct.unpack_from(">i", data, offset)[0]; offset += 4
+    _style    = struct.unpack_from(">i", data, offset)[0]; offset += 4
+    count     = struct.unpack_from(">i", data, offset)[0]; offset += 4
+    sections  = []
+    for _ in range(count):
+        if offset + 8 > len(data): break
+        start_ms      = struct.unpack_from(">q", data, offset)[0]; offset += 8
+        end_ms        = struct.unpack_from(">q", data, offset)[0]; offset += 8
+        type_ord      = struct.unpack_from(">i", data, offset)[0]; offset += 4
+        _str_ord      = struct.unpack_from(">i", data, offset)[0]; offset += 4
+        beat_ms       = struct.unpack_from(">q", data, offset)[0]; offset += 8
+        beat_conf     = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        energy        = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        peak_energy   = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        low_ratio     = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        mid_ratio     = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        high_ratio    = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        onset_density = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        periodicity   = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        # beatTimesMs (VERSION=1 이상)
+        beat_times_ms = []
+        if offset + 4 <= len(data):
+            beat_count = struct.unpack_from(">i", data, offset)[0]; offset += 4
+            for _ in range(beat_count):
+                if offset + 8 > len(data): break
+                beat_times_ms.append(struct.unpack_from(">q", data, offset)[0]); offset += 8
+        sections.append({
+            "start_ms":      start_ms,
+            "end_ms":        end_ms,
+            "type":          _SECTION_TYPES[type_ord] if 0 <= type_ord < len(_SECTION_TYPES) else "VERSE",
+            "beat_ms":       beat_ms,
+            "beat_confidence": beat_conf,
+            "energy":        round(energy, 4),
+            "peak_energy":   round(peak_energy, 4),
+            "low_ratio":     round(low_ratio, 4),
+            "mid_ratio":     round(mid_ratio, 4),
+            "high_ratio":    round(high_ratio, 4),
+            "onset_density": round(onset_density, 4),
+            "periodicity":   round(periodicity, 4),
+            "beat_times_ms": beat_times_ms,
+        })
+    style_name = _MUSIC_STYLES[_style] if 0 <= _style < len(_MUSIC_STYLES) else 'N/A'
+    return version, style_name, sections
+
+# MusicStyleClassifier enum 순서 (Kotlin MusicStyle enum과 동일)
+_MUSIC_STYLES = ['EDM', 'DANCE_POP', 'HIPHOP_RNB', 'BALLAD', 'ROCK', 'POP']
+
+# 스타일별 색상
+_STYLE_COLORS = {
+    'EDM':       '#00e5ff',  # 청록
+    'DANCE_POP': '#ffab40',  # 주황
+    'HIPHOP_RNB':'#ce93d8',  # 보라
+    'BALLAD':    '#80cbc4',  # 민트
+    'ROCK':      '#ef5350',  # 빨강
+    'POP':       '#a5d6a7',  # 연두
+    'N/A':       '#546e7a',  # 회색
+}
+
+# 섹션 타입별 색상
+_SECTION_COLORS = {
+    'INTRO':       '#7c4dff', 'VERSE':  '#1565c0', 'PRE-CHORUS': '#00838f',
+    'CHORUS':      '#e65100', 'BRIDGE': '#2e7d32', 'END':        '#b71c1c',
+    'VOCAL':       '#00acc1', 'INST':   '#558b2f', 'BEAT':       '#f57f17',
+    'BUILD':       '#0277bd', 'CLIMAX': '#ad1457', 'BREAK':      '#546e7a',
+    'OUTRO':       '#4a148c', 'SOLO':   '#ff6f00',
+    # msaf 클러스터 그룹 (A=0, B=1, ...)
+    'A': '#e53935', 'B': '#43a047', 'C': '#1e88e5', 'D': '#fb8c00', 'E': '#8e24aa',
+    'F': '#00acc1', 'G': '#f4511e', 'H': '#6d4c41', 'I': '#039be5', 'J': '#c0ca33',
+}
 
 # ──────────────────────────────────────────────
 # 분석 유틸
@@ -999,6 +1461,12 @@ class App(tk.Tk):
              "#69f0ae" if HAS_MADMOM  else "#ef9a9a"),
             (("● librosa"          if HAS_LIBROSA else "✗ librosa (미설치)"),
              "#69f0ae" if HAS_LIBROSA else "#ef9a9a"),
+            (("● allin1 (GT섹션)"  if HAS_ALLIN1  else
+              f"○ allin1: {_allin1_err[:45]}" if _allin1_err else "○ allin1 (미설치)"),
+             "#69f0ae" if HAS_ALLIN1 else "#ffcc02"),
+            (("● msaf (GT섹션)"    if HAS_MSAF    else
+              f"○ msaf: {_msaf_err[:45]}"  if _msaf_err  else "○ msaf (미설치→pip install msaf)"),
+             "#69f0ae" if HAS_MSAF  else "#ffcc02"),
             (("● matplotlib"       if HAS_MPL     else "✗ matplotlib (미설치 → 비트맵 불가)"),
              "#69f0ae" if HAS_MPL     else "#ffcc02"),
         ]:
@@ -1023,24 +1491,68 @@ class App(tk.Tk):
             tk.Label(legend_frame, text=lt, bg="#1a1a2e", fg=lc,
                      font=("", 8, "bold")).pack(side="left", padx=6)
         tk.Label(tl_ctrl, text="  |", bg="#1a1a2e", fg="#37474f", font=("", 8)).pack(side="left")
-        tk.Label(tl_ctrl, text="시작(초/mm:ss):", bg="#1a1a2e", fg="#90a4ae",
-                 font=("", 8)).pack(side="left", padx=(8, 0))
-        self.zoom_s_var = tk.DoubleVar(value=0.0)
-        tk.Entry(tl_ctrl, textvariable=self.zoom_s_var, width=5,
-                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
-        tk.Label(tl_ctrl, text="끝(초/mm:ss):", bg="#1a1a2e", fg="#90a4ae",
-                 font=("", 8)).pack(side="left")
-        self.zoom_e_var = tk.DoubleVar(value=30.0)
-        tk.Entry(tl_ctrl, textvariable=self.zoom_e_var, width=5,
-                 bg="#263238", fg="white", insertbackground="white").pack(side="left", padx=2)
-        tk.Button(tl_ctrl, text="갱신", command=self._redraw_timeline,
-                  bg="#455a64", fg="white", font=("", 8), pady=1).pack(side="left", padx=4)
-        tk.Label(tl_ctrl, text="전체보기: 시작=0, 끝=곡길이",
-                 bg="#1a1a2e", fg="#546e7a", font=("", 7)).pack(side="left")
+        # 섹션 범례 (우측)
+        sec_legend = tk.Frame(tl_ctrl, bg="#1a1a2e")
+        sec_legend.pack(side="right", padx=(0, 6))
+        tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
+                 font=("", 7)).pack(side="left", padx=(0, 3))
+        _legend_types = ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO",
+                          "VOCAL", "INST", "SOLO", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]
+        if HAS_MSAF:
+            _legend_types += list("ABCDEFGHIJ")
+        for stype in _legend_types:
+            sc = _SECTION_COLORS.get(stype, "#546e7a")
+            tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
+                     font=("", 6, "bold")).pack(side="left", padx=1, pady=1)
+        # ── 줌/스크롤 컨트롤 행 ──────────────────────
+        tl_ctrl2 = tk.Frame(tl_frame, bg="#1a1a2e")
+        tl_ctrl2.pack(fill="x", padx=6, pady=(0, 2))
 
-        self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=120, highlightthickness=0)
+        self.zoom_s_var   = tk.DoubleVar(value=0.0)
+        self.zoom_e_var   = tk.DoubleVar(value=30.0)
+        self.zoom_mode_var = tk.StringVar(value="full")
+
+        btn_cfg = dict(bg="#263238", fg="#90a4ae", activebackground="#37474f",
+                       activeforeground="white", font=("", 8), pady=1, padx=6,
+                       relief="flat", bd=0)
+        btn_sel = dict(bg="#455a64", fg="white", activebackground="#546e7a",
+                       activeforeground="white", font=("", 8, "bold"), pady=1, padx=6,
+                       relief="flat", bd=0)
+
+        self._zoom_btns = {}
+        for label, mode in [("전체", "full"), ("10초", "10"), ("30초", "30"), ("60초", "60")]:
+            b = tk.Button(tl_ctrl2, text=label,
+                          command=lambda m=mode: self._set_zoom_mode(m), **btn_cfg)
+            b.pack(side="left", padx=1)
+            self._zoom_btns[mode] = b
+        self._zoom_btns["full"].config(**btn_sel)   # 기본 선택
+
+        tk.Label(tl_ctrl2, text="  |", bg="#1a1a2e", fg="#37474f",
+                 font=("", 8)).pack(side="left")
+
+        tk.Button(tl_ctrl2, text="◀◀", command=self._scroll_to_start,
+                  **btn_cfg).pack(side="left", padx=1)
+        tk.Button(tl_ctrl2, text="◀", command=self._scroll_left,
+                  **btn_cfg).pack(side="left", padx=1)
+        tk.Button(tl_ctrl2, text="▶", command=self._scroll_right,
+                  **btn_cfg).pack(side="left", padx=1)
+        tk.Button(tl_ctrl2, text="▶▶", command=self._scroll_to_end,
+                  **btn_cfg).pack(side="left", padx=1)
+
+        tk.Label(tl_ctrl2, text="  |", bg="#1a1a2e", fg="#37474f",
+                 font=("", 8)).pack(side="left")
+
+        self.v_zoom_pos = tk.StringVar(value="0:00 ~ 0:00")
+        tk.Label(tl_ctrl2, textvariable=self.v_zoom_pos,
+                 bg="#1a1a2e", fg="#546e7a", font=("", 8)).pack(side="left", padx=4)
+
+        # 캔버스 높이: TICK_H(16) + BEAT_H*3(132) + SEC_H*2(44) = 192px (공백 없음)
+        self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=192, highlightthickness=0)
         self.tl_canvas.pack(fill="x", padx=4, pady=(0, 4))
         self.tl_canvas.bind("<Configure>", lambda e: self._redraw_timeline())
+        self.tl_canvas.bind("<MouseWheel>",  self._on_tl_scroll)
+        self.tl_canvas.bind("<Button-4>",    self._on_tl_scroll)
+        self.tl_canvas.bind("<Button-5>",    self._on_tl_scroll)
 
         # ── 2열 메인 영역 ──────────────────────────
         main = tk.Frame(self)
@@ -1055,29 +1567,15 @@ class App(tk.Tk):
         col1 = tk.Frame(main)
         col1.grid(row=0, column=0, sticky="nsew", padx=(0, 3))
         col1.columnconfigure(0, weight=1)
-        col1.rowconfigure(2, weight=1)
+        col1.rowconfigure(1, weight=1)
 
-        # ── 설정 ──────────────────────────────────
-        fo = tk.LabelFrame(col1, text="설정", **pad)
-        fo.grid(row=0, column=0, sticky="ew", **pad)
-        fo.columnconfigure(1, weight=1)
-
-        tk.Label(fo, text="허용 오차(ms):").grid(row=0, column=0, sticky="w", padx=4, pady=1)
-        self.tol_var = tk.IntVar(value=70)
-        frm_tol = tk.Frame(fo)
-        frm_tol.grid(row=0, column=1, sticky="w", padx=4, pady=1)
-        tk.Spinbox(frm_tol, from_=20, to=200, increment=10,
-                   textvariable=self.tol_var, width=6).pack(side="left")
-        tk.Label(frm_tol, text="  표준 70ms", fg="#666", font=("", 8)).pack(side="left")
-
-        tk.Label(fo, text="BPM 힌트:").grid(row=1, column=0, sticky="w", padx=4, pady=1)
+        # 설정값 (UI 없이 기본값 유지)
+        self.tol_var      = tk.IntVar(value=70)
         self.bpm_hint_var = tk.DoubleVar(value=0.0)
-        tk.Entry(fo, textvariable=self.bpm_hint_var, width=7).grid(
-            row=1, column=1, sticky="w", padx=4, pady=1)
 
         # ── 타임라인 바이너리 폴더 ────────────────
         ff = tk.LabelFrame(col1, text="타임라인 바이너리 폴더", **pad)
-        ff.grid(row=1, column=0, sticky="ew", **pad)
+        ff.grid(row=0, column=0, sticky="ew", **pad)
         ff.columnconfigure(0, weight=1)
         ff_inner = tk.Frame(ff)
         ff_inner.pack(fill="x", padx=4, pady=(2, 0))
@@ -1095,7 +1593,7 @@ class App(tk.Tk):
         # ── 음악 파일 목록 ─────────────────────────
         self._audio_items = {}
         fm = tk.LabelFrame(col1, text="음악 파일 목록", **pad)
-        fm.grid(row=2, column=0, sticky="nsew", **pad)
+        fm.grid(row=1, column=0, sticky="nsew", **pad)
         fm.rowconfigure(1, weight=1)
         fm.columnconfigure(0, weight=1)
 
@@ -1173,7 +1671,7 @@ class App(tk.Tk):
         col2 = tk.Frame(main)
         col2.grid(row=0, column=1, sticky="nsew", padx=(3, 0))
         col2.columnconfigure(0, weight=1)
-        col2.rowconfigure(0, weight=4)
+        col2.rowconfigure(0, weight=9)
         col2.rowconfigure(1, weight=1)
 
         # 2열 1행: 분석 결과 — 엔진별 풀 상세 카드 3개
@@ -1195,6 +1693,26 @@ class App(tk.Tk):
                  bg="#1e272e", fg="#cfd8dc", font=("", 11, "bold"), anchor="w").pack(anchor="w")
         tk.Label(song_info_inner, textvariable=self.v_song_id,
                  bg="#1e272e", fg="#546e7a", font=("", 8), anchor="w").pack(anchor="w")
+
+        # 스타일 표시 (우측)
+        style_badge_frame = tk.Frame(song_info_frame, bg="#1e272e")
+        style_badge_frame.pack(side="right", padx=(4, 10), pady=3)
+        self.v_app_style      = tk.StringVar(value="N/A")
+        self.v_librosa_style  = tk.StringVar(value="N/A")
+        # GT 엔진 스타일
+        gt_row = tk.Frame(style_badge_frame, bg="#1e272e")
+        gt_row.pack(anchor="e")
+        tk.Label(gt_row, text="GT :", bg="#1e272e", fg="#546e7a", font=("", 8)).pack(side="left")
+        self._lbl_librosa_style = tk.Label(gt_row, textvariable=self.v_librosa_style,
+                 bg="#1e272e", fg="#82b1ff", font=("", 9, "bold"))
+        self._lbl_librosa_style.pack(side="left", padx=(2, 0))
+        # 앱 스타일
+        app_row = tk.Frame(style_badge_frame, bg="#1e272e")
+        app_row.pack(anchor="e")
+        tk.Label(app_row, text="앱:", bg="#1e272e", fg="#546e7a", font=("", 8)).pack(side="left")
+        self._lbl_app_style = tk.Label(app_row, textvariable=self.v_app_style,
+                 bg="#1e272e", fg="#69f0ae", font=("", 9, "bold"))
+        self._lbl_app_style.pack(side="left", padx=(2, 0))
 
         # ── 엔진 카드 3개 (풀 상세, 세로 꽉 채움) ──
         cards_outer = tk.Frame(results_frame, bg="#1a1a2e")
@@ -1307,7 +1825,7 @@ class App(tk.Tk):
         log_frame.rowconfigure(0, weight=1)
         log_frame.columnconfigure(0, weight=1)
         self.out = scrolledtext.ScrolledText(log_frame, font=("Courier", 9),
-                                             state="disabled",
+                                             state="disabled", height=20,
                                              bg="#0d1117", fg="#7c8b9c")
         self.out.tag_config("green",  foreground="#69f0ae")
         self.out.tag_config("yellow", foreground="#ffcc02")
@@ -1703,6 +2221,31 @@ class App(tk.Tk):
             self._update_cards(engine, f_val, p_val, r_val, tp, fp_cnt, fn,
                                bpm_app, bpm_ref, bpm_err, cov_pct, gaps)
 
+            # 스타일/섹션 복원
+            _app_style     = record.get("app_style", "N/A")
+            _lib_style     = record.get("librosa_style", "N/A")
+            _lib_feats     = record.get("librosa_style_features", {})
+            _lib_sections  = record.get("librosa_sections", [])
+            _app_sections  = record.get("app_sections", [])
+
+            # 기존 레코드에 app_sections 없으면 바이너리 파일에서 직접 읽기
+            if not _app_sections:
+                bin_path = item.get("bin_path", "")
+                if bin_path and os.path.exists(bin_path):
+                    try:
+                        _, style_from_bin, _app_sections = parse_section_meta_binary(bin_path)
+                        if style_from_bin and style_from_bin != "N/A" and _app_style == "N/A":
+                            _app_style = style_from_bin
+                    except Exception:
+                        _app_sections = []
+
+            # 헤더 스타일 레이블 갱신
+            self.v_app_style.set(_app_style)
+            self.v_librosa_style.set(_lib_style)
+            self._lbl_app_style.config(fg=_STYLE_COLORS.get(_app_style, '#69f0ae'))
+            self._lbl_librosa_style.config(fg=_STYLE_COLORS.get(_lib_style, '#82b1ff'))
+
+            self._set_zoom_mode("full")
             # 결과 먼저 저장 (파형 없이) → 타임라인 즉시 렌더
             self._last_result = dict(
                 ref_sec=ref_sec, app_sec=app_sec,
@@ -1714,6 +2257,11 @@ class App(tk.Tk):
                 engine_name=eng_name,
                 audio_name=os.path.basename(item.get("path", "")),
                 music_id=music_id, tol_ms=tol_ms,
+                sections=_app_sections,
+                app_style=_app_style,
+                librosa_style=_lib_style,
+                librosa_style_features=_lib_feats,
+                librosa_sections=_lib_sections,
             )
             self.zoom_s_var.set(0.0)
             self.zoom_e_var.set(round(dur, 1))
@@ -1810,12 +2358,28 @@ class App(tk.Tk):
             audio = item["path"]
             binf  = item["bin_path"]
             name  = os.path.basename(audio)
+
+            # GT 섹션 분석: 오디오당 1회만 실행 후 엔진별로 공유
+            pre_lib_sections = []
+            if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
+                try:
+                    src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
+                    self.after(0, lambda n=name, i=idx, t=total, s=src:
+                               self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션/{s})"))
+                    _dur = get_audio_duration(audio)
+                    pre_lib_sections = detect_gt_sections(audio, _dur)
+                    self.after(0, lambda n=len(pre_lib_sections), nm=name:
+                               self._log(f"[GT섹션]  {nm} — {n}개 감지", "gray"))
+                except Exception as _se:
+                    self.after(0, lambda e=str(_se): self._log(f"[GT섹션] 오류: {e}", "red"))
+
             for engine in engines:
                 eng_lbl = ENGINE_INFO[engine][0]
                 self.after(0, lambda n=name, i=idx, t=total, el=eng_lbl:
                            self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  ({el})"))
                 try:
-                    self._do_analyze(audio, binf, engine, tol_ms, bpm_hint)
+                    self._do_analyze(audio, binf, engine, tol_ms, bpm_hint,
+                                     librosa_sections=pre_lib_sections)
                 except Exception as e:
                     import traceback
                     tb  = traceback.format_exc()
@@ -1836,7 +2400,10 @@ class App(tk.Tk):
                                  tol_ms, music_id, duration_sec,
                                  app_ms, ref_ms, tp_est, fp_est, fn_ref,
                                  f, p, r, tp, fp_cnt, fn,
-                                 bpm_app, bpm_ref, grade):
+                                 bpm_app, bpm_ref, grade, section_results=None,
+                                 app_style=None, librosa_style=None,
+                                 librosa_style_features=None, librosa_sections=None,
+                                 app_sections=None):
         """분석 결과를 beat_analysis_records.json 에 누적 저장한다."""
         import datetime
 
@@ -1914,6 +2481,16 @@ class App(tk.Tk):
                 "median_offset_ms": round(sorted(abs(e) for e in offset_errors)[len(offset_errors)//2], 2) if offset_errors else 0,
                 "within_tol_pct":   round(sum(1 for e in offset_errors if abs(e) <= tol_ms) / len(offset_errors) * 100, 1) if offset_errors else 0,
             },
+
+            # 섹션별 비트 정확도 (section meta 바이너리가 있을 때만 채워짐)
+            "sections": section_results or [],
+
+            # 음악 스타일 및 구조 섹션 정보
+            "app_style":              app_style or "N/A",
+            "librosa_style":          librosa_style or "N/A",
+            "librosa_style_features": librosa_style_features or {},
+            "librosa_sections":       librosa_sections or [],
+            "app_sections":           app_sections or [],
         }
 
         records.append(record)
@@ -1960,6 +2537,70 @@ class App(tk.Tk):
         cw["v_cov"].set(f"{cov_pct:.1f}%")
         cw["v_gaps"].set(f"{gaps}개")
 
+    # ── 타임라인 줌/스크롤 ────────────────────────
+
+    def _fmt_pos(self, sec):
+        m, s = divmod(int(sec), 60)
+        return f"{m}:{s:02d}"
+
+    def _zoom_window(self):
+        """현재 뷰 모드의 윈도우 길이(초). full → None."""
+        m = self.zoom_mode_var.get()
+        return None if m == "full" else int(m)
+
+    def _apply_zoom(self, start_sec):
+        """zoom_s/e_var 를 갱신하고 타임라인을 다시 그린다."""
+        dur = (self._last_result or {}).get("duration_sec", 0)
+        w   = self._zoom_window()
+        if w is None:
+            self.zoom_s_var.set(0.0)
+            self.zoom_e_var.set(round(dur, 1))
+        else:
+            s = max(0.0, min(start_sec, max(0.0, dur - w)))
+            self.zoom_s_var.set(round(s, 2))
+            self.zoom_e_var.set(round(s + w, 2))
+        self._redraw_timeline()
+
+    def _set_zoom_mode(self, mode):
+        self.zoom_mode_var.set(mode)
+        for m, b in self._zoom_btns.items():
+            if m == mode:
+                b.config(bg="#455a64", fg="white", font=("", 8, "bold"))
+            else:
+                b.config(bg="#263238", fg="#90a4ae", font=("", 8))
+        cur_s = self.zoom_s_var.get()
+        self._apply_zoom(cur_s)
+
+    def _scroll_left(self):
+        w = self._zoom_window()
+        if w:
+            self._apply_zoom(self.zoom_s_var.get() - w)
+
+    def _scroll_right(self):
+        w = self._zoom_window()
+        if w:
+            self._apply_zoom(self.zoom_s_var.get() + w)
+
+    def _scroll_to_start(self):
+        self._apply_zoom(0.0)
+
+    def _scroll_to_end(self):
+        dur = (self._last_result or {}).get("duration_sec", 0)
+        w   = self._zoom_window()
+        self._apply_zoom(max(0.0, dur - (w or dur)))
+
+    def _on_tl_scroll(self, event):
+        w = self._zoom_window()
+        if not w:
+            return
+        # Windows: event.delta (+/-120), Linux: Button-4/5
+        if event.num == 4 or (hasattr(event, "delta") and event.delta > 0):
+            self._apply_zoom(self.zoom_s_var.get() - w * 0.5)
+        else:
+            self._apply_zoom(self.zoom_s_var.get() + w * 0.5)
+
+    # ─────────────────────────────────────────────
+
     def _redraw_timeline(self):
         """비트 타임라인 캔버스를 현재 _last_result 기준으로 다시 그린다."""
         if not self._last_result:
@@ -1972,25 +2613,48 @@ class App(tk.Tk):
             z_s, z_e = 0.0, r["duration_sec"]
         if z_e <= z_s:
             z_e = z_s + 1.0
+        # 현재 위치 표시 갱신
+        try:
+            self.v_zoom_pos.set(f"{self._fmt_pos(z_s)} ~ {self._fmt_pos(z_e)}")
+        except Exception:
+            pass
         self._draw_beat_timeline(
             r["tp_est"], r["fp_est"], r["fn_ref"],
             r["ref_sec"], r["app_sec"],
             r["duration_sec"], z_s, z_e,
             waveform=r.get("waveform"), wav_sr=r.get("wav_sr", 0),
             engine_failed=r.get("engine_failed", False),
+            sections=r.get("sections", []),
+            app_style=r.get("app_style", "N/A"),
+            librosa_style=r.get("librosa_style", "N/A"),
+            librosa_style_features=r.get("librosa_style_features", {}),
+            librosa_sections=r.get("librosa_sections", []),
         )
 
     def _draw_beat_timeline(self, tp_est, fp_est, fn_ref,
                             ref_sec, app_sec, duration_sec,
                             z_start, z_end,
                             waveform=None, wav_sr=0,
-                            engine_failed=False):
+                            engine_failed=False,
+                            sections=None, app_style='N/A',
+                            librosa_style='N/A', librosa_style_features=None,
+                            librosa_sections=None):
         """
-        캔버스에 3-레인 비트 타임라인을 그린다.
-          파형 레인: Waveform (GT 위)
-          GT 레인  : GT 엔진 분석 결과  — 초록=TP(일치), 파랑=FN(누락)
-          앱 레인  : 앱 타임라인 결과   — 초록=TP(일치), 빨강=FP(오감지)
+        캔버스에 7-레인 비트 타임라인을 그린다.
+          파형 레인: Waveform
+          GT 비트 레인: GT 엔진 분석 결과  — 초록=TP(일치), 파랑=FN(누락)
+          GT 스타일 레인: Librosa 음악 스타일
+          GT 섹션 레인: Librosa 구조 분석
+          앱 비트 레인: 앱 타임라인 결과  — 초록=TP(일치), 빨강=FP(오감지)
+          앱 스타일 레인: 앱 음악 스타일
+          앱 섹션 레인: 앱 섹션 메타
         """
+        if sections is None:
+            sections = []
+        if librosa_style_features is None:
+            librosa_style_features = {}
+        if librosa_sections is None:
+            librosa_sections = []
         c = self.tl_canvas
         c.delete("all")
         W = c.winfo_width()
@@ -2004,55 +2668,58 @@ class App(tk.Tk):
         TICK_H  = 16    # 상단 시간 눈금 영역 높이
         PAD     = 4
 
-        # 3-레인 Y 분할: 파형(상단 35%) | GT(중간 32.5%) | 앱(하단 32.5%)
-        WAVE_BOT = TICK_H + int((H - TICK_H) * 0.35)
-        SEP1_Y   = WAVE_BOT
-        GT_BOT   = SEP1_Y + int((H - TICK_H) * 0.325)
-        SEP2_Y   = GT_BOT
-        APP_TOP  = SEP2_Y + PAD
-        APP_BOT  = H - PAD
+        # 5-레인 고정 픽셀 분할 (하단 공백 없음)
+        # TICK(16) | 파형(44) | GT비트(44) | GT섹션(22) | 앱비트(44) | 앱섹션(22) = 192
+        BEAT_H  = 44
+        SEC_H   = 22
 
-        WAVE_TOP = TICK_H + PAD
-        WAVE_MID = (WAVE_TOP + WAVE_BOT) // 2
-        GT_TOP   = SEP1_Y + PAD
-        GT_MID   = (GT_TOP + GT_BOT - PAD) // 2
+        WAVE_BOT   = TICK_H + BEAT_H
+        GT_BOT     = WAVE_BOT + BEAT_H
+        GT_SEC_BOT = GT_BOT + SEC_H
+        APP_BOT    = GT_SEC_BOT + BEAT_H
+        APP_SEC_BOT= APP_BOT + SEC_H
+
+        WAVE_TOP   = TICK_H + PAD
+        WAVE_MID   = (WAVE_TOP + WAVE_BOT) // 2
+        GT_TOP     = WAVE_BOT + PAD
+        GT_MID     = (GT_TOP + GT_BOT) // 2
+        GT_SEC_TOP = GT_BOT + 1
+        APP_TOP    = GT_SEC_BOT + PAD
+        APP_MID    = (APP_TOP + APP_BOT) // 2
+        APP_SEC_TOP= APP_BOT + 1
 
         def tx(t):
             return int(LABEL_W + (t - z_start) / span * (W - LABEL_W))
 
         in_range = lambda t: z_start <= t <= z_end
 
-        # ── 배경 레인 ──
-        c.create_rectangle(0, TICK_H,  W, SEP1_Y, fill="#0d1117", outline="")
-        c.create_rectangle(0, SEP1_Y,  W, SEP2_Y, fill="#0a1520", outline="")
-        c.create_rectangle(0, SEP2_Y,  W, H,      fill="#100e1a", outline="")
+        # ── 배경 레인 (5레인) ──
+        c.create_rectangle(0, TICK_H,      W, WAVE_BOT,    fill="#0d1117", outline="")   # 파형
+        c.create_rectangle(0, WAVE_BOT,    W, GT_BOT,      fill="#0a1520", outline="")   # GT 비트
+        c.create_rectangle(0, GT_BOT,      W, GT_SEC_BOT,  fill="#060c14", outline="")   # GT 섹션
+        c.create_rectangle(0, GT_SEC_BOT,  W, APP_BOT,     fill="#0e1a0e", outline="")   # 앱 비트
+        c.create_rectangle(0, APP_BOT,     W, APP_SEC_BOT, fill="#071007", outline="")   # 앱 섹션
 
         # ── 레인 구분선 ──
-        c.create_line(0, SEP1_Y, W, SEP1_Y, fill="#263238", width=2)
-        c.create_line(0, SEP2_Y, W, SEP2_Y, fill="#263238", width=2)
-        c.create_line(LABEL_W, TICK_H, LABEL_W, H, fill="#1e2d3a", width=1, dash=(3,3))
+        c.create_line(0, WAVE_BOT,    W, WAVE_BOT,    fill="#263238", width=2)   # 파형/GT 경계
+        c.create_line(0, GT_BOT,      W, GT_BOT,      fill="#1a2a38", width=1)   # GT비트/섹션
+        c.create_line(0, GT_SEC_BOT,  W, GT_SEC_BOT,  fill="#263238", width=2)   # GT/앱 경계
+        c.create_line(0, APP_BOT,     W, APP_BOT,     fill="#1a2a38", width=1)   # 앱비트/섹션
+        c.create_line(LABEL_W, TICK_H, LABEL_W, APP_SEC_BOT, fill="#1e2d3a", width=1, dash=(3, 3))
 
-        # ── 레인 라벨 ──
+        # ── 레인 라벨 (5레인) ──
         eng_label = (self._last_result or {}).get("engine_name", "GT 엔진")
 
-        # 파형 레인 라벨
-        c.create_rectangle(0, TICK_H, LABEL_W - 2, SEP1_Y, fill="#111318", outline="")
-        c.create_text(LABEL_W // 2, WAVE_MID,
-                      text="파형", fill="#b0bec5", font=("", 8, "bold"), anchor="center")
+        def _lane_label(y0, y1, txt, fg, bg):
+            c.create_rectangle(0, y0, LABEL_W - 2, y1, fill=bg, outline="")
+            c.create_text(LABEL_W // 2, (y0 + y1) // 2, text=txt, fill=fg,
+                          font=("", 7, "bold"), anchor="center", justify="center")
 
-        # GT 레인 라벨
-        c.create_rectangle(0, SEP1_Y, LABEL_W - 2, SEP2_Y, fill="#0d1b2a", outline="")
-        c.create_text(LABEL_W // 2, GT_MID - 6,
-                      text=eng_label, fill="#82b1ff", font=("", 8, "bold"), anchor="center")
-        c.create_text(LABEL_W // 2, GT_MID + 7,
-                      text="(분석 기준)", fill="#546e7a", font=("", 7), anchor="center")
-
-        # 앱 레인 라벨
-        c.create_rectangle(0, SEP2_Y, LABEL_W - 2, H, fill="#0d1a0d", outline="")
-        c.create_text(LABEL_W // 2, (SEP2_Y + H) // 2 - 6,
-                      text="앱 타임라인", fill="#69f0ae", font=("", 8, "bold"), anchor="center")
-        c.create_text(LABEL_W // 2, (SEP2_Y + H) // 2 + 7,
-                      text="(.bin 파일)", fill="#546e7a", font=("", 7), anchor="center")
+        _lane_label(TICK_H,      WAVE_BOT,    "파형",           "#b0bec5", "#111318")
+        _lane_label(WAVE_BOT,    GT_BOT,      f"{eng_label}비트","#82b1ff", "#0d1b2a")
+        _lane_label(GT_BOT,      GT_SEC_BOT,  "GT섹션",         "#82b1ff", "#060b14")
+        _lane_label(GT_SEC_BOT,  APP_BOT,     "앱비트",          "#69f0ae", "#0d1a0d")
+        _lane_label(APP_BOT,     APP_SEC_BOT, "앱섹션",          "#69f0ae", "#071007")
 
         # ── 시간 눈금 ──
         target_ticks = max(5, (W - LABEL_W) // 60)
@@ -2071,7 +2738,7 @@ class App(tk.Tk):
             x = tx(t)
             if x < LABEL_W:
                 t += tick_interval; continue
-            c.create_line(x, TICK_H, x, H, fill="#1a2a38", width=1)
+            c.create_line(x, TICK_H, x, APP_SEC_BOT, fill="#1a2a38", width=1)
             mins, secs = divmod(int(t), 60)
             label = f"{mins}:{secs:02d}" if mins else f"{secs}s"
             c.create_text(x + 2, 2, anchor="nw", text=label,
@@ -2107,9 +2774,9 @@ class App(tk.Tk):
 
         # ── GT 레인 비트 막대 ──
         if engine_failed:
-            # 분석 실패 — GT 레인에 안내 텍스트만 표시
-            c.create_rectangle(LABEL_W, SEP1_Y, W, SEP2_Y, fill="#1a0a0a", outline="")
-            c.create_text((LABEL_W + W) // 2, (SEP1_Y + SEP2_Y) // 2,
+            # 분석 실패 — GT 비트 레인에 안내 텍스트만 표시
+            c.create_rectangle(LABEL_W, WAVE_BOT, W, GT_BOT, fill="#1a0a0a", outline="")
+            c.create_text((LABEL_W + W) // 2, (WAVE_BOT + GT_BOT) // 2,
                           text="분석 실패 (메모리 부족 — 파일이 너무 큼)",
                           fill="#ef5350", font=("", 9, "bold"), anchor="center")
         else:
@@ -2136,6 +2803,47 @@ class App(tk.Tk):
                     x = tx(t)
                     c.create_rectangle(x-1, APP_TOP, x+1, APP_BOT,
                                        fill="#ff5252", outline="")
+
+        # 섹션 텍스트 트런케이션 헬퍼 (font size 7 bold ≈ 6px/char)
+        _CHAR_W = 6
+        def _sec_text(lbl, bar_w):
+            max_ch = max(1, (bar_w - 4) // _CHAR_W)
+            return lbl[:max_ch]
+
+        def _draw_sec_bar(secs, y_top, y_bot):
+            for sec in secs:
+                s_t = sec["start_ms"] / 1000.0
+                e_t = sec["end_ms"]   / 1000.0
+                if e_t < z_start or s_t > z_end:
+                    continue
+                x1 = tx(max(s_t, z_start))
+                x2 = tx(min(e_t, z_end))
+                if x2 <= x1:
+                    continue
+                lbl = sec.get("type", "?")
+                col = _SECTION_COLORS.get(lbl, "#546e7a")
+                bar_w = x2 - x1
+                # 채운 바
+                c.create_rectangle(x1, y_top+1, x2, y_bot-1, fill=col, outline="")
+                # 경계 구분선 (좌측 1px 어두운 선)
+                c.create_line(x1, y_top+1, x1, y_bot-1, fill="#1a1a1a", width=1)
+                # 텍스트 (최소 1자, 영역 초과 시 트런케이션)
+                txt = _sec_text(lbl, bar_w)
+                if txt:
+                    mid_x = (x1 + x2) // 2
+                    mid_y = (y_top + y_bot) // 2
+                    c.create_text(mid_x+1, mid_y+1, text=txt, fill="#111111",
+                                  font=("", 7, "bold"), anchor="center")
+                    c.create_text(mid_x, mid_y, text=txt, fill="white",
+                                  font=("", 7, "bold"), anchor="center")
+
+        # ── GT 섹션 레인 ──
+        if librosa_sections:
+            _draw_sec_bar(librosa_sections, GT_SEC_TOP, GT_SEC_BOT)
+
+        # ── 앱 섹션 레인 ──
+        if sections:
+            _draw_sec_bar(sections, APP_SEC_TOP, APP_SEC_BOT)
 
     # ── 분석 ──────────────────────────────────────
 
@@ -2260,7 +2968,8 @@ class App(tk.Tk):
         except Exception as ex:
             self._log(f"[타임라인 표시 오류] {ex}", "red")
 
-    def _do_analyze(self, audio_path, bin_path, engine, tol_ms, bpm_hint):
+    def _do_analyze(self, audio_path, bin_path, engine, tol_ms, bpm_hint,
+                    librosa_sections=None):
         SEP  = "─" * 62
         SEP2 = "═" * 62
         eng_name, eng_acc, _ = ENGINE_INFO[engine]
@@ -2275,6 +2984,21 @@ class App(tk.Tk):
         app_sec  = [t / 1000.0 for t in app_ms]
         app_st   = beat_stats(app_ms)
         bin_id   = extract_music_id(bin_path) or os.path.splitext(os.path.basename(bin_path))[0]
+
+        # 섹션 메타 바이너리 탐색 (같은 폴더의 sections_<id>_v*.bin)
+        sections = []
+        app_style = 'N/A'
+        try:
+            bin_folder = os.path.dirname(bin_path)
+            for fname in sorted(os.listdir(bin_folder), reverse=True):
+                if fname.startswith("sections_") and fname.endswith(".bin"):
+                    fid = extract_music_id(fname)
+                    if fid == bin_id:
+                        _, app_style, sections = parse_section_meta_binary(
+                            os.path.join(bin_folder, fname))
+                        break
+        except Exception:
+            pass
 
         # 오디오 해시 기반 Music ID (SDK 동일 알고리즘)
         try:
@@ -2387,11 +3111,74 @@ class App(tk.Tk):
             self._log(f"완료 — F={f*100:.1f}%  P={p*100:.1f}%  R={r*100:.1f}%"
                       f"  BPM 앱{app_st.get('bpm',0):.0f}/GT{ref_bpm:.0f}", "green")
             self._save_result_to_item(audio_path, engine, grade, f)
-            # 카드 등급 즉시 반영
             sel = self._tree.selection()
             if sel:
                 self._update_engine_cards(sel[0])
         self.after(0, _update_ui)
+
+        # ── 섹션별 비트 정확도 분석 ──────────────────
+        section_results = []
+        if sections:
+            def _log_sections(secs=sections):
+                self._log("\n─── 섹션별 비트 정확도 ───────────────────────────", "gray")
+                self._log(f"  {'#':>2}  {'타입':<8}  {'구간':>17}  {'F':>5}  {'P':>5}  {'R':>5}  "
+                          f"{'TP':>4}  {'FP':>4}  {'FN':>4}  앱비트/GT비트")
+            self.after(0, _log_sections)
+            for i, sec in enumerate(sections):
+                s_beats_ms = sec.get("beat_times_ms", [])
+                s_start = sec["start_ms"] / 1000.0
+                s_end   = sec["end_ms"]   / 1000.0
+                sec_type = sec["type"]
+                sec_ref  = [t for t in ref_sec if s_start <= t < s_end]
+                sec_app  = [t / 1000.0 for t in s_beats_ms]
+                if sec_ref or sec_app:
+                    sf, sp, sr, stp, sfp, sfn = fmeasure(sec_ref, sec_app, tol_sec) \
+                        if sec_ref and sec_app else (0.0, 0.0, 0.0, 0, 0, len(sec_ref))
+                    section_results.append({
+                        "index": i, "type": sec_type,
+                        "start_ms": sec["start_ms"], "end_ms": sec["end_ms"],
+                        "beat_count_app": len(sec_app), "beat_count_gt": len(sec_ref),
+                        "f_measure": round(sf, 4), "precision": round(sp, 4), "recall": round(sr, 4),
+                        "tp": stp, "fp": sfp, "fn": sfn,
+                        "energy": sec.get("energy", 0), "beat_ms": sec.get("beat_ms", 0),
+                    })
+                    tag = "green" if sf >= 0.8 else ("yellow" if sf >= 0.6 else "red")
+                    def _ls(i=i, st=sec_type, ss=s_start, se=s_end,
+                             sf=sf, sp=sp, sr=sr, stp=stp, sfp=sfp, sfn=sfn,
+                             na=len(sec_app), ng=len(sec_ref), tag=tag):
+                        self._log(
+                            f"  {i:2d}  {st:<8}  {_fmt_sec(ss)}~{_fmt_sec(se)}"
+                            f"  {sf*100:5.1f}%  {sp*100:5.1f}%  {sr*100:5.1f}%"
+                            f"  {stp:4d}  {sfp:4d}  {sfn:4d}  {na}/{ng}", tag)
+                    self.after(0, _ls)
+
+        # ── librosa 음악 스타일 + 섹션 감지 ──────────
+        librosa_style = 'N/A'
+        librosa_style_features = {}
+        if librosa_sections is None:
+            librosa_sections = []
+        if HAS_LIBROSA:
+            try:
+                self.after(0, lambda: self._log("\n[+lib]  Librosa 음악 스타일 분류…", "gray"))
+                librosa_style, librosa_style_features = compute_music_style_librosa(
+                    audio_path, ref_sec, ref_bpm)
+                self.after(0, lambda s=librosa_style, f=librosa_style_features:
+                    self._log(f"  Librosa Style : {s}  |  {f}", "cyan"))
+            except Exception as _ex:
+                self.after(0, lambda e=str(_ex): self._log(f"  Librosa 분석 오류: {e}", "red"))
+        if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
+            try:
+                if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
+                    src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
+                    self.after(0, lambda s=src: self._log(f"[+GT]  GT 섹션 감지 ({s})…", "gray"))
+                    librosa_sections = detect_gt_sections(audio_path, duration_sec)
+                    self.after(0, lambda n=len(librosa_sections):
+                        self._log(f"  GT 섹션 : {n}개 감지", "cyan"))
+                else:
+                    self.after(0, lambda n=len(librosa_sections):
+                        self._log(f"  GT 섹션 : {n}개 (사전계산)", "cyan"))
+            except Exception as _ex:
+                self.after(0, lambda e=str(_ex): self._log(f"  GT 섹션 오류: {e}", "red"))
 
         # 결과 캐시
         self._last_result = dict(
@@ -2403,7 +3190,20 @@ class App(tk.Tk):
             engine_name=eng_name,
             audio_name=os.path.basename(audio_path),
             music_id=music_id, tol_ms=tol_ms,
+            sections=sections,
+            app_style=app_style,
+            librosa_style=librosa_style,
+            librosa_style_features=librosa_style_features,
+            librosa_sections=librosa_sections,
         )
+        # 헤더 스타일 레이블 업데이트
+        _as, _ls = app_style or 'N/A', librosa_style or 'N/A'
+        self.after(0, lambda a=_as, l=_ls: (
+            self.v_app_style.set(a),
+            self.v_librosa_style.set(l),
+            self._lbl_app_style.config(fg=_STYLE_COLORS.get(a, '#69f0ae')),
+            self._lbl_librosa_style.config(fg=_STYLE_COLORS.get(l, '#82b1ff')),
+        ))
 
         # 진단 데이터 저장
         self._export_analysis_record(
@@ -2415,9 +3215,16 @@ class App(tk.Tk):
             f=f, p=p, r=r, tp=tp, fp_cnt=fp_cnt, fn=fn,
             bpm_app=app_st.get('bpm', 0), bpm_ref=ref_bpm,
             grade=grade,
+            section_results=section_results,
+            app_style=app_style,
+            librosa_style=librosa_style,
+            librosa_style_features=librosa_style_features,
+            librosa_sections=librosa_sections,
+            app_sections=sections,
         )
         # 비트 타임라인 그리기 (전체 기본)
         def _draw():
+            self._set_zoom_mode("full")
             self.zoom_e_var.set(round(duration_sec, 1))
             self._redraw_timeline()
         self.after(200, _draw)   # 캔버스 레이아웃 완성 후 실행

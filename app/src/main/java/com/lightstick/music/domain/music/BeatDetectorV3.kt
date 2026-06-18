@@ -8,30 +8,26 @@ import org.jtransforms.fft.FloatFFT_1D
 import kotlin.math.*
 
 /**
- * BeatDetectorV3 — 엇박자(Phase Error) 및 루바토 방어 로직이 추가된 최종 형태
- * * 주요 개선점:
- * 1. 저음역대(0~5 Band) ODF 분리 추출 및 킥(Kick) 기반 위상 앵커 고정
- * 2. Ellis DP의 시작점 강제 해제 및 앵커 보너스 시스템 도입
- * 3. 정박 / 엇박 듀얼 DP 트래킹 및 평균 에너지 기반 승자 독식 로직
+ * BeatDetectorV3 — Dual ODF Architecture
+ * 1. odfTempo (순수 ODF): BPM 및 Time Signature 측정용 — V2와 동일한 순수 SuperFlux
+ * 2. odfTrack (가중치 ODF): Phase, DP Tracker, Downbeat 측정용 (킥 대역 1.5x 가중치)
  */
 object BeatDetectorV3 {
 
     private const val TAG = "AutoTimelineV3"
 
-    // SuperFlux 파라미터
     private const val FFT_SIZE  = 2048
     private const val HOP_MS    = 10L
     private const val LOG_LAMBDA = 1000f
 
-    // Log filterbank 파라미터
     private const val NUM_BANDS = 24
     private const val FB_FMIN   = 27.5f
     private const val FB_FMAX   = 16000f
 
-    // DBN 파라미터
     private const val DBN_TRANSITION_LAMBDA  = 100f
     private const val DBN_OBSERVATION_LAMBDA = 16
 
+    // 하모닉 보정: 0.75는 My World/God's Menu/모든날 파괴하므로 0.5만 사용
     private val HARM_RATIOS = floatArrayOf(0.5f)
 
     private const val FILL_CONFIDENCE   = 0.20f
@@ -80,59 +76,27 @@ object BeatDetectorV3 {
         val beatTimesMs: List<Long> get() = beats.map { it.timeMs }
     }
 
-    // =========================================================================
-    // Public entry point
-    // =========================================================================
-
     fun detect(
         musicPath: String,
         params: Params = Params()
     ): DetectResult {
-        // ── 1. 스트리밍 디코딩 + ODF (전체 / 저음역대) 분리 추출 ─────────────────
-        val (odf, lowOdf, hopMs, durationMs) = streamingOdf(musicPath)
-        if (odf.isEmpty()) {
+        Log.d(TAG, "V3 ------------------ Beat Detection Start ------------------")
+
+        // 투 트랙 ODF 반환: odfTempo(BPM용 순정), odfTrack(트래킹용 킥 가중치)
+        val (odfTempo, odfTrack, hopMs, durationMs) = streamingOdf(musicPath)
+        if (odfTempo.isEmpty() || odfTrack.isEmpty()) {
             return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
-        Log.d(TAG, "V3 SuperFlux odf frames=${odf.size} hopMs=$hopMs durationMs=$durationMs")
 
-        // ── 2. DBN HMM 템포 추정 (전체 ODF 사용) ─────────────────────────────────
+        // [🔥 BPM은 반드시 odfTempo(순정)를 사용하여 반토막 함정을 피합니다]
         val beatMs = dbnEstimateTempo(
-            odf, hopMs, params.minBeatMs, params.maxBeatMs,
+            odfTempo, hopMs, params.minBeatMs, params.maxBeatMs,
             DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA
         )
-        Log.d(TAG, "V3 beatMs=$beatMs (${60_000L / beatMs} BPM)")
 
-        // ── 3. 위상 추정 (킥 드럼 중심의 lowOdf 사용) ──────────────────────────────
-        val normalPhaseMs = estimatePhaseFromOdf(lowOdf, beatMs, hopMs)
-        val offBeatPhaseMs = (normalPhaseMs + beatMs / 2) % beatMs
-        Log.d(TAG, "V3 Phase Anchor: Normal=${normalPhaseMs}ms, OffBeat=${offBeatPhaseMs}ms")
-
-        // ── 4. Global Ellis DP (정박 / 엇박 듀얼 검증) ─────────────────────────────
-        val dpTimesNormal = dpBeatTracker(odf, beatMs, hopMs, durationMs, anchorMs = normalPhaseMs)
-        val dpTimesOffBeat = dpBeatTracker(odf, beatMs, hopMs, durationMs, anchorMs = offBeatPhaseMs)
-
-        // 승자 독식 로직 (에너지 평가)
-        fun evaluateDP(times: LongArray): Float {
-            if (times.isEmpty()) return 0f
-            var score = 0f
-            for (t in times) {
-                val frame = (t / hopMs).toInt().coerceIn(0, odf.lastIndex)
-                score += odf[frame]
-            }
-            return score / times.size
-        }
-
-        val normalScore = evaluateDP(dpTimesNormal)
-        val offBeatScore = evaluateDP(dpTimesOffBeat)
-
-        // K-POP 특성상 정박 확률이 높으므로 정상 위상에 10% 가산점
-        val (dpTimes, phaseReason) = if (normalScore * 1.1f >= offBeatScore) {
-            Log.d(TAG, "V3 DP Winner: Normal Phase (Score: $normalScore vs $offBeatScore)")
-            dpTimesNormal to "dp_normal"
-        } else {
-            Log.d(TAG, "V3 DP Winner: Off-Beat Phase (Score: $offBeatScore vs $normalScore)")
-            dpTimesOffBeat to "dp_offbeat"
-        }
+        // [🔥 위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
+        val phaseMs = estimatePhaseFromOdf(odfTrack, beatMs, hopMs)
+        val dpTimes = dpBeatTracker(odfTrack, beatMs, hopMs, durationMs, anchorMs = phaseMs)
 
         val expectedBeats = max(1, (durationMs / beatMs).toInt())
         val dpOk = dpTimes.size >= max(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
@@ -141,30 +105,30 @@ object BeatDetectorV3 {
         val reason: String
         if (dpOk) {
             beats  = dpTimes.map { TimedBeat(it, 1f) }
-            reason = phaseReason
+            reason = "dp"
         } else {
-            Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → segment fallback")
-            beats  = fallbackSegmentBeats(odf, lowOdf, hopMs, beatMs, durationMs) // fallback도 lowOdf 사용
+            beats  = fallbackSegmentBeats(odfTrack, hopMs, beatMs, durationMs)
             reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
         }
 
         if (beats.isEmpty()) {
-            Log.w(TAG, "V3 detect FAIL")
             return DetectResult(emptyList(), 0L, null, "all failed", 0L, TimeSignature.FOUR_FOUR)
         }
 
-        // ── 5. 페이드아웃/무음 구간 비트 제거 및 마무리 ───────────────────────────
-        val clippedTimes  = clipToAudioContent(beats.map { it.timeMs }.toLongArray(), odf, hopMs, beatMs)
+        // 구간 클리핑은 전체 에너지를 보는 odfTempo 사용
+        val clippedTimes  = clipToAudioContent(beats.map { it.timeMs }.toLongArray(), odfTempo, hopMs, beatMs)
         val clippedBeats  = if (clippedTimes.size < beats.size) {
             val timeSet = clippedTimes.toHashSet()
             beats.filter { it.timeMs in timeSet }
-                .also { Log.d(TAG, "V3 clipToContent: ${beats.size}→${it.size} beats") }
         } else beats
 
-        val timeSignature = detectTimeSignature(odf, beatMs, hopMs)
+        // 박자표는 odfTempo, 다운비트(1박 강세)는 odfTrack 사용
+        val timeSignature = detectTimeSignature(odfTempo, beatMs, hopMs)
         val downbeatMs    = detectDownbeatEnhanced(
-            clippedBeats.map { it.timeMs }, odf, beatMs, timeSignature.beatsPerBar, hopMs)
+            clippedBeats.map { it.timeMs }, odfTrack, beatMs, timeSignature.beatsPerBar, hopMs)
         val downbeatOffsetMs = (downbeatMs - (clippedBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
+
+        Log.d(TAG, "V3 ------------------ Detect Complete ------------------")
 
         return DetectResult(
             beats            = clippedBeats,
@@ -175,10 +139,6 @@ object BeatDetectorV3 {
             timeSignature    = timeSignature
         )
     }
-
-    // =========================================================================
-    // 스트리밍 ODF (Low ODF 추가)
-    // =========================================================================
 
     private data class FilterBand(val startBin: Int, val weights: FloatArray)
 
@@ -211,8 +171,7 @@ object BeatDetectorV3 {
         }
     }
 
-    // 변경점 1: lowOdf 배열 추가
-    private data class OdfResult(val odf: List<Float>, val lowOdf: List<Float>, val hopMs: Long, val durationMs: Long)
+    private data class OdfResult(val odfTempo: List<Float>, val odfTrack: List<Float>, val hopMs: Long, val durationMs: Long)
 
     private fun streamingOdf(musicPath: String): OdfResult {
         val extractor = MediaExtractor()
@@ -247,11 +206,13 @@ object BeatDetectorV3 {
             val fftBuf     = FloatArray(FFT_SIZE)
             val curMag     = FloatArray(numBins)
             val filterbank = buildLogFilterbank(sampleRate)
+
             val curBand    = FloatArray(NUM_BANDS)
             val prevBand   = FloatArray(NUM_BANDS)
 
-            val odf        = ArrayList<Float>()
-            val lowOdf     = ArrayList<Float>() // 추가
+            // 두 개의 독립적인 ODF 배열 생성
+            val odfTempo   = ArrayList<Float>()
+            val odfTrack   = ArrayList<Float>()
 
             val ringBuf    = FloatArray(FFT_SIZE)
             var ringHead   = 0
@@ -325,24 +286,33 @@ object BeatDetectorV3 {
                                         curBand[b] = ln(1f + LOG_LAMBDA * sum)
                                     }
 
-                                    if (odf.isEmpty()) {
-                                        odf.add(0f)
-                                        lowOdf.add(0f) // 추가
+                                    if (odfTempo.isEmpty()) {
+                                        odfTempo.add(0f)
+                                        odfTrack.add(0f)
                                     } else {
-                                        var flux = 0f
-                                        var lowFlux = 0f // 추가
+                                        var fluxTempo = 0f
+                                        var fluxTrack = 0f
                                         for (b in 0 until NUM_BANDS) {
                                             var prevMax = prevBand[b]
                                             if (b > 0 && prevBand[b - 1] > prevMax) prevMax = prevBand[b - 1]
                                             if (b < NUM_BANDS - 1 && prevBand[b + 1] > prevMax) prevMax = prevBand[b + 1]
+
                                             val diff = curBand[b] - prevMax
                                             if (diff > 0f) {
-                                                flux += diff
-                                                if (b <= 5) lowFlux += diff // Band 0~5 (약 300Hz 이하)
+                                                // 순정 에너지는 Tempo 산출용으로 적립
+                                                fluxTempo += diff
+
+                                                // 가중치 에너지는 Phase/DP 트래킹용으로 적립
+                                                val weight = when {
+                                                    b <= 5 -> 1.5f   // Kick 대역
+                                                    b >= 16 -> 0.5f  // Hi-hat 대역
+                                                    else -> 1.0f
+                                                }
+                                                fluxTrack += diff * weight
                                             }
                                         }
-                                        odf.add(flux)
-                                        lowOdf.add(lowFlux) // 추가
+                                        odfTempo.add(fluxTempo)
+                                        odfTrack.add(fluxTrack)
                                     }
                                     curBand.copyInto(prevBand)
                                 }
@@ -361,14 +331,13 @@ object BeatDetectorV3 {
 
             val durationMs = totalSamples * 1000L / sampleRate
 
-            val maxVal = odf.maxOrNull() ?: 1f
-            val normOdf = if (maxVal > 1e-6f) odf.map { it / maxVal } else odf
+            val maxTempo = odfTempo.maxOrNull() ?: 1f
+            val normTempo = if (maxTempo > 1e-6f) odfTempo.map { it / maxTempo } else odfTempo
 
-            // lowOdf 정규화
-            val maxLow = lowOdf.maxOrNull() ?: 1f
-            val normLowOdf = if (maxLow > 1e-6f) lowOdf.map { it / maxLow } else lowOdf
+            val maxTrack = odfTrack.maxOrNull() ?: 1f
+            val normTrack = if (maxTrack > 1e-6f) odfTrack.map { it / maxTrack } else odfTrack
 
-            OdfResult(normOdf, normLowOdf, hopMs, durationMs)
+            OdfResult(normTempo, normTrack, hopMs, durationMs)
         } catch (t: Throwable) {
             Log.e(TAG, "V3 streamingOdf fail: ${t.message}")
             try { codec?.stop() }     catch (_: Throwable) {}
@@ -378,17 +347,9 @@ object BeatDetectorV3 {
         }
     }
 
-    // =========================================================================
-    // DBN 템포 추정
-    // =========================================================================
-
     private fun dbnEstimateTempo(
-        odf: List<Float>,
-        hopMs: Long,
-        minBeatMs: Long,
-        maxBeatMs: Long,
-        transitionLambda: Float,
-        observationLambda: Int
+        odf: List<Float>, hopMs: Long, minBeatMs: Long, maxBeatMs: Long,
+        transitionLambda: Float, observationLambda: Int
     ): Long {
         val minInterval = max(1, (minBeatMs / hopMs).toInt())
         val maxInterval = max(minInterval + 1, (maxBeatMs / hopMs).toInt())
@@ -510,12 +471,12 @@ object BeatDetectorV3 {
             if (ps > bestCorrPS) { bestCorrPS = ps; bestCorrMs = cMs }
         }
 
+        if (bestCorrMs != resultMs)
+            Log.d(TAG, "V3 dbnTempo harmonic fix: ${resultMs}ms→${bestCorrMs}ms " +
+                "(${60_000L / resultMs}→${60_000L / bestCorrMs} BPM)")
+        Log.d(TAG, "V3 dbnTempo: ${bestCorrMs}ms (${60_000L / bestCorrMs} BPM)")
         return bestCorrMs
     }
-
-    // =========================================================================
-    // 위상 추정
-    // =========================================================================
 
     private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
         val fpb = max(1, (beatMs / hopMs).toInt())
@@ -528,10 +489,6 @@ object BeatDetectorV3 {
         }
         return bestPhase.toLong() * hopMs
     }
-
-    // =========================================================================
-    // Ellis DP Beat Tracker (제한 완화 및 보너스 적용)
-    // =========================================================================
 
     private fun dpBeatTracker(
         odf: List<Float>, targetPeriodMs: Long, hopMs: Long,
@@ -555,6 +512,16 @@ object BeatDetectorV3 {
                 val idx = t - gaussHalf + k
                 if (idx in 0 until n) sc += gaussWin[k] * odf[idx]
             }
+
+            // 전역 위상 관성 추가 (Phase Drift 완화)
+            if (anchorFrame >= 0) {
+                val distanceToGrid = abs(t - anchorFrame) % fpb
+                val phaseDiff = min(distanceToGrid, fpb - distanceToGrid)
+                if (phaseDiff <= fpb / 4) {
+                    val phaseBonus = 1.0f + 0.2f * (1f - (phaseDiff.toFloat() / (fpb / 4f)))
+                    sc *= phaseBonus
+                }
+            }
             localscore[t] = sc
         }
 
@@ -565,28 +532,18 @@ object BeatDetectorV3 {
         for (t in 0 until n) {
             val pLo = max(0, t - searchRange); val pHi = max(0, t - max(1, fpb / 2))
             var bestVal = Float.NEGATIVE_INFINITY
-
-            // 변경점 2: DP의 시작점을 0프레임으로 강제하지 않고, 어디서든(p==0) 자유롭게 시작 가능하도록 개방
             for (p in pLo..pHi) {
-                val isFreeStart = (p == 0)
+                val isFreeStart = (p == 0 || p == anchorFrame)
                 if (cumscore[p] == Float.NEGATIVE_INFINITY && !isFreeStart) continue
-
-                val pScore   = if (p == 0) 0f else cumscore[p]
+                val pScore   = if (isFreeStart) 0f else cumscore[p]
                 val lag      = (t - p).toFloat().coerceAtLeast(1f)
                 val logRatio = ln(lag / fpb)
                 val penalty  = tightness * logRatio * logRatio
                 val cand     = pScore - penalty
                 if (cand > bestVal) { bestVal = cand; prev[t] = p }
             }
-
-            // 변경점 2: 앵커 프레임 근처의 노드에 통과 가산점 20% 부여 (유연한 유도)
-            var currentScore = localscore[t]
-            if (anchorFrame > 0 && abs(t - anchorFrame) <= fpb / 4) {
-                currentScore *= 1.2f
-            }
-
-            cumscore[t] = if (bestVal == Float.NEGATIVE_INFINITY) currentScore
-            else bestVal + currentScore
+            cumscore[t] = if (bestVal == Float.NEGATIVE_INFINITY) localscore[t]
+            else bestVal + localscore[t]
         }
 
         var t     = cumscore.indices.maxByOrNull { cumscore[it] } ?: return LongArray(0)
@@ -609,12 +566,8 @@ object BeatDetectorV3 {
         return if (ss > e) result else result.sliceArray(ss..e)
     }
 
-    // =========================================================================
-    // Fallback
-    // =========================================================================
-
     private fun fallbackSegmentBeats(
-        odf: List<Float>, lowOdf: List<Float>, hopMs: Long, beatMs: Long, durationMs: Long
+        odf: List<Float>, hopMs: Long, beatMs: Long, durationMs: Long
     ): List<TimedBeat> {
         val segmentMs = 20_000L
         val segFrames = (segmentMs / hopMs).toInt().coerceAtLeast(1)
@@ -625,10 +578,7 @@ object BeatDetectorV3 {
             val eFrame = min(odf.size, sFrame + segFrames)
             if (eFrame - sFrame < 8) { segIdx++; continue }
             val segOdf   = odf.subList(sFrame, eFrame)
-            val segLowOdf = lowOdf.subList(sFrame, min(lowOdf.size, eFrame))
-
-            // 변경점 1 적용: 세그먼트 fallback에서도 위상 추정은 lowOdf 사용
-            val segPhase = estimatePhaseFromOdf(if (segLowOdf.size == segOdf.size) segLowOdf else segOdf, beatMs, hopMs)
+            val segPhase = estimatePhaseFromOdf(segOdf, beatMs, hopMs)
             val segDur   = (eFrame - sFrame).toLong() * hopMs
             val segTimes = dpBeatTracker(segOdf, beatMs, hopMs, segDur, anchorMs = segPhase)
             val offset   = sFrame.toLong() * hopMs
@@ -637,10 +587,6 @@ object BeatDetectorV3 {
         }
         return result.sortedBy { it.timeMs }
     }
-
-    // =========================================================================
-    // 페이드아웃/무음 구간 비트 클리핑
-    // =========================================================================
 
     private fun clipToAudioContent(beats: LongArray, odf: List<Float>, hopMs: Long, beatMs: Long): LongArray {
         if (beats.isEmpty() || odf.size < 4) return beats
@@ -666,10 +612,6 @@ object BeatDetectorV3 {
         return beats.filter { it >= startMs && it <= cutoffMs }.toLongArray()
     }
 
-    // =========================================================================
-    // 박자표 감지
-    // =========================================================================
-
     private fun detectTimeSignature(odf: List<Float>, beatMs: Long, hopMs: Long): TimeSignature {
         if (odf.size < 8 || beatMs <= 0L) return TimeSignature.FOUR_FOUR
         val bf    = (beatMs / hopMs).toInt().coerceAtLeast(1)
@@ -687,10 +629,6 @@ object BeatDetectorV3 {
         while (i + lag < odf.size) { sum += odf[i] * odf[i + lag]; i++ }
         return sum / i.toFloat().coerceAtLeast(1f)
     }
-
-    // =========================================================================
-    // 다운비트 감지
-    // =========================================================================
 
     private fun detectDownbeatEnhanced(
         beatTimesMs: List<Long>, odf: List<Float>,

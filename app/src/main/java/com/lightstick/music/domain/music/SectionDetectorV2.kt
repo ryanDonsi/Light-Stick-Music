@@ -5,6 +5,7 @@ import com.lightstick.music.core.util.Log
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /**
  * SectionDetectorV2
@@ -48,7 +49,8 @@ class SectionDetectorV2 : SectionDetector {
 
         // 에너지
         private const val LOW_ENERGY_TH   = 0.15f   // BREAK / OUTRO 판별
-        private const val CLIMAX_PERCENTILE = 0.75f  // 상위 25% = CLIMAX 후보
+        private const val CLIMAX_PERCENTILE = 0.90f  // 상위 10% = CLIMAX 후보
+        private const val CLIMAX_INTRO_ZONE = 0.30f  // 곡 앞 30%엔 CLIMAX 미적용
 
         // 스펙트럼 — VOCAL
         private const val VOCAL_LOW_RATIO_MAX    = 0.42f  // 베이스 낮음
@@ -68,6 +70,10 @@ class SectionDetectorV2 : SectionDetector {
         private const val MEDIUM_CHANGE_TH = 0.12f
 
         private const val ALIGN_SNAP_MS     = 500L
+
+        private const val CLIMAX_WINDOW_HALF_MS = 4_000L
+        private const val CLIMAX_MIN_CV         = 0.35f
+        private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -105,31 +111,34 @@ class SectionDetectorV2 : SectionDetector {
         highEnv: List<Float>,
         beatsPerBar: Int,
         downbeatMs: Long
-    ): List<SectionDetector.Section> {
+    ): List<SectionDetector.AnnotatedBeat> {
         if (fullEnv.isEmpty()) return emptyList()
 
-        // ① 윈도우 피처 계산 (타입 미결정)
         val rawWindows = buildFeatureWindows(lowEnv, midEnv, fullEnv, highEnv, durationMs, hopMs)
-
-        // ② 전곡 에너지 통계 → CLIMAX 임계값
-        val climaxTh = percentile(rawWindows.map { it.energy }, CLIMAX_PERCENTILE)
-
-        // ③ 타입 분류
+        val climaxTh   = percentile(rawWindows.map { it.energy }, CLIMAX_PERCENTILE)
         val classified = rawWindows.mapIndexed { i, w ->
-            var prev = if (i > 0) rawWindows[i - 1] else null
-            val type = classifyType(w, durationMs, climaxTh)
+            val prev   = if (i > 0) rawWindows[i - 1] else null
+            val type   = classifyType(w, durationMs, climaxTh)
             val change = estimateChangeStrength(prev?.copy(sectionType = classifyType(prev, durationMs, climaxTh)), w.copy(sectionType = type))
             w.copy(sectionType = type, changeStrength = change)
         }
-
-        // ④ 병합 + 정규화
         val rawSections = buildSectionsFromWindows(classified, durationMs)
-
-        // ⑤ 비트 스냅
         val sortedBeatTimes = beats.map { it.timeMs }.toLongArray().also { it.sort() }
         val aligned = alignBoundariesToBeats(rawSections, sortedBeatTimes, durationMs)
+        val climaxMoments = detectClimaxMoments(fullEnv, durationMs, hopMs, beatMs)
+        return annotateBeats(beats, toSections(aligned), climaxMoments)
+    }
 
-        return toSections(aligned)
+    private fun annotateBeats(
+        beats: List<BeatDetectorRouter.BeatInfo.Beat>,
+        sections: List<SectionDetector.Section>,
+        climaxMoments: List<Long>
+    ): List<SectionDetector.AnnotatedBeat> = beats.map { beat ->
+        val sectionType = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
+            ?: SectionDetector.SectionType.VOCAL
+        val type = if (climaxMoments.any { abs(it - beat.timeMs) <= CLIMAX_WINDOW_HALF_MS })
+            SectionDetector.SectionType.CLIMAX else sectionType
+        SectionDetector.AnnotatedBeat(beat.timeMs, beat.confidence, type)
     }
 
     private fun toSections(windows: List<FeatureWindow>): List<SectionDetector.Section> =
@@ -218,8 +227,10 @@ class SectionDetectorV2 : SectionDetector {
         if (w.startMs < introLimit && w.energy < 0.55f) return SectionDetector.SectionType.INTRO
         if (w.endMs >= durationMs - outroLimit)         return SectionDetector.SectionType.OUTRO
 
-        // CLIMAX: 전곡 상위 에너지 + onset 높음
-        if (w.energy >= climaxTh && w.onsetDensity >= 0.35f) return SectionDetector.SectionType.CLIMAX
+        // CLIMAX: 전곡 상위 10% 에너지 + onset 높음 + 곡 앞 30% 제외
+        val climaxIntroLimit = (durationMs * CLIMAX_INTRO_ZONE).toLong()
+        if (w.energy >= climaxTh && w.onsetDensity >= 0.35f && w.startMs >= climaxIntroLimit)
+            return SectionDetector.SectionType.CLIMAX
 
         // BUILD: 에너지 상승 추세 + 중간 이상 에너지
         if (w.energyTrend >= BUILD_TREND_MIN && w.energy >= 0.18f) return SectionDetector.SectionType.BUILD
@@ -451,6 +462,40 @@ class SectionDetectorV2 : SectionDetector {
             ratio in 1.70f..2.20f -> (beatMs / 2L).coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
             else                  -> beatMs
         }
+    }
+
+    private fun detectClimaxMoments(
+        fullEnv: List<Float>, durationMs: Long, hopMs: Long, beatMs: Long
+    ): List<Long> {
+        if (fullEnv.size < 8) return emptyList()
+        val scoreArray = FloatArray(fullEnv.size)
+        for (i in 2 until fullEnv.size - 2) {
+            val e = fullEnv[i]
+            val localAvg = (fullEnv[i-2] + fullEnv[i-1] + fullEnv[i+1] + fullEnv[i+2]) * 0.25f
+            scoreArray[i] = e * 0.50f + max(0f, e - fullEnv[i-1]) * 0.30f + max(0f, e - localAvg) * 0.20f
+        }
+        val scoreList = scoreArray.filter { it > 0f }
+        if (scoreList.isEmpty()) return emptyList()
+        val envMean = scoreList.average().toFloat()
+        val envStd  = sqrt(scoreList.fold(0f) { acc, v -> acc + (v - envMean) * (v - envMean) } / scoreList.size)
+        val cv = if (envMean > 0f) envStd / envMean else 0f
+        val peakRatio = if (envMean > 0f) scoreList.max() / envMean else 0f
+        if (cv < CLIMAX_MIN_CV || peakRatio < CLIMAX_MIN_PEAK_RATIO) return emptyList()
+        val p90 = scoreList.sorted().let { it[(it.lastIndex * 0.90f).toInt().coerceIn(0, it.lastIndex)] }
+        val minGapMs = max(800L, beatMs * 4L)
+        val selected = ArrayList<Long>()
+        for (i in 2 until scoreArray.size - 2) {
+            val sc = scoreArray[i]; if (sc <= 0f) continue
+            if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2] &&
+                sc >= p90 * 1.18f && sc >= envMean + envStd * 1.30f) {
+                val tMs = i.toLong() * hopMs
+                if (selected.none { abs(it - tMs) < minGapMs }) {
+                    selected += tMs
+                    if (selected.size >= 3) break
+                }
+            }
+        }
+        return selected.sorted().map { it.coerceIn(0L, durationMs) }
     }
 
     private fun percentile(values: List<Float>, p: Float): Float {
