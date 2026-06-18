@@ -796,16 +796,17 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
 
 
 def detect_msaf_sections(audio_path, duration_sec):
-    """msaf 경계 검출 + allin1 기준 시맨틱 라벨 할당.
+    """msaf 경계 검출 + 클러스터 ID 넘버링.
 
-    msaf → 정확한 경계 + 클러스터 ID
-    librosa 특징 → 에너지/보컬/반복 패턴 → allin1 8종 라벨
+    시맨틱 라벨(CHORUS/VERSE 등) 없이 msaf가 감지한 경계와
+    음향적으로 유사한 구간을 같은 그룹(A/B/C...)으로 표기한다.
+    같은 글자 = 같은 음향적 특성의 구간.
     """
-    if not (HAS_MSAF and HAS_LIBROSA):
+    if not HAS_MSAF:
         return []
     try:
         import numpy as np
-        from collections import Counter
+        _CLUSTER_LETTERS = 'ABCDEFGHIJ'
 
         # ── 1. msaf 경계 + 클러스터 ID 검출 ──
         bounds, cluster_ids = _msaf_mod.process(
@@ -815,115 +816,23 @@ def detect_msaf_sections(audio_path, duration_sec):
         if n == 0:
             return []
 
-        # bounds 가 0을 포함하지 않으면 prepend
-        if bounds[0] > 0.1:
+        # bounds가 0을 포함하지 않으면 prepend
+        if float(bounds[0]) > 0.1:
             bounds = np.concatenate([[0.0], bounds])
-        # end time 보정
         if len(bounds) < n + 1:
             bounds = np.concatenate([bounds, [duration_sec]])
 
-        # ── 2. 구간별 librosa 특징 추출 ──
-        load_dur = min(300.0, duration_sec) if duration_sec > 0 else 300.0
-        y, sr    = librosa.load(audio_path, sr=22050, mono=True, duration=load_dur)
-        hop      = 512
-        rms_f    = librosa.feature.rms(y=y, hop_length=hop)[0]
-        cent_f   = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop)[0]
-        flat_f   = librosa.feature.spectral_flatness(y=y, hop_length=hop)[0]
-        onset_f  = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
-
-        def _fr(t):
-            return min(int(t * sr / hop), len(rms_f) - 1)
-
-        segs = []
-        for i in range(n):
-            t0, t1 = float(bounds[i]), float(bounds[i + 1])
-            f0, f1 = _fr(t0), _fr(t1)
-            if f1 <= f0:
-                f1 = f0 + 1
-            segs.append({
-                'cluster':  int(cluster_ids[i]),
-                't0': t0,   't1': t1,
-                'rms':      float(rms_f[f0:f1].mean()),
-                'centroid': float(cent_f[f0:f1].mean()),
-                'flatness': float(flat_f[f0:f1].mean()),
-                'onset':    float(onset_f[f0:f1].mean()),
-            })
-
-        # ── 3. 정규화 ──
-        def _norm(vals):
-            mn, mx = min(vals), max(vals)
-            if mx == mn:
-                return [0.5] * len(vals)
-            return [(v - mn) / (mx - mn) for v in vals]
-
-        rms_n   = _norm([s['rms']      for s in segs])
-        cent_n  = _norm([s['centroid'] for s in segs])
-        flat_n  = _norm([s['flatness'] for s in segs])
-        onset_n = _norm([s['onset']    for s in segs])
-
-        # ── 4. 클러스터 분석 ──
-        cnt = Counter(s['cluster'] for s in segs)
-
-        # 클러스터별 평균 에너지
-        crms = {}
-        for s in segs:
-            crms.setdefault(s['cluster'], []).append(s['rms'])
-        crms_avg = {c: sum(v) / len(v) for c, v in crms.items()}
-
-        # 반복 많고 에너지 높은 클러스터 순
-        ranked = sorted(cnt.keys(),
-                        key=lambda c: (cnt[c], crms_avg.get(c, 0)),
-                        reverse=True)
-        chorus_c = ranked[0] if len(ranked) > 0 else -1
-        verse_c  = ranked[1] if len(ranked) > 1 else -1
-
-        flat_p30 = float(np.percentile([s['flatness'] for s in segs], 30))
-
-        # ── 5. 시맨틱 라벨 할당 (allin1 8종) ──
-        total = max(duration_sec, 1.0)
-        labels_out = []
-        for i, s in enumerate(segs):
-            c         = s['cluster']
-            pos       = s['t0'] / total
-            rn        = rms_n[i]
-            cn        = cent_n[i]
-            fn        = flat_n[i]
-            on        = onset_n[i]
-            is_first  = (i == 0)
-            is_last   = (i == n - 1)
-            is_unique = (cnt[c] == 1)
-            seg_dur   = s['t1'] - s['t0']
-
-            if is_first and pos < 0.15:
-                lbl = 'INTRO'
-            elif is_last and pos > 0.80:
-                lbl = 'OUTRO'
-            # BREAK: 에너지 낮고 짧고 1회성 전환 구간 (알린1 기준: 악기 구성 줄어드는 브레이크다운)
-            elif rn <= 0.25 and is_unique and seg_dur < 25.0:
-                lbl = 'BREAK'
-            # INST/SOLO: 에너지 있음 + 매우 tonal + chorus/verse 클러스터 아님
-            # (보컬 스템 분리 없이 보수적 적용)
-            elif s['flatness'] < flat_p30 and rn > 0.20 and c not in (chorus_c, verse_c):
-                lbl = 'SOLO' if cn >= 0.60 else 'INST'
-            elif c == chorus_c and rn >= 0.35:
-                lbl = 'CHORUS'
-            elif c == verse_c:
-                lbl = 'VERSE'
-            # BRIDGE: 1회 등장 + 곡 중간부 (intro/outro 제외)
-            elif is_unique and 0.15 < pos < 0.85:
-                lbl = 'BRIDGE'
-            elif rn >= 0.45:
-                lbl = 'CHORUS'
-            else:
-                lbl = 'VERSE'
-
-            labels_out.append(lbl)
+        # 클러스터 ID → 등장 순서 기준 알파벳 매핑 (A=첫 등장, B=두 번째 ...)
+        seen = {}
+        for cid in cluster_ids:
+            if cid not in seen:
+                seen[cid] = _CLUSTER_LETTERS[len(seen) % len(_CLUSTER_LETTERS)]
 
         return [
-            {'start_ms': int(segs[i]['t0'] * 1000),
-             'end_ms':   int(segs[i]['t1'] * 1000),
+            {'start_ms': int(float(bounds[i]) * 1000),
+             'end_ms':   int(float(bounds[i + 1]) * 1000),
              'index':    i,
-             'type':     labels_out[i]}
+             'type':     seen[int(cluster_ids[i])]}
             for i in range(n)
         ]
     except Exception:
@@ -1136,6 +1045,9 @@ _SECTION_COLORS = {
     'VOCAL':       '#00acc1', 'INST':   '#558b2f', 'BEAT':       '#f57f17',
     'BUILD':       '#0277bd', 'CLIMAX': '#ad1457', 'BREAK':      '#546e7a',
     'OUTRO':       '#4a148c', 'SOLO':   '#ff6f00',
+    # msaf 클러스터 그룹 (A=0, B=1, ...)
+    'A': '#e53935', 'B': '#43a047', 'C': '#1e88e5', 'D': '#fb8c00', 'E': '#8e24aa',
+    'F': '#00acc1', 'G': '#f4511e', 'H': '#6d4c41', 'I': '#039be5', 'J': '#c0ca33',
 }
 
 # ──────────────────────────────────────────────
@@ -1584,7 +1496,11 @@ class App(tk.Tk):
         sec_legend.pack(side="right", padx=(0, 6))
         tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
                  font=("", 7)).pack(side="left", padx=(0, 3))
-        for stype in ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO", "VOCAL", "INST", "SOLO", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]:
+        _legend_types = ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO",
+                          "VOCAL", "INST", "SOLO", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]
+        if HAS_MSAF:
+            _legend_types += list("ABCDEFGHIJ")
+        for stype in _legend_types:
             sc = _SECTION_COLORS.get(stype, "#546e7a")
             tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
                      font=("", 6, "bold")).pack(side="left", padx=1, pady=1)
