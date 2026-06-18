@@ -224,6 +224,14 @@ try:
 except ImportError:
     pass
 
+HAS_ALLIN1 = False
+_allin1_mod = None
+try:
+    import allin1 as _allin1_mod
+    HAS_ALLIN1 = True
+except ImportError:
+    pass
+
 # ──────────────────────────────────────────────
 # 의존 라이브러리 감지
 # ──────────────────────────────────────────────
@@ -364,6 +372,15 @@ HAS_LIBROSA = False
 try:
     import librosa
     HAS_LIBROSA = True
+except ImportError:
+    pass
+
+# allin1
+HAS_ALLIN1 = False
+_allin1_mod = None
+try:
+    import allin1 as _allin1_mod
+    HAS_ALLIN1 = True
 except ImportError:
     pass
 
@@ -738,6 +755,33 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
         return []
 
 
+def detect_gt_sections(audio_path, duration_sec):
+    """GT 섹션 감지: allin1 우선, 실패 시 librosa 폴백.
+
+    allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
+    (start/end 마커는 제외)
+    """
+    if HAS_ALLIN1:
+        try:
+            result = _allin1_mod.analyze(audio_path)
+            sections = []
+            for seg in result.segments:
+                lbl = seg.label.upper()
+                if lbl in ('START', 'END'):
+                    continue
+                sections.append({
+                    "start_ms": int(seg.start * 1000),
+                    "end_ms":   int(seg.end * 1000),
+                    "index":    len(sections),
+                    "type":     lbl,
+                })
+            if sections:
+                return sections
+        except Exception:
+            pass
+    return detect_librosa_sections(audio_path, duration_sec)
+
+
 def load_waveform(audio_path, max_sr=22050, max_duration=600.0):
     """파형 로드 (librosa 있을 때만). → (y, sr) or (None, 0)
     max_duration 초 초과 파일은 앞부분만 로드 (앨범 통합 mp3 대응).
@@ -909,7 +953,7 @@ _SECTION_COLORS = {
     'CHORUS':      '#e65100', 'BRIDGE': '#2e7d32', 'END':        '#b71c1c',
     'VOCAL':       '#00acc1', 'INST':   '#558b2f', 'BEAT':       '#f57f17',
     'BUILD':       '#0277bd', 'CLIMAX': '#ad1457', 'BREAK':      '#546e7a',
-    'OUTRO':       '#4a148c',
+    'OUTRO':       '#4a148c', 'SOLO':   '#ff6f00',
 }
 
 # ──────────────────────────────────────────────
@@ -1323,6 +1367,8 @@ class App(tk.Tk):
              "#69f0ae" if HAS_MADMOM  else "#ef9a9a"),
             (("● librosa"          if HAS_LIBROSA else "✗ librosa (미설치)"),
              "#69f0ae" if HAS_LIBROSA else "#ef9a9a"),
+            (("● allin1 (GT섹션)"  if HAS_ALLIN1  else "○ allin1 (미설치→librosa 폴백)"),
+             "#69f0ae" if HAS_ALLIN1  else "#ffcc02"),
             (("● matplotlib"       if HAS_MPL     else "✗ matplotlib (미설치 → 비트맵 불가)"),
              "#69f0ae" if HAS_MPL     else "#ffcc02"),
         ]:
@@ -1352,7 +1398,7 @@ class App(tk.Tk):
         sec_legend.pack(side="right", padx=(0, 6))
         tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
                  font=("", 7)).pack(side="left", padx=(0, 3))
-        for stype in ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO", "VOCAL", "INST", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]:
+        for stype in ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO", "VOCAL", "INST", "SOLO", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]:
             sc = _SECTION_COLORS.get(stype, "#546e7a")
             tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
                      font=("", 6, "bold")).pack(side="left", padx=1, pady=1)
@@ -2213,12 +2259,13 @@ class App(tk.Tk):
 
             # GT 섹션 분석: 오디오당 1회만 실행 후 엔진별로 공유
             pre_lib_sections = []
-            if HAS_LIBROSA:
+            if HAS_ALLIN1 or HAS_LIBROSA:
                 try:
-                    self.after(0, lambda n=name, i=idx, t=total:
-                               self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션)"))
+                    src = "allin1" if HAS_ALLIN1 else "librosa"
+                    self.after(0, lambda n=name, i=idx, t=total, s=src:
+                               self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션/{s})"))
                     _dur = get_audio_duration(audio)
-                    pre_lib_sections = detect_librosa_sections(audio, _dur)
+                    pre_lib_sections = detect_gt_sections(audio, _dur)
                     self.after(0, lambda n=len(pre_lib_sections), nm=name:
                                self._log(f"[GT섹션]  {nm} — {n}개 감지", "gray"))
                 except Exception as _se:
@@ -3015,16 +3062,21 @@ class App(tk.Tk):
                     audio_path, ref_sec, ref_bpm)
                 self.after(0, lambda s=librosa_style, f=librosa_style_features:
                     self._log(f"  Librosa Style : {s}  |  {f}", "cyan"))
-                if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
-                    self.after(0, lambda: self._log("[+lib]  Librosa 섹션 감지…", "gray"))
-                    librosa_sections = detect_librosa_sections(audio_path, duration_sec)
-                    self.after(0, lambda n=len(librosa_sections):
-                        self._log(f"  Librosa 섹션 : {n}개 감지", "cyan"))
-                else:
-                    self.after(0, lambda n=len(librosa_sections):
-                        self._log(f"  Librosa 섹션 : {n}개 (사전계산)", "cyan"))
             except Exception as _ex:
                 self.after(0, lambda e=str(_ex): self._log(f"  Librosa 분석 오류: {e}", "red"))
+        if HAS_ALLIN1 or HAS_LIBROSA:
+            try:
+                if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
+                    src = "allin1" if HAS_ALLIN1 else "librosa"
+                    self.after(0, lambda s=src: self._log(f"[+GT]  GT 섹션 감지 ({s})…", "gray"))
+                    librosa_sections = detect_gt_sections(audio_path, duration_sec)
+                    self.after(0, lambda n=len(librosa_sections):
+                        self._log(f"  GT 섹션 : {n}개 감지", "cyan"))
+                else:
+                    self.after(0, lambda n=len(librosa_sections):
+                        self._log(f"  GT 섹션 : {n}개 (사전계산)", "cyan"))
+            except Exception as _ex:
+                self.after(0, lambda e=str(_ex): self._log(f"  GT 섹션 오류: {e}", "red"))
 
         # 결과 캐시
         self._last_result = dict(
