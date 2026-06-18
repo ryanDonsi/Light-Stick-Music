@@ -49,7 +49,8 @@ class SectionDetectorV2 : SectionDetector {
 
         // 에너지
         private const val LOW_ENERGY_TH   = 0.15f   // BREAK / OUTRO 판별
-        private const val CLIMAX_PERCENTILE = 0.75f  // 상위 25% = CLIMAX 후보
+        private const val CLIMAX_PERCENTILE = 0.90f  // 상위 10% = CLIMAX 후보
+        private const val CLIMAX_INTRO_ZONE = 0.30f  // 곡 앞 30%엔 CLIMAX 미적용
 
         // 스펙트럼 — VOCAL
         private const val VOCAL_LOW_RATIO_MAX    = 0.42f  // 베이스 낮음
@@ -226,8 +227,10 @@ class SectionDetectorV2 : SectionDetector {
         if (w.startMs < introLimit && w.energy < 0.55f) return SectionDetector.SectionType.INTRO
         if (w.endMs >= durationMs - outroLimit)         return SectionDetector.SectionType.OUTRO
 
-        // CLIMAX: 전곡 상위 에너지 + onset 높음
-        if (w.energy >= climaxTh && w.onsetDensity >= 0.35f) return SectionDetector.SectionType.CLIMAX
+        // CLIMAX: 전곡 상위 10% 에너지 + onset 높음 + 곡 앞 30% 제외
+        val climaxIntroLimit = (durationMs * CLIMAX_INTRO_ZONE).toLong()
+        if (w.energy >= climaxTh && w.onsetDensity >= 0.35f && w.startMs >= climaxIntroLimit)
+            return SectionDetector.SectionType.CLIMAX
 
         // BUILD: 에너지 상승 추세 + 중간 이상 에너지
         if (w.energyTrend >= BUILD_TREND_MIN && w.energy >= 0.18f) return SectionDetector.SectionType.BUILD

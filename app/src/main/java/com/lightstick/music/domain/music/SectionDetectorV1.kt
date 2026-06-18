@@ -423,11 +423,13 @@ class SectionDetectorV1 : SectionDetector {
         val minGapMs = max(800L, beatMs * 4L)
         val selected = ArrayList<Long>()
 
+        val climaxIntroLimit = (durationMs * 0.30f).toLong()   // 곡 앞 30% 제외
         for (i in 2 until scoreArray.size - 2) {
             val sc = scoreArray[i]; if (sc <= 0f) continue
+            val tMs = i.toLong() * hopMs
+            if (tMs < climaxIntroLimit) continue                // 앞 30% 스킵
             if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2] &&
                 sc >= p90 * 1.18f && sc >= envMean + envStd * 1.30f) {
-                val tMs = i.toLong() * hopMs
                 if (selected.none { abs(it - tMs) < minGapMs }) {
                     selected += tMs
                     if (selected.size >= 3) break
