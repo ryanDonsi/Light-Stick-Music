@@ -8,10 +8,9 @@ import org.jtransforms.fft.FloatFFT_1D
 import kotlin.math.*
 
 /**
- * BeatDetectorV3 — Dual ODF Architecture (BPM Logic Fixed)
- * 1. odfTempo (순수 ODF): BPM 및 Time Signature 측정용
- * 2. odfTrack (가중치 ODF): Phase, DP Tracker, Downbeat 측정용 (위상 엇나감 방어)
- * 3. BPM 템포 로직: 오프비트 밀도 스캐닝을 통해 발라드와 댄스곡의 옥타브를 완벽 분리
+ * BeatDetectorV3 — Dual ODF Architecture
+ * 1. odfTempo (순수 ODF): BPM 및 Time Signature 측정용 — V2와 동일한 순수 SuperFlux
+ * 2. odfTrack (가중치 ODF): Phase, DP Tracker, Downbeat 측정용 (킥 대역 1.5x 가중치)
  */
 object BeatDetectorV3 {
 
@@ -437,41 +436,7 @@ object BeatDetectorV3 {
         }
 
         val resultMs = intervals[bestII].toLong() * hopMs
-        var bestCorrMs = resultMs
-
-        // [🔥 완벽 해결] 오프비트 밀도(Sparsity) 기반 옥타브 교차 검증
-        // 120BPM으로 편향되게 끄집어 당기던 Gaussian Prior 모델을 완전히 제거합니다.
-        fun getGridAverage(periodMs: Long): Float {
-            val fpb = max(1, (periodMs / hopMs).toInt())
-            if (odf.size < fpb * 2) return 0f
-            var bestAvg = 0f
-            for (ph in 0 until fpb) {
-                var sc = 0f; var cnt = 0; var f = ph
-                while (f < odf.size) { sc += odf[f]; cnt++; f += fpb }
-                val avg = if (cnt > 0) sc / cnt else 0f
-                if (avg > bestAvg) bestAvg = avg
-            }
-            return bestAvg
-        }
-
-        val avg1x = getGridAverage(resultMs)
-        val cMs = resultMs / 2
-
-        // 엔진이 느린 곡(680ms 초과 = 약 88 BPM 이하)으로 추정했을 때만 2배속 여부 검사
-        if (cMs >= minBeatMs && resultMs > 680L) {
-            val avg2x = getGridAverage(cMs)
-
-            // 댄스곡: 엇박자에 스네어가 강하게 찍혀서 절반 템포의 평균 에너지가 73% 이상 높게 유지됨
-            // 발라드: 엇박자가 비어 있어서 절반 템포의 평균 에너지가 크게 떨어짐
-            if (avg2x > avg1x * 0.73f) {
-                bestCorrMs = cMs
-                Log.d(TAG, "Octave Check: Doubled to ${60000/cMs} BPM (avg1x=$avg1x, avg2x=$avg2x)")
-            } else {
-                Log.d(TAG, "Octave Check: Kept at ${60000/resultMs} BPM (avg1x=$avg1x, avg2x=$avg2x)")
-            }
-        }
-
-        return bestCorrMs
+        return resultMs
     }
 
     private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
