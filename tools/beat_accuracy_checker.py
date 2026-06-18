@@ -610,10 +610,11 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
 
         # ── 2. 세부 특징 추출 ──
         hop_feat = 512
-        chroma_f  = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_feat)
-        rms_f     = librosa.feature.rms(y=y, hop_length=hop_feat)[0]
+        chroma_f   = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_feat)
+        rms_f      = librosa.feature.rms(y=y, hop_length=hop_feat)[0]
         centroid_f = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_feat)[0]
-        onset_f   = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_feat)
+        flatness_f = librosa.feature.spectral_flatness(y=y, hop_length=hop_feat)[0]
+        onset_f    = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_feat)
 
         # ── 3. 구간별 특징 집계 ──
         def _frames(t):
@@ -626,15 +627,17 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
             if f1 <= f0:
                 f1 = f0 + 1
             chroma_mean = chroma_f[:, f0:f1].mean(axis=1)
-            rms_mean     = float(rms_f[f0:min(f1, len(rms_f))].mean())
-            cent_mean    = float(centroid_f[f0:min(f1, len(centroid_f))].mean())
-            onset_mean   = float(onset_f[f0:min(f1, len(onset_f))].mean())
+            rms_mean      = float(rms_f[f0:min(f1, len(rms_f))].mean())
+            cent_mean     = float(centroid_f[f0:min(f1, len(centroid_f))].mean())
+            flat_mean     = float(flatness_f[f0:min(f1, len(flatness_f))].mean())
+            onset_mean    = float(onset_f[f0:min(f1, len(onset_f))].mean())
             seg_feats.append({
-                'chroma':   chroma_mean,
-                'rms':      rms_mean,
-                'centroid': cent_mean,
-                'onset':    onset_mean,
-                'pos':      (t0 + t1) / 2 / total_dur,
+                'chroma':    chroma_mean,
+                'rms':       rms_mean,
+                'centroid':  cent_mean,
+                'flatness':  flat_mean,
+                'onset':     onset_mean,
+                'pos':       (t0 + t1) / 2 / total_dur,
             })
 
         # ── 4. 특징 정규화 (0–1) ──
@@ -643,9 +646,10 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
             mn, mx = a.min(), a.max()
             return (a - mn) / (mx - mn + 1e-8)
 
-        rms_n   = _norm([f['rms']      for f in seg_feats])
-        cent_n  = _norm([f['centroid'] for f in seg_feats])
-        onset_n = _norm([f['onset']    for f in seg_feats])
+        rms_n    = _norm([f['rms']       for f in seg_feats])
+        cent_n   = _norm([f['centroid']  for f in seg_feats])
+        flat_n   = _norm([f['flatness']  for f in seg_feats])
+        onset_n  = _norm([f['onset']     for f in seg_feats])
 
         # ── 5. 크로마 유사도 그룹화 ──
         def _cos_sim(a, b):
@@ -708,6 +712,20 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
                 high   = rms_n[i] > verse_mean + 0.08
                 if rising or high:
                     types[i] = "PRE-CHORUS"
+
+        # ── 9. VOCAL / INST 탐지 ──
+        # tonal(저 flatness) + 저 onset → 조용한 선율 구간
+        # centroid 높음 → 보컬(고음역), centroid 낮음 → 연주(저·중음역)
+        onset_low_th = float(np.percentile(onset_n[1:-1], 33))  # 하위 33%
+        for i in range(1, n - 1):
+            if types[i] in ("VERSE",):
+                tonal = flat_n[i] < 0.40          # 저 flatness → tonal (비잡음)
+                quiet = onset_n[i] <= onset_low_th # 저 onset → 타악기 적음
+                if tonal and quiet:
+                    if cent_n[i] >= 0.55:          # 고 centroid → 보컬 음역
+                        types[i] = "VOCAL"
+                    else:                           # 저·중 centroid → 악기 선율
+                        types[i] = "INST"
 
         return [
             {"start_ms": int(all_times[i] * 1000),
@@ -889,8 +907,9 @@ _STYLE_COLORS = {
 _SECTION_COLORS = {
     'INTRO':       '#7c4dff', 'VERSE':  '#1565c0', 'PRE-CHORUS': '#00838f',
     'CHORUS':      '#e65100', 'BRIDGE': '#2e7d32', 'END':        '#b71c1c',
-    'VOCAL':       '#00acc1', 'BEAT':   '#f57f17', 'BUILD':      '#0277bd',
-    'CLIMAX':      '#ad1457', 'BREAK':  '#546e7a', 'OUTRO':      '#4a148c',
+    'VOCAL':       '#00acc1', 'INST':   '#558b2f', 'BEAT':       '#f57f17',
+    'BUILD':       '#0277bd', 'CLIMAX': '#ad1457', 'BREAK':      '#546e7a',
+    'OUTRO':       '#4a148c',
 }
 
 # ──────────────────────────────────────────────
@@ -1333,7 +1352,7 @@ class App(tk.Tk):
         sec_legend.pack(side="right", padx=(0, 6))
         tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
                  font=("", 7)).pack(side="left", padx=(0, 3))
-        for stype in ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO", "VOCAL", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]:
+        for stype in ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO", "VOCAL", "INST", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]:
             sc = _SECTION_COLORS.get(stype, "#546e7a")
             tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
                      font=("", 6, "bold")).pack(side="left", padx=1, pady=1)
