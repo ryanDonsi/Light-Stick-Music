@@ -226,11 +226,12 @@ except ImportError:
 
 HAS_ALLIN1 = False
 _allin1_mod = None
+_allin1_err = None
 try:
     import allin1 as _allin1_mod
     HAS_ALLIN1 = True
-except ImportError:
-    pass
+except Exception as _e:
+    _allin1_err = str(_e)
 
 # ──────────────────────────────────────────────
 # 의존 라이브러리 감지
@@ -378,11 +379,12 @@ except ImportError:
 # allin1
 HAS_ALLIN1 = False
 _allin1_mod = None
+_allin1_err = None
 try:
     import allin1 as _allin1_mod
     HAS_ALLIN1 = True
-except ImportError:
-    pass
+except Exception as _e:
+    _allin1_err = str(_e)
 
 # ──────────────────────────────────────────────
 # 엔진 정보
@@ -1367,8 +1369,9 @@ class App(tk.Tk):
              "#69f0ae" if HAS_MADMOM  else "#ef9a9a"),
             (("● librosa"          if HAS_LIBROSA else "✗ librosa (미설치)"),
              "#69f0ae" if HAS_LIBROSA else "#ef9a9a"),
-            (("● allin1 (GT섹션)"  if HAS_ALLIN1  else "○ allin1 (미설치→librosa 폴백)"),
-             "#69f0ae" if HAS_ALLIN1  else "#ffcc02"),
+            (("● allin1 (GT섹션)"  if HAS_ALLIN1  else
+              f"✗ allin1 오류: {_allin1_err[:40]}" if _allin1_err else "○ allin1 (미설치→librosa 폴백)"),
+             "#69f0ae" if HAS_ALLIN1  else ("#ef9a9a" if _allin1_err else "#ffcc02")),
             (("● matplotlib"       if HAS_MPL     else "✗ matplotlib (미설치 → 비트맵 불가)"),
              "#69f0ae" if HAS_MPL     else "#ffcc02"),
         ]:
