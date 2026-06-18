@@ -234,7 +234,7 @@ try:
         import allin1 as _allin1_mod
         HAS_ALLIN1 = True
     else:
-        _allin1_err = "GPU(CUDA) 없음 — CPU에서는 실용적이지 않아 비활성화"
+        _allin1_err = "GPU(CUDA) 없음"
 except Exception as _e:
     _allin1_err = str(_e)
 
@@ -406,7 +406,7 @@ try:
         import allin1 as _allin1_mod
         HAS_ALLIN1 = True
     else:
-        _allin1_err = "GPU(CUDA) 없음 — CPU에서는 실용적이지 않아 비활성화"
+        _allin1_err = "GPU(CUDA) 없음"
 except Exception as _e:
     _allin1_err = str(_e)
 
