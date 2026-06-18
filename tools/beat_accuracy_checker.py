@@ -810,7 +810,7 @@ def parse_timeline_binary(path):
     return version, frame_count, times_ms
 
 # SectionDetector.SectionType enum 순서 (Kotlin 정의와 동일해야 함)
-_SECTION_TYPES = ['INTRO', 'VERSE', 'PRE-CHORUS', 'CHORUS', 'BRIDGE', 'END',
+_SECTION_TYPES = ['INTRO', 'VERSE', 'CHORUS', 'BRIDGE', 'END',
                   'VOCAL', 'BEAT', 'BUILD', 'CLIMAX', 'BREAK', 'OUTRO']
 
 def parse_section_meta_binary(path):
