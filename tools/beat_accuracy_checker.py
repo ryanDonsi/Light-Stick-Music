@@ -227,8 +227,14 @@ HAS_ALLIN1 = False
 _allin1_mod = None
 _allin1_err = None
 try:
-    import allin1 as _allin1_mod
-    HAS_ALLIN1 = True
+    import torch as _torch_tmp
+    _has_cuda = _torch_tmp.cuda.is_available()
+    del _torch_tmp
+    if _has_cuda:
+        import allin1 as _allin1_mod
+        HAS_ALLIN1 = True
+    else:
+        _allin1_err = "GPU(CUDA) 없음 — CPU에서는 실용적이지 않아 비활성화"
 except Exception as _e:
     _allin1_err = str(_e)
 
@@ -380,8 +386,14 @@ HAS_ALLIN1 = False
 _allin1_mod = None
 _allin1_err = None
 try:
-    import allin1 as _allin1_mod
-    HAS_ALLIN1 = True
+    import torch as _torch_tmp
+    _has_cuda = _torch_tmp.cuda.is_available()
+    del _torch_tmp
+    if _has_cuda:
+        import allin1 as _allin1_mod
+        HAS_ALLIN1 = True
+    else:
+        _allin1_err = "GPU(CUDA) 없음 — CPU에서는 실용적이지 않아 비활성화"
 except Exception as _e:
     _allin1_err = str(_e)
 
@@ -1369,8 +1381,8 @@ class App(tk.Tk):
             (("● librosa"          if HAS_LIBROSA else "✗ librosa (미설치)"),
              "#69f0ae" if HAS_LIBROSA else "#ef9a9a"),
             (("● allin1 (GT섹션)"  if HAS_ALLIN1  else
-              f"✗ allin1 오류: {_allin1_err[:40]}" if _allin1_err else "○ allin1 (미설치→librosa 폴백)"),
-             "#69f0ae" if HAS_ALLIN1  else ("#ef9a9a" if _allin1_err else "#ffcc02")),
+              f"○ allin1: {_allin1_err[:50]}" if _allin1_err else "○ allin1 (미설치→librosa 폴백)"),
+             "#69f0ae" if HAS_ALLIN1 else "#ffcc02"),
             (("● matplotlib"       if HAS_MPL     else "✗ matplotlib (미설치 → 비트맵 불가)"),
              "#69f0ae" if HAS_MPL     else "#ffcc02"),
         ]:
