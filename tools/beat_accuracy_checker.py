@@ -37,70 +37,69 @@ def _show_splash():
     splash.overrideredirect(True)
     splash.configure(bg="#1e272e")
 
-    # 💡 OS별 설치된 한글 폰트를 동적으로 찾기
     from tkinter import font as tkfont
     available_fonts = tkfont.families(splash)
-    kr_font = ""  # 기본 폰트
-    font_candidates = [
-        "Malgun Gothic", "맑은 고딕",            # Windows
-        "AppleGothic", "Apple SD Gothic Neo",  # Mac
-        "NanumGothic", "NanumSquare",          # Linux / 기타
-        "Noto Sans KR", "Noto Sans CJK KR"     # 범용
-    ]
-    for f in font_candidates:
+    kr_font = ""
+    for f in ["Malgun Gothic", "맑은 고딕", "AppleGothic", "Apple SD Gothic Neo",
+              "NanumGothic", "NanumSquare", "Noto Sans KR", "Noto Sans CJK KR"]:
         if f in available_fonts:
             kr_font = f
             break
 
-    # 스플래시 이미지 경로 (installer/ 폴더 또는 번들 내부)
     _is_frozen = getattr(sys, "frozen", False)
     _img_base  = sys._MEIPASS if _is_frozen else os.path.join(os.path.dirname(os.path.abspath(__file__)), "installer")
     splash_img_path = os.path.join(_img_base, "splash.png")
 
     W, H = 480, 200
-    lbl_status = None
+    tk_img = None
+    use_image = False
     try:
         from PIL import Image as _PILImage, ImageTk as _PILImageTk
         pil_img = _PILImage.open(splash_img_path).resize((W, H))
         tk_img  = _PILImageTk.PhotoImage(pil_img)
-        lbl_img = tk.Label(splash, image=tk_img, bd=0)
-        lbl_img.image = tk_img   # 참조 유지
-        lbl_img.pack()
         use_image = True
     except Exception:
-        use_image = False
-
-    if not use_image:
-        splash.configure(bg="#1e272e")
         W, H = 380, 160
-        tk.Label(splash, text="Beat Accuracy Checker",
-                 bg="#1e272e", fg="#ecf0f1").pack(pady=(28, 4))
-        lbl_status = tk.Label(splash, text="Loading ...",
-                 bg="#1e272e", fg="#78909c")
-        lbl_status.pack()
 
     sw, sh = splash.winfo_screenwidth(), splash.winfo_screenheight()
     splash.geometry(f"{W}x{H}+{(sw-W)//2}+{(sh-H)//2}")
 
-    # 진행 바 (이미지 위 오버레이 or 별도 프레임)
-    bar_frame = tk.Frame(splash, bg="#1e272e" if not use_image else "#37474f")
-    bar_frame.place(x=28, y=H-22, width=W-56, height=6)
-    canvas = tk.Canvas(bar_frame, width=W-56, height=6, bg="#37474f",
-                       highlightthickness=0, bd=0)
-    canvas.pack()
-    bar = canvas.create_rectangle(0, 0, 0, 6, fill="#42a5f5", outline="")
+    # 캔버스 하나로 이미지 + 프로그래스바를 모두 관리 (위젯 겹침 방지)
+    cv = tk.Canvas(splash, width=W, height=H, bg="#1e272e",
+                   highlightthickness=0, bd=0)
+    cv.pack()
+
+    if use_image:
+        cv.create_image(0, 0, anchor="nw", image=tk_img)
+        cv._tk_img = tk_img   # 참조 유지
+        status_id = None
+    else:
+        cv.create_text(W // 2, 68, text="Beat Accuracy Checker",
+                       fill="#ecf0f1", font=(kr_font, 13, "bold"), anchor="center")
+        status_id = cv.create_text(W // 2, 96, text="Loading ...",
+                                   fill="#78909c", font=(kr_font, 9), anchor="center")
+
+    # 프로그래스바: 이미지와 독립적으로 캔버스 위에 직접 오버레이
+    PAD   = 28
+    BAR_H = 6
+    BX1   = PAD
+    BX2   = W - PAD
+    BY2   = H - 14          # 하단에서 14px 위
+    BY1   = BY2 - BAR_H
+    cv.create_rectangle(BX1, BY1, BX2, BY2, fill="#37474f", outline="")
+    bar_id = cv.create_rectangle(BX1, BY1, BX1, BY2, fill="#42a5f5", outline="")
+    bar_w  = BX2 - BX1
 
     _splash_state = {"pos": 0, "running": True, "job": None}
-    bar_w = W - 56
 
     def _step_splash(msg, progress_pct):
-        """라이브러리 로드 구간마다 텍스트와 프로그래스바를 수동 갱신"""
-        if not _splash_state["running"]: return
+        if not _splash_state["running"]:
+            return
         try:
-            if lbl_status and not use_image:
-                lbl_status.config(text=msg)
-            p = int((progress_pct / 100.0) * bar_w)
-            canvas.coords(bar, 0, 0, p, 6)
+            if status_id is not None:
+                cv.itemconfig(status_id, text=msg)
+            p = BX1 + int((progress_pct / 100.0) * bar_w)
+            cv.coords(bar_id, BX1, BY1, p, BY2)
             splash.update()
         except tk.TclError:
             pass
