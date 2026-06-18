@@ -586,73 +586,134 @@ def compute_music_style_librosa(audio_path, beats_sec, bpm):
 
 
 def detect_librosa_sections(audio_path, duration_sec, n_segments=10):
-    """librosa structural segmentation으로 섹션 경계를 감지하고 의미있는 이름을 부여한다."""
+    """다중 특징 기반 섹션 분류.
+    RMS 에너지 + Spectral centroid + Onset density + Chroma 유사도 + 시간적 위치
+    를 복합 사용하여 INTRO/VERSE/PRE-CHORUS/CHORUS/BRIDGE/OUTRO 를 판별한다.
+    """
     if not HAS_LIBROSA:
         return []
     try:
         load_dur = min(300.0, duration_sec) if duration_sec > 0 else 300.0
         y, sr = librosa.load(audio_path, sr=22050, mono=True, duration=load_dur)
-        hop_length = 4096
-        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_length)
-        k = min(n_segments, chroma.shape[1] // 2)
+        total_dur = len(y) / sr
+
+        # ── 1. 구조적 경계 검출 (coarse chroma) ──
+        hop_seg = 4096
+        chroma_seg = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_seg)
+        k = min(n_segments, chroma_seg.shape[1] // 2)
         if k < 2:
-            return [{"start_ms": 0, "end_ms": int(len(y)/sr*1000), "index": 0, "type": "INTRO"}]
-        bounds = librosa.segment.agglomerative(chroma, k)
-        bound_times = librosa.frames_to_time(bounds, sr=sr, hop_length=hop_length).tolist()
-        all_times = [0.0] + bound_times + [len(y) / sr]
+            return [{"start_ms": 0, "end_ms": int(total_dur * 1000), "index": 0, "type": "INTRO"}]
+        bounds = librosa.segment.agglomerative(chroma_seg, k)
+        bound_times = librosa.frames_to_time(bounds, sr=sr, hop_length=hop_seg).tolist()
+        all_times = [0.0] + bound_times + [total_dur]
         n = len(all_times) - 1
 
-        # 각 섹션의 평균 크로마 벡터 계산 → 섹션 간 유사도로 CHORUS 추정
-        seg_means = []
-        for i in range(n):
-            f0 = librosa.time_to_frames(all_times[i],   sr=sr, hop_length=hop_length)
-            f1 = librosa.time_to_frames(all_times[i+1], sr=sr, hop_length=hop_length)
-            f1 = min(f1, chroma.shape[1])
-            seg = chroma[:, f0:f1]
-            seg_means.append(seg.mean(axis=1) if seg.shape[1] > 0 else np.zeros(12))
+        # ── 2. 세부 특징 추출 ──
+        hop_feat = 512
+        chroma_f  = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_feat)
+        rms_f     = librosa.feature.rms(y=y, hop_length=hop_feat)[0]
+        centroid_f = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_feat)[0]
+        onset_f   = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_feat)
 
-        # 코사인 유사도 기반 클러스터링 (중간 섹션만)
+        # ── 3. 구간별 특징 집계 ──
+        def _frames(t):
+            return min(int(t * sr / hop_feat), chroma_f.shape[1])
+
+        seg_feats = []
+        for i in range(n):
+            t0, t1 = all_times[i], all_times[i + 1]
+            f0, f1 = _frames(t0), _frames(t1)
+            if f1 <= f0:
+                f1 = f0 + 1
+            chroma_mean = chroma_f[:, f0:f1].mean(axis=1)
+            rms_mean     = float(rms_f[f0:min(f1, len(rms_f))].mean())
+            cent_mean    = float(centroid_f[f0:min(f1, len(centroid_f))].mean())
+            onset_mean   = float(onset_f[f0:min(f1, len(onset_f))].mean())
+            seg_feats.append({
+                'chroma':   chroma_mean,
+                'rms':      rms_mean,
+                'centroid': cent_mean,
+                'onset':    onset_mean,
+                'pos':      (t0 + t1) / 2 / total_dur,
+            })
+
+        # ── 4. 특징 정규화 (0–1) ──
+        def _norm(vals):
+            a = np.array(vals, dtype=float)
+            mn, mx = a.min(), a.max()
+            return (a - mn) / (mx - mn + 1e-8)
+
+        rms_n   = _norm([f['rms']      for f in seg_feats])
+        cent_n  = _norm([f['centroid'] for f in seg_feats])
+        onset_n = _norm([f['onset']    for f in seg_feats])
+
+        # ── 5. 크로마 유사도 그룹화 ──
         def _cos_sim(a, b):
             na, nb = np.linalg.norm(a), np.linalg.norm(b)
-            if na < 1e-6 or nb < 1e-6: return 0.0
-            return float(np.dot(a, b) / (na * nb))
+            return float(np.dot(a, b) / (na * nb)) if na > 1e-6 and nb > 1e-6 else 0.0
 
-        # 반복 패턴 추정: 유사도 0.90 이상이면 같은 그룹
         labels = [-1] * n
-        group_id = 0
+        gid = 0
         for i in range(n):
             if labels[i] >= 0:
                 continue
-            labels[i] = group_id
-            for j in range(i+1, n):
-                if labels[j] < 0 and _cos_sim(seg_means[i], seg_means[j]) >= 0.90:
-                    labels[j] = group_id
-            group_id += 1
+            labels[i] = gid
+            for j in range(i + 1, n):
+                if labels[j] < 0 and _cos_sim(seg_feats[i]['chroma'], seg_feats[j]['chroma']) >= 0.90:
+                    labels[j] = gid
+            gid += 1
 
-        # 그룹별 등장 횟수 → 가장 많이 반복 = CHORUS, 두 번째 = VERSE
         from collections import Counter
-        mid_labels = labels[1:-1] if n > 2 else labels
-        cnt = Counter(mid_labels)
-        sorted_groups = [g for g, _ in cnt.most_common()]
-        chorus_grp = sorted_groups[0] if sorted_groups else -1
-        verse_grp  = sorted_groups[1] if len(sorted_groups) > 1 else -1
+        grp_cnt = Counter(labels)
+        rep_n = _norm([float(grp_cnt[labels[i]]) for i in range(n)])
 
-        def _assign_name(i, grp):
-            if i == 0:     return "INTRO"
-            if i == n - 1: return "OUTRO"
-            if grp == chorus_grp: return "CHORUS"
-            if grp == verse_grp:  return "VERSE"
-            return "BRIDGE"
+        # ── 6. CHORUS 그룹 판별 복합 점수 ──
+        # 반복도 30% + 에너지 35% + 밝기 20% + onset 15%
+        chorus_score = 0.30 * rep_n + 0.35 * rms_n + 0.20 * cent_n + 0.15 * onset_n
 
-        sections = []
+        grp_scores: dict = {}
         for i in range(n):
-            sections.append({
-                "start_ms": int(all_times[i] * 1000),
-                "end_ms":   int(all_times[i+1] * 1000),
-                "index":    i,
-                "type":     _assign_name(i, labels[i]),
-            })
-        return sections
+            grp_scores.setdefault(labels[i], []).append(chorus_score[i])
+        grp_avg = {g: float(np.mean(v)) for g, v in grp_scores.items()}
+        ranked  = sorted(grp_avg.items(), key=lambda x: x[1], reverse=True)
+
+        chorus_grp = ranked[0][0] if ranked else -1
+        verse_grp  = ranked[1][0] if len(ranked) > 1 else -1
+
+        # ── 7. 1차 레이블 부여 ──
+        types = []
+        for i in range(n):
+            pos = seg_feats[i]['pos']
+            g   = labels[i]
+            if i == 0 or pos < 0.10:
+                types.append("INTRO")
+            elif i == n - 1 or pos > 0.90:
+                types.append("OUTRO")
+            elif g == chorus_grp and rms_n[i] >= 0.35:
+                types.append("CHORUS")
+            elif g == verse_grp:
+                types.append("VERSE")
+            elif grp_cnt[g] == 1:
+                types.append("BRIDGE")
+            else:
+                types.append("VERSE")
+
+        # ── 8. POST: PRE-CHORUS 탐지 ──
+        # VERSE 구간 중 다음이 CHORUS이고 에너지가 VERSE 평균보다 높으면 PRE-CHORUS
+        verse_e = [rms_n[i] for i in range(n) if types[i] == "VERSE"]
+        verse_mean = float(np.mean(verse_e)) if verse_e else 0.5
+        for i in range(1, n - 1):
+            if types[i] == "VERSE" and types[i + 1] == "CHORUS":
+                if rms_n[i] > verse_mean + 0.12:
+                    types[i] = "PRE-CHORUS"
+
+        return [
+            {"start_ms": int(all_times[i] * 1000),
+             "end_ms":   int(all_times[i + 1] * 1000),
+             "index":    i,
+             "type":     types[i]}
+            for i in range(n)
+        ]
     except Exception:
         return []
 
@@ -749,7 +810,7 @@ def parse_timeline_binary(path):
     return version, frame_count, times_ms
 
 # SectionDetector.SectionType enum 순서 (Kotlin 정의와 동일해야 함)
-_SECTION_TYPES = ['INTRO', 'VERSE', 'CHORUS', 'BRIDGE', 'END',
+_SECTION_TYPES = ['INTRO', 'VERSE', 'PRE-CHORUS', 'CHORUS', 'BRIDGE', 'END',
                   'VOCAL', 'BEAT', 'BUILD', 'CLIMAX', 'BREAK', 'OUTRO']
 
 def parse_section_meta_binary(path):
@@ -824,10 +885,10 @@ _STYLE_COLORS = {
 
 # 섹션 타입별 색상
 _SECTION_COLORS = {
-    'INTRO':  '#7c4dff', 'VERSE':  '#1565c0', 'CHORUS': '#e65100',
-    'BRIDGE': '#2e7d32', 'END':    '#b71c1c', 'VOCAL':  '#00838f',
-    'BEAT':   '#f57f17', 'BUILD':  '#0277bd', 'CLIMAX': '#ad1457',
-    'BREAK':  '#546e7a', 'OUTRO':  '#4a148c',
+    'INTRO':       '#7c4dff', 'VERSE':  '#1565c0', 'PRE-CHORUS': '#00838f',
+    'CHORUS':      '#e65100', 'BRIDGE': '#2e7d32', 'END':        '#b71c1c',
+    'VOCAL':       '#00acc1', 'BEAT':   '#f57f17', 'BUILD':      '#0277bd',
+    'CLIMAX':      '#ad1457', 'BREAK':  '#546e7a', 'OUTRO':      '#4a148c',
 }
 
 # ──────────────────────────────────────────────
@@ -1270,7 +1331,7 @@ class App(tk.Tk):
         sec_legend.pack(side="right", padx=(0, 6))
         tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
                  font=("", 7)).pack(side="left", padx=(0, 3))
-        for stype in ["INTRO", "VERSE", "CHORUS", "BRIDGE", "OUTRO", "VOCAL", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]:
+        for stype in ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO", "VOCAL", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]:
             sc = _SECTION_COLORS.get(stype, "#546e7a")
             tk.Label(sec_legend, text=f"■{stype}", bg="#1a1a2e", fg=sc,
                      font=("", 7, "bold")).pack(side="left", padx=2)
