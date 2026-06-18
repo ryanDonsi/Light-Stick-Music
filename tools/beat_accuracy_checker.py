@@ -2179,12 +2179,27 @@ class App(tk.Tk):
             audio = item["path"]
             binf  = item["bin_path"]
             name  = os.path.basename(audio)
+
+            # GT 섹션 분석: 오디오당 1회만 실행 후 엔진별로 공유
+            pre_lib_sections = []
+            if HAS_LIBROSA:
+                try:
+                    self.after(0, lambda n=name, i=idx, t=total:
+                               self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션)"))
+                    _dur = get_audio_duration(audio)
+                    pre_lib_sections = detect_librosa_sections(audio, _dur)
+                    self.after(0, lambda n=len(pre_lib_sections), nm=name:
+                               self._log(f"[GT섹션]  {nm} — {n}개 감지", "gray"))
+                except Exception as _se:
+                    self.after(0, lambda e=str(_se): self._log(f"[GT섹션] 오류: {e}", "red"))
+
             for engine in engines:
                 eng_lbl = ENGINE_INFO[engine][0]
                 self.after(0, lambda n=name, i=idx, t=total, el=eng_lbl:
                            self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  ({el})"))
                 try:
-                    self._do_analyze(audio, binf, engine, tol_ms, bpm_hint)
+                    self._do_analyze(audio, binf, engine, tol_ms, bpm_hint,
+                                     librosa_sections=pre_lib_sections)
                 except Exception as e:
                     import traceback
                     tb  = traceback.format_exc()
@@ -2704,7 +2719,8 @@ class App(tk.Tk):
         except Exception as ex:
             self._log(f"[타임라인 표시 오류] {ex}", "red")
 
-    def _do_analyze(self, audio_path, bin_path, engine, tol_ms, bpm_hint):
+    def _do_analyze(self, audio_path, bin_path, engine, tol_ms, bpm_hint,
+                    librosa_sections=None):
         SEP  = "─" * 62
         SEP2 = "═" * 62
         eng_name, eng_acc, _ = ENGINE_INFO[engine]
@@ -2890,7 +2906,8 @@ class App(tk.Tk):
         # ── librosa 음악 스타일 + 섹션 감지 ──────────
         librosa_style = 'N/A'
         librosa_style_features = {}
-        librosa_sections = []
+        if librosa_sections is None:
+            librosa_sections = []
         if HAS_LIBROSA:
             try:
                 self.after(0, lambda: self._log("\n[+lib]  Librosa 음악 스타일 분류…", "gray"))
@@ -2898,10 +2915,14 @@ class App(tk.Tk):
                     audio_path, ref_sec, ref_bpm)
                 self.after(0, lambda s=librosa_style, f=librosa_style_features:
                     self._log(f"  Librosa Style : {s}  |  {f}", "cyan"))
-                self.after(0, lambda: self._log("[+lib]  Librosa 섹션 감지…", "gray"))
-                librosa_sections = detect_librosa_sections(audio_path, duration_sec)
-                self.after(0, lambda n=len(librosa_sections):
-                    self._log(f"  Librosa 섹션 : {n}개 감지", "cyan"))
+                if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
+                    self.after(0, lambda: self._log("[+lib]  Librosa 섹션 감지…", "gray"))
+                    librosa_sections = detect_librosa_sections(audio_path, duration_sec)
+                    self.after(0, lambda n=len(librosa_sections):
+                        self._log(f"  Librosa 섹션 : {n}개 감지", "cyan"))
+                else:
+                    self.after(0, lambda n=len(librosa_sections):
+                        self._log(f"  Librosa 섹션 : {n}개 (사전계산)", "cyan"))
             except Exception as _ex:
                 self.after(0, lambda e=str(_ex): self._log(f"  Librosa 분석 오류: {e}", "red"))
 
