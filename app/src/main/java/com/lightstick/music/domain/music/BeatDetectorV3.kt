@@ -27,6 +27,9 @@ object BeatDetectorV3 {
     private const val DBN_TRANSITION_LAMBDA  = 100f
     private const val DBN_OBSERVATION_LAMBDA = 16
 
+    // 하모닉 보정: 0.75는 My World/God's Menu/모든날 파괴하므로 0.5만 사용
+    private val HARM_RATIOS = floatArrayOf(0.5f)
+
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
 
@@ -435,8 +438,44 @@ object BeatDetectorV3 {
             if (intvBeatAccum[ii] / cntI > intvBeatAccum[bestII] / cntB) bestII = ii
         }
 
-        val resultMs = intervals[bestII].toLong() * hopMs
-        return resultMs
+        val LOG_BPM_CENTER = ln(120f)
+        val LOG_BPM_SX2    = 2f * 0.8f * 0.8f
+
+        fun combPriorScore(beatMs: Long): Float {
+            val fpb = max(1, (beatMs / hopMs).toInt())
+            if (odf.size < fpb * 2) return 0f
+            var best = Float.NEGATIVE_INFINITY
+            for (ph in 0 until fpb) {
+                var sc = 0f; var f = ph
+                while (f < odf.size) { sc += odf[f]; f += fpb }
+                if (sc > best) best = sc
+            }
+            val expectedBeats = (odf.size.toFloat() / fpb.toFloat()).coerceAtLeast(1f)
+            val normalizedBest = best / expectedBeats
+            val bpm   = 60_000f / beatMs.toFloat()
+            val d     = ln(bpm) - LOG_BPM_CENTER
+            val prior = exp(-(d * d) / LOG_BPM_SX2.toDouble()).toFloat()
+            return normalizedBest * prior
+        }
+
+        val resultMs   = intervals[bestII].toLong() * hopMs
+        var bestCorrMs = resultMs
+        var bestCorrPS = combPriorScore(resultMs)
+
+        for (r in HARM_RATIOS) {
+            if (r == 0.5f && resultMs < 910L) continue
+            val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt().coerceAtLeast(1)
+            val cMs = frames.toLong() * hopMs
+            if (cMs < minBeatMs || cMs > maxBeatMs) continue
+            val ps = combPriorScore(cMs)
+            if (ps > bestCorrPS) { bestCorrPS = ps; bestCorrMs = cMs }
+        }
+
+        if (bestCorrMs != resultMs)
+            Log.d(TAG, "V3 dbnTempo harmonic fix: ${resultMs}ms→${bestCorrMs}ms " +
+                "(${60_000L / resultMs}→${60_000L / bestCorrMs} BPM)")
+        Log.d(TAG, "V3 dbnTempo: ${bestCorrMs}ms (${60_000L / bestCorrMs} BPM)")
+        return bestCorrMs
     }
 
     private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
