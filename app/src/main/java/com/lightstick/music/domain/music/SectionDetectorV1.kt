@@ -22,9 +22,10 @@ class SectionDetectorV1 : SectionDetector {
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
-        private const val WINDOW_MS     = 2_000L
-        private const val STRIDE_MS     = 2_000L   // V0=1000ms → 2배 스트라이드
-        private const val MIN_SECTION_MS = 4_000L
+        private const val WINDOW_MS      = 2_000L
+        private const val STRIDE_MS      = 2_000L   // V0=1000ms → 2배 스트라이드
+        private const val MIN_SECTION_MS  = 4_000L
+        private const val COMPACT_MIN_MS  = 10_000L  // 10s 미만 파편 흡수
 
         private const val SECTION_STRONG_CHANGE_TH = 0.24f
         private const val SECTION_MEDIUM_CHANGE_TH = 0.14f
@@ -255,7 +256,8 @@ class SectionDetectorV1 : SectionDetector {
             }
         }
         merged += cur.copy(endMs = durationMs)
-        return normalizeSections(merged, durationMs)
+        val normalized = normalizeSections(merged, durationMs)
+        return compactSections(normalized)
     }
 
     private fun normalizeSections(sections: List<FeatureWindow>, durationMs: Long): List<FeatureWindow> {
@@ -290,6 +292,66 @@ class SectionDetectorV1 : SectionDetector {
         if (out.isNotEmpty() && out.last().endMs < durationMs)
             out[out.lastIndex] = out.last().copy(endMs = durationMs)
         return out
+    }
+
+    // COMPACT_MIN_MS 미만 파편을 인접한 긴 구간으로 반복 흡수
+    private fun compactSections(input: List<FeatureWindow>): List<FeatureWindow> {
+        if (input.size <= 1) return input
+        val list = input.toMutableList()
+        var changed = true
+        while (changed && list.size > 1) {
+            changed = false
+            var shortIdx = -1; var shortDur = Long.MAX_VALUE
+            for (i in list.indices) {
+                val d = list[i].endMs - list[i].startMs
+                if (d < COMPACT_MIN_MS && d < shortDur) { shortDur = d; shortIdx = i }
+            }
+            if (shortIdx < 0) break
+            val s = list[shortIdx]
+            val prevOk = shortIdx > 0
+            val nextOk = shortIdx < list.lastIndex
+            val absorberIdx = when {
+                !prevOk  -> shortIdx + 1
+                !nextOk  -> shortIdx - 1
+                list[shortIdx - 1].sectionType == s.sectionType -> shortIdx - 1
+                list[shortIdx + 1].sectionType == s.sectionType -> shortIdx + 1
+                else     -> {
+                    val pd = list[shortIdx - 1].endMs - list[shortIdx - 1].startMs
+                    val nd = list[shortIdx + 1].endMs - list[shortIdx + 1].startMs
+                    if (pd >= nd) shortIdx - 1 else shortIdx + 1
+                }
+            }
+            if (absorberIdx < shortIdx) {
+                list[absorberIdx] = list[absorberIdx].copy(
+                    endMs        = s.endMs,
+                    energy       = (list[absorberIdx].energy       + s.energy)       * 0.5f,
+                    lowRatio     = (list[absorberIdx].lowRatio     + s.lowRatio)     * 0.5f,
+                    midRatio     = (list[absorberIdx].midRatio     + s.midRatio)     * 0.5f,
+                    highRatio    = (list[absorberIdx].highRatio    + s.highRatio)    * 0.5f,
+                    onsetDensity = (list[absorberIdx].onsetDensity + s.onsetDensity) * 0.5f,
+                    periodicity  = (list[absorberIdx].periodicity  + s.periodicity)  * 0.5f,
+                    peakEnergy   = max(list[absorberIdx].peakEnergy, s.peakEnergy),
+                    score        = (list[absorberIdx].score        + s.score)        * 0.5f,
+                    activity     = (list[absorberIdx].activity     + s.activity)     * 0.5f
+                )
+            } else {
+                list[absorberIdx] = list[absorberIdx].copy(
+                    startMs      = s.startMs,
+                    energy       = (s.energy       + list[absorberIdx].energy)       * 0.5f,
+                    lowRatio     = (s.lowRatio     + list[absorberIdx].lowRatio)     * 0.5f,
+                    midRatio     = (s.midRatio     + list[absorberIdx].midRatio)     * 0.5f,
+                    highRatio    = (s.highRatio    + list[absorberIdx].highRatio)    * 0.5f,
+                    onsetDensity = (s.onsetDensity + list[absorberIdx].onsetDensity) * 0.5f,
+                    periodicity  = (s.periodicity  + list[absorberIdx].periodicity)  * 0.5f,
+                    peakEnergy   = max(s.peakEnergy, list[absorberIdx].peakEnergy),
+                    score        = (s.score        + list[absorberIdx].score)        * 0.5f,
+                    activity     = (s.activity     + list[absorberIdx].activity)     * 0.5f
+                )
+            }
+            list.removeAt(shortIdx)
+            changed = true
+        }
+        return list
     }
 
     // ──────────────────────────────────────────────────────────────
