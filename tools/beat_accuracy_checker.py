@@ -585,7 +585,7 @@ def compute_music_style_librosa(audio_path, beats_sec, bpm):
         return 'N/A', {}
 
 
-def detect_librosa_sections(audio_path, duration_sec, n_segments=10):
+def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
     """다중 특징 기반 섹션 분류.
     RMS 에너지 + Spectral centroid + Onset density + Chroma 유사도 + 시간적 위치
     를 복합 사용하여 INTRO/VERSE/PRE-CHORUS/CHORUS/BRIDGE/OUTRO 를 판별한다.
@@ -667,44 +667,46 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=10):
         grp_cnt = Counter(labels)
         rep_n = _norm([float(grp_cnt[labels[i]]) for i in range(n)])
 
-        # ── 6. CHORUS 그룹 판별 복합 점수 ──
+        # ── 6. CHORUS 그룹 판별 복합 점수 (첫/마지막 제외) ──
         # 반복도 30% + 에너지 35% + 밝기 20% + onset 15%
         chorus_score = 0.30 * rep_n + 0.35 * rms_n + 0.20 * cent_n + 0.15 * onset_n
 
         grp_scores: dict = {}
-        for i in range(n):
+        for i in range(1, n - 1):          # 첫·마지막 구간 제외
             grp_scores.setdefault(labels[i], []).append(chorus_score[i])
         grp_avg = {g: float(np.mean(v)) for g, v in grp_scores.items()}
         ranked  = sorted(grp_avg.items(), key=lambda x: x[1], reverse=True)
 
         chorus_grp = ranked[0][0] if ranked else -1
         verse_grp  = ranked[1][0] if len(ranked) > 1 else -1
+        bridge_grp = ranked[2][0] if len(ranked) > 2 else -1   # 3순위 → BRIDGE 후보
 
         # ── 7. 1차 레이블 부여 ──
         types = []
         for i in range(n):
-            pos = seg_feats[i]['pos']
-            g   = labels[i]
-            if i == 0 or pos < 0.10:
+            g = labels[i]
+            if i == 0:                                           # 첫 구간만 INTRO
                 types.append("INTRO")
-            elif i == n - 1 or pos > 0.90:
+            elif i == n - 1:                                     # 마지막 구간만 OUTRO
                 types.append("OUTRO")
-            elif g == chorus_grp and rms_n[i] >= 0.35:
+            elif g == chorus_grp and rms_n[i] >= 0.30:
                 types.append("CHORUS")
             elif g == verse_grp:
                 types.append("VERSE")
-            elif grp_cnt[g] == 1:
+            elif g == bridge_grp or grp_cnt[g] == 1:            # 3순위 or 1회 등장
                 types.append("BRIDGE")
             else:
                 types.append("VERSE")
 
         # ── 8. POST: PRE-CHORUS 탐지 ──
-        # VERSE 구간 중 다음이 CHORUS이고 에너지가 VERSE 평균보다 높으면 PRE-CHORUS
+        # VERSE/BRIDGE 다음에 CHORUS가 오고 에너지가 높거나 직전보다 상승이면 PRE-CHORUS
         verse_e = [rms_n[i] for i in range(n) if types[i] == "VERSE"]
         verse_mean = float(np.mean(verse_e)) if verse_e else 0.5
         for i in range(1, n - 1):
-            if types[i] == "VERSE" and types[i + 1] == "CHORUS":
-                if rms_n[i] > verse_mean + 0.12:
+            if types[i] in ("VERSE", "BRIDGE") and types[i + 1] == "CHORUS":
+                rising = i > 0 and rms_n[i] > rms_n[i - 1] + 0.05
+                high   = rms_n[i] > verse_mean + 0.08
+                if rising or high:
                     types[i] = "PRE-CHORUS"
 
         return [
@@ -1333,8 +1335,8 @@ class App(tk.Tk):
                  font=("", 7)).pack(side="left", padx=(0, 3))
         for stype in ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO", "VOCAL", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]:
             sc = _SECTION_COLORS.get(stype, "#546e7a")
-            tk.Label(sec_legend, text=f"■{stype}", bg="#1a1a2e", fg=sc,
-                     font=("", 7, "bold")).pack(side="left", padx=2)
+            tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
+                     font=("", 6, "bold")).pack(side="left", padx=1, pady=1)
         tk.Label(tl_ctrl, text="시작(초/mm:ss):", bg="#1a1a2e", fg="#90a4ae",
                  font=("", 8)).pack(side="left", padx=(8, 0))
         self.zoom_s_var = tk.DoubleVar(value=0.0)
