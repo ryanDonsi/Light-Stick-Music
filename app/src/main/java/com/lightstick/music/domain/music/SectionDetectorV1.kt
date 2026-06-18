@@ -31,7 +31,7 @@ class SectionDetectorV1 : SectionDetector {
 
         private const val ALIGN_SNAP_MS = 500L
 
-        private const val CLIMAX_WINDOW_HALF_MS = 4_000L
+        private const val CLIMAX_WINDOW_HALF_MS = 2_000L
         private const val CLIMAX_MIN_CV         = 0.35f
         private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
     }
@@ -107,7 +107,9 @@ class SectionDetectorV1 : SectionDetector {
     ): List<SectionDetector.AnnotatedBeat> = beats.map { beat ->
         val sectionType = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
             ?: SectionDetector.SectionType.VERSE
-        val type = if (climaxMoments.any { abs(it - beat.timeMs) <= CLIMAX_WINDOW_HALF_MS })
+        // CLIMAX는 CHORUS 구간 안에서만 적용 — BRIDGE/VERSE 초반 에너지 스파이크 제외
+        val type = if (sectionType == SectionDetector.SectionType.CHORUS &&
+                       climaxMoments.any { abs(it - beat.timeMs) <= CLIMAX_WINDOW_HALF_MS })
             SectionDetector.SectionType.CLIMAX else sectionType
         SectionDetector.AnnotatedBeat(beat.timeMs, beat.confidence, type)
     }
