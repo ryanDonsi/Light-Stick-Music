@@ -967,6 +967,8 @@ def detect_demucs_sections(audio_path, duration_sec):
              'type':     types[i]}
             for i in range(n)
         ]
+    except Exception:
+        raise
 
 
 def detect_gt_sections(audio_path, duration_sec):
