@@ -25,9 +25,11 @@ object BeatDetectorV3 {
     private const val FB_FMAX   = 16000f
 
     // V1 방식 BPM 추정 파라미터 (librosa log-normal prior + half/double-tempo 체크)
-    private const val BPM_PRIOR_CENTER_MS  = 500L    // 120 BPM
-    private const val BPM_PRIOR_STD_OCTAVE = 1.0f    // σ = 1 octave
-    private const val BPM_HALF_TEMPO_RATIO = 0.60f   // 반박자 오류 방지 임계
+    private const val BPM_PRIOR_CENTER_MS   = 500L    // 120 BPM
+    private const val BPM_PRIOR_STD_OCTAVE  = 1.0f    // σ = 1 octave
+    private const val BPM_HALF_TEMPO_RATIO  = 0.70f   // halfTempoFix 임계 (모든날 0.654 제외, 상향)
+    private const val BPM_DOUBLE_TEMPO_RATIO = 1.00f  // doubleTempoFix: 2배 주기가 더 강할 때만 적용
+    private const val BPM_SUBBBEAT_RATIO_MAX = 0.65f  // doubleTempoFix 게이트: K-pop 하이햇 차단
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -447,11 +449,26 @@ object BeatDetectorV3 {
         }
         Log.d(TAG, "V3$t PRIOR_SNAP: $priorSnap")
 
-        // ── 7. 실제 half-tempo 체크 (42750f0 원본 로직) ─────────────────────
+        // ── 7. half-tempo 체크: prior 편향으로 2배 느린 BPM 선택 → 절반 주기로 보정 ──
         if (halfLag >= minLag && bestAc > 0f && halfRatio >= BPM_HALF_TEMPO_RATIO) {
             Log.d(TAG, "V3$t halfTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
                 " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM) ratio=$halfRatio")
             return halfMs
+        }
+
+        // ── 8. double-tempo 체크: 2배 주기가 더 강하고 반박자 에너지가 낮으면 느린 템포 선택 ──
+        // 조건: doubleRatio ≥ 1.00 (2배 주기가 현재 lag보다 강함 = 현재 lag는 진짜 반박자)
+        //       subRatio < 0.65   (반박자 에너지 낮음 = K-pop 하이햇 아님)
+        val doubleLag    = bestLag * 2
+        val doubleMs     = doubleLag * hopMs
+        val doubleAc     = if (doubleLag <= maxLag) acVals[doubleLag] else 0f
+        val doubleRatio2 = if (bestAc > 0f) doubleAc / bestAc else 0f
+        if (doubleLag <= maxLag && doubleRatio2 >= BPM_DOUBLE_TEMPO_RATIO
+            && halfRatio < BPM_SUBBBEAT_RATIO_MAX) {
+            Log.d(TAG, "V3$t doubleTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
+                " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
+                " doubleRatio=$doubleRatio2 subRatio=$halfRatio")
+            return doubleMs
         }
 
         Log.d(TAG, "V3$t RESULT: ${bestMs}ms (${bestBpm}BPM)")
