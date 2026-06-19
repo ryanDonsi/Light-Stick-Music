@@ -971,6 +971,41 @@ def detect_demucs_sections(audio_path, duration_sec):
         raise
 
 
+_SECTION_CACHE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "section_cache.json")
+_SECTION_CACHE: dict = {}  # 메모리 캐시: {abspath → {"sections":[], "engine":""}}
+
+def _load_section_cache():
+    global _SECTION_CACHE
+    try:
+        with open(_SECTION_CACHE_PATH, encoding="utf-8") as f:
+            _SECTION_CACHE = json.load(f)
+    except Exception:
+        _SECTION_CACHE = {}
+
+def _save_section_cache():
+    try:
+        with open(_SECTION_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(_SECTION_CACHE, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def get_cached_sections(audio_path):
+    """캐시된 섹션 반환. 없으면 None."""
+    if not _SECTION_CACHE:
+        _load_section_cache()
+    key = os.path.abspath(audio_path)
+    entry = _SECTION_CACHE.get(key)
+    if entry:
+        return entry["sections"], entry["engine"], []
+    return None
+
+def cache_sections(audio_path, sections, engine):
+    """섹션 결과를 메모리+파일 캐시에 저장."""
+    key = os.path.abspath(audio_path)
+    _SECTION_CACHE[key] = {"sections": sections, "engine": engine}
+    _save_section_cache()
+
+
 def detect_gt_sections(audio_path, duration_sec):
     """GT 섹션 감지 우선순위: allin1 → demucs+msaf → msaf → librosa
 
@@ -2514,18 +2549,26 @@ class App(tk.Tk):
             binf  = item["bin_path"]
             name  = os.path.basename(audio)
 
-            # GT 섹션 분석: 오디오당 1회만 실행 후 엔진별로 공유
+            # GT 섹션 분석: 오디오당 1회만 실행 후 엔진별로 공유 (캐시 우선)
             pre_lib_sections = []
             if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
                 try:
-                    self.after(0, lambda n=name, i=idx, t=total:
-                               self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션 분석 중…)"))
-                    _dur = get_audio_duration(audio)
-                    pre_lib_sections, _sec_eng, _sec_errs = detect_gt_sections(audio, _dur)
-                    self.after(0, lambda n=len(pre_lib_sections), nm=name, eng=_sec_eng:
-                               self._log(f"[GT섹션]  {nm} — {n}개 감지  [엔진: {eng}]", "gray"))
-                    for _err in _sec_errs:
-                        self.after(0, lambda e=_err: self._log(f"  ↳ {e}", "orange"))
+                    _cached = get_cached_sections(audio)
+                    if _cached:
+                        pre_lib_sections, _sec_eng, _sec_errs = _cached
+                        self.after(0, lambda n=len(pre_lib_sections), nm=name, eng=_sec_eng:
+                                   self._log(f"[GT섹션]  {nm} — {n}개 감지  [엔진: {eng}] (캐시)", "gray"))
+                    else:
+                        self.after(0, lambda n=name, i=idx, t=total:
+                                   self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션 분석 중…)"))
+                        _dur = get_audio_duration(audio)
+                        pre_lib_sections, _sec_eng, _sec_errs = detect_gt_sections(audio, _dur)
+                        if pre_lib_sections:
+                            cache_sections(audio, pre_lib_sections, _sec_eng)
+                        self.after(0, lambda n=len(pre_lib_sections), nm=name, eng=_sec_eng:
+                                   self._log(f"[GT섹션]  {nm} — {n}개 감지  [엔진: {eng}]", "gray"))
+                        for _err in _sec_errs:
+                            self.after(0, lambda e=_err: self._log(f"  ↳ {e}", "orange"))
                 except Exception as _se:
                     self.after(0, lambda e=str(_se): self._log(f"[GT섹션] 오류: {e}", "red"))
 
@@ -3325,12 +3368,20 @@ class App(tk.Tk):
         if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
             try:
                 if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
-                    self.after(0, lambda: self._log("[+GT]  GT 섹션 감지 중…", "gray"))
-                    librosa_sections, _sec_eng, _sec_errs = detect_gt_sections(audio_path, duration_sec)
-                    self.after(0, lambda n=len(librosa_sections), eng=_sec_eng:
-                        self._log(f"  GT 섹션 : {n}개 감지  [엔진: {eng}]", "cyan"))
-                    for _err in _sec_errs:
-                        self.after(0, lambda e=_err: self._log(f"  ↳ {e}", "orange"))
+                    _cached = get_cached_sections(audio_path)
+                    if _cached:
+                        librosa_sections, _sec_eng, _sec_errs = _cached
+                        self.after(0, lambda n=len(librosa_sections), eng=_sec_eng:
+                            self._log(f"  GT 섹션 : {n}개 감지  [엔진: {eng}] (캐시)", "cyan"))
+                    else:
+                        self.after(0, lambda: self._log("[+GT]  GT 섹션 감지 중…", "gray"))
+                        librosa_sections, _sec_eng, _sec_errs = detect_gt_sections(audio_path, duration_sec)
+                        if librosa_sections:
+                            cache_sections(audio_path, librosa_sections, _sec_eng)
+                        self.after(0, lambda n=len(librosa_sections), eng=_sec_eng:
+                            self._log(f"  GT 섹션 : {n}개 감지  [엔진: {eng}]", "cyan"))
+                        for _err in _sec_errs:
+                            self.after(0, lambda e=_err: self._log(f"  ↳ {e}", "orange"))
                 else:
                     self.after(0, lambda n=len(librosa_sections):
                         self._log(f"  GT 섹션 : {n}개 (사전계산)", "cyan"))
