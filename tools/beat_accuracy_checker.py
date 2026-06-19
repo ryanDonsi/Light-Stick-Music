@@ -435,19 +435,14 @@ try:
     HAS_DEMUCS = True
     _demucs_use_api = True
 except ImportError:
-    # demucs < 4.0 또는 demucs.api 없음 → CLI 폴백
+    # demucs < 4.0 — torch 초기화 없이 패키지 존재만 확인 (subprocess 호출 금지)
     try:
-        import demucs as _demucs_pkg_check  # 모듈 자체는 있는지 확인
-        import subprocess as _sub_check
-        _r = _sub_check.run(
-            [sys.executable, '-m', 'demucs', '--help'],
-            capture_output=True, timeout=15
-        )
-        if _r.returncode == 0:
+        import importlib.util as _ilu
+        if _ilu.find_spec('demucs') is not None:
             HAS_DEMUCS = True
             _demucs_use_api = False
         else:
-            _demucs_err = 'demucs CLI 실행 실패 (pip install -U demucs 권장)'
+            _demucs_err = 'demucs 미설치 (pip install demucs)'
     except Exception as _e2:
         _demucs_err = str(_e2)
 except Exception as _e:
