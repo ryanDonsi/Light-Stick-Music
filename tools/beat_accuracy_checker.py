@@ -1320,6 +1320,7 @@ def extract_music_id(filename):
     return None
 
 def parse_timeline_binary(path):
+    """타임라인 바이너리 파싱 (간단 버전 - 시간만)."""
     with open(path, "rb") as f:
         data = f.read()
     offset = 0
@@ -1333,6 +1334,101 @@ def parse_timeline_binary(path):
         offset     += payload_len
         times_ms.append(time_ms)
     return version, frame_count, times_ms
+
+
+def parse_timeline_binary_with_effects(path):
+    """타임라인 바이너리 상세 파싱 (시간 + 이펙트)
+
+    반환: (version, list of frame dicts)
+    각 dict: time_ms, effect_id, payload_hex
+    """
+    with open(path, "rb") as f:
+        data = f.read()
+    offset = 0
+    version     = struct.unpack_from(">i", data, offset)[0]; offset += 4
+    frame_count = struct.unpack_from(">i", data, offset)[0]; offset += 4
+    frames = []
+
+    for _ in range(frame_count):
+        if offset + 12 > len(data):
+            break
+        time_ms     = struct.unpack_from(">q", data, offset)[0]; offset += 8
+        payload_len = struct.unpack_from(">i", data, offset)[0]; offset += 4
+
+        # Payload 추출 (최대 4바이트를 이펙트 ID로 시도)
+        effect_id = 0
+        payload_hex = ""
+        if payload_len > 0:
+            payload_data = data[offset:offset + payload_len]
+            payload_hex = payload_data.hex().upper()
+
+            # 첫 1-4바이트를 이펙트 ID로 해석
+            if payload_len >= 4:
+                effect_id = struct.unpack_from(">i", payload_data, 0)[0]
+            elif payload_len >= 2:
+                effect_id = struct.unpack_from(">h", payload_data, 0)[0]
+            elif payload_len >= 1:
+                effect_id = payload_data[0]
+
+        offset += payload_len
+
+        frames.append({
+            "time_ms": time_ms,
+            "effect_id": effect_id,
+            "payload_len": payload_len,
+            "payload_hex": payload_hex
+        })
+
+    return version, frames
+
+
+def group_timeline_by_effects(frames):
+    """타임라인 프레임을 이펙트별로 그룹화
+
+    반환: {
+        effect_id: {
+            'count': int,
+            'times_ms': [ms, ms, ...],
+            'first_time': ms,
+            'last_time': ms,
+            'duration_range': (min_gap, max_gap)
+        }
+    }
+    """
+    effects = {}
+
+    for frame in frames:
+        eid = frame['effect_id']
+        if eid not in effects:
+            effects[eid] = {
+                'count': 0,
+                'times_ms': [],
+                'payload_samples': []
+            }
+        effects[eid]['count'] += 1
+        effects[eid]['times_ms'].append(frame['time_ms'])
+        effects[eid]['payload_samples'].append(frame['payload_hex'][:8])  # 처음 4바이트만
+
+    # 각 이펙트별 통계
+    effect_stats = {}
+    for eid, data in effects.items():
+        times = sorted(data['times_ms'])
+        if len(times) > 1:
+            gaps = [times[i+1] - times[i] for i in range(len(times)-1)]
+            gap_range = (min(gaps), max(gaps))
+        else:
+            gap_range = (0, 0)
+
+        effect_stats[eid] = {
+            'count': data['count'],
+            'times_ms': times,
+            'first_time': times[0] if times else 0,
+            'last_time': times[-1] if times else 0,
+            'gap_range': gap_range,
+            'sample_payloads': list(set(data['payload_samples']))[:3]  # 유니크 샘플
+        }
+
+    return effect_stats
 
 # SectionDetector.SectionType enum 순서 (Kotlin 정의와 동일해야 함)
 _SECTION_TYPES = ['INTRO', 'VERSE', 'CHORUS', 'BRIDGE', 'END',
@@ -1469,6 +1565,85 @@ def beat_stats(beat_times_ms):
         "short_100"  : int(np.sum(iv < 100)),
         "anomaly_pct": round((int(np.sum(iv > 600)) + int(np.sum(iv < 100)))
                              / max(1, len(iv)) * 100, 1),
+    }
+
+def match_effect_beats(timeline_effects, app_ms, ref_ms, tol_ms=70):
+    """타임라인 이펙트별로 앱/GT 비트 매칭
+
+    반환: {
+        effect_id: {
+            'app_beats': [ms, ...],
+            'gt_beats': [ms, ...],
+            'time_range': (first_ms, last_ms)
+        }
+    }
+    """
+    if not timeline_effects:
+        return {}
+
+    effect_beats = {}
+    for effect_id, stats in timeline_effects.items():
+        effect_times = sorted(stats['times_ms'])
+        if not effect_times:
+            continue
+
+        first_time = effect_times[0]
+        last_time = effect_times[-1]
+        effect_duration = last_time - first_time
+
+        # 이펙트 시간 범위 내의 비트 추출 (약간의 마진 포함)
+        margin = tol_ms
+        time_start = first_time - margin
+        time_end = last_time + margin
+
+        app_in_range = [t for t in app_ms if time_start <= t <= time_end]
+        gt_in_range = [t for t in ref_ms if time_start <= t <= time_end]
+
+        effect_beats[effect_id] = {
+            'app_beats': app_in_range,
+            'gt_beats': gt_in_range,
+            'time_range': (first_time, last_time),
+            'beat_count_app': len(app_in_range),
+            'beat_count_gt': len(gt_in_range),
+        }
+
+    return effect_beats
+
+def calculate_effect_beat_accuracy(app_beats_ms, gt_beats_ms, tol_ms=70):
+    """이펙트 내 비트 정확도 계산
+
+    반환: {
+        'f_measure': float,
+        'precision': float,
+        'recall': float,
+        'tp': int,
+        'fp': int,
+        'fn': int
+    }
+    """
+    if not app_beats_ms or not gt_beats_ms:
+        return {
+            'f_measure': 0.0,
+            'precision': 0.0,
+            'recall': 0.0,
+            'tp': 0,
+            'fp': len(app_beats_ms),
+            'fn': len(gt_beats_ms)
+        }
+
+    tol_sec = tol_ms / 1000.0
+    app_sec = [t / 1000.0 for t in app_beats_ms]
+    gt_sec = [t / 1000.0 for t in gt_beats_ms]
+
+    f, p, r, tp, fp, fn = fmeasure(gt_sec, app_sec, tol_sec)
+
+    return {
+        'f_measure': f,
+        'precision': p,
+        'recall': r,
+        'tp': tp,
+        'fp': fp,
+        'fn': fn
     }
 
 def grade_info(f_score, engine):
@@ -2780,7 +2955,7 @@ class App(tk.Tk):
                                  bpm_app, bpm_ref, grade, section_results=None,
                                  app_style=None, librosa_style=None,
                                  librosa_style_features=None, librosa_sections=None,
-                                 app_sections=None):
+                                 app_sections=None, effect_results=None):
         """분석 결과를 beat_analysis_records.json 에 누적 저장한다."""
         import datetime
 
@@ -2861,6 +3036,9 @@ class App(tk.Tk):
 
             # 섹션별 비트 정확도 (section meta 바이너리가 있을 때만 채워짐)
             "sections": section_results or [],
+
+            # 타임라인 이펙트별 비트 정확도
+            "effects": effect_results or [],
 
             # 음악 스타일 및 구조 섹션 정보
             "app_style":              app_style or "N/A",
@@ -3364,6 +3542,14 @@ class App(tk.Tk):
         self.after(0, lambda: self._log("[ 1/4 ]  타임라인 + 섹션 바이너리 파싱…", "gray"))
         try:
             version, frame_count, app_ms_timeline = parse_timeline_binary(bin_path)
+            # ★ 이펙트 정보 추출
+            timeline_frames = None
+            timeline_effects = None
+            try:
+                _, timeline_frames = parse_timeline_binary_with_effects(bin_path)
+                timeline_effects = group_timeline_by_effects(timeline_frames)
+            except Exception:
+                pass
         except Exception as e:
             self.after(0, lambda m=str(e)[:150]:
                        self._log(f"[❌ 실패] 바이너리 파싱 오류: {m}", "red"))
@@ -3443,6 +3629,17 @@ class App(tk.Tk):
                 self._log(f"    섹션  : {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms", "green")
             else:
                 self._log(f"    사용중: {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms")
+
+            # ★ 이펙트 정보 표시
+            if timeline_effects:
+                self._log(f"\n  【타임라인 이펙트】: {len(timeline_effects)}종류", "cyan")
+                # 이펙트별 정보 표시 (상위 5개)
+                sorted_effects = sorted(timeline_effects.items(),
+                                       key=lambda x: x[1]['count'], reverse=True)[:5]
+                for eid, stats in sorted_effects:
+                    first = _fmt_sec(stats['first_time'] / 1000.0)
+                    last = _fmt_sec(stats['last_time'] / 1000.0)
+                    self._log(f"    [ID {eid:3d}] {stats['count']:3d}회  {first}~{last}  간격 {stats['gap_range'][0]:.0f}~{stats['gap_range'][1]:.0f}ms")
 
             # 품질 지표
             g = app_st.get('gaps_600', 0)
@@ -3720,6 +3917,60 @@ class App(tk.Tk):
             except Exception as _ex:
                 self.after(0, lambda e=str(_ex): self._log(f"  GT 섹션 오류: {e}", "red"))
 
+        # ── 타임라인 이펙트별 비트 정확도 분석 ────────────────────────
+        effect_results = []
+        if timeline_effects:
+            def _log_effects():
+                self._log("\n─── 타임라인 이펙트별 비트 정확도 ───────────────────", "gray")
+                self._log(f"  {'ID':>3}  {'구간':>17}  {'이펙트수':>6}  {'F':>5}  {'P':>5}  {'R':>5}  "
+                          f"{'TP':>4}  {'FP':>4}  {'FN':>4}  앱비트/GT비트")
+            self.after(0, _log_effects)
+
+            # 이펙트별 비트 매칭
+            effect_beat_map = match_effect_beats(timeline_effects, app_ms, ref_ms, tol_ms)
+
+            for effect_id in sorted(effect_beat_map.keys()):
+                beat_info = effect_beat_map[effect_id]
+                app_beats = beat_info['app_beats']
+                gt_beats = beat_info['gt_beats']
+                time_start, time_end = beat_info['time_range']
+
+                # 각 이펙트의 비트 정확도 계산
+                accuracy = calculate_effect_beat_accuracy(app_beats, gt_beats, tol_ms)
+                ef, ep, er, etp, efp, efn = (
+                    accuracy['f_measure'],
+                    accuracy['precision'],
+                    accuracy['recall'],
+                    accuracy['tp'],
+                    accuracy['fp'],
+                    accuracy['fn']
+                )
+
+                effect_results.append({
+                    "effect_id": effect_id,
+                    "time_start_ms": time_start,
+                    "time_end_ms": time_end,
+                    "beat_count_app": len(app_beats),
+                    "beat_count_gt": len(gt_beats),
+                    "f_measure": round(ef, 4),
+                    "precision": round(ep, 4),
+                    "recall": round(er, 4),
+                    "tp": etp,
+                    "fp": efp,
+                    "fn": efn,
+                })
+
+                tag = "green" if ef >= 0.8 else ("yellow" if ef >= 0.6 else "red")
+                def _le(eid=effect_id, ts=time_start/1000.0, te=time_end/1000.0,
+                        count=timeline_effects[effect_id]['count'],
+                        ef_val=ef, ep_val=ep, er_val=er, etp_val=etp, efp_val=efp, efn_val=efn,
+                        na=len(app_beats), ng=len(gt_beats), col=tag):
+                    self._log(
+                        f"  {eid:3d}  {_fmt_sec(ts)}~{_fmt_sec(te)}"
+                        f"  {count:6d}  {ef_val*100:5.1f}%  {ep_val*100:5.1f}%  {er_val*100:5.1f}%"
+                        f"  {etp_val:4d}  {efp_val:4d}  {efn_val:4d}  {na}/{ng}", col)
+                self.after(0, _le)
+
         # 결과 캐시
         self._last_result = dict(
             ref_sec=ref_sec, app_sec=app_sec,
@@ -3735,6 +3986,8 @@ class App(tk.Tk):
             librosa_style=librosa_style,
             librosa_style_features=librosa_style_features,
             librosa_sections=librosa_sections,
+            timeline_effects=timeline_effects,
+            effect_results=effect_results,
         )
         # 헤더 스타일 레이블 업데이트
         _as, _ls = app_style or 'N/A', librosa_style or 'N/A'
@@ -3761,6 +4014,7 @@ class App(tk.Tk):
             librosa_style_features=librosa_style_features,
             librosa_sections=librosa_sections,
             app_sections=sections,
+            effect_results=effect_results,
         )
         # 비트 타임라인 그리기 (전체 기본)
         def _draw():
