@@ -227,14 +227,8 @@ HAS_ALLIN1 = False
 _allin1_mod = None
 _allin1_err = None
 try:
-    import torch as _torch_tmp
-    _has_cuda = _torch_tmp.cuda.is_available()
-    del _torch_tmp
-    if _has_cuda:
-        import allin1 as _allin1_mod
-        HAS_ALLIN1 = True
-    else:
-        _allin1_err = "GPU(CUDA) 없음"
+    import allin1 as _allin1_mod
+    HAS_ALLIN1 = True
 except Exception as _e:
     _allin1_err = str(_e)
 
@@ -399,14 +393,8 @@ HAS_ALLIN1 = False
 _allin1_mod = None
 _allin1_err = None
 try:
-    import torch as _torch_tmp
-    _has_cuda = _torch_tmp.cuda.is_available()
-    del _torch_tmp
-    if _has_cuda:
-        import allin1 as _allin1_mod
-        HAS_ALLIN1 = True
-    else:
-        _allin1_err = "GPU(CUDA) 없음"
+    import allin1 as _allin1_mod
+    HAS_ALLIN1 = True
 except Exception as _e:
     _allin1_err = str(_e)
 
