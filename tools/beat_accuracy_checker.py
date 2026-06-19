@@ -2744,7 +2744,9 @@ class App(tk.Tk):
                     self.after(0, lambda n=len(pre_lib_sections), nm=name:
                                self._log(f"[GT섹션]  {nm} — {n}개 감지", "gray"))
                 except Exception as _se:
-                    self.after(0, lambda e=str(_se): self._log(f"[GT섹션] 오류: {e}", "red"))
+                    import traceback
+                    self.after(0, lambda e=str(_se)[:100], tb=traceback.format_exc()[:200]:
+                               self._log(f"[❌ GT섹션] {nm} 감지 실패: {e}", "red"))
 
             for engine in engines:
                 eng_lbl = ENGINE_INFO[engine][0]
@@ -2755,10 +2757,12 @@ class App(tk.Tk):
                                      librosa_sections=pre_lib_sections)
                 except Exception as e:
                     import traceback
-                    tb  = traceback.format_exc()
+                    tb_lines = traceback.format_exc().split('\n')
+                    # 마지막 2줄(에러 타입 + 메시지)만 사용
+                    tb_short = '\n'.join(tb_lines[-3:-1]) if len(tb_lines) > 2 else str(e)
                     msg = str(e)
-                    self.after(0, lambda n=name, el=eng_lbl, m=msg, tb=tb:
-                               self._log(f"\n[오류] {n} ({el}): {m}\n{tb}", "red"))
+                    self.after(0, lambda n=name, el=eng_lbl, m=msg[:80], tb=tb_short[:100]:
+                               self._log(f"\n[❌ 분석 실패] {n} ({el})\n  {m}\n  {tb}", "red"))
         self.after(0, lambda: self.run_btn.config(state="normal"))
         self.after(0, lambda: self.run_all_btn.config(state="normal"))
         self.after(0, lambda t=total: self.status_var.set(
@@ -3343,17 +3347,30 @@ class App(tk.Tk):
 
     def _do_analyze(self, audio_path, bin_path, engine, tol_ms, bpm_hint,
                     librosa_sections=None):
+        import time
         SEP  = "─" * 62
         SEP2 = "═" * 62
         eng_name, eng_acc, _ = ENGINE_INFO[engine]
+
+        _analysis_start = time.time()
+        _steps_timing = {}
 
         # ─ 곡 정보 헤더 갱신 ─
         _song_name = os.path.splitext(os.path.basename(audio_path))[0]
         self.after(0, lambda n=_song_name: self.v_song_title.set(n))
 
         # ① 바이너리
+        _step1_start = time.time()
         self.after(0, lambda: self._log("[ 1/4 ]  타임라인 바이너리 파싱…", "gray"))
-        version, frame_count, app_ms = parse_timeline_binary(bin_path)
+        try:
+            version, frame_count, app_ms = parse_timeline_binary(bin_path)
+        except Exception as e:
+            self.after(0, lambda m=str(e)[:150]:
+                       self._log(f"[❌ 실패] 바이너리 파싱 오류: {m}", "red"))
+            raise
+        _steps_timing['binary'] = time.time() - _step1_start
+        self.after(0, lambda t=_steps_timing['binary']:
+                   self._log(f"  └─ 완료 ({t:.2f}초)", "gray"))
         app_sec  = [t / 1000.0 for t in app_ms]
         app_st   = beat_stats(app_ms)
         bin_id   = extract_music_id(bin_path) or os.path.splitext(os.path.basename(bin_path))[0]
@@ -3422,20 +3439,30 @@ class App(tk.Tk):
         except Exception:
             pass
 
+        _step2_start = time.time()
         if cached_gt_ms is not None:
             self.after(0, lambda: self._log(
                 f"\n[ 2/4 ]  Ground-truth 캐시 사용 ({eng_name} — 재분석 생략)", "gray"))
             ref_ms  = cached_gt_ms
             ref_bpm = cached_gt_bpm
+            _steps_timing['gt'] = 0.0
         else:
             self.after(0, lambda: self._log(f"\n[ 2/4 ]  Ground-truth 감지… ({eng_name} {eng_acc})", "gray"))
-            if engine == "beat_transformer":
-                ref_sec, ref_bpm = detect_beats_beat_transformer(audio_path)
-            elif engine == "madmom":
-                ref_sec, ref_bpm = detect_beats_madmom(audio_path)
-            else:
-                ref_sec, ref_bpm = detect_beats_librosa(audio_path, bpm_hint)
-            ref_ms = [int(t * 1000) for t in ref_sec]
+            try:
+                if engine == "beat_transformer":
+                    ref_sec, ref_bpm = detect_beats_beat_transformer(audio_path)
+                elif engine == "madmom":
+                    ref_sec, ref_bpm = detect_beats_madmom(audio_path)
+                else:
+                    ref_sec, ref_bpm = detect_beats_librosa(audio_path, bpm_hint)
+                ref_ms = [int(t * 1000) for t in ref_sec]
+                _steps_timing['gt'] = time.time() - _step2_start
+                self.after(0, lambda t=_steps_timing['gt'], n=len(ref_sec):
+                           self._log(f"  └─ {n}개 비트 감지 ({t:.2f}초)", "gray"))
+            except Exception as e:
+                self.after(0, lambda m=str(e)[:150]:
+                           self._log(f"[❌ 실패] {eng_name} 감지 오류: {m}", "red"))
+                raise
         ref_sec = [t / 1000.0 for t in ref_ms]  # 통합: 이후 코드는 ref_sec 사용
         ref_st  = beat_stats(ref_ms)
         try:
@@ -3475,14 +3502,36 @@ class App(tk.Tk):
                   "C":"Ellis DP / Adaptive Threshold 튜닝을 권장합니다."
                   }.get(grade, "BPM 감지 로직부터 재검토가 필요합니다.")
 
+        _step4_elapsed = time.time() - _analysis_start
         def _update_ui():
             self._update_cards(
                 engine, f, p, r, tp, fp_cnt, fn,
                 app_st.get('bpm', 0), ref_bpm, bpm_err, cov_pct,
                 app_st.get('gaps_600', 0)
             )
-            self._log(f"완료 — F={f*100:.1f}%  P={p*100:.1f}%  R={r*100:.1f}%"
-                      f"  BPM 앱{app_st.get('bpm',0):.0f}/GT{ref_bpm:.0f}", "green")
+            # 결과 요약
+            result_color = "green" if grade in ("S", "A") else ("yellow" if grade == "B" else "red")
+            self._log(f"\n완료 [{grade}]  F={f*100:.1f}%  P={p*100:.1f}%  R={r*100:.1f}%  "
+                      f"BPM 앱{app_st.get('bpm',0):.0f}/GT{ref_bpm:.0f}", result_color)
+
+            # 경고/주의사항
+            warnings = []
+            if app_st.get('gaps_600', 0) > 0:
+                warnings.append(f"⚠️  대형갭({app_st.get('gaps_600', 0)}개) >600ms")
+            if app_st.get('short_100', 0) > 0:
+                warnings.append(f"⚠️  단기간({app_st.get('short_100', 0)}개) <100ms")
+            if bpm_err > 5:
+                warnings.append(f"⚠️  BPM 오차 {bpm_err:.1f}%")
+            if f < 0.6:
+                warnings.append(f"⚠️  F-measure 낮음 ({f*100:.1f}%)")
+
+            if warnings:
+                for w in warnings:
+                    self.after(0, lambda msg=w: self._log(msg, "orange"))
+
+            # 소요 시간
+            self._log(f"분석 소요: {_step4_elapsed:.2f}초", "gray")
+
             self._save_result_to_item(audio_path, engine, grade, f)
             sel = self._tree.selection()
             if sel:
@@ -3542,11 +3591,18 @@ class App(tk.Tk):
         if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
             try:
                 if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
+                    _gt_sec_start = time.time()
                     src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
                     self.after(0, lambda s=src: self._log(f"[+GT]  GT 섹션 감지 ({s})…", "gray"))
-                    librosa_sections = detect_gt_sections(audio_path, duration_sec)
-                    self.after(0, lambda n=len(librosa_sections):
-                        self._log(f"  GT 섹션 : {n}개 감지", "cyan"))
+                    try:
+                        librosa_sections = detect_gt_sections(audio_path, duration_sec)
+                        _gt_sec_elapsed = time.time() - _gt_sec_start
+                        self.after(0, lambda n=len(librosa_sections), t=_gt_sec_elapsed:
+                            self._log(f"  GT 섹션 : {n}개 감지 ({t:.2f}초)", "cyan"))
+                    except Exception as e:
+                        self.after(0, lambda m=str(e)[:100]:
+                                   self._log(f"  [❌ GT섹션 감지 실패] {m}", "red"))
+                        raise
 
                     # 섹션 타입 및 신뢰도 표시
                     if librosa_sections:
@@ -3563,10 +3619,13 @@ class App(tk.Tk):
                             if librosa_sections[0].get('confidence') is not None:
                                 avg_conf = sum(s.get('confidence', 0.5) for s in librosa_sections) / len(librosa_sections)
                                 conf_pct = int(avg_conf * 100)
-                                self.after(0, lambda c=conf_pct:
-                                           self._log(f"  평균 신뢰도: {c}%",
-                                                    "green" if c >= 80 else "yellow" if c >= 60 else "orange"))
-                        except Exception:
+                                conf_color = "green" if conf_pct >= 80 else "yellow" if conf_pct >= 60 else "orange"
+                                self.after(0, lambda c=conf_pct, col=conf_color:
+                                           self._log(f"  평균 신뢰도: {c}%", col))
+                        except Exception as e:
+                            self.after(0, lambda m=str(e)[:80]:
+                                       self._log(f"  [⚠️  섹션 분석] {m}", "orange"))
+                        else:
                             pass
                 else:
                     self.after(0, lambda n=len(librosa_sections):
