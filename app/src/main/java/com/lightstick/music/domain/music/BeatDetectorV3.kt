@@ -445,7 +445,7 @@ object BeatDetectorV3 {
         }
 
         val LOG_BPM_CENTER = ln(120f)
-        val LOG_BPM_SX2    = 2f * 0.5f * 0.5f  // σ=0.5 — 120 BPM 근처 곡만 하모닉 보정
+        val LOG_BPM_SX2    = 2f * 0.8f * 0.8f  // σ=0.8 (0.5x 외 HARM_RATIO용 예비)
 
         fun combPriorScore(beatMs: Long): Float {
             val fpb = max(1, (beatMs / hopMs).toInt())
@@ -489,11 +489,17 @@ object BeatDetectorV3 {
         Log.d(TAG, "V3 harm subdiv: result=${resultMs}ms q=${quarterMs}ms ratio=${"%.3f".format(subdivRatio)}")
 
         for (r in HARM_RATIOS) {
-            if (r == 0.5f && resultMs < 840L) continue
-            if (r == 0.5f && subdivRatio < SUBDIV_RATIO_MIN) continue  // 발라드 차단
             val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt().coerceAtLeast(1)
             val cMs = frames.toLong() * hopMs
             if (cMs < minBeatMs || cMs > maxBeatMs) continue
+
+            if (r == 0.5f) {
+                // 반배속 보정: 분할음 게이트 단독 결정 — prior 없이 임계 하나만 사용
+                // K-pop 하이햇/16분음표 있음 → 통과 / 발라드(피아노/기타) → 차단
+                if (resultMs >= 840L && subdivRatio >= SUBDIV_RATIO_MIN) bestCorrMs = cMs
+                continue
+            }
+            // 기타 HARM_RATIO: combPriorScore 사용 (확장 예비)
             val ps = combPriorScore(cMs)
             if (ps > bestCorrPS) { bestCorrPS = ps; bestCorrMs = cMs }
         }
