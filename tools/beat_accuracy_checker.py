@@ -3361,9 +3361,9 @@ class App(tk.Tk):
 
         # ① 바이너리
         _step1_start = time.time()
-        self.after(0, lambda: self._log("[ 1/4 ]  타임라인 바이너리 파싱…", "gray"))
+        self.after(0, lambda: self._log("[ 1/4 ]  타임라인 + 섹션 바이너리 파싱…", "gray"))
         try:
-            version, frame_count, app_ms = parse_timeline_binary(bin_path)
+            version, frame_count, app_ms_timeline = parse_timeline_binary(bin_path)
         except Exception as e:
             self.after(0, lambda m=str(e)[:150]:
                        self._log(f"[❌ 실패] 바이너리 파싱 오류: {m}", "red"))
@@ -3371,13 +3371,13 @@ class App(tk.Tk):
         _steps_timing['binary'] = time.time() - _step1_start
         self.after(0, lambda t=_steps_timing['binary']:
                    self._log(f"  └─ 완료 ({t:.2f}초)", "gray"))
-        app_sec  = [t / 1000.0 for t in app_ms]
-        app_st   = beat_stats(app_ms)
+
         bin_id   = extract_music_id(bin_path) or os.path.splitext(os.path.basename(bin_path))[0]
 
         # 섹션 메타 바이너리 탐색 (같은 폴더의 sections_<id>_v*.bin)
         sections = []
         app_style = 'N/A'
+        app_ms_from_sections = []
         try:
             bin_folder = os.path.dirname(bin_path)
             for fname in sorted(os.listdir(bin_folder), reverse=True):
@@ -3386,9 +3386,31 @@ class App(tk.Tk):
                     if fid == bin_id:
                         _, app_style, sections = parse_section_meta_binary(
                             os.path.join(bin_folder, fname))
+
+                        # ★ 섹션에서 모든 비트 타임스탐프 추출
+                        if sections:
+                            for sec in sections:
+                                beat_times = sec.get("beat_times_ms", [])
+                                app_ms_from_sections.extend(beat_times)
+                            # 시간순 정렬
+                            app_ms_from_sections = sorted(app_ms_from_sections)
                         break
         except Exception:
             pass
+
+        # ★ 메인 앱 비트 결정: 섹션 바이너리 > 타임라인 바이너리
+        if app_ms_from_sections:
+            app_ms = app_ms_from_sections
+            beats_source = "섹션"
+        else:
+            app_ms = app_ms_timeline
+            beats_source = "타임라인"
+
+        app_sec  = [t / 1000.0 for t in app_ms]
+        app_st   = beat_stats(app_ms)
+
+        # 타임라인 바이너리 통계 (참고용)
+        app_timeline_st = beat_stats(app_ms_timeline)
 
         # 오디오 해시 기반 Music ID (SDK 동일 알고리즘)
         try:
@@ -3407,16 +3429,25 @@ class App(tk.Tk):
 
         def _lb():
             self._log(SEP, "gray")
-            self._log(f"  바이너리   : {os.path.basename(bin_path)}")
+            self._log(f"  타임라인 바이너리: {os.path.basename(bin_path)}")
+            if sections:
+                self._log(f"  섹션 바이너리: 감지됨 ({len(sections)}개 섹션)", "green")
             self._log(f"  Music ID (bin) : {bin_id}  |  Music ID (mp3 hash) : {audio_hash_id}",
                       "yellow" if bin_id != audio_hash_id else "green")
             self._log(f"  포맷 버전  : {version}")
-            self._log(f"  총 프레임  : {frame_count}  (파싱: {len(app_ms)})")
-            self._log(f"  감지 BPM   : {app_st.get('bpm',0):.1f}")
-            self._log(f"  중앙 간격  : {app_st.get('median_ms',0):.1f} ms")
+
+            # ★ 두 소스 비트 비교
+            self._log(f"\n  【앱 비트 소스】: {beats_source} 바이너리", "cyan" if beats_source == "섹션" else "gray")
+            self._log(f"    타임라인: {len(app_ms_timeline)}개 비트  |  BPM {app_timeline_st.get('bpm',0):.1f}  |  간격 {app_timeline_st.get('median_ms',0):.1f}ms")
+            if app_ms_from_sections:
+                self._log(f"    섹션  : {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms", "green")
+            else:
+                self._log(f"    사용중: {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms")
+
+            # 품질 지표
             g = app_st.get('gaps_600', 0)
             s = app_st.get('short_100', 0)
-            self._log(f"  대형갭>600ms: {g}개{'  ← 주의' if g else ''}", "yellow" if g else None)
+            self._log(f"\n  대형갭>600ms: {g}개{'  ← 주의' if g else ''}", "yellow" if g else None)
             self._log(f"  단기간<100ms: {s}개{'  ← 주의' if s else ''}", "yellow" if s else None)
             self._log(f"  이상 인터벌: {app_st.get('anomaly_pct',0):.1f}%")
         self.after(0, _lb)
