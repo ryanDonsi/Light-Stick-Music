@@ -24,15 +24,10 @@ object BeatDetectorV3 {
     private const val FB_FMIN   = 27.5f
     private const val FB_FMAX   = 16000f
 
-    private const val DBN_TRANSITION_LAMBDA  = 100f
-    private const val DBN_OBSERVATION_LAMBDA = 16
-
-    // 하모닉 보정: 0.75는 My World/God's Menu/모든날 파괴하므로 0.5만 사용
-    private val HARM_RATIOS = floatArrayOf(0.5f)
-
-    // 4분의1 주기 분할음 게이트: rawComb(resultMs/4)/rawComb(resultMs) 최솟값
-    // K-pop(하이햇/16분음표 있음)은 통과, 발라드(피아노/기타만)는 차단
-    private const val SUBDIV_RATIO_MIN = 0.40f
+    // V1 방식 BPM 추정 파라미터 (librosa log-normal prior + half-tempo 체크)
+    private const val BPM_PRIOR_CENTER_MS  = 500L    // 120 BPM
+    private const val BPM_PRIOR_STD_OCTAVE = 1.0f    // σ = 1 octave
+    private const val BPM_HALF_TEMPO_RATIO = 0.60f   // 반박자 오류 방지 임계
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -92,12 +87,8 @@ object BeatDetectorV3 {
             return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
 
-        // [🔥 BPM은 반드시 odfTempo(순정)를 사용하여 반토막 함정을 피합니다]
-        // harmonic comb도 odfTempo — 4분의1 주기 게이트(하이햇 에너지)로 발라드와 구별
-        val beatMs = dbnEstimateTempo(
-            odfTempo, hopMs, params.minBeatMs, params.maxBeatMs,
-            DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA
-        )
+        // BPM 추정: V1 방식 autocorr × log-normal prior + half-tempo 체크 (odfTempo 사용)
+        val beatMs = estimateBpmV1Style(odfTempo, hopMs, params.minBeatMs, params.maxBeatMs)
 
         // [🔥 위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
         val phaseMs = estimatePhaseFromOdf(odfTrack, beatMs, hopMs)
@@ -352,163 +343,62 @@ object BeatDetectorV3 {
         }
     }
 
-    private fun dbnEstimateTempo(
-        odf: List<Float>, hopMs: Long, minBeatMs: Long, maxBeatMs: Long,
-        transitionLambda: Float, observationLambda: Int,
-        odfComb: List<Float> = odf   // harmonic comb check 전용 ODF (킥 가중 odfTrack)
+    // =========================================================================
+    // V1 방식 BPM 추정 — librosa beat_track 동일한 autocorr × log-normal prior
+    //
+    // autocorr[lag] = mean(odf[i] * odf[i+lag])
+    // prior[lag]    = exp(-0.5*(log2(lagMs/500ms)/1octave)^2)
+    // score[lag]    = autocorr[lag] * prior[lag]
+    // half-tempo 체크: autocorr[halfLag]/autocorr[bestLag] >= 0.60 → 2배 BPM 선택
+    // =========================================================================
+
+    private fun estimateBpmV1Style(
+        odf: List<Float>,
+        hopMs: Long,
+        minBeatMs: Long,
+        maxBeatMs: Long
     ): Long {
-        val minInterval = max(1, (minBeatMs / hopMs).toInt())
-        val maxInterval = max(minInterval + 1, (maxBeatMs / hopMs).toInt())
-        val intervals   = IntArray(maxInterval - minInterval + 1) { minInterval + it }
-        val numIntv     = intervals.size
-        if (numIntv == 0 || odf.size < minInterval * 2) return minBeatMs
+        val minLag = max(1, (minBeatMs / hopMs).toInt())
+        val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
+        if (odf.size <= maxLag + 2) return minBeatMs
 
-        val totalStates    = intervals.sum()
-        val stateIntv      = IntArray(totalStates)
-        val statePos       = IntArray(totalStates)
-        val stateIntvIdx   = IntArray(totalStates)
-        val intvStartState = IntArray(numIntv)
+        val acVals    = FloatArray(maxLag + 1)
+        var bestScore = Float.NEGATIVE_INFINITY
+        var bestLag   = -1
 
-        var s = 0
-        for (ii in 0 until numIntv) {
-            intvStartState[ii] = s
-            for (p in 0 until intervals[ii]) {
-                stateIntv[s] = intervals[ii]; statePos[s] = p; stateIntvIdx[s] = ii; s++
+        for (lag in minLag..maxLag) {
+            var sum = 0f; var count = 0
+            for (i in 0 until odf.size - lag) { sum += odf[i] * odf[i + lag]; count++ }
+            if (count == 0) continue
+            val acVal = sum / count
+            acVals[lag] = acVal
+
+            val lagMs    = lag * hopMs
+            val logRatio = ln(lagMs.toFloat() / BPM_PRIOR_CENTER_MS) / ln(2f)
+            val prior    = exp(-0.5f * (logRatio / BPM_PRIOR_STD_OCTAVE) * (logRatio / BPM_PRIOR_STD_OCTAVE))
+
+            val score = acVal * prior
+            if (score > bestScore) { bestScore = score; bestLag = lag }
+        }
+
+        if (bestLag <= 0) return minBeatMs
+
+        // half-tempo 체크: prior가 느린 BPM 선호 → 2배속이 강하면 빠른 템포 선택
+        val halfLag = bestLag / 2
+        if (halfLag >= minLag) {
+            val halfAc = acVals[halfLag]
+            val bestAc = acVals[bestLag]
+            if (bestAc > 0f && halfAc / bestAc >= BPM_HALF_TEMPO_RATIO) {
+                val halfMs = halfLag * hopMs
+                Log.d(TAG, "V3 halfTempoFix: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
+                    " → ${halfMs}ms(${60_000L/halfMs}BPM) ratio=${halfAc/bestAc}")
+                return halfMs
             }
         }
 
-        val bbLogTrans = Array(numIntv) { fromII ->
-            val fi  = intervals[fromII].toFloat()
-            val raw = FloatArray(numIntv) { toII ->
-                -transitionLambda * abs(intervals[toII].toFloat() / fi - 1f)
-            }
-            val maxR = raw.max(); var sumE = 0.0
-            for (v in raw) sumE += exp((v - maxR).toDouble())
-            val logZ = maxR + ln(sumE.toFloat())
-            FloatArray(numIntv) { toII -> raw[toII] - logZ }
-        }
-
-        val LOG_ZERO    = -1e9f
-        val logInitUnif = -ln(numIntv.toFloat())
-        var logFwd = FloatArray(totalStates) { LOG_ZERO }
-        for (ii in 0 until numIntv) {
-            logFwd[intvStartState[ii]] = logInitUnif
-        }
-
-        val intvBeatAccum = FloatArray(numIntv)
-        val n = odf.size
-
-        for (t in 0 until n) {
-            val act        = odf[t].coerceIn(1e-6f, 1f - 1e-6f)
-            val logBeat    = ln(act)
-            val logNonBeat = ln((1f - act) / (observationLambda - 1).toFloat())
-
-            val lastLogFwd = FloatArray(numIntv) { ii ->
-                logFwd[intvStartState[ii] + intervals[ii] - 1]
-            }
-
-            val logFwdNew = FloatArray(totalStates) { LOG_ZERO }
-            for (st in 0 until totalStates) {
-                val p      = statePos[st]
-                val logObs = if (p == 0) logBeat else logNonBeat
-                val logPrev = if (p > 0) {
-                    logFwd[st - 1]
-                } else {
-                    val toII = stateIntvIdx[st]
-                    var maxVal = LOG_ZERO
-                    for (fromII in 0 until numIntv) {
-                        val cand = lastLogFwd[fromII] + bbLogTrans[fromII][toII]
-                        if (cand > maxVal) maxVal = cand
-                    }
-                    maxVal
-                }
-                if (logPrev > LOG_ZERO) logFwdNew[st] = logPrev + logObs
-            }
-
-            val peak = logFwdNew.max()
-            if (peak > LOG_ZERO) for (i in logFwdNew.indices) {
-                if (logFwdNew[i] > LOG_ZERO) logFwdNew[i] -= peak
-            }
-            logFwd = logFwdNew
-
-            for (ii in 0 until numIntv) {
-                val bss = intvStartState[ii]
-                if (logFwd[bss] > LOG_ZERO) intvBeatAccum[ii] += exp(logFwd[bss].toDouble()).toFloat()
-            }
-        }
-
-        var bestII = 0
-        for (ii in 1 until numIntv) {
-            val cntI = (n.toFloat() / intervals[ii]).coerceAtLeast(1f)
-            val cntB = (n.toFloat() / intervals[bestII]).coerceAtLeast(1f)
-            if (intvBeatAccum[ii] / cntI > intvBeatAccum[bestII] / cntB) bestII = ii
-        }
-
-        val LOG_BPM_CENTER = ln(120f)
-        val LOG_BPM_SX2    = 2f * 0.8f * 0.8f  // σ=0.8 (0.5x 외 HARM_RATIO용 예비)
-
-        fun combPriorScore(beatMs: Long): Float {
-            val fpb = max(1, (beatMs / hopMs).toInt())
-            if (odfComb.size < fpb * 2) return 0f
-            var best = Float.NEGATIVE_INFINITY
-            for (ph in 0 until fpb) {
-                var sc = 0f; var f = ph
-                while (f < odfComb.size) { sc += odfComb[f]; f += fpb }
-                if (sc > best) best = sc
-            }
-            val expectedBeats = (odfComb.size.toFloat() / fpb.toFloat()).coerceAtLeast(1f)
-            val normalizedBest = best / expectedBeats
-            val bpm   = 60_000f / beatMs.toFloat()
-            val d     = ln(bpm) - LOG_BPM_CENTER
-            val prior = exp(-(d * d) / LOG_BPM_SX2.toDouble()).toFloat()
-            return normalizedBest * prior
-        }
-
-        // 4분의1 주기 rawComb (prior 없음, 전 주파수 odf — 하이햇 포함)
-        fun rawCombScore(beatMs: Long): Float {
-            val fpb = max(1, (beatMs / hopMs).toInt())
-            if (odf.size < fpb * 2) return 0f
-            var best = Float.NEGATIVE_INFINITY
-            for (ph in 0 until fpb) {
-                var sc = 0f; var f = ph
-                while (f < odf.size) { sc += odf[f]; f += fpb }
-                if (sc > best) best = sc
-            }
-            return best / (odf.size.toFloat() / fpb.toFloat()).coerceAtLeast(1f)
-        }
-
-        val resultMs   = intervals[bestII].toLong() * hopMs
-        var bestCorrMs = resultMs
-        var bestCorrPS = combPriorScore(resultMs)
-
-        // 4분의1 주기 분할음 비율 — K-pop 하이햇 vs 발라드 구별
-        val quarterMs   = resultMs / 4L
-        val rawFull     = rawCombScore(resultMs)
-        val rawQuarter  = rawCombScore(quarterMs)
-        val subdivRatio = if (rawFull > 1e-6f) rawQuarter / rawFull else 0f
-        Log.d(TAG, "V3 harm subdiv: result=${resultMs}ms q=${quarterMs}ms ratio=${"%.3f".format(subdivRatio)}")
-
-        for (r in HARM_RATIOS) {
-            val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt().coerceAtLeast(1)
-            val cMs = frames.toLong() * hopMs
-            if (cMs < minBeatMs || cMs > maxBeatMs) continue
-
-            if (r == 0.5f) {
-                // 반배속 보정: 분할음 게이트 단독 결정 — prior 없이 임계 하나만 사용
-                // K-pop 하이햇/16분음표 있음 → 통과 / 발라드(피아노/기타) → 차단
-                if (resultMs >= 840L && subdivRatio >= SUBDIV_RATIO_MIN) bestCorrMs = cMs
-                continue
-            }
-            // 기타 HARM_RATIO: combPriorScore 사용 (확장 예비)
-            val ps = combPriorScore(cMs)
-            if (ps > bestCorrPS) { bestCorrPS = ps; bestCorrMs = cMs }
-        }
-
-        if (bestCorrMs != resultMs)
-            Log.d(TAG, "V3 dbnTempo harmonic fix: ${resultMs}ms→${bestCorrMs}ms " +
-                "(${60_000L / resultMs}→${60_000L / bestCorrMs} BPM)")
-        Log.d(TAG, "V3 dbnTempo: ${bestCorrMs}ms (${60_000L / bestCorrMs} BPM)")
-        return bestCorrMs
+        val resultMs = bestLag * hopMs
+        Log.d(TAG, "V3 bpmEstimate: ${resultMs}ms (${60_000L/resultMs} BPM)")
+        return resultMs
     }
 
     private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
