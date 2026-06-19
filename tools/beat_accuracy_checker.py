@@ -3602,19 +3602,20 @@ class App(tk.Tk):
                     pygame.mixer.music.load(self._current_audio_path)
                     pygame.mixer.music.play()
                     self._is_playing = True
+                    self._stop_playback = False
                     self._playback_thread = threading.Thread(target=self._track_playback, daemon=True)
                     self._playback_thread.start()
                     self._update_play_buttons()
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._log(f"[재생 오류] {str(e)[:100]}", "red")
             else:
                 # 일시정지된 상태에서 재개
                 try:
                     pygame.mixer.music.unpause()
                     self._is_playing = True
                     self._update_play_buttons()
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._log(f"[재개 오류] {str(e)[:100]}", "red")
 
     def _pause_audio(self):
         """음악 일시정지"""
@@ -3624,8 +3625,8 @@ class App(tk.Tk):
             pygame.mixer.music.pause()
             self._is_playing = False
             self._update_play_buttons()
-        except Exception:
-            pass
+        except Exception as e:
+            self._log(f"[일시정지 오류] {str(e)[:100]}", "red")
 
     def _stop_audio(self):
         """음악 정지"""
@@ -3638,26 +3639,28 @@ class App(tk.Tk):
             self._playback_pos_ms = 0
             self._update_play_buttons()
             self.v_play_time.set("0:00 / 0:00")
-        except Exception:
-            pass
+        except Exception as e:
+            self._log(f"[정지 오류] {str(e)[:100]}", "red")
 
     def _track_playback(self):
         """백그라운드에서 재생 시간 추적"""
+        import time
         while self._is_playing and not self._stop_playback:
             try:
                 if pygame.mixer.music.get_busy():
-                    self._playback_pos_ms = int(pygame.mixer.music.get_pos())
-                    if self._playback_pos_ms >= 0:
-                        self._update_time_display()
-                        self._redraw_timeline()
-                    time.sleep(0.016)  # 약 60fps
+                    pos = pygame.mixer.music.get_pos()
+                    if pos >= 0:
+                        self._playback_pos_ms = int(pos)
+                        self.after(0, lambda: self._update_time_display())
+                        self.after(0, lambda: self._redraw_timeline())
+                    time.sleep(0.05)  # 약 20fps
                 else:
                     # 재생 완료
                     self._is_playing = False
-                    self._playback_pos_ms = 0
-                    self._update_play_buttons()
+                    self.after(0, lambda: self._update_play_buttons())
                     break
-            except Exception:
+            except Exception as e:
+                self.after(0, lambda m=str(e)[:100]: self._log(f"[재생 추적 오류] {m}", "red"))
                 break
         self._stop_playback = False
 
