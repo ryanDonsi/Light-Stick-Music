@@ -848,6 +848,180 @@ def detect_msaf_sections(audio_path, duration_sec):
         return []
 
 
+def classify_msaf_sections_semantic(audio_path, duration_sec):
+    """MSAF 경계 + Librosa 특징으로 의미 있는 섹션 분류.
+
+    MSAF로 정확한 경계를 감지하고, 각 구간의 음향 특징(에너지, 스펙트럼,
+    리듬 밀도)을 분석하여 allin1처럼 의미 있는 라벨(INTRO/VERSE/CHORUS 등)
+    을 부여한다.
+
+    반환: [
+        {'start_ms': int, 'end_ms': int, 'index': int,
+         'type': 'INTRO'|'VERSE'|'CHORUS'|'BRIDGE'|'OUTRO'|'PRE-CHORUS',
+         'confidence': 0-1,  # 분류 신뢰도
+         'cluster': 'A'|'B'|'C'...}  # 원본 msaf 클러스터
+    ]
+    """
+    if not HAS_MSAF or not HAS_LIBROSA:
+        return []
+    try:
+        import numpy as np
+        from collections import Counter
+
+        # ── 1. MSAF 경계 감지 ──
+        bounds, cluster_ids = _msaf_mod.process(
+            audio_path, boundaries_id='scluster', labels_id='fmc2d')
+        cluster_ids = list(cluster_ids)
+        n = len(cluster_ids)
+        if n < 2:
+            return []
+
+        # bounds 정규화
+        if float(bounds[0]) > 0.1:
+            bounds = np.concatenate([[0.0], bounds])
+        if len(bounds) < n + 1:
+            bounds = np.concatenate([bounds, [duration_sec]])
+
+        # 클러스터 알파벳 매핑
+        _CLUSTER_LETTERS = 'ABCDEFGHIJ'
+        seen = {}
+        for cid in cluster_ids:
+            if cid not in seen:
+                seen[cid] = _CLUSTER_LETTERS[len(seen) % len(_CLUSTER_LETTERS)]
+        cluster_labels = [seen[int(cid)] for cid in cluster_ids]
+
+        # ── 2. 오디오 로드 및 특징 추출 ──
+        load_dur = min(300.0, duration_sec) if duration_sec > 0 else 300.0
+        y, sr = librosa.load(audio_path, sr=22050, mono=True, duration=load_dur)
+        total_dur = len(y) / sr
+
+        # 특징 계산
+        hop_feat = 512
+        chroma_f   = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_feat)
+        rms_f      = librosa.feature.rms(y=y, hop_length=hop_feat)[0]
+        centroid_f = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_feat)[0]
+        flatness_f = librosa.feature.spectral_flatness(y=y, hop_length=hop_feat)[0]
+        onset_f    = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_feat)
+
+        # ── 3. 각 MSAF 구간별 특징 집계 ──
+        def _frames(t):
+            return min(int(t * sr / hop_feat), chroma_f.shape[1])
+
+        seg_feats = []
+        for i in range(n):
+            t0, t1 = float(bounds[i]), float(bounds[i + 1])
+            f0, f1 = _frames(t0), _frames(t1)
+            if f1 <= f0:
+                f1 = f0 + 1
+
+            chroma_mean = chroma_f[:, f0:f1].mean(axis=1)
+            rms_mean    = float(rms_f[f0:min(f1, len(rms_f))].mean())
+            cent_mean   = float(centroid_f[f0:min(f1, len(centroid_f))].mean())
+            flat_mean   = float(flatness_f[f0:min(f1, len(flatness_f))].mean())
+            onset_mean  = float(onset_f[f0:min(f1, len(onset_f))].mean())
+
+            seg_feats.append({
+                'chroma':    chroma_mean,
+                'rms':       rms_mean,
+                'centroid':  cent_mean,
+                'flatness':  flat_mean,
+                'onset':     onset_mean,
+                'pos':       (t0 + t1) / 2 / total_dur,
+            })
+
+        # ── 4. 특징 정규화 ──
+        def _norm(vals):
+            a = np.array(vals, dtype=float)
+            mn, mx = a.min(), a.max()
+            return (a - mn) / (mx - mn + 1e-8)
+
+        rms_n    = _norm([f['rms']       for f in seg_feats])
+        cent_n   = _norm([f['centroid']  for f in seg_feats])
+        flat_n   = _norm([f['flatness']  for f in seg_feats])
+        onset_n  = _norm([f['onset']     for f in seg_feats])
+
+        # ── 5. 크로마 유사도로 그룹 판별 ──
+        def _cos_sim(a, b):
+            na, nb = np.linalg.norm(a), np.linalg.norm(b)
+            return float(np.dot(a, b) / (na * nb)) if na > 1e-6 and nb > 1e-6 else 0.0
+
+        group_ids = [-1] * n
+        gid = 0
+        for i in range(n):
+            if group_ids[i] >= 0:
+                continue
+            group_ids[i] = gid
+            for j in range(i + 1, n):
+                if group_ids[j] < 0 and _cos_sim(seg_feats[i]['chroma'], seg_feats[j]['chroma']) >= 0.85:
+                    group_ids[j] = gid
+            gid += 1
+
+        # ── 6. CHORUS/VERSE/BRIDGE 그룹 판별 ──
+        grp_cnt = Counter(group_ids)
+        rep_n = _norm([float(grp_cnt[group_ids[i]]) for i in range(n)])
+
+        # 점수: 반복도 30% + 에너지 35% + 밝기 20% + onset 15%
+        chorus_score = 0.30 * rep_n + 0.35 * rms_n + 0.20 * cent_n + 0.15 * onset_n
+
+        grp_scores = {}
+        for i in range(1, n - 1):
+            grp_scores.setdefault(group_ids[i], []).append(chorus_score[i])
+        grp_avg = {g: float(np.mean(v)) for g, v in grp_scores.items()}
+        ranked = sorted(grp_avg.items(), key=lambda x: x[1], reverse=True)
+
+        chorus_grp = ranked[0][0] if ranked else -1
+        verse_grp  = ranked[1][0] if len(ranked) > 1 else -1
+        bridge_grp = ranked[2][0] if len(ranked) > 2 else -1
+
+        # ── 7. 1차 라벨 부여 ──
+        types = []
+        confidence_scores = []
+        for i in range(n):
+            g = group_ids[i]
+            if i == 0:
+                types.append("INTRO")
+                confidence_scores.append(0.95)
+            elif i == n - 1:
+                types.append("OUTRO")
+                confidence_scores.append(0.95)
+            elif g == chorus_grp and rms_n[i] >= 0.30:
+                types.append("CHORUS")
+                confidence_scores.append(min(1.0, chorus_score[i] + 0.1))
+            elif g == verse_grp:
+                types.append("VERSE")
+                confidence_scores.append(min(1.0, (1 - chorus_score[i]) * 0.8))
+            elif g == bridge_grp or grp_cnt[g] == 1:
+                types.append("BRIDGE")
+                confidence_scores.append(0.65)
+            else:
+                types.append("VERSE")
+                confidence_scores.append(0.5)
+
+        # ── 8. PRE-CHORUS 탐지 ──
+        verse_e = [rms_n[i] for i in range(n) if types[i] == "VERSE"]
+        verse_mean = float(np.mean(verse_e)) if verse_e else 0.5
+        for i in range(1, n - 1):
+            if types[i] in ("VERSE", "BRIDGE") and types[i + 1] == "CHORUS":
+                rising = rms_n[i] > rms_n[i - 1] + 0.05
+                high   = rms_n[i] > verse_mean + 0.08
+                if rising or high:
+                    types[i] = "PRE-CHORUS"
+                    confidence_scores[i] = 0.7
+
+        # ── 9. 결과 구성 ──
+        return [
+            {'start_ms': int(float(bounds[i]) * 1000),
+             'end_ms':   int(float(bounds[i + 1]) * 1000),
+             'index':    i,
+             'type':     types[i],
+             'confidence': round(confidence_scores[i], 3),
+             'cluster':  cluster_labels[i]}
+            for i in range(n)
+        ]
+    except Exception as e:
+        return []
+
+
 def detect_msaf_sections_with_drums(audio_path, duration_sec):
     """Demucs로 드럼 분리 후 msaf로 섹션 감지 (더 정확한 경계 감지).
 
@@ -1013,10 +1187,12 @@ def validate_section_meaning(app_sections, gt_sections):
 
 
 def detect_gt_sections(audio_path, duration_sec):
-    """GT 섹션 감지 우선순위: allin1 → demucs(drums) → msaf → librosa
+    """GT 섹션 감지 우선순위:
+    allin1 → demucs(drums) → msaf(semantic) → msaf(cluster) → librosa
 
     allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
     (start/end 마커는 제외)
+    msaf(semantic): MSAF 경계 + librosa 특징으로 의미 있는 라벨 부여
     """
     if HAS_ALLIN1:
         try:
@@ -1046,6 +1222,16 @@ def detect_gt_sections(audio_path, duration_sec):
         except Exception:
             pass
 
+    # ★ MSAF 경계 + 의미 있는 라벨 (allin1처럼)
+    if HAS_MSAF and HAS_LIBROSA:
+        try:
+            semantic_sections = classify_msaf_sections_semantic(audio_path, duration_sec)
+            if semantic_sections and len(semantic_sections) >= 2:
+                return semantic_sections
+        except Exception:
+            pass
+
+    # 원본 MSAF (음향 클러스터만)
     if HAS_MSAF:
         try:
             result = detect_msaf_sections(audio_path, duration_sec)
@@ -1053,6 +1239,7 @@ def detect_gt_sections(audio_path, duration_sec):
                 return result
         except Exception:
             pass
+
     return detect_librosa_sections(audio_path, duration_sec)
 
 
@@ -3360,6 +3547,27 @@ class App(tk.Tk):
                     librosa_sections = detect_gt_sections(audio_path, duration_sec)
                     self.after(0, lambda n=len(librosa_sections):
                         self._log(f"  GT 섹션 : {n}개 감지", "cyan"))
+
+                    # 섹션 타입 및 신뢰도 표시
+                    if librosa_sections:
+                        try:
+                            # 섹션 유형 분포
+                            from collections import Counter
+                            types = [s.get('type', '?') for s in librosa_sections]
+                            type_dist = Counter(types)
+                            dist_str = "  |  ".join([f"{t}:{c}" for t, c in sorted(type_dist.items())])
+                            self.after(0, lambda ds=dist_str:
+                                       self._log(f"  구성: {ds}", "cyan"))
+
+                            # 신뢰도 정보 (confidence 필드가 있으면)
+                            if librosa_sections[0].get('confidence') is not None:
+                                avg_conf = sum(s.get('confidence', 0.5) for s in librosa_sections) / len(librosa_sections)
+                                conf_pct = int(avg_conf * 100)
+                                self.after(0, lambda c=conf_pct:
+                                           self._log(f"  평균 신뢰도: {c}%",
+                                                    "green" if c >= 80 else "yellow" if c >= 60 else "orange"))
+                        except Exception:
+                            pass
                 else:
                     self.after(0, lambda n=len(librosa_sections):
                         self._log(f"  GT 섹션 : {n}개 (사전계산)", "cyan"))
