@@ -25,11 +25,9 @@ object BeatDetectorV3 {
     private const val FB_FMAX   = 16000f
 
     // V1 방식 BPM 추정 파라미터 (librosa log-normal prior + half/double-tempo 체크)
-    private const val BPM_PRIOR_CENTER_MS    = 500L    // 120 BPM
-    private const val BPM_PRIOR_STD_OCTAVE   = 1.0f    // σ = 1 octave
-    private const val BPM_HALF_TEMPO_RATIO   = 0.70f   // 반박자 오류 방지 (0.65→0.70: 발라드 halfFix 오탐 방지)
-    private const val BPM_DOUBLE_TEMPO_RATIO = 1.00f   // 두배박자 오류 방지 임계 (2배 주기가 더 강할 때만 적용)
-    private const val BPM_SUBBBEAT_RATIO_MAX = 0.65f   // 반박자 에너지 상한 (K-pop 하이햇 배제)
+    private const val BPM_PRIOR_CENTER_MS  = 500L    // 120 BPM
+    private const val BPM_PRIOR_STD_OCTAVE = 1.0f    // σ = 1 octave
+    private const val BPM_HALF_TEMPO_RATIO = 0.60f   // 반박자 오류 방지 임계
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -362,76 +360,102 @@ object BeatDetectorV3 {
         maxBeatMs: Long,
         songName: String = ""
     ): Long {
-        val tag = if (songName.isNotEmpty()) "[$songName]" else ""
+        val t = if (songName.isNotEmpty()) "[$songName]" else ""
         val minLag = max(1, (minBeatMs / hopMs).toInt())
         val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
         if (odf.size <= maxLag + 2) return minBeatMs
 
-        val acVals    = FloatArray(maxLag + 1)
-        var bestScore = Float.NEGATIVE_INFINITY
-        var bestLag   = -1
+        // ── 1. autocorr × log-normal prior ───────────────────────────────────
+        val acVals     = FloatArray(maxLag + 1)
+        val priorVals  = FloatArray(maxLag + 1)
+        val scoreVals  = FloatArray(maxLag + 1)
+        var bestScore  = Float.NEGATIVE_INFINITY
+        var bestLag    = -1
 
         for (lag in minLag..maxLag) {
             var sum = 0f; var count = 0
             for (i in 0 until odf.size - lag) { sum += odf[i] * odf[i + lag]; count++ }
             if (count == 0) continue
-            val acVal = sum / count
-            acVals[lag] = acVal
-
+            val acVal    = sum / count
             val lagMs    = lag * hopMs
             val logRatio = ln(lagMs.toFloat() / BPM_PRIOR_CENTER_MS) / ln(2f)
             val prior    = exp(-0.5f * (logRatio / BPM_PRIOR_STD_OCTAVE) * (logRatio / BPM_PRIOR_STD_OCTAVE))
-
-            val score = acVal * prior
+            val score    = acVal * prior
+            acVals[lag]    = acVal
+            priorVals[lag] = prior
+            scoreVals[lag] = score
             if (score > bestScore) { bestScore = score; bestLag = lag }
         }
 
         if (bestLag <= 0) return minBeatMs
 
-        // half-tempo 체크: prior가 느린 BPM 선호 → 2배속이 강하면 빠른 템포 선택
+        val bestMs  = bestLag * hopMs
+        val bestBpm = 60_000L / bestMs
+        val bestAc  = acVals[bestLag]
+        val bestPrior = priorVals[bestLag]
+
+        // ── 2. TOP-5 후보 로그 ───────────────────────────────────────────────
+        val top5 = (minLag..maxLag)
+            .sortedByDescending { scoreVals[it] }
+            .take(5)
+        val top5str = top5.joinToString(" | ") { lag ->
+            val ms = lag * hopMs
+            "${ms}ms(${60_000L/ms}BPM) ac=%.3f prior=%.3f sc=%.4f".format(
+                acVals[lag], priorVals[lag], scoreVals[lag])
+        }
+        Log.d(TAG, "V3$t TOP5: $top5str")
+
+        // ── 3. WINNER 상세 로그 ──────────────────────────────────────────────
+        Log.d(TAG, "V3$t WINNER: ${bestMs}ms(${bestBpm}BPM) ac=$bestAc prior=$bestPrior score=$bestScore")
+
+        // ── 4. half-tempo 관련 수치 (튜닝 기준: BPM_HALF_TEMPO_RATIO=%.2f) ──
         val halfLag = bestLag / 2
-        if (halfLag >= minLag) {
-            val halfAc = acVals[halfLag]
-            val bestAc = acVals[bestLag]
-            if (bestAc > 0f && halfAc / bestAc >= BPM_HALF_TEMPO_RATIO) {
-                val halfMs = halfLag * hopMs
-                Log.d(TAG, "V3$tag halfTempoFix: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
-                    " → ${halfMs}ms(${60_000L/halfMs}BPM) ratio=${halfAc/bestAc}")
-                return halfMs
-            }
+        val halfMs  = halfLag * hopMs
+        val halfAc  = if (halfLag >= minLag) acVals[halfLag] else run {
+            var s = 0f; var c = 0
+            for (i in 0 until odf.size - halfLag) { s += odf[i] * odf[i + halfLag]; c++ }
+            if (c > 0) s / c else 0f
+        }
+        val halfRatio = if (bestAc > 0f) halfAc / bestAc else 0f
+        Log.d(TAG, "V3$t HALF: lag=${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
+            " ac=$halfAc ratio=$halfRatio  [threshold=${BPM_HALF_TEMPO_RATIO}]" +
+            if (halfLag >= minLag) "" else " (below minLag)")
+
+        // ── 5. double-tempo 관련 수치 (참고용 — 현재 로직에 없음) ────────────
+        val doubleLag = bestLag * 2
+        val doubleMs  = doubleLag * hopMs
+        val doubleAc  = if (doubleLag <= maxLag) acVals[doubleLag] else 0f
+        val doubleRatio = if (bestAc > 0f) doubleAc / bestAc else 0f
+        val subBeatLag  = bestLag / 2   // halfLag와 동일
+        val subBeatAc   = halfAc        // 이미 계산됨
+        val subBeatRatio = halfRatio    // 동일
+        if (doubleLag <= maxLag) {
+            Log.d(TAG, "V3$t DOUBLE: lag=${doubleMs}ms(${60_000L/doubleMs}BPM)" +
+                " ac=$doubleAc doubleRatio=$doubleRatio" +
+                " | subBeat=${subBeatLag*hopMs}ms subRatio=$subBeatRatio")
+        } else {
+            Log.d(TAG, "V3$t DOUBLE: doubleLag=${doubleMs}ms > maxLag=${maxLag*hopMs}ms (범위 초과)" +
+                " | subBeat=${subBeatLag*hopMs}ms subRatio=$subBeatRatio")
         }
 
-        // double-tempo 체크: ODF 반박자 에너지가 낮고 2배 주기가 강하면 느린 템포 선택
-        // 발라드: 킥(0ms)·스네어(450ms)만 있고 반박자(225ms)는 무음 → 반박자 에너지 낮음
-        // K-pop: 하이햇이 반박자(~230ms)를 채움 → 반박자 에너지 높음 → 오탐 차단
-        val doubleLag  = bestLag * 2
-        val subBeatLag = bestLag / 2   // halfLag와 동일; 이미 acVals 계산 범위 밖일 수 있음
-        if (doubleLag <= maxLag && subBeatLag > 0) {
-            // subBeatLag < minLag이면 acVals에 없으므로 별도 계산
-            val subBeatAc = if (subBeatLag >= minLag) {
-                acVals[subBeatLag]
-            } else {
-                var s = 0f; var c = 0
-                for (i in 0 until odf.size - subBeatLag) { s += odf[i] * odf[i + subBeatLag]; c++ }
-                if (c > 0) s / c else 0f
-            }
-            val bestAcRef    = acVals[bestLag]
-            val subBeatRatio = if (bestAcRef > 0f) subBeatAc / bestAcRef else 0f
-            val doubleAc     = acVals[doubleLag]
-            val doubleRatio  = if (bestAcRef > 0f) doubleAc / bestAcRef else 0f
-            Log.d(TAG, "V3$tag doubleTempoCheck: ${bestLag*hopMs}ms " +
-                "subRatio=$subBeatRatio doubleRatio=$doubleRatio")
-            if (subBeatRatio < BPM_SUBBBEAT_RATIO_MAX && doubleRatio >= BPM_DOUBLE_TEMPO_RATIO) {
-                val doubleMs = doubleLag * hopMs
-                Log.d(TAG, "V3$tag doubleTempoFix: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
-                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM) sub=$subBeatRatio double=$doubleRatio")
-                return doubleMs
-            }
+        // ── 6. prior 스냅샷 — 주요 BPM 지점별 prior 값 ─────────────────────
+        val snapBpms = longArrayOf(60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160)
+        val priorSnap = snapBpms.joinToString(" ") { bpm ->
+            val ms = 60_000L / bpm
+            val lag = (ms / hopMs).toInt().coerceIn(minLag, maxLag)
+            "${bpm}=${priorVals[lag].let { "%.3f".format(it) }}"
+        }
+        Log.d(TAG, "V3$t PRIOR_SNAP: $priorSnap")
+
+        // ── 7. 실제 half-tempo 체크 (42750f0 원본 로직) ─────────────────────
+        if (halfLag >= minLag && bestAc > 0f && halfRatio >= BPM_HALF_TEMPO_RATIO) {
+            Log.d(TAG, "V3$t halfTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
+                " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM) ratio=$halfRatio")
+            return halfMs
         }
 
-        val resultMs = bestLag * hopMs
-        Log.d(TAG, "V3$tag bpmEstimate: ${resultMs}ms (${60_000L/resultMs} BPM)")
-        return resultMs
+        Log.d(TAG, "V3$t RESULT: ${bestMs}ms (${bestBpm}BPM)")
+        return bestMs
     }
 
     private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
