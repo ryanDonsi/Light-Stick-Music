@@ -424,6 +424,15 @@ try:
 except Exception as _e:
     _msaf_err = str(_e)
 
+# spleeter (Deezer 4-stem 분리 — CPU 가능, GPU 없이 시맨틱 라벨 생성)
+HAS_SPLEETER = False
+_spleeter_err = None
+try:
+    from spleeter.separator import Separator as _SpleeterSeparator
+    HAS_SPLEETER = True
+except Exception as _e:
+    _spleeter_err = str(_e)
+
 # ──────────────────────────────────────────────
 # 엔진 정보
 # ──────────────────────────────────────────────
@@ -839,8 +848,117 @@ def detect_msaf_sections(audio_path, duration_sec):
         return []
 
 
+def detect_spleeter_sections(audio_path, duration_sec):
+    """msaf 경계 + Spleeter 4-stem 에너지 → 시맨틱 라벨 (CPU 동작 가능).
+
+    allin1과 동일한 원리 (Demucs/Transformer 대신 Spleeter + 에너지 규칙):
+      vocals high + drums high          → CHORUS
+      vocals high + drums low           → VERSE
+      vocals low  + drums low + other high → INST
+      vocals low  + drums high          → BREAK
+      전체 low + 앞 15%                 → INTRO
+      전체 low + 뒤 15%                 → OUTRO
+    """
+    if not HAS_MSAF or not HAS_SPLEETER:
+        return []
+    try:
+        import numpy as np
+        import tempfile, os, soundfile as _sf
+
+        # ── 1. msaf 경계 검출 ──
+        bounds, cluster_ids = _msaf_mod.process(
+            audio_path, boundaries_id='scluster', labels_id='fmc2d')
+        cluster_ids = list(cluster_ids)
+        n = len(cluster_ids)
+        if n == 0:
+            return []
+        if float(bounds[0]) > 0.1:
+            bounds = np.concatenate([[0.0], bounds])
+        if len(bounds) < n + 1:
+            bounds = np.concatenate([bounds, [duration_sec]])
+
+        # ── 2. Spleeter 4-stem 분리 ──
+        sep = _SpleeterSeparator('spleeter:4stems')
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sep.separate_to_file(audio_path, tmpdir)
+            song_name = os.path.splitext(os.path.basename(audio_path))[0]
+            stem_dir  = os.path.join(tmpdir, song_name)
+
+            def _load_stem(name):
+                y, sr = _sf.read(os.path.join(stem_dir, f'{name}.wav'))
+                if y.ndim > 1:
+                    y = y.mean(axis=1)
+                return y, sr
+
+            vocals_y, sr = _load_stem('vocals')
+            drums_y,  _  = _load_stem('drums')
+            bass_y,   _  = _load_stem('bass')
+            other_y,  _  = _load_stem('other')
+
+            # ── 3. 구간별 RMS 에너지 ──
+            def _seg_rms(y, t0, t1):
+                chunk = y[int(t0 * sr): int(t1 * sr)]
+                return float(np.sqrt(np.mean(chunk ** 2))) if len(chunk) > 0 else 0.0
+
+            rows = []
+            for i in range(n):
+                t0, t1 = float(bounds[i]), float(bounds[i + 1])
+                rows.append({
+                    'vocals': _seg_rms(vocals_y, t0, t1),
+                    'drums':  _seg_rms(drums_y,  t0, t1),
+                    'bass':   _seg_rms(bass_y,   t0, t1),
+                    'other':  _seg_rms(other_y,  t0, t1),
+                    't0': t0, 't1': t1,
+                })
+
+        # ── 4. 정규화 (0–1) ──
+        def _norm(vals):
+            a = np.array(vals, dtype=float)
+            mn, mx = a.min(), a.max()
+            return (a - mn) / (mx - mn + 1e-8)
+
+        v_n = _norm([r['vocals'] for r in rows])
+        d_n = _norm([r['drums']  for r in rows])
+        o_n = _norm([r['other']  for r in rows])
+
+        total_dur = float(bounds[-1])
+        THR = 0.4  # 에너지 임계값
+
+        # ── 5. 에너지 규칙 → 라벨 ──
+        types = []
+        for i in range(n):
+            v, d, o = float(v_n[i]), float(d_n[i]), float(o_n[i])
+            pos = (rows[i]['t0'] + rows[i]['t1']) / 2 / total_dur
+            all_low = v < THR and d < THR and o < THR
+
+            if all_low and pos < 0.15:
+                types.append('INTRO')
+            elif all_low and pos > 0.85:
+                types.append('OUTRO')
+            elif v >= THR and d >= THR:
+                types.append('CHORUS')
+            elif v >= THR:
+                types.append('VERSE')
+            elif d < THR and o >= THR:
+                types.append('INST')
+            elif d >= THR:
+                types.append('BREAK')
+            else:
+                types.append('VERSE')
+
+        return [
+            {'start_ms': int(float(bounds[i]) * 1000),
+             'end_ms':   int(float(bounds[i + 1]) * 1000),
+             'index':    i,
+             'type':     types[i]}
+            for i in range(n)
+        ]
+    except Exception:
+        return []
+
+
 def detect_gt_sections(audio_path, duration_sec):
-    """GT 섹션 감지 우선순위: allin1 → msaf → librosa
+    """GT 섹션 감지 우선순위: allin1 → spleeter(msaf+Spleeter) → msaf → librosa
 
     allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
     (start/end 마커는 제외)
@@ -861,6 +979,13 @@ def detect_gt_sections(audio_path, duration_sec):
                 })
             if sections:
                 return sections
+        except Exception:
+            pass
+    if HAS_MSAF and HAS_SPLEETER:
+        try:
+            result = detect_spleeter_sections(audio_path, duration_sec)
+            if result:
+                return result
         except Exception:
             pass
     if HAS_MSAF:
@@ -1467,6 +1592,9 @@ class App(tk.Tk):
             (("● msaf (GT섹션)"    if HAS_MSAF    else
               f"○ msaf: {_msaf_err[:45]}"  if _msaf_err  else "○ msaf (미설치→pip install msaf)"),
              "#69f0ae" if HAS_MSAF  else "#ffcc02"),
+            (("● spleeter (GT섹션)" if HAS_SPLEETER else
+              f"○ spleeter: {_spleeter_err[:40]}" if _spleeter_err else "○ spleeter (미설치→pip install spleeter)"),
+             "#69f0ae" if HAS_SPLEETER else "#ffcc02"),
             (("● matplotlib"       if HAS_MPL     else "✗ matplotlib (미설치 → 비트맵 불가)"),
              "#69f0ae" if HAS_MPL     else "#ffcc02"),
         ]:
