@@ -2244,52 +2244,63 @@ class App(tk.Tk):
         results_frame = tk.Frame(col2, bg="#1a1a2e", bd=1, relief="solid")
         results_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 3))
         results_frame.columnconfigure(0, weight=1)
-        results_frame.rowconfigure(2, weight=1)
-
-        # ── 음악 재생 컨트롤러 (노란색 박스) ────────
-        if HAS_PYGAME:
-            controller_frame = tk.Frame(results_frame, bg="#ffeb3b", height=50)
-            controller_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
-            controller_frame.grid_propagate(False)
-
-            # 버튼 + 시간 표시를 가로로 배열
-            btn_frame = tk.Frame(controller_frame, bg="#ffeb3b")
-            btn_frame.pack(side="left", padx=10, pady=8)
-
-            self._play_btn = tk.Button(btn_frame, text="▶ 재생", bg="#fbc02d", fg="#000",
-                                      font=("", 10, "bold"), width=8, command=self._play_audio,
-                                      relief="raised", bd=2)
-            self._play_btn.pack(side="left", padx=3)
-
-            self._pause_btn = tk.Button(btn_frame, text="⏸ 일시정지", bg="#fbc02d", fg="#000",
-                                       font=("", 10, "bold"), width=8, command=self._pause_audio,
-                                       relief="raised", bd=2, state="disabled")
-            self._pause_btn.pack(side="left", padx=3)
-
-            self._stop_btn = tk.Button(btn_frame, text="⏹ 정지", bg="#fbc02d", fg="#000",
-                                      font=("", 10, "bold"), width=8, command=self._stop_audio,
-                                      relief="raised", bd=2, state="disabled")
-            self._stop_btn.pack(side="left", padx=3)
-
-            # 시간 표시
-            time_frame = tk.Frame(controller_frame, bg="#ffeb3b")
-            time_frame.pack(side="left", padx=10, pady=8)
-            tk.Label(time_frame, textvariable=self.v_play_time, bg="#ffeb3b", fg="#000",
-                    font=("", 11, "bold")).pack()
+        results_frame.rowconfigure(1, weight=1)
 
         # ── 곡 정보 헤더 ──────────────────────────
         song_info_frame = tk.Frame(results_frame, bg="#1e272e")
-        song_info_frame.grid(row=1, column=0, sticky="ew")
+        song_info_frame.grid(row=0, column=0, sticky="ew")
         tk.Label(song_info_frame, text="🎵", bg="#1e272e", fg="#546e7a",
                  font=("", 11)).pack(side="left", padx=(10, 4), pady=5)
-        song_info_inner = tk.Frame(song_info_frame, bg="#1e272e")
-        song_info_inner.pack(side="left", fill="x", expand=True, pady=3)
+
+        # 곡 정보 + 재생 컨트롤러
+        song_and_ctrl = tk.Frame(song_info_frame, bg="#1e272e")
+        song_and_ctrl.pack(side="left", fill="both", expand=True, pady=3)
+
+        song_info_inner = tk.Frame(song_and_ctrl, bg="#1e272e")
+        song_info_inner.pack(anchor="w")
         self.v_song_title = tk.StringVar(value="—")
         self.v_song_id    = tk.StringVar(value="—")
         tk.Label(song_info_inner, textvariable=self.v_song_title,
                  bg="#1e272e", fg="#cfd8dc", font=("", 11, "bold"), anchor="w").pack(anchor="w")
         tk.Label(song_info_inner, textvariable=self.v_song_id,
                  bg="#1e272e", fg="#546e7a", font=("", 8), anchor="w").pack(anchor="w")
+
+        # 재생 컨트롤 버튼들 (곡 정보 옆)
+        if HAS_PYGAME:
+            ctrl_btn_frame = tk.Frame(song_and_ctrl, bg="#1e272e")
+            ctrl_btn_frame.pack(side="left", padx=(15, 0), pady=3)
+
+            # 버튼 스타일 (이미지 느낌의 작은 아이콘 버튼)
+            btn_bg = "#37474f"
+            btn_fg = "#eceff1"
+            btn_hover_bg = "#455a64"
+            btn_font = ("", 9, "bold")
+            btn_width = 3
+            btn_height = 1
+
+            self._play_btn = tk.Button(ctrl_btn_frame, text="▶", bg=btn_bg, fg=btn_fg,
+                                      font=btn_font, width=btn_width, height=btn_height,
+                                      command=self._play_audio, relief="flat", bd=0,
+                                      activebackground=btn_hover_bg, activeforeground=btn_fg)
+            self._play_btn.pack(side="left", padx=2)
+
+            self._pause_btn = tk.Button(ctrl_btn_frame, text="⏸", bg=btn_bg, fg=btn_fg,
+                                       font=btn_font, width=btn_width, height=btn_height,
+                                       command=self._pause_audio, relief="flat", bd=0,
+                                       activebackground=btn_hover_bg, activeforeground=btn_fg,
+                                       state="disabled")
+            self._pause_btn.pack(side="left", padx=2)
+
+            self._stop_btn = tk.Button(ctrl_btn_frame, text="⏹", bg=btn_bg, fg=btn_fg,
+                                      font=btn_font, width=btn_width, height=btn_height,
+                                      command=self._stop_audio, relief="flat", bd=0,
+                                      activebackground=btn_hover_bg, activeforeground=btn_fg,
+                                      state="disabled")
+            self._stop_btn.pack(side="left", padx=2)
+
+            # 재생 시간 표시
+            tk.Label(ctrl_btn_frame, textvariable=self.v_play_time, bg="#1e272e", fg="#90a4ae",
+                    font=("", 8)).pack(side="left", padx=(8, 0))
 
         # 스타일 표시 (우측)
         style_badge_frame = tk.Frame(song_info_frame, bg="#1e272e")
@@ -2313,7 +2324,7 @@ class App(tk.Tk):
 
         # ── 엔진 카드 3개 (풀 상세, 세로 꽉 채움) ──
         cards_outer = tk.Frame(results_frame, bg="#1a1a2e")
-        cards_outer.grid(row=2, column=0, sticky="nsew", padx=4, pady=(4, 4))
+        cards_outer.grid(row=1, column=0, sticky="nsew", padx=4, pady=(4, 4))
         for _ci in range(3):
             cards_outer.columnconfigure(_ci, weight=1)
         cards_outer.rowconfigure(0, weight=1)
