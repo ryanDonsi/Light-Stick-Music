@@ -251,6 +251,14 @@ try:
 except Exception as _e:
     _msaf_err = str(_e)
 
+HAS_PYGAME = False
+try:
+    import pygame
+    pygame.mixer.init()
+    HAS_PYGAME = True
+except Exception:
+    HAS_PYGAME = False
+
 # ──────────────────────────────────────────────
 # 의존 라이브러리 감지
 # ──────────────────────────────────────────────
@@ -1990,6 +1998,16 @@ class App(tk.Tk):
         self._card_widgets = {}            # engine → widget dict
         self._selected_card_engine = ""   # 현재 선택된 카드 엔진
         self.engine_var = tk.StringVar(value="beat_transformer")  # 호환용
+
+        # 음악 재생 관련 속성
+        self._current_audio_path = None    # 현재 재생 중인 오디오 파일
+        self._is_playing = False           # 재생 중 여부
+        self._playback_pos_ms = 0          # 현재 재생 위치 (ms)
+        self._audio_duration_ms = 0        # 오디오 총 길이 (ms)
+        self._playback_thread = None       # 재생 추적 스레드
+        self._stop_playback = False        # 재생 중지 플래그
+        self.v_play_time = tk.StringVar(value="0:00 / 0:00")  # 시간 표시
+
         self._build_ui()
         self._load_state()
 
@@ -2226,11 +2244,42 @@ class App(tk.Tk):
         results_frame = tk.Frame(col2, bg="#1a1a2e", bd=1, relief="solid")
         results_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 3))
         results_frame.columnconfigure(0, weight=1)
-        results_frame.rowconfigure(1, weight=1)
+        results_frame.rowconfigure(2, weight=1)
+
+        # ── 음악 재생 컨트롤러 (노란색 박스) ────────
+        if HAS_PYGAME:
+            controller_frame = tk.Frame(results_frame, bg="#ffeb3b", height=50)
+            controller_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
+            controller_frame.grid_propagate(False)
+
+            # 버튼 + 시간 표시를 가로로 배열
+            btn_frame = tk.Frame(controller_frame, bg="#ffeb3b")
+            btn_frame.pack(side="left", padx=10, pady=8)
+
+            self._play_btn = tk.Button(btn_frame, text="▶ 재생", bg="#fbc02d", fg="#000",
+                                      font=("", 10, "bold"), width=8, command=self._play_audio,
+                                      relief="raised", bd=2)
+            self._play_btn.pack(side="left", padx=3)
+
+            self._pause_btn = tk.Button(btn_frame, text="⏸ 일시정지", bg="#fbc02d", fg="#000",
+                                       font=("", 10, "bold"), width=8, command=self._pause_audio,
+                                       relief="raised", bd=2, state="disabled")
+            self._pause_btn.pack(side="left", padx=3)
+
+            self._stop_btn = tk.Button(btn_frame, text="⏹ 정지", bg="#fbc02d", fg="#000",
+                                      font=("", 10, "bold"), width=8, command=self._stop_audio,
+                                      relief="raised", bd=2, state="disabled")
+            self._stop_btn.pack(side="left", padx=3)
+
+            # 시간 표시
+            time_frame = tk.Frame(controller_frame, bg="#ffeb3b")
+            time_frame.pack(side="left", padx=10, pady=8)
+            tk.Label(time_frame, textvariable=self.v_play_time, bg="#ffeb3b", fg="#000",
+                    font=("", 11, "bold")).pack()
 
         # ── 곡 정보 헤더 ──────────────────────────
         song_info_frame = tk.Frame(results_frame, bg="#1e272e")
-        song_info_frame.grid(row=0, column=0, sticky="ew")
+        song_info_frame.grid(row=1, column=0, sticky="ew")
         tk.Label(song_info_frame, text="🎵", bg="#1e272e", fg="#546e7a",
                  font=("", 11)).pack(side="left", padx=(10, 4), pady=5)
         song_info_inner = tk.Frame(song_info_frame, bg="#1e272e")
@@ -2264,7 +2313,7 @@ class App(tk.Tk):
 
         # ── 엔진 카드 3개 (풀 상세, 세로 꽉 채움) ──
         cards_outer = tk.Frame(results_frame, bg="#1a1a2e")
-        cards_outer.grid(row=1, column=0, sticky="nsew", padx=4, pady=(4, 4))
+        cards_outer.grid(row=2, column=0, sticky="nsew", padx=4, pady=(4, 4))
         for _ci in range(3):
             cards_outer.columnconfigure(_ci, weight=1)
         cards_outer.rowconfigure(0, weight=1)
@@ -3400,6 +3449,13 @@ class App(tk.Tk):
         if sections:
             _draw_sec_bar(sections, APP_SEC_TOP, APP_SEC_BOT)
 
+        # ── 재생 진행 바 (흰색 수직선) ────────────────
+        if self._is_playing and self._playback_pos_ms > 0 and self._audio_duration_ms > 0:
+            playback_sec = self._playback_pos_ms / 1000.0
+            if z_start <= playback_sec <= z_end:
+                x = tx(playback_sec)
+                c.create_line(x, TICK_H, x, APP_SEC_BOT, fill="white", width=2)
+
     # ── 분석 ──────────────────────────────────────
 
     def _run(self):
@@ -3523,6 +3579,106 @@ class App(tk.Tk):
         except Exception as ex:
             self._log(f"[타임라인 표시 오류] {ex}", "red")
 
+    # ── 음악 재생 컨트롤 함수 ─────────────────────
+    def _play_audio(self):
+        """음악 재생 시작"""
+        if not HAS_PYGAME or not self._current_audio_path:
+            return
+
+        if not self._is_playing:
+            if self._playback_pos_ms == 0:
+                try:
+                    pygame.mixer.music.load(self._current_audio_path)
+                    pygame.mixer.music.play()
+                    self._is_playing = True
+                    self._playback_thread = threading.Thread(target=self._track_playback, daemon=True)
+                    self._playback_thread.start()
+                    self._update_play_buttons()
+                except Exception:
+                    pass
+            else:
+                # 일시정지된 상태에서 재개
+                try:
+                    pygame.mixer.music.unpause()
+                    self._is_playing = True
+                    self._update_play_buttons()
+                except Exception:
+                    pass
+
+    def _pause_audio(self):
+        """음악 일시정지"""
+        if not HAS_PYGAME or not self._is_playing:
+            return
+        try:
+            pygame.mixer.music.pause()
+            self._is_playing = False
+            self._update_play_buttons()
+        except Exception:
+            pass
+
+    def _stop_audio(self):
+        """음악 정지"""
+        if not HAS_PYGAME:
+            return
+        try:
+            self._stop_playback = True
+            pygame.mixer.music.stop()
+            self._is_playing = False
+            self._playback_pos_ms = 0
+            self._update_play_buttons()
+            self.v_play_time.set("0:00 / 0:00")
+        except Exception:
+            pass
+
+    def _track_playback(self):
+        """백그라운드에서 재생 시간 추적"""
+        while self._is_playing and not self._stop_playback:
+            try:
+                if pygame.mixer.music.get_busy():
+                    self._playback_pos_ms = int(pygame.mixer.music.get_pos())
+                    if self._playback_pos_ms >= 0:
+                        self._update_time_display()
+                        self._redraw_timeline()
+                    time.sleep(0.016)  # 약 60fps
+                else:
+                    # 재생 완료
+                    self._is_playing = False
+                    self._playback_pos_ms = 0
+                    self._update_play_buttons()
+                    break
+            except Exception:
+                break
+        self._stop_playback = False
+
+    def _update_play_buttons(self):
+        """재생 상태에 따라 버튼 활성화/비활성화"""
+        if not HAS_PYGAME:
+            return
+        try:
+            if self._is_playing:
+                self._play_btn.config(state="disabled")
+                self._pause_btn.config(state="normal")
+                self._stop_btn.config(state="normal")
+            else:
+                self._play_btn.config(state="normal")
+                self._pause_btn.config(state="disabled")
+                self._stop_btn.config(state="disabled")
+        except Exception:
+            pass
+
+    def _update_time_display(self):
+        """재생 시간 표시 업데이트"""
+        try:
+            cur_sec = self._playback_pos_ms // 1000
+            cur_min = cur_sec // 60
+            cur_sec_rem = cur_sec % 60
+            total_min = self._audio_duration_ms // 1000 // 60
+            total_sec = (self._audio_duration_ms // 1000) % 60
+            time_str = f"{cur_min}:{cur_sec_rem:02d} / {total_min}:{total_sec:02d}"
+            self.v_play_time.set(time_str)
+        except Exception:
+            pass
+
     def _do_analyze(self, audio_path, bin_path, engine, tol_ms, bpm_hint,
                     librosa_sections=None):
         import time
@@ -3536,6 +3692,15 @@ class App(tk.Tk):
         # ─ 곡 정보 헤더 갱신 ─
         _song_name = os.path.splitext(os.path.basename(audio_path))[0]
         self.after(0, lambda n=_song_name: self.v_song_title.set(n))
+
+        # ─ 음악 재생 정보 설정 ─
+        if HAS_PYGAME:
+            self._current_audio_path = audio_path
+            try:
+                duration_sec = get_audio_duration(audio_path)
+                self._audio_duration_ms = int(duration_sec * 1000)
+            except Exception:
+                self._audio_duration_ms = 0
 
         # ① 바이너리
         _step1_start = time.time()
