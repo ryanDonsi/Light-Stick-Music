@@ -27,8 +27,9 @@ object BeatDetectorV3 {
     // V1 방식 BPM 추정 파라미터 (librosa log-normal prior + half/double-tempo 체크)
     private const val BPM_PRIOR_CENTER_MS    = 500L    // 120 BPM
     private const val BPM_PRIOR_STD_OCTAVE   = 1.0f    // σ = 1 octave
-    private const val BPM_HALF_TEMPO_RATIO   = 0.60f   // 반박자 오류 방지 (K-pop 배속 정정)
-    private const val BPM_DOUBLE_TEMPO_RATIO = 0.80f   // 두배박자 오류 방지 (발라드 절반속 정정)
+    private const val BPM_HALF_TEMPO_RATIO   = 0.70f   // 반박자 오류 방지 (0.65→0.70: 발라드 halfFix 오탐 방지)
+    private const val BPM_DOUBLE_TEMPO_RATIO = 0.80f   // 두배박자 오류 방지 임계
+    private const val BPM_SUBBBEAT_RATIO_MAX = 0.40f   // 반박자 에너지 상한 (K-pop 하이햇 배제)
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -397,19 +398,30 @@ object BeatDetectorV3 {
             }
         }
 
-        // double-tempo 체크: prior가 빠른 BPM 선호 → 절반속이 강하면 느린 템포 선택 (발라드 오탐 방지)
-        // 발라드는 킥·스네어가 900ms 간격이나 ODF에서 450ms 교차 상관도 높아 반박자로 오탐
-        // K-pop은 하이햇이 지속적으로 ODF를 평탄화해 2배 주기 자기상관이 상대적으로 낮음
-        val doubleLag = bestLag * 2
-        if (doubleLag <= maxLag) {
-            val doubleAc  = acVals[doubleLag]
-            val bestAcRef = acVals[bestLag]
-            val doubleRatio = if (bestAcRef > 0f) doubleAc / bestAcRef else 0f
-            Log.d(TAG, "V3 doubleTempoCheck: ${bestLag*hopMs}ms→${doubleLag*hopMs}ms ratio=$doubleRatio")
-            if (doubleRatio >= BPM_DOUBLE_TEMPO_RATIO) {
+        // double-tempo 체크: ODF 반박자 에너지가 낮고 2배 주기가 강하면 느린 템포 선택
+        // 발라드: 킥(0ms)·스네어(450ms)만 있고 반박자(225ms)는 무음 → 반박자 에너지 낮음
+        // K-pop: 하이햇이 반박자(~230ms)를 채움 → 반박자 에너지 높음 → 오탐 차단
+        val doubleLag  = bestLag * 2
+        val subBeatLag = bestLag / 2   // halfLag와 동일; 이미 acVals 계산 범위 밖일 수 있음
+        if (doubleLag <= maxLag && subBeatLag > 0) {
+            // subBeatLag < minLag이면 acVals에 없으므로 별도 계산
+            val subBeatAc = if (subBeatLag >= minLag) {
+                acVals[subBeatLag]
+            } else {
+                var s = 0f; var c = 0
+                for (i in 0 until odf.size - subBeatLag) { s += odf[i] * odf[i + subBeatLag]; c++ }
+                if (c > 0) s / c else 0f
+            }
+            val bestAcRef    = acVals[bestLag]
+            val subBeatRatio = if (bestAcRef > 0f) subBeatAc / bestAcRef else 0f
+            val doubleAc     = acVals[doubleLag]
+            val doubleRatio  = if (bestAcRef > 0f) doubleAc / bestAcRef else 0f
+            Log.d(TAG, "V3 doubleTempoCheck: ${bestLag*hopMs}ms " +
+                "subRatio=$subBeatRatio doubleRatio=$doubleRatio")
+            if (subBeatRatio < BPM_SUBBBEAT_RATIO_MAX && doubleRatio >= BPM_DOUBLE_TEMPO_RATIO) {
                 val doubleMs = doubleLag * hopMs
                 Log.d(TAG, "V3 doubleTempoFix: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
-                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM) ratio=$doubleRatio")
+                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM) sub=$subBeatRatio double=$doubleRatio")
                 return doubleMs
             }
         }
