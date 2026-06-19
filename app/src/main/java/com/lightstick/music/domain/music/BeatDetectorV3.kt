@@ -24,10 +24,11 @@ object BeatDetectorV3 {
     private const val FB_FMIN   = 27.5f
     private const val FB_FMAX   = 16000f
 
-    // V1 방식 BPM 추정 파라미터 (librosa log-normal prior + half-tempo 체크)
-    private const val BPM_PRIOR_CENTER_MS  = 500L    // 120 BPM
-    private const val BPM_PRIOR_STD_OCTAVE = 1.0f    // σ = 1 octave
-    private const val BPM_HALF_TEMPO_RATIO = 0.60f   // 반박자 오류 방지 임계
+    // V1 방식 BPM 추정 파라미터 (librosa log-normal prior + half/double-tempo 체크)
+    private const val BPM_PRIOR_CENTER_MS    = 500L    // 120 BPM
+    private const val BPM_PRIOR_STD_OCTAVE   = 1.0f    // σ = 1 octave
+    private const val BPM_HALF_TEMPO_RATIO   = 0.60f   // 반박자 오류 방지 (K-pop 배속 정정)
+    private const val BPM_DOUBLE_TEMPO_RATIO = 0.80f   // 두배박자 오류 방지 (발라드 절반속 정정)
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -393,6 +394,23 @@ object BeatDetectorV3 {
                 Log.d(TAG, "V3 halfTempoFix: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
                     " → ${halfMs}ms(${60_000L/halfMs}BPM) ratio=${halfAc/bestAc}")
                 return halfMs
+            }
+        }
+
+        // double-tempo 체크: prior가 빠른 BPM 선호 → 절반속이 강하면 느린 템포 선택 (발라드 오탐 방지)
+        // 발라드는 킥·스네어가 900ms 간격이나 ODF에서 450ms 교차 상관도 높아 반박자로 오탐
+        // K-pop은 하이햇이 지속적으로 ODF를 평탄화해 2배 주기 자기상관이 상대적으로 낮음
+        val doubleLag = bestLag * 2
+        if (doubleLag <= maxLag) {
+            val doubleAc  = acVals[doubleLag]
+            val bestAcRef = acVals[bestLag]
+            val doubleRatio = if (bestAcRef > 0f) doubleAc / bestAcRef else 0f
+            Log.d(TAG, "V3 doubleTempoCheck: ${bestLag*hopMs}ms→${doubleLag*hopMs}ms ratio=$doubleRatio")
+            if (doubleRatio >= BPM_DOUBLE_TEMPO_RATIO) {
+                val doubleMs = doubleLag * hopMs
+                Log.d(TAG, "V3 doubleTempoFix: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
+                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM) ratio=$doubleRatio")
+                return doubleMs
             }
         }
 
