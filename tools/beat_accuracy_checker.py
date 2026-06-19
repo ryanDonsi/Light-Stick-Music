@@ -986,9 +986,13 @@ def detect_demucs_sections(audio_path, duration_sec):
 def detect_gt_sections(audio_path, duration_sec):
     """GT 섹션 감지 우선순위: allin1 → demucs+msaf → msaf → librosa
 
-    allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
-    (start/end 마커는 제외)
+    반환: (sections, engine_name, error_log)
+      sections   — 섹션 dict 리스트
+      engine_name — 실제 사용된 엔진 문자열
+      error_log  — 시도한 엔진별 에러 메시지 리스트 (성공 엔진 이전까지)
     """
+    errors = []
+
     if HAS_ALLIN1:
         try:
             result = _allin1_mod.analyze(audio_path)
@@ -1004,24 +1008,33 @@ def detect_gt_sections(audio_path, duration_sec):
                     "type":     lbl,
                 })
             if sections:
-                return sections
-        except Exception:
-            pass
+                return sections, "allin1", errors
+        except Exception as e:
+            errors.append(f"allin1 실패: {e}")
+
     if HAS_MSAF and HAS_DEMUCS:
         try:
             result = detect_demucs_sections(audio_path, duration_sec)
             if result:
-                return result
-        except Exception:
-            pass
+                return result, "demucs+msaf", errors
+            else:
+                errors.append("demucs+msaf: 결과 없음")
+        except Exception as e:
+            errors.append(f"demucs+msaf 실패: {e}")
+    elif HAS_DEMUCS and not HAS_MSAF:
+        errors.append("demucs: msaf 미설치로 섹션 분석 불가 (pip install msaf)")
+
     if HAS_MSAF:
         try:
             result = detect_msaf_sections(audio_path, duration_sec)
             if result:
-                return result
-        except Exception:
-            pass
-    return detect_librosa_sections(audio_path, duration_sec)
+                return result, "msaf (A/B/C…)", errors
+            else:
+                errors.append("msaf: 결과 없음")
+        except Exception as e:
+            errors.append(f"msaf 실패: {e}")
+
+    return detect_librosa_sections(audio_path, duration_sec), "librosa", errors
 
 
 def load_waveform(audio_path, max_sr=22050, max_duration=600.0):
@@ -2517,13 +2530,14 @@ class App(tk.Tk):
             pre_lib_sections = []
             if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
                 try:
-                    src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
-                    self.after(0, lambda n=name, i=idx, t=total, s=src:
-                               self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션/{s})"))
+                    self.after(0, lambda n=name, i=idx, t=total:
+                               self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션 분석 중…)"))
                     _dur = get_audio_duration(audio)
-                    pre_lib_sections = detect_gt_sections(audio, _dur)
-                    self.after(0, lambda n=len(pre_lib_sections), nm=name:
-                               self._log(f"[GT섹션]  {nm} — {n}개 감지", "gray"))
+                    pre_lib_sections, _sec_eng, _sec_errs = detect_gt_sections(audio, _dur)
+                    self.after(0, lambda n=len(pre_lib_sections), nm=name, eng=_sec_eng:
+                               self._log(f"[GT섹션]  {nm} — {n}개 감지  [엔진: {eng}]", "gray"))
+                    for _err in _sec_errs:
+                        self.after(0, lambda e=_err: self._log(f"  ↳ {e}", "orange"))
                 except Exception as _se:
                     self.after(0, lambda e=str(_se): self._log(f"[GT섹션] 오류: {e}", "red"))
 
@@ -3323,11 +3337,12 @@ class App(tk.Tk):
         if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
             try:
                 if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
-                    src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
-                    self.after(0, lambda s=src: self._log(f"[+GT]  GT 섹션 감지 ({s})…", "gray"))
-                    librosa_sections = detect_gt_sections(audio_path, duration_sec)
-                    self.after(0, lambda n=len(librosa_sections):
-                        self._log(f"  GT 섹션 : {n}개 감지", "cyan"))
+                    self.after(0, lambda: self._log("[+GT]  GT 섹션 감지 중…", "gray"))
+                    librosa_sections, _sec_eng, _sec_errs = detect_gt_sections(audio_path, duration_sec)
+                    self.after(0, lambda n=len(librosa_sections), eng=_sec_eng:
+                        self._log(f"  GT 섹션 : {n}개 감지  [엔진: {eng}]", "cyan"))
+                    for _err in _sec_errs:
+                        self.after(0, lambda e=_err: self._log(f"  ↳ {e}", "orange"))
                 else:
                     self.after(0, lambda n=len(librosa_sections):
                         self._log(f"  GT 섹션 : {n}개 (사전계산)", "cyan"))
