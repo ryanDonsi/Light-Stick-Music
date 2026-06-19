@@ -424,6 +424,15 @@ try:
 except Exception as _e:
     _msaf_err = str(_e)
 
+# demucs (음악 악기 분리 - 드럼/보컬/베이스/기타)
+HAS_DEMUCS = False
+_demucs_err = None
+try:
+    import demucs.api
+    HAS_DEMUCS = True
+except Exception as _e:
+    _demucs_err = str(_e)
+
 # ──────────────────────────────────────────────
 # 엔진 정보
 # ──────────────────────────────────────────────
@@ -839,8 +848,172 @@ def detect_msaf_sections(audio_path, duration_sec):
         return []
 
 
+def detect_msaf_sections_with_drums(audio_path, duration_sec):
+    """Demucs로 드럼 분리 후 msaf로 섹션 감지 (더 정확한 경계 감지).
+
+    드럼 트랙은 섹션 경계가 명확하므로 msaf 성능이 향상됨.
+    """
+    if not HAS_DEMUCS or not HAS_MSAF:
+        return None
+    try:
+        import tempfile
+        import soundfile as sf
+
+        # 1. Demucs로 드럼 분리
+        stems = demucs.api.separate(audio_path, model='htdemucs_v4')
+        drums_stem = stems.get('drums')
+        if drums_stem is None:
+            return None
+
+        # 2. 드럼 스템으로 msaf 섹션 감지
+        bounds, cluster_ids = _msaf_mod.process(
+            drums_stem, boundaries_id='scluster', labels_id='fmc2d')
+        cluster_ids = list(cluster_ids)
+        n = len(cluster_ids)
+        if n == 0:
+            return None
+
+        # 3. 클러스터 ID → 알파벳 매핑
+        _CLUSTER_LETTERS = 'ABCDEFGHIJ'
+        if float(bounds[0]) > 0.1:
+            bounds = np.concatenate([[0.0], bounds])
+        if len(bounds) < n + 1:
+            bounds = np.concatenate([bounds, [duration_sec]])
+
+        seen = {}
+        for cid in cluster_ids:
+            if cid not in seen:
+                seen[cid] = _CLUSTER_LETTERS[len(seen) % len(_CLUSTER_LETTERS)]
+
+        sections = [
+            {'start_ms': int(float(bounds[i]) * 1000),
+             'end_ms':   int(float(bounds[i + 1]) * 1000),
+             'index':    i,
+             'type':     seen[int(cluster_ids[i])],
+             'stem':     'drums'}
+            for i in range(n)
+        ]
+        return sections
+    except Exception:
+        return None
+
+
+def detect_msaf_sections_with_vocals(audio_path, duration_sec):
+    """Demucs로 보컬 분리 후 msaf로 섹션 감지 (보컬이 명확한 곡용).
+
+    보컬 트랙으로 분석하면 VERSE(보컬 O) vs CHORUS(보컬 O) 구분에 유용.
+    """
+    if not HAS_DEMUCS or not HAS_MSAF:
+        return None
+    try:
+        stems = demucs.api.separate(audio_path, model='htdemucs_v4')
+        vocals_stem = stems.get('vocals')
+        if vocals_stem is None:
+            return None
+
+        bounds, cluster_ids = _msaf_mod.process(
+            vocals_stem, boundaries_id='scluster', labels_id='fmc2d')
+        cluster_ids = list(cluster_ids)
+        n = len(cluster_ids)
+        if n == 0:
+            return None
+
+        _CLUSTER_LETTERS = 'ABCDEFGHIJ'
+        if float(bounds[0]) > 0.1:
+            bounds = np.concatenate([[0.0], bounds])
+        if len(bounds) < n + 1:
+            bounds = np.concatenate([bounds, [duration_sec]])
+
+        seen = {}
+        for cid in cluster_ids:
+            if cid not in seen:
+                seen[cid] = _CLUSTER_LETTERS[len(seen) % len(_CLUSTER_LETTERS)]
+
+        sections = [
+            {'start_ms': int(float(bounds[i]) * 1000),
+             'end_ms':   int(float(bounds[i + 1]) * 1000),
+             'index':    i,
+             'type':     seen[int(cluster_ids[i])],
+             'stem':     'vocals'}
+            for i in range(n)
+        ]
+        return sections
+    except Exception:
+        return None
+
+
+def validate_section_meaning(app_sections, gt_sections):
+    """앱 섹션의 의미성 검증: 각 앱 섹션이 GT 섹션 경계와 얼마나 일치하는가.
+
+    반환: {
+        'alignment_score': 0-100,  # 경계 일치도 (100이 최고)
+        'boundary_analysis': [...],  # 각 경계별 상세 분석
+        'stability': 0-100,  # 섹션 지속 시간 안정성
+        'recommended_action': str  # 권장사항
+    }
+    """
+    if not app_sections or not gt_sections:
+        return {'alignment_score': 0, 'boundary_analysis': [], 'stability': 0,
+                'recommended_action': '데이터 부족'}
+
+    try:
+        import numpy as np
+
+        # 1. 경계 일치도 분석
+        app_boundaries = [s['start_ms'] for s in app_sections[1:]]
+        gt_boundaries = [s['start_ms'] for s in gt_sections[1:]]
+
+        if not app_boundaries or not gt_boundaries:
+            return {'alignment_score': 0, 'boundary_analysis': [], 'stability': 0,
+                    'recommended_action': '경계 부족'}
+
+        # 각 앱 경계와 가장 가까운 GT 경계까지의 거리
+        tolerance_ms = 2000  # 2초 허용 오차
+        alignment_list = []
+        for app_b in app_boundaries:
+            min_dist = min([abs(app_b - gt_b) for gt_b in gt_boundaries])
+            is_aligned = min_dist <= tolerance_ms
+            alignment_list.append({
+                'app_boundary_ms': app_b,
+                'min_distance_ms': min_dist,
+                'is_aligned': is_aligned
+            })
+
+        alignment_score = int(sum(1 for x in alignment_list if x['is_aligned'])
+                             / len(alignment_list) * 100) if alignment_list else 0
+
+        # 2. 섹션 지속 시간 안정성
+        app_durations = [s['end_ms'] - s['start_ms'] for s in app_sections]
+        if len(app_durations) >= 2:
+            avg_dur = np.mean(app_durations)
+            std_dur = np.std(app_durations)
+            stability = max(0, int(100 - (std_dur / avg_dur * 100)))
+        else:
+            stability = 50
+
+        # 3. 권장사항
+        if alignment_score >= 75:
+            recommended_action = '✓ 앱 섹션이 의미 있게 구분됨. msaf 분석이 양호합니다.'
+        elif alignment_score >= 50:
+            recommended_action = '△ 부분적 일치. demucs(드럼)를 사용하여 개선 권장.'
+        else:
+            recommended_action = '✗ 낮은 일치도. demucs를 사용한 고도화 필요.'
+
+        return {
+            'alignment_score': alignment_score,
+            'boundary_analysis': alignment_list,
+            'stability': stability,
+            'num_sections': len(app_sections),
+            'num_gt_sections': len(gt_sections),
+            'recommended_action': recommended_action
+        }
+    except Exception as e:
+        return {'alignment_score': 0, 'boundary_analysis': [], 'stability': 0,
+                'recommended_action': f'분석 오류: {str(e)}'}
+
+
 def detect_gt_sections(audio_path, duration_sec):
-    """GT 섹션 감지 우선순위: allin1 → msaf → librosa
+    """GT 섹션 감지 우선순위: allin1 → demucs(drums) → msaf → librosa
 
     allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
     (start/end 마커는 제외)
@@ -863,6 +1036,16 @@ def detect_gt_sections(audio_path, duration_sec):
                 return sections
         except Exception:
             pass
+
+    # Demucs(드럼) 활용한 msaf 시도
+    if HAS_DEMUCS and HAS_MSAF:
+        try:
+            drums_sections = detect_msaf_sections_with_drums(audio_path, duration_sec)
+            if drums_sections and len(drums_sections) >= 2:
+                return drums_sections
+        except Exception:
+            pass
+
     if HAS_MSAF:
         try:
             result = detect_msaf_sections(audio_path, duration_sec)
@@ -1467,6 +1650,9 @@ class App(tk.Tk):
             (("● msaf (GT섹션)"    if HAS_MSAF    else
               f"○ msaf: {_msaf_err[:45]}"  if _msaf_err  else "○ msaf (미설치→pip install msaf)"),
              "#69f0ae" if HAS_MSAF  else "#ffcc02"),
+            (("● demucs (섹션 고도화)" if HAS_DEMUCS else
+              f"○ demucs: {_demucs_err[:35]}" if _demucs_err else "○ demucs (미설치→pip install demucs)"),
+             "#69f0ae" if HAS_DEMUCS else "#ffcc02"),
             (("● matplotlib"       if HAS_MPL     else "✗ matplotlib (미설치 → 비트맵 불가)"),
              "#69f0ae" if HAS_MPL     else "#ffcc02"),
         ]:
@@ -3177,6 +3363,21 @@ class App(tk.Tk):
                 else:
                     self.after(0, lambda n=len(librosa_sections):
                         self._log(f"  GT 섹션 : {n}개 (사전계산)", "cyan"))
+
+                # ★ 섹션 의미성 검증
+                if librosa_sections and sections:
+                    try:
+                        validation = validate_section_meaning(sections, librosa_sections)
+                        score = validation.get('alignment_score', 0)
+                        stability = validation.get('stability', 0)
+                        action = validation.get('recommended_action', '')
+                        msg = (f"[섹션 검증]  일치도 {score}%  |  안정성 {stability}%  |  "
+                               f"{action[:50]}")
+                        color = "green" if score >= 75 else "yellow" if score >= 50 else "red"
+                        self.after(0, lambda m=msg, c=color: self._log(m, c))
+                    except Exception as _val_ex:
+                        self.after(0, lambda e=str(_val_ex)[:50]:
+                                   self._log(f"  [섹션 검증] 오류: {e}", "red"))
             except Exception as _ex:
                 self.after(0, lambda e=str(_ex): self._log(f"  GT 섹션 오류: {e}", "red"))
 
