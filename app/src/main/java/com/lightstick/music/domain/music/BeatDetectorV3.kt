@@ -28,8 +28,8 @@ object BeatDetectorV3 {
     private const val BPM_PRIOR_CENTER_MS    = 500L    // 120 BPM
     private const val BPM_PRIOR_STD_OCTAVE   = 1.0f    // σ = 1 octave
     private const val BPM_HALF_TEMPO_RATIO   = 0.70f   // 반박자 오류 방지 (0.65→0.70: 발라드 halfFix 오탐 방지)
-    private const val BPM_DOUBLE_TEMPO_RATIO = 0.80f   // 두배박자 오류 방지 임계
-    private const val BPM_SUBBBEAT_RATIO_MAX = 0.40f   // 반박자 에너지 상한 (K-pop 하이햇 배제)
+    private const val BPM_DOUBLE_TEMPO_RATIO = 1.00f   // 두배박자 오류 방지 임계 (2배 주기가 더 강할 때만 적용)
+    private const val BPM_SUBBBEAT_RATIO_MAX = 0.65f   // 반박자 에너지 상한 (K-pop 하이햇 배제)
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
