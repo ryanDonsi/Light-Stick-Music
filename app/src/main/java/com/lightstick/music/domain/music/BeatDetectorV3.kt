@@ -81,7 +81,8 @@ object BeatDetectorV3 {
         musicPath: String,
         params: Params = Params()
     ): DetectResult {
-        Log.d(TAG, "V3 ------------------ Beat Detection Start ------------------")
+        val songName = musicPath.substringAfterLast("/").substringBeforeLast(".")
+        Log.d(TAG, "V3 [$songName] ------------------ Beat Detection Start ------------------")
 
         // 투 트랙 ODF 반환: odfTempo(BPM용 순정), odfTrack(트래킹용 킥 가중치)
         val (odfTempo, odfTrack, hopMs, durationMs) = streamingOdf(musicPath)
@@ -90,7 +91,7 @@ object BeatDetectorV3 {
         }
 
         // BPM 추정: V1 방식 autocorr × log-normal prior + half-tempo 체크 (odfTempo 사용)
-        val beatMs = estimateBpmV1Style(odfTempo, hopMs, params.minBeatMs, params.maxBeatMs)
+        val beatMs = estimateBpmV1Style(odfTempo, hopMs, params.minBeatMs, params.maxBeatMs, songName)
 
         // [🔥 위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
         val phaseMs = estimatePhaseFromOdf(odfTrack, beatMs, hopMs)
@@ -358,8 +359,10 @@ object BeatDetectorV3 {
         odf: List<Float>,
         hopMs: Long,
         minBeatMs: Long,
-        maxBeatMs: Long
+        maxBeatMs: Long,
+        songName: String = ""
     ): Long {
+        val tag = if (songName.isNotEmpty()) "[$songName]" else ""
         val minLag = max(1, (minBeatMs / hopMs).toInt())
         val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
         if (odf.size <= maxLag + 2) return minBeatMs
@@ -392,7 +395,7 @@ object BeatDetectorV3 {
             val bestAc = acVals[bestLag]
             if (bestAc > 0f && halfAc / bestAc >= BPM_HALF_TEMPO_RATIO) {
                 val halfMs = halfLag * hopMs
-                Log.d(TAG, "V3 halfTempoFix: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
+                Log.d(TAG, "V3$tag halfTempoFix: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
                     " → ${halfMs}ms(${60_000L/halfMs}BPM) ratio=${halfAc/bestAc}")
                 return halfMs
             }
@@ -416,18 +419,18 @@ object BeatDetectorV3 {
             val subBeatRatio = if (bestAcRef > 0f) subBeatAc / bestAcRef else 0f
             val doubleAc     = acVals[doubleLag]
             val doubleRatio  = if (bestAcRef > 0f) doubleAc / bestAcRef else 0f
-            Log.d(TAG, "V3 doubleTempoCheck: ${bestLag*hopMs}ms " +
+            Log.d(TAG, "V3$tag doubleTempoCheck: ${bestLag*hopMs}ms " +
                 "subRatio=$subBeatRatio doubleRatio=$doubleRatio")
             if (subBeatRatio < BPM_SUBBBEAT_RATIO_MAX && doubleRatio >= BPM_DOUBLE_TEMPO_RATIO) {
                 val doubleMs = doubleLag * hopMs
-                Log.d(TAG, "V3 doubleTempoFix: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
+                Log.d(TAG, "V3$tag doubleTempoFix: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
                     " → ${doubleMs}ms(${60_000L/doubleMs}BPM) sub=$subBeatRatio double=$doubleRatio")
                 return doubleMs
             }
         }
 
         val resultMs = bestLag * hopMs
-        Log.d(TAG, "V3 bpmEstimate: ${resultMs}ms (${60_000L/resultMs} BPM)")
+        Log.d(TAG, "V3$tag bpmEstimate: ${resultMs}ms (${60_000L/resultMs} BPM)")
         return resultMs
     }
 
