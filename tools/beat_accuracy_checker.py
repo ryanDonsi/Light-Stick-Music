@@ -2229,6 +2229,33 @@ class App(tk.Tk):
         tree_sb.grid(row=0, column=1, sticky="ns")
         self._tree.bind("<<TreeviewSelect>>", self._on_list_select)
 
+        # ── 분석 설정 ─────────────────────────────
+        settings_frame = tk.Frame(col1, bg="#263238")
+        settings_frame.grid(row=2, column=0, sticky="ew", **pad)
+        settings_frame.columnconfigure(0, weight=1)
+
+        # BPM 힌트
+        bpm_row = tk.Frame(settings_frame, bg="#263238")
+        bpm_row.pack(fill="x", padx=4, pady=(2, 4))
+        tk.Label(bpm_row, text="BPM 힌트 (0=자동):", bg="#263238", fg="#90a4ae",
+                font=("", 9)).pack(side="left", padx=(0, 6))
+        bpm_entry = tk.Spinbox(bpm_row, from_=0, to=200, textvariable=self.bpm_hint_var,
+                              width=6, font=("", 9), bg="#37474f", fg="#eceff1")
+        bpm_entry.pack(side="left")
+        tk.Label(bpm_row, text=" BPM (0이면 자동 감지)", bg="#263238", fg="#546e7a",
+                font=("", 8)).pack(side="left", padx=(4, 0))
+
+        # Tolerance
+        tol_row = tk.Frame(settings_frame, bg="#263238")
+        tol_row.pack(fill="x", padx=4, pady=(0, 2))
+        tk.Label(tol_row, text="허용 오차:", bg="#263238", fg="#90a4ae",
+                font=("", 9)).pack(side="left", padx=(0, 6))
+        tol_entry = tk.Spinbox(tol_row, from_=10, to=200, textvariable=self.tol_var,
+                              width=6, font=("", 9), bg="#37474f", fg="#eceff1")
+        tol_entry.pack(side="left")
+        tk.Label(tol_row, text=" ms (기본 70ms)", bg="#263238", fg="#546e7a",
+                font=("", 8)).pack(side="left", padx=(4, 0))
+
         # ── 버튼 행 ───────────────────────────────
         btn_frame = tk.Frame(col1)
         btn_frame.grid(row=3, column=0, pady=4)
