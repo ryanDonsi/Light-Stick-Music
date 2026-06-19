@@ -252,12 +252,29 @@ except Exception as _e:
     _msaf_err = str(_e)
 
 HAS_PYGAME = False
+_PYGAME_ERROR = None
 try:
     import pygame
-    pygame.mixer.init()
-    HAS_PYGAME = True
-except Exception:
-    HAS_PYGAME = False
+    # 다양한 오디오 드라이버 설정 시도
+    import os
+    for driver in ['pulseaudio', 'alsa', 'oss', 'esd']:
+        os.environ[f'SDL_AUDIODRIVER'] = driver
+        try:
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+            HAS_PYGAME = True
+            break
+        except Exception:
+            continue
+
+    # 드라이버 설정이 없으면 기본 초기화 시도
+    if not HAS_PYGAME:
+        try:
+            pygame.mixer.init()
+            HAS_PYGAME = True
+        except Exception as e:
+            _PYGAME_ERROR = str(e)
+except Exception as e:
+    _PYGAME_ERROR = str(e)
 
 # ──────────────────────────────────────────────
 # 의존 라이브러리 감지
@@ -2035,6 +2052,9 @@ class App(tk.Tk):
              "#69f0ae" if HAS_DEMUCS else "#ffcc02"),
             (("● matplotlib"       if HAS_MPL     else "✗ matplotlib (미설치 → 비트맵 불가)"),
              "#69f0ae" if HAS_MPL     else "#ffcc02"),
+            (("● pygame (음악재생)" if HAS_PYGAME  else
+              f"✗ pygame: {_PYGAME_ERROR[:40]}" if _PYGAME_ERROR else "✗ pygame (미설치)"),
+             "#69f0ae" if HAS_PYGAME else "#ffcc02"),
         ]:
             tk.Label(banner, text=txt, bg="#263238", fg=col,
                      font=("", 9, "bold")).pack(side="left", padx=10, pady=3)
@@ -3593,12 +3613,20 @@ class App(tk.Tk):
     # ── 음악 재생 컨트롤 함수 ─────────────────────
     def _play_audio(self):
         """음악 재생 시작"""
-        if not HAS_PYGAME or not self._current_audio_path:
+        if not HAS_PYGAME:
+            self._log("[재생 불가] pygame이 초기화되지 않았습니다.", "red")
+            return
+        if not self._current_audio_path:
+            self._log("[재생 불가] 음악 파일이 선택되지 않았습니다.", "red")
             return
 
         if not self._is_playing:
             if self._playback_pos_ms == 0:
                 try:
+                    if not os.path.isfile(self._current_audio_path):
+                        self._log(f"[재생 오류] 파일 없음: {self._current_audio_path}", "red")
+                        return
+
                     pygame.mixer.music.load(self._current_audio_path)
                     pygame.mixer.music.play()
                     self._is_playing = True
@@ -3606,16 +3634,18 @@ class App(tk.Tk):
                     self._playback_thread = threading.Thread(target=self._track_playback, daemon=True)
                     self._playback_thread.start()
                     self._update_play_buttons()
+                    self._log(f"[재생 시작] {os.path.basename(self._current_audio_path)}", "green")
                 except Exception as e:
-                    self._log(f"[재생 오류] {str(e)[:100]}", "red")
+                    self._log(f"[재생 오류] {type(e).__name__}: {str(e)[:80]}", "red")
             else:
                 # 일시정지된 상태에서 재개
                 try:
                     pygame.mixer.music.unpause()
                     self._is_playing = True
                     self._update_play_buttons()
+                    self._log("[재개] 일시정지 상태에서 재개했습니다.", "green")
                 except Exception as e:
-                    self._log(f"[재개 오류] {str(e)[:100]}", "red")
+                    self._log(f"[재개 오류] {type(e).__name__}: {str(e)[:80]}", "red")
 
     def _pause_audio(self):
         """음악 일시정지"""
