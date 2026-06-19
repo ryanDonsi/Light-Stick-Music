@@ -30,6 +30,10 @@ object BeatDetectorV3 {
     // 하모닉 보정: 0.75는 My World/God's Menu/모든날 파괴하므로 0.5만 사용
     private val HARM_RATIOS = floatArrayOf(0.5f)
 
+    // 4분의1 주기 분할음 게이트: rawComb(resultMs/4)/rawComb(resultMs) 최솟값
+    // K-pop(하이햇/16분음표 있음)은 통과, 발라드(피아노/기타만)는 차단
+    private const val SUBDIV_RATIO_MIN = 0.40f
+
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
 
@@ -89,11 +93,10 @@ object BeatDetectorV3 {
         }
 
         // [🔥 BPM은 반드시 odfTempo(순정)를 사용하여 반토막 함정을 피합니다]
-        // harmonic comb는 odfTrack(킥 가중)으로 — 발라드(피아노/기타)와 킥 강한 곡을 구별
+        // harmonic comb도 odfTempo — 4분의1 주기 게이트(하이햇 에너지)로 발라드와 구별
         val beatMs = dbnEstimateTempo(
             odfTempo, hopMs, params.minBeatMs, params.maxBeatMs,
-            DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA,
-            odfComb = odfTrack
+            DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA
         )
 
         // [🔥 위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
@@ -442,7 +445,7 @@ object BeatDetectorV3 {
         }
 
         val LOG_BPM_CENTER = ln(120f)
-        val LOG_BPM_SX2    = 2f * 0.8f * 0.8f
+        val LOG_BPM_SX2    = 2f * 0.5f * 0.5f  // σ=0.5 — 120 BPM 근처 곡만 하모닉 보정
 
         fun combPriorScore(beatMs: Long): Float {
             val fpb = max(1, (beatMs / hopMs).toInt())
@@ -461,12 +464,33 @@ object BeatDetectorV3 {
             return normalizedBest * prior
         }
 
+        // 4분의1 주기 rawComb (prior 없음, 전 주파수 odf — 하이햇 포함)
+        fun rawCombScore(beatMs: Long): Float {
+            val fpb = max(1, (beatMs / hopMs).toInt())
+            if (odf.size < fpb * 2) return 0f
+            var best = Float.NEGATIVE_INFINITY
+            for (ph in 0 until fpb) {
+                var sc = 0f; var f = ph
+                while (f < odf.size) { sc += odf[f]; f += fpb }
+                if (sc > best) best = sc
+            }
+            return best / (odf.size.toFloat() / fpb.toFloat()).coerceAtLeast(1f)
+        }
+
         val resultMs   = intervals[bestII].toLong() * hopMs
         var bestCorrMs = resultMs
         var bestCorrPS = combPriorScore(resultMs)
 
+        // 4분의1 주기 분할음 비율 — K-pop 하이햇 vs 발라드 구별
+        val quarterMs   = resultMs / 4L
+        val rawFull     = rawCombScore(resultMs)
+        val rawQuarter  = rawCombScore(quarterMs)
+        val subdivRatio = if (rawFull > 1e-6f) rawQuarter / rawFull else 0f
+        Log.d(TAG, "V3 harm subdiv: result=${resultMs}ms q=${quarterMs}ms ratio=${"%.3f".format(subdivRatio)}")
+
         for (r in HARM_RATIOS) {
             if (r == 0.5f && resultMs < 840L) continue
+            if (r == 0.5f && subdivRatio < SUBDIV_RATIO_MIN) continue  // 발라드 차단
             val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt().coerceAtLeast(1)
             val cMs = frames.toLong() * hopMs
             if (cMs < minBeatMs || cMs > maxBeatMs) continue

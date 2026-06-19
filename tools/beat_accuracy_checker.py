@@ -427,9 +427,29 @@ except Exception as _e:
 # demucs (Meta 4-stem 분리 — CPU 가능, GPU 없이 시맨틱 라벨 생성, pip install demucs)
 HAS_DEMUCS = False
 _demucs_err = None
+_demucs_use_api = False   # True=API(v4+), False=CLI 폴백(v3.x)
+_DemucsAPIClass = None
+
 try:
-    from demucs.api import Separator as _DemucsAPIClass
+    from demucs.api import Separator as _DemucsAPIClass  # demucs >= 4.0
     HAS_DEMUCS = True
+    _demucs_use_api = True
+except ImportError:
+    # demucs < 4.0 또는 demucs.api 없음 → CLI 폴백
+    try:
+        import demucs as _demucs_pkg_check  # 모듈 자체는 있는지 확인
+        import subprocess as _sub_check
+        _r = _sub_check.run(
+            [sys.executable, '-m', 'demucs', '--help'],
+            capture_output=True, timeout=15
+        )
+        if _r.returncode == 0:
+            HAS_DEMUCS = True
+            _demucs_use_api = False
+        else:
+            _demucs_err = 'demucs CLI 실행 실패 (pip install -U demucs 권장)'
+    except Exception as _e2:
+        _demucs_err = str(_e2)
 except Exception as _e:
     _demucs_err = str(_e)
 
@@ -849,17 +869,17 @@ def detect_msaf_sections(audio_path, duration_sec):
 
 
 def detect_demucs_sections(audio_path, duration_sec):
-    """msaf 경계 + Demucs 4-stem 에너지 → 시맨틱 라벨 (Spleeter보다 정확).
+    """msaf 경계 + Demucs 4-stem 에너지 → 시맨틱 라벨.
 
     pip install demucs  (torch/torchaudio 필요 — Beat Transformer와 공유 가능)
     기본 모델: htdemucs (SDR vocals ~8-9 dB, drums ~7-8 dB)
     CPU 3분 곡 약 3-5분 소요.
+    demucs >= 4.0: Python API 사용 / < 4.0: CLI 폴백 (pip install -U demucs 권장)
     """
     if not HAS_MSAF or not HAS_DEMUCS:
         return []
     try:
         import numpy as np
-        import torch
 
         # ── 1. msaf 경계 검출 ──
         bounds, cluster_ids = _msaf_mod.process(
@@ -874,21 +894,37 @@ def detect_demucs_sections(audio_path, duration_sec):
             bounds = np.concatenate([bounds, [duration_sec]])
 
         # ── 2. Demucs 4-stem 분리 ──
-        separator = _DemucsAPIClass(model='htdemucs', device='cpu', progress=False)
-        _, stems = separator.separate_audio_file(audio_path)
-        # stems: {'drums': Tensor[C,T], 'bass': ..., 'other': ..., 'vocals': ...}
-        sr = separator.samplerate
+        if _demucs_use_api:
+            # demucs >= 4.0: Python API
+            separator = _DemucsAPIClass(model='htdemucs', device='cpu', progress=False)
+            _, stems = separator.separate_audio_file(audio_path)
+            sr = separator.samplerate
 
-        def _stem_np(name):
-            t = stems[name]          # [channels, samples]
-            if t.dim() > 1:
-                t = t.mean(0)        # mono
-            return t.cpu().numpy()
+            def _stem_np(name):
+                t = stems[name]
+                if t.dim() > 1:
+                    t = t.mean(0)
+                return t.cpu().numpy()
 
-        vocals_y = _stem_np('vocals')
-        drums_y  = _stem_np('drums')
-        bass_y   = _stem_np('bass')
-        other_y  = _stem_np('other')
+            vocals_y = _stem_np('vocals')
+            drums_y  = _stem_np('drums')
+            bass_y   = _stem_np('bass')
+            other_y  = _stem_np('other')
+        else:
+            # demucs < 4.0: CLI 폴백 — subprocess로 실행 후 wav 파일 로드
+            import subprocess, tempfile, librosa
+            with tempfile.TemporaryDirectory() as tmpdir:
+                subprocess.run(
+                    [sys.executable, '-m', 'demucs',
+                     '-n', 'htdemucs', '-o', tmpdir, audio_path],
+                    check=True, capture_output=True, timeout=600
+                )
+                track = os.path.splitext(os.path.basename(audio_path))[0]
+                stem_dir = os.path.join(tmpdir, 'htdemucs', track)
+                vocals_y, sr = librosa.load(os.path.join(stem_dir, 'vocals.wav'), sr=None, mono=True)
+                drums_y,  _  = librosa.load(os.path.join(stem_dir, 'drums.wav'),  sr=None, mono=True)
+                bass_y,   _  = librosa.load(os.path.join(stem_dir, 'bass.wav'),   sr=None, mono=True)
+                other_y,  _  = librosa.load(os.path.join(stem_dir, 'other.wav'),  sr=None, mono=True)
 
         # ── 3. 구간별 RMS 에너지 ──
         def _seg_rms(y, t0, t1):
@@ -953,7 +989,7 @@ def detect_demucs_sections(audio_path, duration_sec):
 
 
 def detect_gt_sections(audio_path, duration_sec):
-    """GT 섹션 감지 우선순위: allin1 → demucs → spleeter → msaf → librosa
+    """GT 섹션 감지 우선순위: allin1 → demucs+msaf → msaf → librosa
 
     allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
     (start/end 마커는 제외)
