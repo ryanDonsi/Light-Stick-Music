@@ -3593,16 +3593,57 @@ class App(tk.Tk):
                 if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
                     _gt_sec_start = time.time()
                     src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
-                    self.after(0, lambda s=src: self._log(f"[+GT]  GT 섹션 감지 ({s})…", "gray"))
+
+                    # ── 섹션 캐시 확인 ──
+                    cached_sections = None
                     try:
-                        librosa_sections = detect_gt_sections(audio_path, duration_sec)
+                        with open(records_path, encoding="utf-8") as _f:
+                            _recs = json.load(_f)
+                        _cached = next((r for r in _recs
+                                        if r.get("_key") == f"{audio_hash_id}_sections"), None)
+                        if _cached and _cached.get("sections"):
+                            cached_sections = _cached.get("sections")
+                    except Exception:
+                        pass
+
+                    if cached_sections is not None:
+                        self.after(0, lambda s=src:
+                                   self._log(f"[+GT]  GT 섹션 캐시 사용 ({s} — 재분석 생략)", "gray"))
+                        librosa_sections = cached_sections
                         _gt_sec_elapsed = time.time() - _gt_sec_start
                         self.after(0, lambda n=len(librosa_sections), t=_gt_sec_elapsed:
-                            self._log(f"  GT 섹션 : {n}개 감지 ({t:.2f}초)", "cyan"))
-                    except Exception as e:
-                        self.after(0, lambda m=str(e)[:100]:
-                                   self._log(f"  [❌ GT섹션 감지 실패] {m}", "red"))
-                        raise
+                            self._log(f"  GT 섹션 : {n}개 (캐시) ({t:.3f}초)", "cyan"))
+                    else:
+                        self.after(0, lambda s=src: self._log(f"[+GT]  GT 섹션 감지 ({s})…", "gray"))
+                        try:
+                            librosa_sections = detect_gt_sections(audio_path, duration_sec)
+                            _gt_sec_elapsed = time.time() - _gt_sec_start
+                            self.after(0, lambda n=len(librosa_sections), t=_gt_sec_elapsed:
+                                self._log(f"  GT 섹션 : {n}개 감지 ({t:.2f}초)", "cyan"))
+
+                            # 캐시 저장
+                            try:
+                                with open(records_path, encoding="utf-8") as _f:
+                                    _recs = json.load(_f)
+                            except Exception:
+                                _recs = []
+
+                            _key = f"{audio_hash_id}_sections"
+                            _idx = next((i for i, r in enumerate(_recs) if r.get("_key") == _key), -1)
+                            if _idx >= 0:
+                                _recs[_idx]["sections"] = librosa_sections
+                            else:
+                                _recs.append({"_key": _key, "sections": librosa_sections})
+
+                            try:
+                                with open(records_path, "w", encoding="utf-8") as _f:
+                                    json.dump(_recs, _f, ensure_ascii=False, indent=2)
+                            except Exception:
+                                pass
+                        except Exception as e:
+                            self.after(0, lambda m=str(e)[:100]:
+                                       self._log(f"  [❌ GT섹션 감지 실패] {m}", "red"))
+                            raise
 
                     # 섹션 타입 및 신뢰도 표시
                     if librosa_sections:
