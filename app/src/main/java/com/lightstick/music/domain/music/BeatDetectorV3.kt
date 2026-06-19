@@ -89,9 +89,11 @@ object BeatDetectorV3 {
         }
 
         // [🔥 BPM은 반드시 odfTempo(순정)를 사용하여 반토막 함정을 피합니다]
+        // harmonic comb는 odfTrack(킥 가중)으로 — 발라드(피아노/기타)와 킥 강한 곡을 구별
         val beatMs = dbnEstimateTempo(
             odfTempo, hopMs, params.minBeatMs, params.maxBeatMs,
-            DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA
+            DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA,
+            odfComb = odfTrack
         )
 
         // [🔥 위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
@@ -349,7 +351,8 @@ object BeatDetectorV3 {
 
     private fun dbnEstimateTempo(
         odf: List<Float>, hopMs: Long, minBeatMs: Long, maxBeatMs: Long,
-        transitionLambda: Float, observationLambda: Int
+        transitionLambda: Float, observationLambda: Int,
+        odfComb: List<Float> = odf   // harmonic comb check 전용 ODF (킥 가중 odfTrack)
     ): Long {
         val minInterval = max(1, (minBeatMs / hopMs).toInt())
         val maxInterval = max(minInterval + 1, (maxBeatMs / hopMs).toInt())
@@ -439,18 +442,18 @@ object BeatDetectorV3 {
         }
 
         val LOG_BPM_CENTER = ln(120f)
-        val LOG_BPM_SX2    = 2f * 0.5f * 0.5f
+        val LOG_BPM_SX2    = 2f * 0.8f * 0.8f
 
         fun combPriorScore(beatMs: Long): Float {
             val fpb = max(1, (beatMs / hopMs).toInt())
-            if (odf.size < fpb * 2) return 0f
+            if (odfComb.size < fpb * 2) return 0f
             var best = Float.NEGATIVE_INFINITY
             for (ph in 0 until fpb) {
                 var sc = 0f; var f = ph
-                while (f < odf.size) { sc += odf[f]; f += fpb }
+                while (f < odfComb.size) { sc += odfComb[f]; f += fpb }
                 if (sc > best) best = sc
             }
-            val expectedBeats = (odf.size.toFloat() / fpb.toFloat()).coerceAtLeast(1f)
+            val expectedBeats = (odfComb.size.toFloat() / fpb.toFloat()).coerceAtLeast(1f)
             val normalizedBest = best / expectedBeats
             val bpm   = 60_000f / beatMs.toFloat()
             val d     = ln(bpm) - LOG_BPM_CENTER
