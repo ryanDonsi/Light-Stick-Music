@@ -423,14 +423,13 @@ object BeatDetectorV3 {
             " ac=$halfAc ratio=$halfRatio  [threshold=${BPM_HALF_TEMPO_RATIO}]" +
             if (halfLag >= minLag) "" else " (below minLag)")
 
-        // ── 5. double-tempo 관련 수치 (참고용 — 현재 로직에 없음) ────────────
-        val doubleLag = bestLag * 2
-        val doubleMs  = doubleLag * hopMs
-        val doubleAc  = if (doubleLag <= maxLag) acVals[doubleLag] else 0f
-        val doubleRatio = if (bestAc > 0f) doubleAc / bestAc else 0f
-        val subBeatLag  = bestLag / 2   // halfLag와 동일
-        val subBeatAc   = halfAc        // 이미 계산됨
-        val subBeatRatio = halfRatio    // 동일
+        // ── 5. double-tempo 관련 수치 (로그 + fix 공용) ──────────────────────
+        val doubleLag    = bestLag * 2
+        val doubleMs     = doubleLag * hopMs
+        val doubleAc     = if (doubleLag <= maxLag) acVals[doubleLag] else 0f
+        val doubleRatio  = if (bestAc > 0f) doubleAc / bestAc else 0f
+        val subBeatLag   = bestLag / 2   // halfLag와 동일
+        val subBeatRatio = halfRatio      // halfRatio와 동일
         if (doubleLag <= maxLag) {
             Log.d(TAG, "V3$t DOUBLE: lag=${doubleMs}ms(${60_000L/doubleMs}BPM)" +
                 " ac=$doubleAc doubleRatio=$doubleRatio" +
@@ -459,15 +458,11 @@ object BeatDetectorV3 {
         // ── 8. double-tempo 체크: 2배 주기가 더 강하고 반박자 에너지가 낮으면 느린 템포 선택 ──
         // 조건: doubleRatio ≥ 1.00 (2배 주기가 현재 lag보다 강함 = 현재 lag는 진짜 반박자)
         //       subRatio < 0.65   (반박자 에너지 낮음 = K-pop 하이햇 아님)
-        val doubleLag    = bestLag * 2
-        val doubleMs     = doubleLag * hopMs
-        val doubleAc     = if (doubleLag <= maxLag) acVals[doubleLag] else 0f
-        val doubleRatio2 = if (bestAc > 0f) doubleAc / bestAc else 0f
-        if (doubleLag <= maxLag && doubleRatio2 >= BPM_DOUBLE_TEMPO_RATIO
-            && halfRatio < BPM_SUBBBEAT_RATIO_MAX) {
+        if (doubleLag <= maxLag && doubleRatio >= BPM_DOUBLE_TEMPO_RATIO
+            && subBeatRatio < BPM_SUBBBEAT_RATIO_MAX) {
             Log.d(TAG, "V3$t doubleTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
                 " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
-                " doubleRatio=$doubleRatio2 subRatio=$halfRatio")
+                " doubleRatio=$doubleRatio subRatio=$subBeatRatio")
             return doubleMs
         }
 
