@@ -255,15 +255,21 @@ HAS_PYGAME = False
 _PYGAME_ERROR = None
 try:
     import pygame
-    # 다양한 오디오 드라이버 설정 시도
     import os
-    for driver in ['pulseaudio', 'alsa', 'oss', 'esd']:
-        os.environ[f'SDL_AUDIODRIVER'] = driver
+    # 환경 변수 초기화 (이전 설정 제거)
+    os.environ.pop('SDL_AUDIODRIVER', None)
+
+    # 드라이버 우선순위: pulseaudio > alsa > dummy > 기본
+    drivers_to_try = ['pulseaudio', 'alsa', 'dummy']
+
+    for driver in drivers_to_try:
+        os.environ['SDL_AUDIODRIVER'] = driver
         try:
             pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
             HAS_PYGAME = True
             break
         except Exception:
+            os.environ.pop('SDL_AUDIODRIVER', None)
             continue
 
     # 드라이버 설정이 없으면 기본 초기화 시도
@@ -453,10 +459,7 @@ except Exception as _e:
 HAS_DEMUCS = False
 _demucs_err = None
 try:
-    try:
-        import demucs.api
-    except ImportError:
-        import demucs
+    import demucs
     HAS_DEMUCS = True
 except Exception as _e:
     _demucs_err = str(_e)
