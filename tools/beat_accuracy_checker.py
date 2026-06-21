@@ -3692,9 +3692,12 @@ class App(tk.Tk):
         if not HAS_PYDUB or not self._is_playing:
             return
         try:
+            self._is_playing = False  # 먼저 플래그 설정해 스레드 종료
             if self._play_obj:
-                self._play_obj.stop()
-            self._is_playing = False
+                try:
+                    self._play_obj.stop()
+                except Exception:
+                    pass
             self._update_play_buttons()
             self._log("[일시정지] 재생을 일시정지했습니다.", "green")
         except Exception as e:
@@ -3705,9 +3708,12 @@ class App(tk.Tk):
         if not HAS_PYDUB:
             return
         try:
+            self._is_playing = False  # 먼저 플래그 설정해 스레드 종료
             if self._play_obj:
-                self._play_obj.stop()
-            self._is_playing = False
+                try:
+                    self._play_obj.stop()
+                except Exception:
+                    pass
             self._playback_pos_ms = 0
             self._update_play_buttons()
             self.v_play_time.set("0:00 / 0:00")
@@ -3719,18 +3725,36 @@ class App(tk.Tk):
         import time
         while self._is_playing and not self._stop_playback:
             try:
-                if self._play_obj and self._play_obj.is_playing():
-                    elapsed = (time.time() * 1000) - self._playback_start_time
-                    self._playback_pos_ms = max(0, int(elapsed))
-                    self.after(0, lambda: self._update_time_display())
-                    self.after(0, lambda: self._redraw_timeline())
-                    time.sleep(0.05)
-                else:
+                # PlayObject 안전성 체크
+                if not self._play_obj:
                     self._is_playing = False
                     self.after(0, lambda: self._update_play_buttons())
                     break
+
+                try:
+                    is_playing = self._play_obj.is_playing()
+                except Exception:
+                    is_playing = False
+
+                if is_playing:
+                    try:
+                        elapsed = (time.time() * 1000) - self._playback_start_time
+                        self._playback_pos_ms = max(0, int(elapsed))
+                        self.after(0, self._update_time_display)
+                        self.after(0, self._redraw_timeline)
+                    except Exception as e:
+                        pass  # UI 업데이트 실패는 무시
+                    time.sleep(0.05)
+                else:
+                    self._is_playing = False
+                    self.after(0, self._update_play_buttons)
+                    break
             except Exception as e:
-                self.after(0, lambda m=str(e)[:100]: self._log(f"[재생 추적 오류] {m}", "red"))
+                error_msg = str(e)[:100]
+                try:
+                    self.after(0, lambda m=error_msg: self._log(f"[재생 추적 오류] {m}", "red"))
+                except Exception:
+                    pass
                 break
         self._stop_playback = False
 
