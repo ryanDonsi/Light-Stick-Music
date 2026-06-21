@@ -253,6 +253,7 @@ except Exception as _e:
 
 HAS_PYGAME = False
 _PYGAME_ERROR = None
+_PYGAME_INFO = ""
 try:
     import pygame
     import os
@@ -261,12 +262,14 @@ try:
 
     # 드라이버 우선순위: pulseaudio > alsa > dummy > 기본
     drivers_to_try = ['pulseaudio', 'alsa', 'dummy']
+    used_driver = None
 
     for driver in drivers_to_try:
         os.environ['SDL_AUDIODRIVER'] = driver
         try:
             pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
             HAS_PYGAME = True
+            used_driver = driver
             break
         except Exception:
             os.environ.pop('SDL_AUDIODRIVER', None)
@@ -277,8 +280,17 @@ try:
         try:
             pygame.mixer.init()
             HAS_PYGAME = True
+            used_driver = "default"
         except Exception as e:
             _PYGAME_ERROR = str(e)
+
+    # pygame 상태 정보
+    if HAS_PYGAME:
+        try:
+            freq, size, channels = pygame.mixer.get_init()
+            _PYGAME_INFO = f"({used_driver}: {freq}Hz {channels}ch)"
+        except Exception:
+            _PYGAME_INFO = f"({used_driver})"
 except Exception as e:
     _PYGAME_ERROR = str(e)
 
@@ -2058,8 +2070,8 @@ class App(tk.Tk):
              "#69f0ae" if HAS_DEMUCS else "#ffcc02"),
             (("● matplotlib"       if HAS_MPL     else "✗ matplotlib (미설치 → 비트맵 불가)"),
              "#69f0ae" if HAS_MPL     else "#ffcc02"),
-            (("● pygame (음악재생)" if HAS_PYGAME  else
-              f"✗ pygame: {_PYGAME_ERROR[:40]}" if _PYGAME_ERROR else "✗ pygame (미설치)"),
+            ((f"● pygame {_PYGAME_INFO}" if HAS_PYGAME  else
+              f"✗ pygame: {_PYGAME_ERROR[:35]}" if _PYGAME_ERROR else "✗ pygame (미설치)"),
              "#69f0ae" if HAS_PYGAME else "#ffcc02"),
         ]:
             tk.Label(banner, text=txt, bg="#263238", fg=col,
@@ -3685,7 +3697,12 @@ class App(tk.Tk):
                     except Exception:
                         self._log(f"[재생 시작] {os.path.basename(self._current_audio_path)}", "green")
                 except Exception as e:
-                    self._log(f"[재생 오류] {type(e).__name__}: {str(e)[:80]}", "red")
+                    file_ext = os.path.splitext(self._current_audio_path)[1].lower()
+                    error_msg = str(e)[:80]
+                    if "format" in error_msg.lower() or file_ext == ".mp3":
+                        self._log(f"[재생 오류] {file_ext} 포맷 미지원 (WAV/OGG 사용 권장): {error_msg}", "red")
+                    else:
+                        self._log(f"[재생 오류] {type(e).__name__}: {error_msg}", "red")
             else:
                 # 일시정지된 상태에서 재개
                 try:
