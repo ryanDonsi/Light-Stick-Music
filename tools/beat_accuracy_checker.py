@@ -3674,7 +3674,16 @@ class App(tk.Tk):
                     self._playback_thread = threading.Thread(target=self._track_playback, daemon=True)
                     self._playback_thread.start()
                     self._update_play_buttons()
-                    self._log(f"[재생 시작] {os.path.basename(self._current_audio_path)}", "green")
+
+                    # 재생 상태 진단 정보
+                    try:
+                        is_busy = pygame.mixer.music.get_busy()
+                        mixer_info = f"[재생 시작] {os.path.basename(self._current_audio_path)}"
+                        if not is_busy:
+                            mixer_info += " (⚠️  오디오 출력 없음 - 사운드 장치 확인)"
+                        self._log(mixer_info, "green")
+                    except Exception:
+                        self._log(f"[재생 시작] {os.path.basename(self._current_audio_path)}", "green")
                 except Exception as e:
                     self._log(f"[재생 오류] {type(e).__name__}: {str(e)[:80]}", "red")
             else:
