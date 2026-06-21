@@ -253,11 +253,17 @@ except Exception as _e:
 
 HAS_PYDUB = False
 _PYDUB_ERROR = None
+HAS_SIMPLEAUDIO = False
+_SIMPLEAUDIO_ERROR = None
 try:
     from pydub import AudioSegment
+    import simpleaudio as sa
     HAS_PYDUB = True
+    HAS_SIMPLEAUDIO = True
 except ImportError as e:
     _PYDUB_ERROR = str(e)
+    if "simpleaudio" in str(e).lower():
+        _SIMPLEAUDIO_ERROR = str(e)
 
 # ──────────────────────────────────────────────
 # 의존 라이브러리 감지
@@ -2037,9 +2043,9 @@ class App(tk.Tk):
              "#69f0ae" if HAS_DEMUCS else "#ffcc02"),
             (("● matplotlib"       if HAS_MPL     else "✗ matplotlib (미설치 → 비트맵 불가)"),
              "#69f0ae" if HAS_MPL     else "#ffcc02"),
-            (("● pydub (음악재생)"  if HAS_PYDUB  else
-              f"✗ pydub: {_PYDUB_ERROR[:35]}" if _PYDUB_ERROR else "✗ pydub (미설치)"),
-             "#69f0ae" if HAS_PYDUB else "#ffcc02"),
+            ((("● pydub+simpleaudio" if HAS_SIMPLEAUDIO else "● pydub ✗ simpleaudio")
+              if HAS_PYDUB else f"✗ pydub: {_PYDUB_ERROR[:30] if _PYDUB_ERROR else '미설치'}"),
+             ("#69f0ae" if (HAS_PYDUB and HAS_SIMPLEAUDIO) else "#ffcc02")),
         ]:
             tk.Label(banner, text=txt, bg="#263238", fg=col,
                      font=("", 9, "bold")).pack(side="left", padx=10, pady=3)
@@ -3610,12 +3616,13 @@ class App(tk.Tk):
         except Exception as ex:
             self._log(f"[타임라인 표시 오류] {ex}", "red")
 
-    # ── 음악 재생 컨트롤 함수 (pydub) ────────────────
+    # ── 음악 재생 컨트롤 함수 (pydub + simpleaudio) ──
     def _play_audio(self):
-        """음악 재생 시작 (pydub)"""
+        """음악 재생 시작"""
         import time
-        if not HAS_PYDUB:
-            self._log("[재생 불가] pydub이 초기화되지 않았습니다.", "red")
+        if not HAS_PYDUB or not HAS_SIMPLEAUDIO:
+            msg = "pydub" if not HAS_PYDUB else "simpleaudio"
+            self._log(f"[재생 불가] {msg}이(가) 초기화되지 않았습니다.", "red")
             return
 
         audio_path = self._current_audio_path
@@ -3641,7 +3648,12 @@ class App(tk.Tk):
             if self._playback_pos_ms == 0:
                 try:
                     sound = AudioSegment.from_file(self._current_audio_path)
-                    self._play_obj = sound.play()
+                    self._play_obj = sa.play_buffer(
+                        sound.raw_data,
+                        num_channels=sound.channels,
+                        bytes_per_sample=sound.sample_width,
+                        sample_rate=sound.frame_rate
+                    )
                     self._playback_start_time = time.time() * 1000
                     self._is_playing = True
                     self._stop_playback = False
@@ -3654,28 +3666,37 @@ class App(tk.Tk):
                     error_msg = str(e)[:80]
                     self._log(f"[재생 오류] {file_ext} {error_msg}", "red")
             else:
+                # 정지 후 재시작 (simpleaudio는 pause/resume 미지원)
                 try:
-                    if self._play_obj:
-                        self._play_obj.resume()
-                        self._playback_start_time = time.time() * 1000 - self._playback_pos_ms
-                        self._is_playing = True
-                        self._stop_playback = False
-                        self._playback_thread = threading.Thread(target=self._track_playback, daemon=True)
-                        self._playback_thread.start()
-                        self._update_play_buttons()
-                        self._log("[재개] 일시정지 상태에서 재개했습니다.", "green")
+                    sound = AudioSegment.from_file(self._current_audio_path)
+                    skip_ms = self._playback_pos_ms
+                    sound = sound[skip_ms:]
+                    self._play_obj = sa.play_buffer(
+                        sound.raw_data,
+                        num_channels=sound.channels,
+                        bytes_per_sample=sound.sample_width,
+                        sample_rate=sound.frame_rate
+                    )
+                    self._playback_start_time = time.time() * 1000 - skip_ms
+                    self._is_playing = True
+                    self._stop_playback = False
+                    self._playback_thread = threading.Thread(target=self._track_playback, daemon=True)
+                    self._playback_thread.start()
+                    self._update_play_buttons()
+                    self._log("[재개] 일시정지 상태에서 재개했습니다.", "green")
                 except Exception as e:
                     self._log(f"[재개 오류] {str(e)[:80]}", "red")
 
     def _pause_audio(self):
-        """음악 일시정지"""
+        """음악 일시정지 (simpleaudio는 pause 미지원, stop으로 처리)"""
         if not HAS_PYDUB or not self._is_playing:
             return
         try:
             if self._play_obj:
-                self._play_obj.pause()
-                self._is_playing = False
-                self._update_play_buttons()
+                self._play_obj.stop()
+            self._is_playing = False
+            self._update_play_buttons()
+            self._log("[일시정지] 재생을 일시정지했습니다.", "green")
         except Exception as e:
             self._log(f"[일시정지 오류] {str(e)[:100]}", "red")
 
