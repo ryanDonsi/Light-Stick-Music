@@ -3622,9 +3622,28 @@ class App(tk.Tk):
         if not HAS_PYGAME:
             self._log("[재생 불가] pygame이 초기화되지 않았습니다.", "red")
             return
-        if not self._current_audio_path:
+
+        # 재생할 음악 파일 결정
+        audio_path = self._current_audio_path
+        if not audio_path:
+            # 현재 선택된 목록 항목에서 파일 가져오기
+            sel = self._tree.selection()
+            if sel:
+                item = self._audio_items.get(sel[0], {})
+                audio_path = item.get("path", "").strip()
+
+        if not audio_path or not os.path.isfile(audio_path):
             self._log("[재생 불가] 음악 파일이 선택되지 않았습니다.", "red")
             return
+
+        # 재생 경로 및 오디오 정보 업데이트
+        self._current_audio_path = audio_path
+        if not self._audio_duration_ms:
+            try:
+                duration_sec = get_audio_duration(audio_path)
+                self._audio_duration_ms = int(duration_sec * 1000)
+            except Exception:
+                self._audio_duration_ms = 0
 
         if not self._is_playing:
             if self._playback_pos_ms == 0:
