@@ -453,7 +453,10 @@ except Exception as _e:
 HAS_DEMUCS = False
 _demucs_err = None
 try:
-    import demucs.api
+    try:
+        import demucs.api
+    except ImportError:
+        import demucs
     HAS_DEMUCS = True
 except Exception as _e:
     _demucs_err = str(_e)
@@ -3000,7 +3003,7 @@ class App(tk.Tk):
                                self._log(f"[GT섹션]  {nm} — {n}개 감지", "gray"))
                 except Exception as _se:
                     import traceback
-                    self.after(0, lambda e=str(_se)[:100], tb=traceback.format_exc()[:200]:
+                    self.after(0, lambda e=str(_se)[:100], tb=traceback.format_exc()[:200], nm=name:
                                self._log(f"[❌ GT섹션] {nm} 감지 실패: {e}", "red"))
 
             for engine in engines:
