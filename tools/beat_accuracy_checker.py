@@ -2296,31 +2296,32 @@ class App(tk.Tk):
             ctrl_btn_frame = tk.Frame(song_and_ctrl, bg="#1e272e")
             ctrl_btn_frame.pack(side="left", padx=(15, 0), pady=3)
 
-            # 버튼 스타일 (이미지 느낌의 작은 아이콘 버튼)
+            # 버튼 스타일 (명확한 음악 재생 컨트롤 아이콘)
             btn_bg = "#37474f"
-            btn_fg = "#eceff1"
+            btn_fg = "#4fc3f7"
             btn_hover_bg = "#455a64"
-            btn_font = ("", 9, "bold")
-            btn_width = 3
+            btn_hover_fg = "#80deea"
+            btn_font = ("", 11, "bold")
+            btn_width = 4
             btn_height = 1
 
             self._play_btn = tk.Button(ctrl_btn_frame, text="▶", bg=btn_bg, fg=btn_fg,
                                       font=btn_font, width=btn_width, height=btn_height,
-                                      command=self._play_audio, relief="flat", bd=0,
-                                      activebackground=btn_hover_bg, activeforeground=btn_fg)
+                                      command=self._play_audio, relief="solid", bd=1,
+                                      activebackground=btn_hover_bg, activeforeground=btn_hover_fg)
             self._play_btn.pack(side="left", padx=2)
 
             self._pause_btn = tk.Button(ctrl_btn_frame, text="⏸", bg=btn_bg, fg=btn_fg,
                                        font=btn_font, width=btn_width, height=btn_height,
-                                       command=self._pause_audio, relief="flat", bd=0,
-                                       activebackground=btn_hover_bg, activeforeground=btn_fg,
+                                       command=self._pause_audio, relief="solid", bd=1,
+                                       activebackground=btn_hover_bg, activeforeground=btn_hover_fg,
                                        state="disabled")
             self._pause_btn.pack(side="left", padx=2)
 
             self._stop_btn = tk.Button(ctrl_btn_frame, text="⏹", bg=btn_bg, fg=btn_fg,
                                       font=btn_font, width=btn_width, height=btn_height,
-                                      command=self._stop_audio, relief="flat", bd=0,
-                                      activebackground=btn_hover_bg, activeforeground=btn_fg,
+                                      command=self._stop_audio, relief="solid", bd=1,
+                                      activebackground=btn_hover_bg, activeforeground=btn_hover_fg,
                                       state="disabled")
             self._stop_btn.pack(side="left", padx=2)
 
@@ -2698,6 +2699,20 @@ class App(tk.Tk):
         disp = _to_signed_display(int(mid)) if mid.lstrip("-").isdigit() else (mid or "—")
         self.v_song_title.set(name)
         self.v_song_id.set(f"Music ID: {disp}")
+
+        # 파일 선택 시 음악 정보 설정
+        audio_path = item.get("path", "").strip()
+        if audio_path and os.path.isfile(audio_path):
+            try:
+                duration_sec = get_audio_duration(audio_path)
+                self._audio_duration_ms = int(duration_sec * 1000)
+                self._current_audio_path = audio_path
+                # 시간 표시 업데이트
+                total_min = self._audio_duration_ms // 1000 // 60
+                total_sec = (self._audio_duration_ms // 1000) % 60
+                self.v_play_time.set(f"0:00 / {total_min}:{total_sec:02d}")
+            except Exception:
+                self.v_play_time.set("0:00 / 0:00")
 
         # records.json에서 상세 데이터 로드
         records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
@@ -3667,6 +3682,9 @@ class App(tk.Tk):
                 try:
                     pygame.mixer.music.unpause()
                     self._is_playing = True
+                    self._stop_playback = False
+                    self._playback_thread = threading.Thread(target=self._track_playback, daemon=True)
+                    self._playback_thread.start()
                     self._update_play_buttons()
                     self._log("[재개] 일시정지 상태에서 재개했습니다.", "green")
                 except Exception as e:
