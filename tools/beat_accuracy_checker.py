@@ -3015,32 +3015,63 @@ class App(tk.Tk):
 
     def _run_all_thread(self, targets, engines, tol_ms, bpm_hint):
         total = len(targets)
-        cached_gt_sections = {}  # 오디오 경로별 GT 섹션 캐시
+
+        # 세션 내 캐시 + JSON 기반 장기 캐시
+        cached_gt_sections = {}  # 현재 세션 내 캐시
+        records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
+
+        # JSON 레코드 로드 (music_id별 섹션 캐시)
+        json_gt_sections = {}
+        try:
+            with open(records_path, encoding="utf-8") as _f:
+                _recs = json.load(_f)
+                for rec in _recs:
+                    mid = rec.get("music_id")
+                    sections = rec.get("librosa_sections", [])
+                    if mid and sections and mid not in json_gt_sections:
+                        json_gt_sections[mid] = sections
+        except Exception:
+            pass
 
         for idx, (iid, item) in enumerate(targets, 1):
             audio = item["path"]
             binf  = item["bin_path"]
             name  = os.path.basename(audio)
 
-            # GT 섹션 분석: 곡당 1회만 실행 (캐시 확인)
+            # GT 섹션 분석: music_id 기반 캐싱 (세션 + JSON)
             pre_lib_sections = []
-            if audio not in cached_gt_sections and (HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA):
+
+            # music_id 계산
+            bin_id = extract_music_id(binf) or os.path.splitext(os.path.basename(binf))[0]
+            mid_display = _to_signed_display(int(bin_id)) if bin_id.lstrip("-").isdigit() else bin_id
+
+            # 1단계: 세션 캐시 확인
+            if bin_id in cached_gt_sections:
+                pre_lib_sections = cached_gt_sections[bin_id]
+                self.after(0, lambda n=len(pre_lib_sections), nm=name:
+                           self._log(f"[GT섹션]  {nm} — {n}개 (세션 캐시 사용)", "gray"))
+            # 2단계: JSON 캐시 확인
+            elif mid_display in json_gt_sections:
+                pre_lib_sections = json_gt_sections[mid_display]
+                cached_gt_sections[bin_id] = pre_lib_sections
+                self.after(0, lambda n=len(pre_lib_sections), nm=name:
+                           self._log(f"[GT섹션]  {nm} — {n}개 (저장된 캐시 사용)", "green"))
+            # 3단계: 새로 분석
+            elif HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
                 try:
                     src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
                     self.after(0, lambda n=name, i=idx, t=total, s=src:
                                self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션/{s})"))
                     _dur = get_audio_duration(audio)
                     pre_lib_sections = detect_gt_sections(audio, _dur)
-                    cached_gt_sections[audio] = pre_lib_sections  # 캐시에 저장
+                    cached_gt_sections[bin_id] = pre_lib_sections  # 세션 캐시에 저장
                     self.after(0, lambda n=len(pre_lib_sections), nm=name:
                                self._log(f"[GT섹션]  {nm} — {n}개 감지", "gray"))
                 except Exception as _se:
                     import traceback
-                    cached_gt_sections[audio] = []  # 실패도 캐시하여 재시도 방지
+                    cached_gt_sections[bin_id] = []  # 실패도 캐시하여 재시도 방지
                     self.after(0, lambda e=str(_se)[:100], tb=traceback.format_exc()[:200], nm=name:
                                self._log(f"[❌ GT섹션] {nm} 감지 실패: {e}", "red"))
-            else:
-                pre_lib_sections = cached_gt_sections.get(audio, [])
 
             for engine in engines:
                 eng_lbl = ENGINE_INFO[engine][0]
