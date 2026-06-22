@@ -350,6 +350,42 @@ object BeatDetectorV3 {
     }
 
     // =========================================================================
+    // 자기상관을 FFT로 계산 (O(n log n) 최적화)
+    // 원래: O(n*maxLag) 직접 계산
+    // 최적화: FFT → |X(f)|^2 → IFFT → 정규화
+    private fun computeAutocorrelationFFT(odf: List<Float>, maxLag: Int): FloatArray {
+        val n = odf.size
+        var fftSize = 1
+        while (fftSize < n + maxLag) fftSize *= 2
+
+        // 복소수 배열: [re0, im0, re1, im1, ...]
+        val fftBuf = FloatArray(fftSize * 2)
+        for (i in odf.indices) {
+            fftBuf[i * 2] = odf[i]
+            fftBuf[i * 2 + 1] = 0f
+        }
+
+        val fft = FloatFFT_1D(fftSize.toLong())
+        fft.complexForward(fftBuf)
+
+        // Power spectrum: |X(f)|^2 = Re(f)^2 + Im(f)^2
+        for (i in 0 until fftSize) {
+            val re = fftBuf[i * 2]
+            val im = fftBuf[i * 2 + 1]
+            fftBuf[i * 2] = re * re + im * im
+            fftBuf[i * 2 + 1] = 0f
+        }
+
+        fft.complexInverse(fftBuf, true)
+
+        // 자기상관 추출 및 정규화 (lag마다 다른 샘플 개수로 정규화)
+        val ac = FloatArray(maxLag + 1)
+        for (lag in 0..maxLag) {
+            ac[lag] = fftBuf[lag * 2] / (n - lag)
+        }
+        return ac
+    }
+
     // V1 방식 BPM 추정 — librosa beat_track 동일한 autocorr × log-normal prior
     //
     // autocorr[lag] = mean(odf[i] * odf[i+lag])
@@ -370,7 +406,8 @@ object BeatDetectorV3 {
         val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
         if (odf.size <= maxLag + 2) return minBeatMs
 
-        // ── 1. autocorr × log-normal prior ───────────────────────────────────
+        // ── 1. autocorr × log-normal prior (FFT 최적화) ───────────────────────────
+        val acArray = computeAutocorrelationFFT(odf, maxLag)
         val acVals     = FloatArray(maxLag + 1)
         val priorVals  = FloatArray(maxLag + 1)
         val scoreVals  = FloatArray(maxLag + 1)
@@ -378,10 +415,7 @@ object BeatDetectorV3 {
         var bestLag    = -1
 
         for (lag in minLag..maxLag) {
-            var sum = 0f; var count = 0
-            for (i in 0 until odf.size - lag) { sum += odf[i] * odf[i + lag]; count++ }
-            if (count == 0) continue
-            val acVal    = sum / count
+            val acVal    = acArray[lag]
             val lagMs    = lag * hopMs
             val logRatio = ln(lagMs.toFloat() / BPM_PRIOR_CENTER_MS) / ln(2f)
             val prior    = exp(-0.5f * (logRatio / BPM_PRIOR_STD_OCTAVE) * (logRatio / BPM_PRIOR_STD_OCTAVE))
@@ -416,11 +450,7 @@ object BeatDetectorV3 {
         // ── 4. half-tempo 관련 수치 (튜닝 기준: BPM_HALF_TEMPO_RATIO=%.2f) ──
         val halfLag = bestLag / 2
         val halfMs  = halfLag * hopMs
-        val halfAc  = if (halfLag >= minLag) acVals[halfLag] else run {
-            var s = 0f; var c = 0
-            for (i in 0 until odf.size - halfLag) { s += odf[i] * odf[i + halfLag]; c++ }
-            if (c > 0) s / c else 0f
-        }
+        val halfAc  = if (halfLag >= 0 && halfLag <= maxLag) acArray[halfLag] else 0f
         val halfRatio = if (bestAc > 0f) halfAc / bestAc else 0f
         Log.d(TAG, "V3$t HALF: lag=${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
             " ac=$halfAc ratio=$halfRatio  [threshold=${BPM_HALF_TEMPO_RATIO}]" +
