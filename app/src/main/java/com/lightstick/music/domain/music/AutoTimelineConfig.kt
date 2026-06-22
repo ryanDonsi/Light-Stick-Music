@@ -38,13 +38,28 @@ object AutoTimelineConfig {
     const val SECTION_DETECTOR_VERSION = 1
 
     /**
-     * 타임라인 생성기 버전 (파일명 숫자와 일치)
-     *  0 : Beat 감지 검증 모드 — 박자별 색상 ON (→ AutoTimelineGeneratorBeat_v0)
-     *  1 : BeatDetector(버전별) + SectionDetector(버전별) + 모든 섹션 beat-ON 단일 이펙트 (→ AutoTimelineGeneratorBeat_v1)
-     *  2 : BeatDetector(버전별) + SectionDetector(버전별) + 모든 섹션 beat-ON 단일 이펙트 (→ AutoTimelineGeneratorBeat_v2)
-     *  3 : BeatDetector(버전별) + SectionDetector(버전별) + V8 이펙트 룰 (→ AutoTimelineGeneratorBeat_v3)
-     *  4 : BeatDetector(버전별) + SectionDetectorV2 + V8 이펙트 룰 (→ AutoTimelineGeneratorBeat_v4)
-     *  6 : BeatDetector(버전별) + SectionDetector(버전별) + V8 확장 이펙트 (→ AutoTimelineGeneratorBeat_v6)
+     * 이펙트 규칙 버전 — AutoTimelineGeneratorBeat 에서 이펙트 생성 방식을 결정한다.
+     *  0 : 단순 ON/OFF (비트별 색상 ON 20%, OFF 80%)
+     *  1 : 단일 색상 비트 이펙트 (BeatDetector + SectionDetector, 모든 섹션 beat-ON)
+     *  3 : V8 이펙트 규칙 (ON_PULSE, STROBE, BREATH, ON_TRANSIT_ROTATE 등)
+     *  6 : V8 확장 이펙트
+     */
+    const val EFFECT_RULE_VERSION = 1
+
+    /**
+     * 섹션 감지 사용 여부
+     *  false: 비트 감지만 사용 (빠른 처리)
+     *  true: BeatDetector + SectionDetector 함께 사용 (고급 이펙트)
+     */
+    const val USE_SECTION_DETECTOR = false
+
+    /**
+     * 타임라인 생성기 버전 (호환성 유지용 — 내부적으로는 위 설정들의 조합으로 결정)
+     *  0 : Beat 감지 검증 모드 (EFFECT_RULE_VERSION=0, USE_SECTION_DETECTOR=false)
+     *  1 : 단일 색상 비트 (EFFECT_RULE_VERSION=1, USE_SECTION_DETECTOR=true)
+     *  2 : 단일 색상 비트 (EFFECT_RULE_VERSION=1, USE_SECTION_DETECTOR=true)
+     *  3 : V8 이펙트 (EFFECT_RULE_VERSION=3, USE_SECTION_DETECTOR=true)
+     *  6 : V8 확장 (EFFECT_RULE_VERSION=6, USE_SECTION_DETECTOR=true)
      */
     const val GENERATOR_VERSION = 2
 
@@ -53,4 +68,25 @@ object AutoTimelineConfig {
     /** 비트 감지기 공통 BPM 탐색 범위 — 모든 generator에서 공유 */
     const val MIN_BEAT_MS = 375L   // ~160 BPM (BeatDetector 내부 하한과 일치)
     const val MAX_BEAT_MS = 1200L  // ~50 BPM
+
+    /**
+     * GENERATOR_VERSION에서 EFFECT_RULE_VERSION으로 변환
+     * (하위 호환성 유지)
+     */
+    fun effectRuleVersionForGenerator(generatorVersion: Int = GENERATOR_VERSION): Int = when (generatorVersion) {
+        0 -> 0
+        1, 2 -> 1
+        3 -> 3
+        6 -> 6
+        else -> EFFECT_RULE_VERSION
+    }
+
+    /**
+     * GENERATOR_VERSION에서 USE_SECTION_DETECTOR로 변환
+     * (하위 호환성 유지)
+     */
+    fun useSectionDetectorForGenerator(generatorVersion: Int = GENERATOR_VERSION): Boolean = when (generatorVersion) {
+        0 -> false
+        else -> true
+    }
 }
