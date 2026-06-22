@@ -74,7 +74,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         val generator: AutoTimelineGenerator = AutoTimelineGeneratorBeat()
         val sectionStorage = if (generator is SectionAwareGenerator) SectionMetaStorage(version) else null
 
-        Log.d(TAG, "생성기: AutoTimelineGeneratorBeat (effectRule=${AutoTimelineConfig.EFFECT_RULE_VERSION} useSection=${AutoTimelineConfig.USE_SECTION_DETECTOR})")
+        Log.d(TAG, "생성기: AutoTimelineGeneratorBeat (effectRule=${AutoTimelineConfig.EFFECT_RULE_VERSION})")
 
         // 이미 생성된 파일은 제외한 실제 처리 대상만 추려 정확한 total 확보
         val filesToProcess = if (TEST_FORCE_REGENERATE) {
