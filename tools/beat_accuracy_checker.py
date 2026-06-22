@@ -2072,6 +2072,22 @@ class App(tk.Tk):
                      font=("", 8, "bold")).pack(side="left", padx=6)
         tk.Label(tl_ctrl, text="  |", bg="#1a1a2e", fg="#37474f", font=("", 8)).pack(side="left")
 
+        # 중앙: 섹션 범례
+        sec_legend = tk.Frame(tl_ctrl, bg="#1a1a2e")
+        sec_legend.pack(side="left", padx=(4, 6))
+        tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
+                 font=("", 7)).pack(side="left", padx=(0, 3))
+        _legend_types = ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO",
+                          "VOCAL", "INST", "SOLO", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]
+        if HAS_MSAF:
+            _legend_types += list("ABCDEFGHIJ")
+        for stype in _legend_types:
+            sc = _SECTION_COLORS.get(stype, "#546e7a")
+            tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
+                     font=("", 6, "bold")).pack(side="left", padx=1, pady=1)
+
+        tk.Label(tl_ctrl, text="  |", bg="#1a1a2e", fg="#37474f", font=("", 8)).pack(side="left", padx=2)
+
         # 우측: 타임라인 컨트롤
         right_ctrl = tk.Frame(tl_ctrl, bg="#1a1a2e")
         right_ctrl.pack(side="right", padx=(0, 6))
@@ -2115,23 +2131,6 @@ class App(tk.Tk):
         self.v_zoom_pos = tk.StringVar(value="0:00 ~ 0:00")
         tk.Label(right_ctrl, textvariable=self.v_zoom_pos,
                  bg="#1a1a2e", fg="#546e7a", font=("", 8)).pack(side="left", padx=4)
-
-        # 섹션 범례는 아래 별도 행으로 유지
-        tl_ctrl2 = tk.Frame(tl_frame, bg="#1a1a2e")
-        tl_ctrl2.pack(fill="x", padx=6, pady=(0, 2))
-
-        sec_legend = tk.Frame(tl_ctrl2, bg="#1a1a2e")
-        sec_legend.pack(side="left")
-        tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
-                 font=("", 7)).pack(side="left", padx=(0, 3))
-        _legend_types = ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO",
-                          "VOCAL", "INST", "SOLO", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]
-        if HAS_MSAF:
-            _legend_types += list("ABCDEFGHIJ")
-        for stype in _legend_types:
-            sc = _SECTION_COLORS.get(stype, "#546e7a")
-            tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
-                     font=("", 6, "bold")).pack(side="left", padx=1, pady=1)
 
         # 캔버스 높이: TICK_H(16) + BEAT_H*3(132) + SEC_H*2(44) = 192px (공백 없음)
         self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=192, highlightthickness=0)
@@ -2289,7 +2288,7 @@ class App(tk.Tk):
         # 재생 컨트롤 버튼들 (곡 정보 우측)
         if HAS_PYDUB:
             ctrl_btn_frame = tk.Frame(song_and_ctrl, bg="#1e272e")
-            ctrl_btn_frame.pack(side="right", padx=(15, 0), pady=3)
+            ctrl_btn_frame.pack(side="right", padx=(40, 20), pady=3)
 
             # 버튼 스타일 (명확한 음악 재생 컨트롤 아이콘)
             btn_bg = "#37474f"
