@@ -185,21 +185,6 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         private const val ON_TRANSIT = 2
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
-
-        // v0용 색상 세그먼트
-        private const val COLOR_SEGMENT_MS_V0 = 5_000L
-
-        /**
-         * EFFECT_RULE_VERSION을 EffectMatchingEngine 라우터 버전으로 매핑
-         * - 0 → 0 (EffectMatchingEngineV0)
-         * - 1, 2 → 1 (EffectMatchingEngineV1)
-         * - 3, 6 → 2 (EffectMatchingEngineV2)
-         */
-        private fun effectRuleToEngineVersion(effectRuleVersion: Int): Int = when (effectRuleVersion) {
-            1, 2 -> 1
-            3, 6 -> 2
-            else -> 0
-        }
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -244,112 +229,23 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
     // ──────────────────────────────────────────────────────────────
 
     override fun generate(musicPath: String, musicId: Int, paletteSize: Int): List<Pair<Long, ByteArray>> {
-        val effectRuleVersion = AutoTimelineConfig.EFFECT_RULE_VERSION
-        val useSectionDetector = AutoTimelineConfig.USE_SECTION_DETECTOR
-
-        Log.d(TAG, "generate() effectRule=$effectRuleVersion useSection=$useSectionDetector")
-
-        return when {
-            effectRuleVersion == 0 -> generateV0(musicPath, musicId, paletteSize)
-            useSectionDetector && (effectRuleVersion == 1 || effectRuleVersion == 3 || effectRuleVersion == 6) ->
-                generateWithSections(musicPath, musicId, paletteSize).first
-            else -> generateV0(musicPath, musicId, paletteSize)
-        }
+        return generateWithSections(musicPath, musicId, paletteSize).first
     }
 
     override fun generateWithSections(
         musicPath: String, musicId: Int, paletteSize: Int
     ): Pair<List<Pair<Long, ByteArray>>, List<SectionMeta>> {
+        val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
+        val t0Total = System.currentTimeMillis()
         val effectRuleVersion = AutoTimelineConfig.EFFECT_RULE_VERSION
+        val useSectionDetector = AutoTimelineConfig.USE_SECTION_DETECTOR
 
-        return when (effectRuleVersion) {
-            1, 2 -> generateV1(musicPath, musicId, paletteSize)
-            3 -> generateV3(musicPath, musicId, paletteSize)
-            6 -> generateV6(musicPath, musicId, paletteSize)
-            else -> generateV1(musicPath, musicId, paletteSize)
-        }
-    }
-
-    // ──────────────────────────────────────────────────────────────
-    // v0: 간단한 비트 ON/OFF (섹션 없음)
-    // ──────────────────────────────────────────────────────────────
-
-    private fun generateV0(
-        musicPath: String,
-        musicId: Int,
-        paletteSize: Int
-    ): List<Pair<Long, ByteArray>> {
-        val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
-        val t0Total = System.currentTimeMillis()
-        Log.d(TAG, "v0 generate() start file=$fileName musicId=$musicId")
+        Log.d(TAG, "generate() start effectRule=$effectRuleVersion useSection=$useSectionDetector file=$fileName musicId=$musicId")
 
         val detectorVer = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
 
-        val t0Beat = System.currentTimeMillis()
-        val beatInfo = BeatDetectorRouter.detect(
-            filePath = musicPath,
-            version = detectorVer,
-            hopMs = effectiveHopMs,
-            minBeatMs = MIN_BEAT_MS,
-            maxBeatMs = MAX_BEAT_MS
-        )
-        val tBeat = System.currentTimeMillis() - t0Beat
-
-        val durationMs = beatInfo.envelopes?.let { it.full.size.toLong() * effectiveHopMs }
-            ?: (beatInfo.beats.lastOrNull()?.timeMs?.plus(beatInfo.beatMs) ?: 0L)
-
-        if (beatInfo.beats.isEmpty()) {
-            Log.w(TAG, "v0 beat detect FAIL")
-            return emptyList()
-        }
-
-        val globalBeatMs = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
-        val beatsPerBar = beatInfo.beatsPerBar
-        val downbeatMs = beatInfo.downbeatMs
-        val beatTimesMs = beatInfo.beats.map { it.timeMs }.filter { it in 0..durationMs }
-
-        val engine = EffectMatchingEngineRouter.createEngine(0)
-        val palette = engine.buildPalette(musicId)
-
-        val t0Effect = System.currentTimeMillis()
-        val frames = engine.buildFrames(
-            palette = palette,
-            sectionGroups = emptyList(),
-            beatTimesMs = beatTimesMs,
-            durationMs = durationMs,
-            isBalladMode = false,
-            finalOffMs = durationMs,
-            downbeatMs = downbeatMs,
-            beatsPerBar = beatsPerBar
-        )
-        val tEffect = System.currentTimeMillis() - t0Effect
-
-        val tTotal = System.currentTimeMillis() - t0Total
-        val tSection = 0L
-        val tOverhead = tTotal - tBeat - tSection - tEffect
-
-        logTimelineStats(fileName, musicId, durationMs, tTotal, tBeat, detectorVer, tSection, 0, false, tEffect, 0, tOverhead)
-        Log.d(TAG, "v0 [PERF] total=${tTotal}ms frames=${frames.size}")
-        return frames.sortedBy { it.first }
-    }
-
-    // ──────────────────────────────────────────────────────────────
-    // v1/v2: 섹션 감지 + 단순 비트 이펙트
-    // ──────────────────────────────────────────────────────────────
-
-    private fun generateV1(
-        musicPath: String,
-        musicId: Int,
-        paletteSize: Int
-    ): Pair<List<Pair<Long, ByteArray>>, List<SectionMeta>> {
-        val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
-        val t0Total = System.currentTimeMillis()
-        Log.d(TAG, "v1 [PERF] start file=$fileName musicId=$musicId")
-
-        val detectorVer = AutoTimelineConfig.BEAT_DETECTOR_VERSION
-        val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
-
+        // 비트 감지
         val t0Beat = System.currentTimeMillis()
         val beatInfo = BeatDetectorRouter.detect(
             filePath = musicPath,
@@ -362,7 +258,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
 
         val envelopes = beatInfo.envelopes
         if (envelopes == null || envelopes.full.isEmpty()) {
-            Log.w(TAG, "v1 env empty")
+            Log.w(TAG, "env empty")
             return Pair(emptyList(), emptyList())
         }
 
@@ -378,159 +274,49 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val beatTimesMs = beatInfo.beats.map { it.timeMs }.filter { it in 0..durationMs }
 
         if (beatTimesMs.isEmpty()) {
-            Log.w(TAG, "v1 beat detect FAIL")
+            Log.w(TAG, "beat detect FAIL")
             return Pair(emptyList(), emptyList())
         }
+
+        // 음악 종료 위치 감지
+        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
+            .coerceIn(0L, durationMs)
 
         // 섹션 감지
-        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
-            .coerceIn(0L, durationMs)
+        var sectionGroups: List<SectionGroup> = emptyList()
+        var musicStyle: MusicStyleClassifier.MusicStyle = MusicStyleClassifier.MusicStyle.POP
+        var tSection = 0L
 
-        val sectionDetectorVer = AutoTimelineConfig.SECTION_DETECTOR_VERSION
-        val t0Section = System.currentTimeMillis()
-        val detectedAnnotated = SectionDetectorRouter.detect(
-            version = sectionDetectorVer,
-            lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
-            beats = beatInfo.beats,
-            beatMs = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
-            beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
-        ).map { ab ->
-            if (ab.timeMs >= finalOffMs)
-                SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
-            else ab
-        }
-        val tSection = System.currentTimeMillis() - t0Section
-
-        val sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
-
-        // 이펙트 엔진 사용
-        val engine = EffectMatchingEngineRouter.createEngine(1)
-        val palette = engine.buildPalette(musicId)
-
-        val t0Effect = System.currentTimeMillis()
-        val frames = engine.buildFrames(
-            palette = palette,
-            sectionGroups = sectionGroups.map { g ->
-                EffectMatchingEngine.SectionGroup(
-                    startMs = g.startMs, endMs = g.endMs,
-                    type = g.type, annotatedBeats = g.annotatedBeats
-                )
-            },
-            beatTimesMs = beatTimesMs,
-            durationMs = durationMs,
-            isBalladMode = false,
-            finalOffMs = finalOffMs,
-            downbeatMs = downbeatMs,
-            beatsPerBar = beatsPerBar
-        )
-        val tEffect = System.currentTimeMillis() - t0Effect
-
-        // 섹션 메타
-        val sectionMetas = sectionGroups.mapIndexed { idx, g ->
-            val confidence = if (g.annotatedBeats.isNotEmpty())
-                g.annotatedBeats.map { it.confidence }.average().toFloat() else 0.20f
-            val changeStrength = when {
-                g.annotatedBeats.size < 8 -> SectionDetector.ChangeStrength.MEDIUM
-                else -> SectionDetector.ChangeStrength.STRONG
+        if (useSectionDetector) {
+            val sectionDetectorVer = AutoTimelineConfig.SECTION_DETECTOR_VERSION
+            val t0Section = System.currentTimeMillis()
+            val detectedAnnotated = SectionDetectorRouter.detect(
+                version = sectionDetectorVer,
+                lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
+                beats = beatInfo.beats,
+                beatMs = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
+                beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
+            ).map { ab ->
+                if (ab.timeMs >= finalOffMs)
+                    SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
+                else ab
             }
-            SectionMeta(
-                startMs = g.startMs, endMs = g.endMs,
-                type = g.type, changeStrength = changeStrength,
-                beatMs = globalBeatMs, beatConfidence = confidence,
-                musicStyle = null,
-                beatTimesMs = g.annotatedBeats.map { it.timeMs }
-            )
+            tSection = System.currentTimeMillis() - t0Section
+            sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
+
+            // 음악 스타일 분류
+            musicStyle = MusicStyleClassifier.classify(
+                lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
+                beatMs = globalBeatMs, beats = beatInfo.beats, hopMs = effectiveHopMs
+            ).style
         }
 
-        val tTotal = System.currentTimeMillis() - t0Total
-        val tOverhead = tTotal - tBeat - tSection - tEffect
-
-        logTimelineStats(fileName, musicId, durationMs, tTotal, tBeat, detectorVer, tSection, sectionDetectorVer, true, tEffect, 1, tOverhead)
-        Log.d(TAG, "v1 [PERF] total=${tTotal}ms frames=${frames.size}")
-        return Pair(frames.sortedBy { it.first }, sectionMetas)
-    }
-
-    // ──────────────────────────────────────────────────────────────
-    // v3: 섹션 감지 + V8 이펙트 규칙
-    // ──────────────────────────────────────────────────────────────
-
-    private fun generateV3(
-        musicPath: String,
-        musicId: Int,
-        paletteSize: Int
-    ): Pair<List<Pair<Long, ByteArray>>, List<SectionMeta>> {
-        val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
-        val t0Total = System.currentTimeMillis()
-        Log.d(TAG, "v3 [PERF] start file=$fileName musicId=$musicId")
-
-        val detectorVer = AutoTimelineConfig.BEAT_DETECTOR_VERSION
-        val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
-
-        val t0Beat = System.currentTimeMillis()
-        val beatInfo = BeatDetectorRouter.detect(
-            filePath = musicPath,
-            version = detectorVer,
-            hopMs = effectiveHopMs,
-            minBeatMs = MIN_BEAT_MS,
-            maxBeatMs = MAX_BEAT_MS
-        )
-        val tBeat = System.currentTimeMillis() - t0Beat
-
-        val envelopes = beatInfo.envelopes
-        if (envelopes == null || envelopes.full.isEmpty()) {
-            Log.w(TAG, "v3 env empty")
-            return Pair(emptyList(), emptyList())
-        }
-
-        val lowEnv = envelopes.low
-        val midEnv = envelopes.mid
-        val fullEnv = envelopes.full
-        val highEnv = envelopes.high
-
-        val durationMs = fullEnv.size.toLong() * effectiveHopMs
-        val beatInfoBeats = beatInfo.beats
-        val globalBeatMs = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
-        val beatsPerBar = beatInfo.beatsPerBar
-        val downbeatMs = beatInfo.downbeatMs
-        val beatTimesMs = beatInfoBeats.map { it.timeMs }.filter { it in 0..durationMs }
-
-        if (beatTimesMs.isEmpty()) {
-            Log.w(TAG, "v3 beat detect FAIL")
-            return Pair(emptyList(), emptyList())
-        }
-
-        // 섹션 감지 및 음악 스타일
-        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
-            .coerceIn(0L, durationMs)
-
-        val sectionDetectorVer = AutoTimelineConfig.SECTION_DETECTOR_VERSION
-        val t0Section = System.currentTimeMillis()
-        val detectedAnnotated = SectionDetectorRouter.detect(
-            version = sectionDetectorVer,
-            lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
-            beats = beatInfoBeats,
-            beatMs = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
-            beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
-        ).map { ab ->
-            if (ab.timeMs >= finalOffMs)
-                SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
-            else ab
-        }
-        val tSection = System.currentTimeMillis() - t0Section
-
-        val sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
-
-        val musicStyle = MusicStyleClassifier.classify(
-            lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
-            beatMs = globalBeatMs, beats = beatInfoBeats, hopMs = effectiveHopMs
-        ).style
+        // 이펙트 엔진 선택 및 실행
+        val engine = EffectMatchingEngineRouter.createEngine()
+        val palette = engine.buildPalette(musicId)
 
         val isBalladMode = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
                         || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
-
-        // 이펙트 엔진 사용 (EffectMatchingEngineRouter)
-        val engine = EffectMatchingEngineRouter.createEngine(2)
-        val palette = engine.buildPalette(musicId)
 
         val t0Effect = System.currentTimeMillis()
         val frames = engine.buildFrames(
@@ -550,6 +336,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         )
         val tEffect = System.currentTimeMillis() - t0Effect
 
+        // 섹션 메타 생성
         val sectionMetas = sectionGroups.mapIndexed { idx, g ->
             val confidence = if (g.annotatedBeats.isNotEmpty())
                 g.annotatedBeats.map { it.confidence }.average().toFloat() else 0.20f
@@ -569,21 +356,14 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val tTotal = System.currentTimeMillis() - t0Total
         val tOverhead = tTotal - tBeat - tSection - tEffect
 
-        logTimelineStats(fileName, musicId, durationMs, tTotal, tBeat, detectorVer, tSection, sectionDetectorVer, true, tEffect, 3, tOverhead)
-        Log.d(TAG, "v3 [PERF] total=${tTotal}ms frames=${frames.size}")
+        logTimelineStats(fileName, musicId, durationMs, tTotal, tBeat, detectorVer, tSection,
+            if (useSectionDetector) AutoTimelineConfig.SECTION_DETECTOR_VERSION else 0,
+            useSectionDetector, tEffect, effectRuleVersion, tOverhead)
+        Log.d(TAG, "[PERF] total=${tTotal}ms frames=${frames.size}")
+
         return Pair(frames.sortedBy { it.first }, sectionMetas)
     }
 
-    // ──────────────────────────────────────────────────────────────
-    // v6: v3과 유사하지만 V8 확장 이펙트 (현재는 v3과 동일)
-    // ──────────────────────────────────────────────────────────────
-
-    private fun generateV6(
-        musicPath: String,
-        musicId: Int,
-        paletteSize: Int
-    ): Pair<List<Pair<Long, ByteArray>>, List<SectionMeta>> =
-        generateV3(musicPath, musicId, paletteSize)
 
     // ──────────────────────────────────────────────────────────────
     // V8 섹션 변환 (v3/v6 공용)
