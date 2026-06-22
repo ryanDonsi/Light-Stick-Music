@@ -2,6 +2,7 @@ package com.lightstick.music.domain.music
 
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
+import kotlin.math.max
 
 /**
  * AutoTimelineGeneratorBeat v2
@@ -14,17 +15,9 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
-        private const val HOP_MS      = 50L
-        private val MIN_BEAT_MS = AutoTimelineConfig.MIN_BEAT_MS
-        private val MAX_BEAT_MS = AutoTimelineConfig.MAX_BEAT_MS
-
-        private const val MIN_TRAILING_SILENCE_MS   = 1_500L
-
-        // IIR 필터 계수
-        private const val LOW_ALPHA     = 0.12f
-        private const val MID_LP1_ALPHA = 0.35f
-        private const val MID_LP2_ALPHA = 0.08f
-        private const val HIGH_ALPHA    = 0.40f
+        private const val MIN_BEAT_MS = AutoTimelineConfig.MIN_BEAT_MS
+        private const val MAX_BEAT_MS = AutoTimelineConfig.MAX_BEAT_MS
+        private const val MIN_TRAILING_SILENCE_MS = 1_500L
     }
 
     private val effectEngine = EffectMatchingEngineV2()
@@ -79,7 +72,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
         // ── 3. Section detection ─────────────────────────────────────
         // finalOffMs를 먼저 계산해 durationMs 이후 비트를 END로 재태깅
-        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
+        val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs)
             .coerceIn(0L, durationMs)
         val t0Section         = System.currentTimeMillis()
         val detectedAnnotated = SectionDetectorRouter.detect(
@@ -153,7 +146,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
     // Silence detection
     // ──────────────────────────────────────────────────────────────
 
-    private fun detectLastMusicEndMs(frames: FloatArray, hopMs: Long, minTrailingSilenceMs: Long): Long {
+    private fun detectLastMusicEndMs(frames: FloatArray, hopMs: Long): Long {
         if (frames.isEmpty()) return 0L
         val totalMs = frames.size * hopMs
         val smooth = FloatArray(frames.size)
@@ -166,7 +159,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         for (i in smooth.indices.reversed()) {
             if (smooth[i] >= threshold) {
                 val lastActiveMs = (i + 1) * hopMs
-                return if (totalMs - lastActiveMs >= minTrailingSilenceMs) lastActiveMs else totalMs
+                return if (totalMs - lastActiveMs >= MIN_TRAILING_SILENCE_MS) lastActiveMs else totalMs
             }
         }
         return totalMs
