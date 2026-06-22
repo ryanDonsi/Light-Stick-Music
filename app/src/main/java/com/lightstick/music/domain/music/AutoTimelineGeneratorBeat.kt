@@ -273,6 +273,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val detectorVer = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
 
+        val t0Beat = System.currentTimeMillis()
         val beatInfo = BeatDetectorRouter.detect(
             filePath = musicPath,
             version = detectorVer,
@@ -280,6 +281,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             minBeatMs = MIN_BEAT_MS,
             maxBeatMs = MAX_BEAT_MS
         )
+        val tBeat = System.currentTimeMillis() - t0Beat
 
         val durationMs = beatInfo.envelopes?.let { it.full.size.toLong() * effectiveHopMs }
             ?: (beatInfo.beats.lastOrNull()?.timeMs?.plus(beatInfo.beatMs) ?: 0L)
@@ -317,7 +319,13 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
         }
 
-        Log.d(TAG, "v0 [PERF] total=${System.currentTimeMillis() - t0Total}ms frames=${frames.size}")
+        val tTotal = System.currentTimeMillis() - t0Total
+        val tSection = 0L
+        val tEffect = 0L
+        val tOverhead = tTotal - tBeat - tSection - tEffect
+
+        logTimelineStats(fileName, musicId, durationMs, tTotal, tBeat, detectorVer, tSection, 0, false, tEffect, 0, tOverhead)
+        Log.d(TAG, "v0 [PERF] total=${tTotal}ms frames=${frames.size}")
         return frames.sortedBy { it.first }
     }
 
@@ -337,6 +345,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val detectorVer = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
 
+        val t0Beat = System.currentTimeMillis()
         val beatInfo = BeatDetectorRouter.detect(
             filePath = musicPath,
             version = detectorVer,
@@ -344,6 +353,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             minBeatMs = MIN_BEAT_MS,
             maxBeatMs = MAX_BEAT_MS
         )
+        val tBeat = System.currentTimeMillis() - t0Beat
 
         val envelopes = beatInfo.envelopes
         if (envelopes == null || envelopes.full.isEmpty()) {
@@ -371,8 +381,10 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
             .coerceIn(0L, durationMs)
 
+        val sectionDetectorVer = AutoTimelineConfig.SECTION_DETECTOR_VERSION
+        val t0Section = System.currentTimeMillis()
         val detectedAnnotated = SectionDetectorRouter.detect(
-            version = AutoTimelineConfig.SECTION_DETECTOR_VERSION,
+            version = sectionDetectorVer,
             lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beats = beatInfo.beats,
             beatMs = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
@@ -382,6 +394,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
                 SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
             else ab
         }
+        val tSection = System.currentTimeMillis() - t0Section
 
         val sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
 
@@ -426,7 +439,12 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             )
         }
 
-        Log.d(TAG, "v1 [PERF] total=${System.currentTimeMillis() - t0Total}ms frames=${frames.size}")
+        val tTotal = System.currentTimeMillis() - t0Total
+        val tEffect = 0L
+        val tOverhead = tTotal - tBeat - tSection - tEffect
+
+        logTimelineStats(fileName, musicId, durationMs, tTotal, tBeat, detectorVer, tSection, sectionDetectorVer, true, tEffect, 1, tOverhead)
+        Log.d(TAG, "v1 [PERF] total=${tTotal}ms frames=${frames.size}")
         return Pair(frames.sortedBy { it.first }, sectionMetas)
     }
 
@@ -448,6 +466,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val detectorVer = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
 
+        val t0Beat = System.currentTimeMillis()
         val beatInfo = BeatDetectorRouter.detect(
             filePath = musicPath,
             version = detectorVer,
@@ -455,6 +474,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             minBeatMs = MIN_BEAT_MS,
             maxBeatMs = MAX_BEAT_MS
         )
+        val tBeat = System.currentTimeMillis() - t0Beat
 
         val envelopes = beatInfo.envelopes
         if (envelopes == null || envelopes.full.isEmpty()) {
@@ -483,8 +503,10 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
             .coerceIn(0L, durationMs)
 
+        val sectionDetectorVer = AutoTimelineConfig.SECTION_DETECTOR_VERSION
+        val t0Section = System.currentTimeMillis()
         val detectedAnnotated = SectionDetectorRouter.detect(
-            version = AutoTimelineConfig.SECTION_DETECTOR_VERSION,
+            version = sectionDetectorVer,
             lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beats = beatInfoBeats,
             beatMs = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
@@ -494,6 +516,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
                 SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
             else ab
         }
+        val tSection = System.currentTimeMillis() - t0Section
 
         val sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
 
@@ -508,6 +531,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode,
             fullEnv = fullEnv, durationMs = durationMs, hopMs = effectiveHopMs)
 
+        val t0Effect = System.currentTimeMillis()
         val frames = buildFramesFromSections(
             palette = palette,
             sections = v8Sections,
@@ -518,6 +542,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             downbeatMs = downbeatMs,
             beatsPerBar = beatsPerBar
         )
+        val tEffect = System.currentTimeMillis() - t0Effect
 
         val sectionMetas = sectionGroups.mapIndexed { idx, g ->
             val confidence = if (g.annotatedBeats.isNotEmpty())
@@ -535,7 +560,11 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             )
         }
 
-        Log.d(TAG, "v3 [PERF] total=${System.currentTimeMillis() - t0Total}ms frames=${frames.size}")
+        val tTotal = System.currentTimeMillis() - t0Total
+        val tOverhead = tTotal - tBeat - tSection - tEffect
+
+        logTimelineStats(fileName, musicId, durationMs, tTotal, tBeat, detectorVer, tSection, sectionDetectorVer, true, tEffect, 3, tOverhead)
+        Log.d(TAG, "v3 [PERF] total=${tTotal}ms frames=${frames.size}")
         return Pair(frames.sortedBy { it.first }, sectionMetas)
     }
 
@@ -933,6 +962,36 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
     private fun msToBlinkPeriod(beatMs: Long) = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToStrobePeriod(beatMs: Long) = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToBreathPeriod(beatMs: Long) = (beatMs / 20L).toInt().coerceIn(1, 255)
+
+    // ──────────────────────────────────────────────────────────────
+    // 성능 통계 로깅
+    // ──────────────────────────────────────────────────────────────
+
+    private fun logTimelineStats(
+        fileName: String,
+        musicId: Int,
+        durationMs: Long,
+        totalMs: Long,
+        beatMs: Long,
+        beatDetectorVer: Int,
+        sectionMs: Long,
+        sectionDetectorVer: Int,
+        sectionDetectorEnabled: Boolean,
+        effectMs: Long,
+        effectMatchingVer: Int,
+        overheadMs: Long
+    ) {
+        val logLine = buildString {
+            appendLine("[TIMELINE_STATS] file=$fileName musicId=$musicId duration=$durationMs")
+            appendLine("  [TOTAL] ${totalMs}ms")
+            appendLine("  [BEAT_DETECT] ${beatMs}ms version=$beatDetectorVer")
+            appendLine("  [SECTION_DETECT] ${sectionMs}ms version=$sectionDetectorVer enabled=$sectionDetectorEnabled")
+            appendLine("  [EFFECT_MATCHING] ${effectMs}ms version=$effectMatchingVer")
+            appendLine("  [OVERHEAD] ${overheadMs}ms")
+        }
+        Log.i(TAG, logLine.trim())
+    }
+
     private fun msToBreathRandomDelay(beatMs: Long) = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
 
     private fun percentile(values: List<Float>, p: Float): Float {
