@@ -4,7 +4,7 @@ import com.lightstick.types.Color as LSColor
 
 interface EffectMatchingEngine {
 
-    data class V8Section(
+    data class Section(
         val startMs: Long, val endMs: Long,
         val type: SectionDetector.SectionType,
         val engine: FgEngine,
@@ -37,7 +37,7 @@ interface EffectMatchingEngine {
         val annotatedBeats: List<SectionDetector.AnnotatedBeat>
     )
 
-    fun convertToV8Sections(
+    fun convertToSections(
         groups: List<SectionGroup>,
         beatMs: Long,
         isBalladMode: Boolean,

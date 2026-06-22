@@ -14,14 +14,14 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         private const val ON_TRANSIT = 2
     }
 
-    override fun convertToV8Sections(
+    override fun convertToSections(
         groups: List<EffectMatchingEngine.SectionGroup>,
         beatMs: Long,
         isBalladMode: Boolean,
         fullEnv: List<Float>,
         durationMs: Long,
         hopMs: Long
-    ): List<EffectMatchingEngine.V8Section> {
+    ): List<EffectMatchingEngine.Section> {
         if (groups.isEmpty()) return emptyList()
 
         return groups.map { g ->
@@ -40,7 +40,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 else      -> EffectMatchingEngine.ChangeLevel.STRONG
             }
 
-            EffectMatchingEngine.V8Section(
+            EffectMatchingEngine.Section(
                 startMs     = g.startMs,      endMs       = g.endMs,
                 type        = normalizedType,
                 engine      = if (normalizedType == SectionDetector.SectionType.END ||
@@ -56,7 +56,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
     override fun buildFramesFromSections(
         palette: EffectMatchingEngine.Palette,
-        sections: List<EffectMatchingEngine.V8Section>,
+        sections: List<EffectMatchingEngine.Section>,
         beatTimesMs: List<Long>,
         durationMs: Long,
         isBalladMode: Boolean,

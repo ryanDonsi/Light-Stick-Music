@@ -98,9 +98,9 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
                         || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
         Log.d(TAG, "v2 style=$musicStyle balladMode=$isBalladMode")
 
-        // ── 5. Convert → V8Section via EffectMatchingEngineV2 ─────
+        // ── 5. Convert → Sections via EffectMatchingEngineV2 ────────
         val palette2 = effectEngine.buildPalette(musicId)
-        val v8Sections = effectEngine.convertToV8Sections(
+        val sections = effectEngine.convertToSections(
             groups = sectionGroups, beatMs = globalBeatMs, isBalladMode = isBalladMode,
             fullEnv = fullEnv, durationMs = durationMs, hopMs = effectiveHopMs
         )
@@ -110,7 +110,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
         val frames = effectEngine.buildFramesFromSections(
             palette         = palette2,
-            sections        = v8Sections,
+            sections        = sections,
             beatTimesMs     = beatTimesMs,
             durationMs      = durationMs,
             isBalladMode    = isBalladMode,

@@ -18,14 +18,14 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
     }
 
-    override fun convertToV8Sections(
+    override fun convertToSections(
         groups: List<EffectMatchingEngine.SectionGroup>,
         beatMs: Long,
         isBalladMode: Boolean,
         fullEnv: List<Float>,
         durationMs: Long,
         hopMs: Long
-    ): List<EffectMatchingEngine.V8Section> {
+    ): List<EffectMatchingEngine.Section> {
         if (groups.isEmpty()) return emptyList()
 
         val energies = groups.map { g -> computeGroupEnergy(g.startMs, g.endMs, fullEnv, durationMs, hopMs) }
@@ -56,7 +56,7 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
                 else      -> EffectMatchingEngine.ChangeLevel.STRONG
             }
 
-            EffectMatchingEngine.V8Section(
+            EffectMatchingEngine.Section(
                 startMs     = g.startMs,      endMs       = g.endMs,
                 type        = normalizedType,  engine      = engine,
                 beatMs      = beatMs,          beats       = beats,
@@ -69,7 +69,7 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
 
     override fun buildFramesFromSections(
         palette: EffectMatchingEngine.Palette,
-        sections: List<EffectMatchingEngine.V8Section>,
+        sections: List<EffectMatchingEngine.Section>,
         beatTimesMs: List<Long>,
         durationMs: Long,
         isBalladMode: Boolean,
