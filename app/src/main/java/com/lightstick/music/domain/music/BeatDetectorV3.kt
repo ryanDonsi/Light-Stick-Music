@@ -29,9 +29,6 @@ object BeatDetectorV3 {
         (0.5 * (1.0 - cos(2.0 * PI * i / (FFT_SIZE - 1)))).toFloat()
     }
 
-    // FilterBank 캐시 (샘플레이트별)
-    private val filterbankCache: MutableMap<Int, Array<FilterBand>> = mutableMapOf()
-
     // V1 방식 BPM 추정 파라미터 (librosa log-normal prior + half/double-tempo 체크)
     private const val BPM_PRIOR_CENTER_MS   = 500L    // 120 BPM
     private const val BPM_PRIOR_STD_OCTAVE  = 1.0f    // σ = 1 octave
@@ -149,10 +146,6 @@ object BeatDetectorV3 {
 
     private data class FilterBand(val startBin: Int, val weights: FloatArray)
 
-    private fun getOrBuildFilterbank(sampleRate: Int): Array<FilterBand> {
-        return filterbankCache.getOrPut(sampleRate) { buildLogFilterbank(sampleRate) }
-    }
-
     private fun buildLogFilterbank(sampleRate: Int): Array<FilterBand> {
         val numBins  = FFT_SIZE / 2 + 1
         val freqBin  = sampleRate.toFloat() / FFT_SIZE
@@ -214,7 +207,7 @@ object BeatDetectorV3 {
             val numBins    = FFT_SIZE / 2 + 1
             val fftBuf     = FloatArray(FFT_SIZE)
             val curMag     = FloatArray(numBins)
-            val filterbank = getOrBuildFilterbank(sampleRate)
+            val filterbank = buildLogFilterbank(sampleRate)
 
             val curBand    = FloatArray(NUM_BANDS)
             val prevBand   = FloatArray(NUM_BANDS)
