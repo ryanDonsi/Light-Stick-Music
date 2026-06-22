@@ -274,11 +274,11 @@ object BeatDetectorV3 {
                                     }
                                     fft.realForward(fftBuf)
 
-                                    curMag[0]           = abs(fftBuf[0])
-                                    curMag[numBins - 1] = abs(fftBuf[1])
+                                    curMag[0]           = fftBuf[0] * fftBuf[0]
+                                    curMag[numBins - 1] = fftBuf[1] * fftBuf[1]
                                     for (k in 1 until numBins - 1) {
                                         val re = fftBuf[2 * k]; val im = fftBuf[2 * k + 1]
-                                        curMag[k] = sqrt(re * re + im * im)
+                                        curMag[k] = re * re + im * im
                                     }
 
                                     for (b in 0 until NUM_BANDS) {
