@@ -40,6 +40,14 @@ object BeatDetectorV3 {
     private const val DOWNBEAT_W_BAR_COMB    = 0.30f
     private const val DOWNBEAT_W_CONSISTENCY = 0.20f
 
+    // ========================================================================
+    // 성능 최적화: 캐시 및 재사용 버퍼
+    // ========================================================================
+    private const val CHUNK_BUFFER_SIZE = 256 * 1024  // 256KB 청크 버퍼
+    private val chunkBuffer = ByteArray(CHUNK_BUFFER_SIZE)
+    private val filterBankCache = mutableMapOf<Int, Array<FilterBand>>()
+    private const val LN2_INV = 1f / ln(2f)  // 로그 상수 사전 계산
+
     data class TimedBeat(val timeMs: Long, val confidence: Float)
 
     enum class TimeSignatureType { FOUR_FOUR, THREE_FOUR, SIX_EIGHT }
@@ -141,6 +149,13 @@ object BeatDetectorV3 {
 
     private data class FilterBand(val startBin: Int, val weights: FloatArray)
 
+    // 최적화: 필터뱅크 캐싱
+    private fun getOrBuildFilterbank(sampleRate: Int): Array<FilterBand> {
+        return filterBankCache.getOrPut(sampleRate) {
+            buildLogFilterbank(sampleRate)
+        }
+    }
+
     private fun buildLogFilterbank(sampleRate: Int): Array<FilterBand> {
         val numBins  = FFT_SIZE / 2 + 1
         val freqBin  = sampleRate.toFloat() / FFT_SIZE
@@ -204,7 +219,7 @@ object BeatDetectorV3 {
             val numBins    = FFT_SIZE / 2 + 1
             val fftBuf     = FloatArray(FFT_SIZE)
             val curMag     = FloatArray(numBins)
-            val filterbank = buildLogFilterbank(sampleRate)
+            val filterbank = getOrBuildFilterbank(sampleRate)  // 최적화: 캐시 사용
 
             val curBand    = FloatArray(NUM_BANDS)
             val prevBand   = FloatArray(NUM_BANDS)
@@ -246,7 +261,16 @@ object BeatDetectorV3 {
                         if (buf != null && bufferInfo.size > 0) {
                             buf.position(bufferInfo.offset)
                             buf.limit(bufferInfo.offset + bufferInfo.size)
-                            val chunk = ByteArray(bufferInfo.size); buf.get(chunk)
+                            // 최적화: 재사용 버퍼 사용 (GC 압력 감소)
+                            val chunkSize = bufferInfo.size
+                            if (chunkSize <= chunkBuffer.size) {
+                                buf.get(chunkBuffer, 0, chunkSize)
+                            } else {
+                                buf.get(ByteArray(chunkSize))
+                                codec.releaseOutputBuffer(outIdx, false)
+                                continue
+                            }
+                            val chunk = chunkBuffer
 
                             var byteIdx = 0
                             while (byteIdx + stepBytes <= chunk.size) {
@@ -278,10 +302,15 @@ object BeatDetectorV3 {
                                         curMag[k] = sqrt(re * re + im * im)
                                     }
 
+                                    // 최적화: ODF 루프 캐시 최적화
                                     for (b in 0 until NUM_BANDS) {
                                         val fb = filterbank[b]
+                                        val weights = fb.weights
+                                        val startBin = fb.startBin
                                         var sum = 0f
-                                        for (i in fb.weights.indices) sum += fb.weights[i] * curMag[fb.startBin + i]
+                                        for (i in weights.indices) {
+                                            sum += weights[i] * curMag[startBin + i]
+                                        }
                                         curBand[b] = ln(1f + LOG_LAMBDA * sum)
                                     }
 
@@ -353,7 +382,47 @@ object BeatDetectorV3 {
     // prior[lag]    = exp(-0.5*(log2(lagMs/500ms)/1octave)^2)
     // score[lag]    = autocorr[lag] * prior[lag]
     // half-tempo 체크: autocorr[halfLag]/autocorr[bestLag] >= 0.60 → 2배 BPM 선택
+    //
+    // 최적화: FFT 기반 자기상관으로 O(n²) → O(n log n)
     // =========================================================================
+
+    // 최적화: FFT 기반 자기상관 계산
+    private fun computeAutocorrFft(odf: List<Float>, maxLag: Int): FloatArray {
+        val paddedSize = nextPowerOfTwo(odf.size * 2)
+        val fft = FloatFFT_1D(paddedSize.toLong())
+
+        // ODF를 패딩하여 FFT
+        val spec = FloatArray(paddedSize)
+        for (i in odf.indices) spec[i] = odf[i]
+        fft.realForward(spec)
+
+        // 자기상관: conj(FFT(odf)) * FFT(odf)의 역FFT
+        val acSpec = FloatArray(paddedSize)
+        var i = 0
+        while (i < paddedSize) {
+            val re = spec[i]
+            val im = if (i + 1 < paddedSize) spec[i + 1] else 0f
+            acSpec[i] = re * re + im * im      // |X(k)|^2
+            acSpec[i + 1] = 0f
+            i += 2
+        }
+
+        // 역FFT
+        fft.complexInverse(acSpec, true)
+
+        // 결과 정규화
+        val ac = FloatArray(maxLag + 1)
+        for (lag in 0..maxLag) {
+            ac[lag] = acSpec[lag * 2] / (odf.size - lag).toFloat().coerceAtLeast(1f)
+        }
+        return ac
+    }
+
+    private fun nextPowerOfTwo(n: Int): Int {
+        var p = 1
+        while (p < n) p = p shl 1
+        return p
+    }
 
     private fun estimateBpmV1Style(
         odf: List<Float>,
@@ -367,20 +436,20 @@ object BeatDetectorV3 {
         val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
         if (odf.size <= maxLag + 2) return minBeatMs
 
-        // ── 1. autocorr × log-normal prior ───────────────────────────────────
+        // ── 1. autocorr × log-normal prior (최적화: FFT 기반) ──────────────────
         val acVals     = FloatArray(maxLag + 1)
         val priorVals  = FloatArray(maxLag + 1)
         val scoreVals  = FloatArray(maxLag + 1)
         var bestScore  = Float.NEGATIVE_INFINITY
         var bestLag    = -1
 
+        // 최적화: FFT 기반 자기상관 계산 (O(n log n) instead of O(n²))
+        val allAc = computeAutocorrFft(odf, maxLag)
+
         for (lag in minLag..maxLag) {
-            var sum = 0f; var count = 0
-            for (i in 0 until odf.size - lag) { sum += odf[i] * odf[i + lag]; count++ }
-            if (count == 0) continue
-            val acVal    = sum / count
+            val acVal    = allAc[lag]
             val lagMs    = lag * hopMs
-            val logRatio = ln(lagMs.toFloat() / BPM_PRIOR_CENTER_MS) / ln(2f)
+            val logRatio = ln(lagMs.toFloat() / BPM_PRIOR_CENTER_MS) * LN2_INV  // 최적화: 상수 사용
             val prior    = exp(-0.5f * (logRatio / BPM_PRIOR_STD_OCTAVE) * (logRatio / BPM_PRIOR_STD_OCTAVE))
             val score    = acVal * prior
             acVals[lag]    = acVal
@@ -505,7 +574,6 @@ object BeatDetectorV3 {
                 if (idx in 0 until n) sc += gaussWin[k] * odf[idx]
             }
 
-            // 전역 위상 관성 추가 (Phase Drift 완화)
             if (anchorFrame >= 0) {
                 val distanceToGrid = abs(t - anchorFrame) % fpb
                 val phaseDiff = min(distanceToGrid, fpb - distanceToGrid)
@@ -521,9 +589,15 @@ object BeatDetectorV3 {
         val prev        = IntArray(n)  { -1 }
         val searchRange = fpb * 2
 
+        // 최적화: 루프 변수 사전 계산
+        val fpbDiv2 = max(1, fpb / 2)
+
         for (t in 0 until n) {
-            val pLo = max(0, t - searchRange); val pHi = max(0, t - max(1, fpb / 2))
+            val pLo = max(0, t - searchRange)
+            val pHi = max(0, t - fpbDiv2)
             var bestVal = Float.NEGATIVE_INFINITY
+            var bestPrev = -1
+
             for (p in pLo..pHi) {
                 val isFreeStart = (p == 0 || p == anchorFrame)
                 if (cumscore[p] == Float.NEGATIVE_INFINITY && !isFreeStart) continue
@@ -532,10 +606,11 @@ object BeatDetectorV3 {
                 val logRatio = ln(lag / fpb)
                 val penalty  = tightness * logRatio * logRatio
                 val cand     = pScore - penalty
-                if (cand > bestVal) { bestVal = cand; prev[t] = p }
+                if (cand > bestVal) { bestVal = cand; bestPrev = p }
             }
             cumscore[t] = if (bestVal == Float.NEGATIVE_INFINITY) localscore[t]
             else bestVal + localscore[t]
+            prev[t] = bestPrev
         }
 
         var t     = cumscore.indices.maxByOrNull { cumscore[it] } ?: return LongArray(0)
@@ -543,14 +618,17 @@ object BeatDetectorV3 {
         var iter  = 0
         while (t > 0 && iter < n) {
             beats.add(t.toLong() * hopMs)
-            val p = prev[t]; if (p < 0 || p == t) break
-            t = p; iter++
+            val p = prev[t]
+            if (p < 0 || p == t) break
+            t = p
+            iter++
         }
 
         val result = beats.reversed().toLongArray()
         if (result.size < 2) return result
 
-        val rms = sqrt(localscore.map { it * it }.average().toFloat()); val trimTh = 0.15f * rms
+        val rms = sqrt(localscore.map { it * it }.average().toFloat())
+        val trimTh = 0.15f * rms
         var ss = 0
         while (ss < result.size && localscore[(result[ss] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) ss++
         var e = result.size - 1
