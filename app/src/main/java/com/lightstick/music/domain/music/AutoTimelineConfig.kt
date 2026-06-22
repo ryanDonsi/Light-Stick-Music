@@ -40,7 +40,7 @@ object AutoTimelineConfig {
     /**
      * 타임라인 생성기 버전 (파일명 숫자와 일치)
      *  0 : Beat 감지 검증 모드 — 박자별 색상 ON (→ AutoTimelineGeneratorBeat_v0)
-     *  1 : BeatDetectorV1(PCM) + Brightness 2:8 비율 (→ AutoTimelineGeneratorBeat_v1)
+     *  1 : BeatDetector(버전별) + SectionDetector(버전별) + 모든 섹션 beat-ON 단일 이펙트 (→ AutoTimelineGeneratorBeat_v1)
      *  2 : BeatDetector(버전별) + SectionDetector(버전별) + 모든 섹션 beat-ON 단일 이펙트 (→ AutoTimelineGeneratorBeat_v2)
      *  3 : BeatDetector(버전별) + SectionDetector(버전별) + V8 이펙트 룰 (→ AutoTimelineGeneratorBeat_v3)
      *  4 : BeatDetector(버전별) + SectionDetectorV2 + V8 이펙트 룰 (→ AutoTimelineGeneratorBeat_v4)
