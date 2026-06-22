@@ -24,6 +24,11 @@ object BeatDetectorV3 {
     private const val FB_FMIN   = 27.5f
     private const val FB_FMAX   = 16000f
 
+    // Hann Window 캐시
+    private val cachedHannWindow: FloatArray = FloatArray(FFT_SIZE) { i ->
+        (0.5 * (1.0 - cos(2.0 * PI * i / (FFT_SIZE - 1)))).toFloat()
+    }
+
     // V1 방식 BPM 추정 파라미터 (librosa log-normal prior + half/double-tempo 체크)
     private const val BPM_PRIOR_CENTER_MS   = 500L    // 120 BPM
     private const val BPM_PRIOR_STD_OCTAVE  = 1.0f    // σ = 1 octave
@@ -198,9 +203,7 @@ object BeatDetectorV3 {
             val stepBytes    = channelCount * 2
 
             val fft        = FloatFFT_1D(FFT_SIZE.toLong())
-            val hannWindow = FloatArray(FFT_SIZE) { i ->
-                (0.5 * (1.0 - cos(2.0 * PI * i / (FFT_SIZE - 1)))).toFloat()
-            }
+            val hannWindow = cachedHannWindow
             val numBins    = FFT_SIZE / 2 + 1
             val fftBuf     = FloatArray(FFT_SIZE)
             val curMag     = FloatArray(numBins)
