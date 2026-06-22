@@ -28,24 +28,14 @@ class AutoTimelineGeneratorBeat_v3 : AutoTimelineGenerator, SectionAwareGenerato
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
-        private const val HOP_MS      = 50L
-        private val MIN_BEAT_MS = AutoTimelineConfig.MIN_BEAT_MS
-        private val MAX_BEAT_MS = AutoTimelineConfig.MAX_BEAT_MS
+        private const val MIN_BEAT_MS = AutoTimelineConfig.MIN_BEAT_MS
+        private const val MAX_BEAT_MS = AutoTimelineConfig.MAX_BEAT_MS
 
         private const val ON_TRANSIT = 2
-
-        private const val INTRO_PRESTART_TRANSIT_MS = 1_000L
-        private const val MIN_TRAILING_SILENCE_MS   = 1_500L
+        private const val MIN_TRAILING_SILENCE_MS = 1_500L
 
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
-        private const val ON_PULSE_BG_TRANSIT     = 5
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
-
-        // IIR 필터 계수 (V2와 동일: HIGH 밴드 포함)
-        private const val LOW_ALPHA     = 0.12f
-        private const val MID_LP1_ALPHA = 0.35f
-        private const val MID_LP2_ALPHA = 0.08f
-        private const val HIGH_ALPHA    = 0.40f
     }
 
     // ──────────────────────────────────────────────────────────────
