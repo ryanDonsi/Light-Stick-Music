@@ -2063,28 +2063,18 @@ class App(tk.Tk):
 
         tl_ctrl = tk.Frame(tl_frame, bg="#1a1a2e")
         tl_ctrl.pack(fill="x", padx=6, pady=(3, 2))
+
+        # 좌측: 비트 감지 범례
         legend_frame = tk.Frame(tl_ctrl, bg="#1a1a2e")
         legend_frame.pack(side="left")
         for lc, lt in [("#69f0ae", "■ 일치(TP)"), ("#ff5252", "■ 오감지(FP)"), ("#448aff", "■ 누락(FN)")]:
             tk.Label(legend_frame, text=lt, bg="#1a1a2e", fg=lc,
                      font=("", 8, "bold")).pack(side="left", padx=6)
         tk.Label(tl_ctrl, text="  |", bg="#1a1a2e", fg="#37474f", font=("", 8)).pack(side="left")
-        # 섹션 범례 (우측)
-        sec_legend = tk.Frame(tl_ctrl, bg="#1a1a2e")
-        sec_legend.pack(side="right", padx=(0, 6))
-        tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
-                 font=("", 7)).pack(side="left", padx=(0, 3))
-        _legend_types = ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO",
-                          "VOCAL", "INST", "SOLO", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]
-        if HAS_MSAF:
-            _legend_types += list("ABCDEFGHIJ")
-        for stype in _legend_types:
-            sc = _SECTION_COLORS.get(stype, "#546e7a")
-            tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
-                     font=("", 6, "bold")).pack(side="left", padx=1, pady=1)
-        # ── 줌/스크롤 컨트롤 행 ──────────────────────
-        tl_ctrl2 = tk.Frame(tl_frame, bg="#1a1a2e")
-        tl_ctrl2.pack(fill="x", padx=6, pady=(0, 2))
+
+        # 우측: 타임라인 컨트롤
+        right_ctrl = tk.Frame(tl_ctrl, bg="#1a1a2e")
+        right_ctrl.pack(side="right", padx=(0, 6))
 
         self.zoom_s_var   = tk.DoubleVar(value=0.0)
         self.zoom_e_var   = tk.DoubleVar(value=30.0)
@@ -2097,32 +2087,51 @@ class App(tk.Tk):
                        activeforeground="white", font=("", 8, "bold"), pady=1, padx=6,
                        relief="flat", bd=0)
 
+        # 줌 버튼들
         self._zoom_btns = {}
         for label, mode in [("전체", "full"), ("10초", "10"), ("30초", "30"), ("60초", "60")]:
-            b = tk.Button(tl_ctrl2, text=label,
+            b = tk.Button(right_ctrl, text=label,
                           command=lambda m=mode: self._set_zoom_mode(m), **btn_cfg)
             b.pack(side="left", padx=1)
             self._zoom_btns[mode] = b
         self._zoom_btns["full"].config(**btn_sel)   # 기본 선택
 
-        tk.Label(tl_ctrl2, text="  |", bg="#1a1a2e", fg="#37474f",
-                 font=("", 8)).pack(side="left")
+        tk.Label(right_ctrl, text="  |", bg="#1a1a2e", fg="#37474f",
+                 font=("", 8)).pack(side="left", padx=2)
 
-        tk.Button(tl_ctrl2, text="◀◀", command=self._scroll_to_start,
+        # 스크롤 버튼들
+        tk.Button(right_ctrl, text="◀◀", command=self._scroll_to_start,
                   **btn_cfg).pack(side="left", padx=1)
-        tk.Button(tl_ctrl2, text="◀", command=self._scroll_left,
+        tk.Button(right_ctrl, text="◀", command=self._scroll_left,
                   **btn_cfg).pack(side="left", padx=1)
-        tk.Button(tl_ctrl2, text="▶", command=self._scroll_right,
+        tk.Button(right_ctrl, text="▶", command=self._scroll_right,
                   **btn_cfg).pack(side="left", padx=1)
-        tk.Button(tl_ctrl2, text="▶▶", command=self._scroll_to_end,
+        tk.Button(right_ctrl, text="▶▶", command=self._scroll_to_end,
                   **btn_cfg).pack(side="left", padx=1)
 
-        tk.Label(tl_ctrl2, text="  |", bg="#1a1a2e", fg="#37474f",
-                 font=("", 8)).pack(side="left")
+        tk.Label(right_ctrl, text="  |", bg="#1a1a2e", fg="#37474f",
+                 font=("", 8)).pack(side="left", padx=2)
 
         self.v_zoom_pos = tk.StringVar(value="0:00 ~ 0:00")
-        tk.Label(tl_ctrl2, textvariable=self.v_zoom_pos,
+        tk.Label(right_ctrl, textvariable=self.v_zoom_pos,
                  bg="#1a1a2e", fg="#546e7a", font=("", 8)).pack(side="left", padx=4)
+
+        # 섹션 범례는 아래 별도 행으로 유지
+        tl_ctrl2 = tk.Frame(tl_frame, bg="#1a1a2e")
+        tl_ctrl2.pack(fill="x", padx=6, pady=(0, 2))
+
+        sec_legend = tk.Frame(tl_ctrl2, bg="#1a1a2e")
+        sec_legend.pack(side="left")
+        tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
+                 font=("", 7)).pack(side="left", padx=(0, 3))
+        _legend_types = ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO",
+                          "VOCAL", "INST", "SOLO", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]
+        if HAS_MSAF:
+            _legend_types += list("ABCDEFGHIJ")
+        for stype in _legend_types:
+            sc = _SECTION_COLORS.get(stype, "#546e7a")
+            tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
+                     font=("", 6, "bold")).pack(side="left", padx=1, pady=1)
 
         # 캔버스 높이: TICK_H(16) + BEAT_H*3(132) + SEC_H*2(44) = 192px (공백 없음)
         self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=192, highlightthickness=0)
@@ -2269,7 +2278,7 @@ class App(tk.Tk):
         song_and_ctrl.pack(side="left", fill="both", expand=True, pady=3)
 
         song_info_inner = tk.Frame(song_and_ctrl, bg="#1e272e")
-        song_info_inner.pack(anchor="w")
+        song_info_inner.pack(anchor="w", side="left")
         self.v_song_title = tk.StringVar(value="—")
         self.v_song_id    = tk.StringVar(value="—")
         tk.Label(song_info_inner, textvariable=self.v_song_title,
@@ -2277,10 +2286,10 @@ class App(tk.Tk):
         tk.Label(song_info_inner, textvariable=self.v_song_id,
                  bg="#1e272e", fg="#546e7a", font=("", 8), anchor="w").pack(anchor="w")
 
-        # 재생 컨트롤 버튼들 (곡 정보 옆)
+        # 재생 컨트롤 버튼들 (곡 정보 우측)
         if HAS_PYDUB:
             ctrl_btn_frame = tk.Frame(song_and_ctrl, bg="#1e272e")
-            ctrl_btn_frame.pack(side="left", padx=(15, 0), pady=3)
+            ctrl_btn_frame.pack(side="right", padx=(15, 0), pady=3)
 
             # 버튼 스타일 (명확한 음악 재생 컨트롤 아이콘)
             btn_bg = "#37474f"
