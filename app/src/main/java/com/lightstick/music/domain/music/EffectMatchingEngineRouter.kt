@@ -7,7 +7,8 @@ package com.lightstick.music.domain.music
  *
  * 지원 버전:
  * - 0: EffectMatchingEngineV0 (단순 ON 매칭)
- * - 1: EffectMatchingEngineV1 (V8 기반 이펙트)
+ * - 1: EffectMatchingEngineV1 (V8 기반 이펙트, skeleton)
+ * - 2: EffectMatchingEngineV2 (V8 기반 완전 구현)
  */
 object EffectMatchingEngineRouter {
 
@@ -22,6 +23,7 @@ object EffectMatchingEngineRouter {
         when (version) {
             0 -> EffectMatchingEngineV0()
             1 -> EffectMatchingEngineV1()
-            else -> throw IllegalArgumentException("Unsupported effect matching engine version: $version (supported: 0, 1)")
+            2 -> EffectMatchingEngineV2()
+            else -> throw IllegalArgumentException("Unsupported effect matching engine version: $version (supported: 0, 1, 2)")
         }
 }

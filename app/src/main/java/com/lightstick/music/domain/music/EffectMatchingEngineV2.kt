@@ -18,14 +18,69 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
     }
 
-    override fun convertToV8Sections(
+    data class V8Section(
+        val startMs: Long, val endMs: Long,
+        val type: SectionDetector.SectionType,
+        val engine: EffectMatchingEngine.FgEngine,
+        val beatMs: Long, val beats: Int,
+        val source: String, val change: EffectMatchingEngine.ChangeLevel,
+        val energyScore: Float = 0f, val relScore: Float = 0f,
+        val beatTimesMs: List<Long> = emptyList()
+    )
+
+    override fun buildPalette(seed: Int): EffectMatchingEngine.Palette {
+        val rawHue  = (((seed.toLong() * 2654435761L) ushr 8) and 0x7FFFFFFFL).toInt()
+        val baseHue = (((rawHue % 360) + 360) % 360).toFloat()
+        val cMain  = hsvToColor(baseHue,                 1.00f, 1.00f)
+        val cStep1 = hsvToColor(wrap360(baseHue +  60f), 1.00f, 1.00f)
+        val cStep2 = hsvToColor(wrap360(baseHue -  60f), 0.85f, 0.95f)
+        val cStep3 = hsvToColor(wrap360(baseHue - 120f), 1.00f, 1.00f)
+        val cDeep  = hsvToColor(baseHue,                 1.00f, 0.48f)
+        val black  = LSColor(0, 0, 0); val white = LSColor(255, 255, 255)
+        val colorGroup = listOf(cMain, cStep1, cStep2, cStep3)
+        val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
+        val patternABg = if (cMainLuma >= 128f) cDeep else cMain
+        return EffectMatchingEngine.Palette(
+            black       = black, white = white,
+            onPulseSets = listOf(EffectMatchingEngine.ColorSet(white, patternABg), EffectMatchingEngine.ColorSet(cMain, black)),
+            blinkSets   = listOf(EffectMatchingEngine.ColorSet(cMain, black), EffectMatchingEngine.ColorSet(cStep1, black)),
+            strokeSets  = listOf(EffectMatchingEngine.ColorSet(white, black)),
+            breathSet   = EffectMatchingEngine.ColorSet(white, patternABg),
+            bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cMain, black)),
+            chorusBg    = cDeep, colorGroup = colorGroup
+        )
+    }
+
+    override fun buildFrames(
+        palette: EffectMatchingEngine.Palette,
+        sectionGroups: List<EffectMatchingEngine.SectionGroup>,
+        beatTimesMs: List<Long>,
+        durationMs: Long,
+        isBalladMode: Boolean,
+        finalOffMs: Long,
+        downbeatMs: Long,
+        beatsPerBar: Int
+    ): List<Pair<Long, ByteArray>> {
+        if (sectionGroups.isEmpty()) return emptyList()
+
+        // 섹션을 V8 섹션으로 변환 (에너지 기반 엔진 할당)
+        val globalBeatMs = if (beatTimesMs.size > 1)
+            beatTimesMs[1] - beatTimesMs[0] else 500L
+
+        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode, emptyList(), durationMs, 10L)
+
+        // V8 섹션으로부터 프레임 빌드
+        return buildFramesFromSections(palette, v8Sections, beatTimesMs, durationMs, isBalladMode, finalOffMs, downbeatMs, beatsPerBar)
+    }
+
+    private fun convertToV8Sections(
         groups: List<EffectMatchingEngine.SectionGroup>,
         beatMs: Long,
         isBalladMode: Boolean,
         fullEnv: List<Float>,
         durationMs: Long,
         hopMs: Long
-    ): List<EffectMatchingEngine.V8Section> {
+    ): List<V8Section> {
         if (groups.isEmpty()) return emptyList()
 
         val energies = groups.map { g -> computeGroupEnergy(g.startMs, g.endMs, fullEnv, durationMs, hopMs) }
@@ -56,7 +111,7 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
                 else      -> EffectMatchingEngine.ChangeLevel.STRONG
             }
 
-            EffectMatchingEngine.V8Section(
+            V8Section(
                 startMs     = g.startMs,      endMs       = g.endMs,
                 type        = normalizedType,  engine      = engine,
                 beatMs      = beatMs,          beats       = beats,
@@ -67,9 +122,9 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         }
     }
 
-    override fun buildFramesFromSections(
+    private fun buildFramesFromSections(
         palette: EffectMatchingEngine.Palette,
-        sections: List<EffectMatchingEngine.V8Section>,
+        sections: List<V8Section>,
         beatTimesMs: List<Long>,
         durationMs: Long,
         isBalladMode: Boolean,
@@ -171,29 +226,6 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         frameMap[finalOffMs] = buildOffPayload()
 
         return frameMap.entries.sortedBy { it.key }.map { it.key to it.value }
-    }
-
-    override fun buildPalette(seed: Int): EffectMatchingEngine.Palette {
-        val rawHue  = (((seed.toLong() * 2654435761L) ushr 8) and 0x7FFFFFFFL).toInt()
-        val baseHue = (((rawHue % 360) + 360) % 360).toFloat()
-        val cMain  = hsvToColor(baseHue,                 1.00f, 1.00f)
-        val cStep1 = hsvToColor(wrap360(baseHue +  60f), 1.00f, 1.00f)
-        val cStep2 = hsvToColor(wrap360(baseHue -  60f), 0.85f, 0.95f)
-        val cStep3 = hsvToColor(wrap360(baseHue - 120f), 1.00f, 1.00f)
-        val cDeep  = hsvToColor(baseHue,                 1.00f, 0.48f)
-        val black  = LSColor(0, 0, 0); val white = LSColor(255, 255, 255)
-        val colorGroup = listOf(cMain, cStep1, cStep2, cStep3)
-        val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
-        val patternABg = if (cMainLuma >= 128f) cDeep else cMain
-        return EffectMatchingEngine.Palette(
-            black       = black, white = white,
-            onPulseSets = listOf(EffectMatchingEngine.ColorSet(white, patternABg), EffectMatchingEngine.ColorSet(cMain, black)),
-            blinkSets   = listOf(EffectMatchingEngine.ColorSet(cMain, black), EffectMatchingEngine.ColorSet(cStep1, black)),
-            strokeSets  = listOf(EffectMatchingEngine.ColorSet(white, black)),
-            breathSet   = EffectMatchingEngine.ColorSet(white, patternABg),
-            bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cMain, black)),
-            chorusBg    = cDeep, colorGroup = colorGroup
-        )
     }
 
     private fun computeGroupEnergy(startMs: Long, endMs: Long, fullEnv: List<Float>, durationMs: Long, hopMs: Long): Float {

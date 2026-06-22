@@ -22,8 +22,11 @@ import com.lightstick.types.Color as LSColor
 interface EffectMatchingEngine {
 
     // =========================================================================
-    // 공통 데이터 클래스
+    // 공통 데이터 클래스 및 enum
     // =========================================================================
+
+    enum class FgEngine { ON_PULSE, BLINK, STROBE, BREATH, ON_TRANSIT_ROTATE, OFF_TRANSIT }
+    enum class ChangeLevel { MEDIUM, STRONG }
 
     data class Palette(
         val black: LSColor, val white: LSColor,
