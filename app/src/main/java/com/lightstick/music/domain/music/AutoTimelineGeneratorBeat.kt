@@ -147,11 +147,12 @@ import kotlin.math.min
  *   AutoTimelineGeneratorBeat_v2.kt (191줄)
  *   AutoTimelineGeneratorBeat_v3.kt (668줄)
  *
- * 현재: 817줄 통합
- *   AutoTimelineGeneratorBeat.kt
+ * 현재: 통합 구현
+ *   AutoTimelineGeneratorBeat.kt (단일 파일)
  *   - 코드 중복 제거 (팔레트, 색상, 유틸리티)
  *   - 공통 구조 추출
  *   - 설정 기반 분기로 유연성 증대
+ *   - AutoTimelineConfig로 모든 버전 조합 지원
  *
  * === 향후 확장 계획 ===
  *
