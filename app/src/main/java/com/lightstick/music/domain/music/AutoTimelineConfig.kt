@@ -253,28 +253,11 @@ object AutoTimelineConfig {
     // ORCHESTRATION: 엔진 선택 및 조합
     // =========================================================================
 
-    /**
-     * 섹션 감지 사용 여부
-     *
-     * false:
-     *   - SectionDetectorRouter 호출 안 함 (오버헤드 0)
-     *   - EFFECT_RULE_VERSION=0 또는 1 사용 권장
-     *   - 빠른 처리 (전체 시간 단축 ~40%)
-     *   - 이펙트 다양성 낮음
-     *
-     * true:
-     *   - SectionDetectorRouter 실행 (오버헤드 ~30-50%)
-     *   - EFFECT_RULE_VERSION=1/3/6 와 함께 사용
-     *   - 섹션별 다른 이펙트 규칙 적용
-     *   - 이펙트 다양성 높음
-     *   - 음악 구조 시각화 가능
-     *
-     * 권장 조합:
-     * - 빠른 처리: USE_SECTION_DETECTOR=false, EFFECT_RULE_VERSION=0
-     * - 균형잡힌: USE_SECTION_DETECTOR=true, EFFECT_RULE_VERSION=1
-     * - 최고 품질: USE_SECTION_DETECTOR=true, EFFECT_RULE_VERSION=3
-     */
-    const val USE_SECTION_DETECTOR = false
+    // 섹션 감지는 항상 활성화 (성능 최적화로 inlining하지 않음)
+    // SectionDetectorRouter 실행 (오버헤드 ~30-50%)
+    // - 섹션별 다른 이펙트 규칙 적용
+    // - 이펙트 다양성 높음
+    // - 음악 구조 시각화 가능
 
     // =========================================================================
     // LEGACY: 하위 호환성 (GENERATOR_VERSION)

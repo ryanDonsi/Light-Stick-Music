@@ -238,9 +238,8 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
         val t0Total = System.currentTimeMillis()
         val effectRuleVersion = AutoTimelineConfig.EFFECT_RULE_VERSION
-        val useSectionDetector = AutoTimelineConfig.USE_SECTION_DETECTOR
 
-        Log.d(TAG, "generate() start effectRule=$effectRuleVersion useSection=$useSectionDetector file=$fileName musicId=$musicId")
+        Log.d(TAG, "generate() start effectRule=$effectRuleVersion file=$fileName musicId=$musicId")
 
         val detectorVer = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
@@ -282,34 +281,28 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val finalOffMs = detectLastMusicEndMs(fullEnv.toFloatArray(), effectiveHopMs, MIN_TRAILING_SILENCE_MS)
             .coerceIn(0L, durationMs)
 
-        // 섹션 감지
-        var sectionGroups: List<SectionGroup> = emptyList()
-        var musicStyle: MusicStyleClassifier.MusicStyle = MusicStyleClassifier.MusicStyle.POP
-        var tSection = 0L
-
-        if (useSectionDetector) {
-            val sectionDetectorVer = AutoTimelineConfig.SECTION_DETECTOR_VERSION
-            val t0Section = System.currentTimeMillis()
-            val detectedAnnotated = SectionDetectorRouter.detect(
-                version = sectionDetectorVer,
-                lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
-                beats = beatInfo.beats,
-                beatMs = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
-                beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
-            ).map { ab ->
-                if (ab.timeMs >= finalOffMs)
-                    SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
-                else ab
-            }
-            tSection = System.currentTimeMillis() - t0Section
-            sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
-
-            // 음악 스타일 분류
-            musicStyle = MusicStyleClassifier.classify(
-                lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
-                beatMs = globalBeatMs, beats = beatInfo.beats, hopMs = effectiveHopMs
-            ).style
+        // 섹션 감지 (항상 활성화)
+        val sectionDetectorVer = AutoTimelineConfig.SECTION_DETECTOR_VERSION
+        val t0Section = System.currentTimeMillis()
+        val detectedAnnotated = SectionDetectorRouter.detect(
+            version = sectionDetectorVer,
+            lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
+            beats = beatInfo.beats,
+            beatMs = globalBeatMs, durationMs = durationMs, hopMs = effectiveHopMs,
+            beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
+        ).map { ab ->
+            if (ab.timeMs >= finalOffMs)
+                SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
+            else ab
         }
+        val tSection = System.currentTimeMillis() - t0Section
+        val sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
+
+        // 음악 스타일 분류
+        val musicStyle = MusicStyleClassifier.classify(
+            lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
+            beatMs = globalBeatMs, beats = beatInfo.beats, hopMs = effectiveHopMs
+        ).style
 
         // 이펙트 엔진 선택 및 실행
         val engine = EffectMatchingEngineRouter.createEngine()
@@ -357,8 +350,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val tOverhead = tTotal - tBeat - tSection - tEffect
 
         logTimelineStats(fileName, musicId, durationMs, tTotal, tBeat, detectorVer, tSection,
-            if (useSectionDetector) AutoTimelineConfig.SECTION_DETECTOR_VERSION else 0,
-            useSectionDetector, tEffect, effectRuleVersion, tOverhead)
+            sectionDetectorVer, true, tEffect, effectRuleVersion, tOverhead)
         Log.d(TAG, "[PERF] total=${tTotal}ms frames=${frames.size}")
 
         return Pair(frames.sortedBy { it.first }, sectionMetas)
