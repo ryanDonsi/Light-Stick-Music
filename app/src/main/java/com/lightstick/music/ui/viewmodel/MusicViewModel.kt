@@ -106,6 +106,33 @@ class MusicViewModel @Inject constructor(
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_ENDED) playNext()
         }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            Log.d(TAG, "onPlayWhenReadyChanged: playWhenReady=$playWhenReady reason=$reason")
+
+            when (reason) {
+                Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS,
+                Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY -> {
+                    Log.i(TAG, "전화/다른 앱으로 인한 자동 일시정지 감지 → 이펙트 일시정지")
+                    if (_isAutoModeEnabled.value) {
+                        EffectEngineController.pauseEffects(context)
+                    }
+                    _isPlaying.value = false
+                }
+                Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST -> {
+                    Log.d(TAG, "사용자 요청으로 인한 재생/일시정지 → togglePlayPause에서 처리됨")
+                }
+                else -> {
+                    Log.d(TAG, "기타 원인으로 인한 상태 변화: $reason")
+                    if (!playWhenReady && _isPlaying.value && _isAutoModeEnabled.value) {
+                        Log.i(TAG, "일시정지 감지 → 이펙트 일시정지")
+                        EffectEngineController.pauseEffects(context)
+                    }
+                    _isPlaying.value = playWhenReady
+                }
+            }
+            updateNotificationProgress()
+        }
     }
 
     init {
@@ -362,11 +389,22 @@ class MusicViewModel @Inject constructor(
             _isPlaying.value = true
             if (_isAutoModeEnabled.value) {
                 EffectEngineController.resumeEffects(context)
-                // SDK가 resumeEffects()만으로 BLE 전송을 재개하지 못하는 경우가 있어
-                // 현재 position으로 re-seek해 전송 엔진을 강제 재시작한다
+                // 전화 중단 후 재개 등 상황에서 이펙트 재동기화
+                // 1. 현재 위치로 Seek 실행 (Timeline 인덱스 초기화)
                 val currentPos = player.currentPosition
-                try { handleSeekUseCase(context, currentPos) }
-                catch (e: Exception) { Log.e(TAG, "Resume position sync failed: ${e.message}") }
+                try {
+                    handleSeekUseCase(context, currentPos)
+                    Log.d(TAG, "Resume: seek to $currentPos")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Resume position sync failed: ${e.message}")
+                }
+                // 2. 즉시 위치 업데이트 (타임라인을 현재 위치로 강제 동기화)
+                try {
+                    updatePlaybackPositionUseCase(context, currentPos)
+                    Log.d(TAG, "Resume: sync position at $currentPos")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Resume position update failed: ${e.message}")
+                }
             }
         }
         updateNotificationProgress()
