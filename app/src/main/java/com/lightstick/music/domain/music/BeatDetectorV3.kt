@@ -46,7 +46,7 @@ object BeatDetectorV3 {
     private const val CHUNK_BUFFER_SIZE = 256 * 1024  // 256KB 청크 버퍼
     private val chunkBuffer = ByteArray(CHUNK_BUFFER_SIZE)
     private val filterBankCache = mutableMapOf<Int, Array<FilterBand>>()
-    private const val LN2_INV = 1f / ln(2f)  // 로그 상수 사전 계산
+    private val LN2_INV = 1f / ln(2f)  // 로그 상수 사전 계산
 
     data class TimedBeat(val timeMs: Long, val confidence: Float)
 
@@ -65,7 +65,7 @@ object BeatDetectorV3 {
         val beatsPerBar: Int get() = numerator
     }
 
-    enum class BeatSource { LOW, MID, FULL, LOW_MID, MID_FULL, LOW_FULL }
+    enum class BeatSource { FULL }
 
     data class Params(
         val minBeatMs: Long = 280L,
@@ -147,7 +147,7 @@ object BeatDetectorV3 {
         )
     }
 
-    private data class FilterBand(val startBin: Int, val weights: FloatArray)
+    private class FilterBand(val startBin: Int, val weights: FloatArray)
 
     // 최적화: 필터뱅크 캐싱
     private fun getOrBuildFilterbank(sampleRate: Int): Array<FilterBand> {
@@ -553,7 +553,7 @@ object BeatDetectorV3 {
 
     private fun dpBeatTracker(
         odf: List<Float>, targetPeriodMs: Long, hopMs: Long,
-        durationMs: Long, anchorMs: Long = 0L
+        _durationMs: Long, anchorMs: Long = 0L
     ): LongArray {
         if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
         val n           = odf.size
@@ -561,16 +561,16 @@ object BeatDetectorV3 {
         val tightness   = 100.0f
         val anchorFrame = if (anchorMs > 0L) (anchorMs / hopMs).toInt().coerceIn(0, n - 1) else -1
 
-        val gaussHalf = fpb; val gaussSize = gaussHalf * 2 + 1
+        val gaussSize = fpb * 2 + 1
         val gaussWin  = FloatArray(gaussSize) { k ->
-            val i = (k - gaussHalf).toFloat()
+            val i = (k - fpb).toFloat()
             exp(-0.5f * (i * 32.0f / fpb) * (i * 32.0f / fpb))
         }
         val localscore = FloatArray(n)
         for (t in 0 until n) {
             var sc = 0f
             for (k in 0 until gaussSize) {
-                val idx = t - gaussHalf + k
+                val idx = t - fpb + k
                 if (idx in 0 until n) sc += gaussWin[k] * odf[idx]
             }
 
@@ -637,7 +637,7 @@ object BeatDetectorV3 {
     }
 
     private fun fallbackSegmentBeats(
-        odf: List<Float>, hopMs: Long, beatMs: Long, durationMs: Long
+        odf: List<Float>, hopMs: Long, beatMs: Long, _durationMs: Long
     ): List<TimedBeat> {
         val segmentMs = 20_000L
         val segFrames = (segmentMs / hopMs).toInt().coerceAtLeast(1)
@@ -679,7 +679,7 @@ object BeatDetectorV3 {
         val startMs  = max(0L, firstActive.toLong() * hopMs - beatMs)
         val cutoffMs = lastActive.toLong() * hopMs + beatMs
 
-        return beats.filter { it >= startMs && it <= cutoffMs }.toLongArray()
+        return beats.filter { it in startMs..cutoffMs }.toLongArray()
     }
 
     private fun detectTimeSignature(odf: List<Float>, beatMs: Long, hopMs: Long): TimeSignature {
