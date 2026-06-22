@@ -516,9 +516,27 @@ def detect_beats_beat_transformer(audio_path):
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             if result.stdout: print(result.stdout)
             if result.returncode != 0:
+                stderr_msg = result.stderr if result.stderr else "(stderr 없음)"
+
+                # 에러 원인 분석
+                error_hint = ""
+                if "CUDA" in stderr_msg or "cuda" in stderr_msg.lower():
+                    error_hint = "\n💡 원인: GPU/CUDA 문제 → --cpu 플래그 사용 또는 PyTorch CPU 버전 설치"
+                elif "out of memory" in stderr_msg.lower():
+                    error_hint = "\n💡 원인: GPU 메모리 부족 → 배치 크기 감소 또는 CPU 모드 사용"
+                elif "DilatedTransformer" in stderr_msg:
+                    error_hint = "\n💡 원인: 모델 로드 또는 전방 통과 실패 → PyTorch/라이브러리 버전 호환성 확인"
+                elif "shape" in stderr_msg.lower() or "dimension" in stderr_msg.lower():
+                    error_hint = "\n💡 원인: 입력 차원 불일치 → 오디오 길이 또는 샘플링 레이트 확인"
+
                 raise RuntimeError(
-                    f"bt_infer.py 실패 (exit {result.returncode}):\n{result.stderr[-1000:]}\n\n"
-                    "pip install torch torchaudio librosa einops scipy 설치 후 재시도하세요."
+                    f"Beat Transformer 감지 실패 (exit {result.returncode}):\n"
+                    f"{stderr_msg}\n"
+                    f"{error_hint}\n\n"
+                    "📋 해결 방법:\n"
+                    "1. pip install torch torchaudio librosa einops scipy\n"
+                    "2. bt_infer.py에 --cpu 플래그 추가 시도 (GPU 메모리 부족 시)\n"
+                    "3. PyTorch 버전 확인: python -c \"import torch; print(torch.__version__)\""
                 )
             with open(out_path) as f:
                 data = json.load(f)

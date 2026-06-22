@@ -99,8 +99,35 @@ def main():
 
     # ── 추론 ──────────────────────────────────────
     print("[bt_infer] 추론 실행 중…")
-    with torch.no_grad():
-        output, _ = model(spec)  # output: (1, T, 2)
+    print(f"[bt_infer] 입력 shape: {spec.shape} (배치, 채널, 시간, 멜빈)")
+    print(f"[bt_infer] 디바이스: {device}")
+
+    try:
+        with torch.no_grad():
+            output, _ = model(spec)  # output: (1, T, 2)
+    except RuntimeError as e:
+        error_msg = str(e)
+        print(f"[bt_infer] ❌ 추론 중 에러 발생: {error_msg}", file=sys.stderr)
+
+        # GPU 메모리 상태 확인
+        if device.type == 'cuda':
+            try:
+                print(f"[bt_infer] GPU 메모리 사용: {torch.cuda.memory_allocated(device) / 1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory / 1e9:.2f}GB",
+                      file=sys.stderr)
+            except Exception:
+                pass
+
+        # 차원 문제 진단
+        print(f"[bt_infer] 디버그 정보:", file=sys.stderr)
+        print(f"  - 입력 shape: {spec.shape}", file=sys.stderr)
+        print(f"  - 모델 입력 기대값: (1, 5, T, 128) [배치=1, 채널=5, 시간=T, 멜빈=128]", file=sys.stderr)
+
+        if "CUDA" in error_msg:
+            print(f"[bt_infer] 💡 해결책: --device cpu 로 CPU 모드 사용 시도", file=sys.stderr)
+        elif "out of memory" in error_msg.lower():
+            print(f"[bt_infer] 💡 해결책: 1) GPU 메모리 정리, 2) 다른 프로그램 종료, 3) CPU 모드 사용", file=sys.stderr)
+
+        sys.exit(1)
 
     beat_act     = output[0, :, 0].cpu().numpy()
     downbeat_act = output[0, :, 1].cpu().numpy()
@@ -178,8 +205,15 @@ def run_inference(audio_path: str, checkpoint_dir: str, code_dir: str = "", devi
     spec = torch.tensor(np.stack([spec_mono] * 5, axis=0), dtype=torch.float32
                         ).unsqueeze(0).to(_device)
 
-    with torch.no_grad():
-        output, _ = model(spec)
+    try:
+        with torch.no_grad():
+            output, _ = model(spec)
+    except RuntimeError as e:
+        raise RuntimeError(
+            f"추론 중 에러 (shape={spec.shape}): {str(e)[:200]}\n"
+            f"해결책: GPU 메모리 부족 시 CPU 모드 시도, "
+            f"또는 PyTorch/모델 버전 호환성 확인"
+        )
 
     beat_act = output[0, :, 0].cpu().numpy()
 
