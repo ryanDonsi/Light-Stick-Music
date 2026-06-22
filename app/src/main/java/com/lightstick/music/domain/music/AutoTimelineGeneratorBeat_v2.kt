@@ -12,12 +12,12 @@ import kotlin.math.min
  * AutoTimelineGeneratorBeat v2
  *
  * 감지기: BeatDetector(BEAT_DETECTOR_VERSION) + SectionDetector(SECTION_DETECTOR_VERSION)
- * 이펙트: 모든 섹션 타입에 beat-ON 단일 패턴 적용 (섹션 타입별 팔레트 색상만 다름)
+ * 이펙트: V3의 이펙트 매칭 룰 (FgEngine 기반 — ON_PULSE / STROBE / BREATH / ON_TRANSIT_ROTATE 등)
  *
- * V3 대비 차이:
- *  - assignFgEngine() → 항상 ON_PULSE 반환 (BREATH / STROBE / ON_TRANSIT_ROTATE 미사용)
- *  - bridgePhaseEngine() → 항상 ON_PULSE 반환
- *  - MusicStyleClassifier / climax 감지 / 발라드 모드 등 파이프라인 구조는 V3와 동일
+ * V3와 동일한 이펙트 엔진:
+ *  - assignFgEngine() → 섹션 타입별 이펙트 엔진 할당
+ *  - bridgePhaseEngine() → BRIDGE 섹션의 phase별 엔진 결정
+ *  - MusicStyleClassifier / climax 감지 / 발라드 모드 등 V3 파이프라인 구조 동일
  */
 class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerator {
 
@@ -159,22 +159,26 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
             lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beatMs = globalBeatMs, beats = beatInfoBeats, hopMs = effectiveHopMs
         ).style
-        Log.d(TAG, "v2 style=$musicStyle")
+        val isBalladMode = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
+                        || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
+        Log.d(TAG, "v2 style=$musicStyle balladMode=$isBalladMode")
 
-        // ── 5. Convert → V8Section (이펙트는 모두 ON_PULSE) ──────────
-        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs)
+        // ── 5. Convert → V8Section with FgEngine assignment ───────
+        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode,
+            fullEnv = fullEnv, durationMs = durationMs, hopMs = effectiveHopMs)
 
-        // ── 6. Frame building ─────────────────────────────────────
+        // ── 6. Frame building (V3 규칙) ───────────────────────────
         val t0Build    = System.currentTimeMillis()
 
         val frames = buildFramesFromSections(
-            palette     = palette,
-            sections    = v8Sections,
-            beatTimesMs = beatTimesMs,
-            durationMs  = durationMs,
-            finalOffMs  = finalOffMs,
-            downbeatMs  = downbeatMs,
-            beatsPerBar = beatsPerBar
+            palette         = palette,
+            sections        = v8Sections,
+            beatTimesMs     = beatTimesMs,
+            durationMs      = durationMs,
+            isBalladMode    = isBalladMode,
+            finalOffMs      = finalOffMs,
+            downbeatMs      = downbeatMs,
+            beatsPerBar     = beatsPerBar
         )
         Log.d(TAG, "v2 [PERF] build=${System.currentTimeMillis() - t0Build}ms frames=${frames.size}")
         Log.d(TAG, "v2 [PERF] total=${System.currentTimeMillis() - t0Total}ms  file=$fileName durationMs=$durationMs")
@@ -201,23 +205,39 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
     // ──────────────────────────────────────────────────────────────
     // Section 변환: SectionGroup → V8Section
-    // 이펙트는 모든 섹션 타입에 ON_PULSE 고정
+    // V3의 이펙트 매칭 룰 적용
     // ──────────────────────────────────────────────────────────────
 
     private fun convertToV8Sections(
         groups: List<SectionGroup>,
-        beatMs: Long
+        beatMs: Long,
+        isBalladMode: Boolean,
+        fullEnv: List<Float>,
+        durationMs: Long,
+        hopMs: Long
     ): List<V8Section> {
         if (groups.isEmpty()) return emptyList()
 
-        return groups.map { g ->
-            val beats = g.annotatedBeats.size
+        val energies = groups.map { g -> computeGroupEnergy(g.startMs, g.endMs, fullEnv, durationMs, hopMs) }
+        val lowTh    = percentile(energies, 0.35f)
+        val highTh   = percentile(energies, 0.70f)
+        val range    = (highTh - lowTh).coerceAtLeast(1e-6f)
+
+        return groups.mapIndexed { i, g ->
+            val energy   = energies[i]
+            val beats    = g.annotatedBeats.size
+            val relScore = ((energy - lowTh) / range).coerceIn(0f, 1f)
 
             val normalizedType = when {
                 g.type == SectionDetector.SectionType.BRIDGE && beats < 6 ->
                     SectionDetector.SectionType.VERSE
                 else -> g.type
             }
+
+            val engine = assignFgEngine(normalizedType, relScore, beats, globalBeatMs = beatMs,
+                isBalladMode = isBalladMode)
+
+            val source = buildSourceName(normalizedType, engine, beats)
 
             val change = when {
                 normalizedType == SectionDetector.SectionType.BRIDGE && beats < 20 -> ChangeLevel.STRONG
@@ -227,19 +247,78 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
 
             V8Section(
                 startMs     = g.startMs,      endMs       = g.endMs,
-                type        = normalizedType,
-                engine      = if (normalizedType == SectionDetector.SectionType.END ||
-                                  normalizedType == SectionDetector.SectionType.OUTRO) FgEngine.OFF_TRANSIT
-                              else FgEngine.ON_PULSE,
+                type        = normalizedType,  engine      = engine,
                 beatMs      = beatMs,          beats       = beats,
-                source      = "beat-on",       change      = change,
+                source      = source,          change      = change,
+                energyScore = energy,          relScore    = relScore,
                 beatTimesMs = g.annotatedBeats.map { it.timeMs }
             )
         }
     }
 
+    private fun computeGroupEnergy(startMs: Long, endMs: Long, fullEnv: List<Float>, durationMs: Long, hopMs: Long): Float {
+        if (fullEnv.isEmpty()) return 0f
+        val startIdx = (startMs / hopMs).toInt().coerceIn(0, fullEnv.lastIndex)
+        val endIdx   = (endMs   / hopMs).toInt().coerceAtMost(fullEnv.lastIndex)
+        if (endIdx <= startIdx) return fullEnv.getOrElse(startIdx) { 0f }
+        return fullEnv.subList(startIdx, endIdx + 1).average().toFloat()
+    }
+
+    /** 섹션 타입별 FgEngine 할당 */
+    private fun assignFgEngine(
+        type: SectionDetector.SectionType,
+        rel: Float, beats: Int, globalBeatMs: Long,
+        isBalladMode: Boolean
+    ): FgEngine = when (type) {
+        SectionDetector.SectionType.INTRO  -> FgEngine.BREATH
+        SectionDetector.SectionType.OUTRO  -> FgEngine.OFF_TRANSIT
+        SectionDetector.SectionType.BREAK  -> FgEngine.BREATH
+
+        SectionDetector.SectionType.CLIMAX -> when {
+            globalBeatMs <= 300L -> FgEngine.STROBE
+            rel >= 0.60f         -> FgEngine.STROBE
+            else                 -> FgEngine.ON_TRANSIT_ROTATE
+        }
+        SectionDetector.SectionType.BUILD  -> FgEngine.ON_TRANSIT_ROTATE
+
+        SectionDetector.SectionType.BEAT   -> when {
+            isBalladMode         -> FgEngine.BREATH
+            globalBeatMs <= 350L -> FgEngine.BLINK
+            else                 -> FgEngine.ON_PULSE
+        }
+        SectionDetector.SectionType.VOCAL  -> when {
+            isBalladMode         -> FgEngine.BREATH
+            rel >= 0.55f         -> FgEngine.ON_PULSE
+            else                 -> FgEngine.BREATH
+        }
+
+        // V1 legacy (V3+V2 detector에서는 나오지 않음)
+        SectionDetector.SectionType.VERSE  -> if (isBalladMode) FgEngine.BREATH else FgEngine.ON_PULSE
+        SectionDetector.SectionType.CHORUS -> FgEngine.ON_TRANSIT_ROTATE
+        SectionDetector.SectionType.BRIDGE -> FgEngine.BREATH
+        SectionDetector.SectionType.END    -> FgEngine.OFF_TRANSIT
+    }
+
+    private fun buildSourceName(type: SectionDetector.SectionType, engine: FgEngine, beats: Int): String =
+        when (type) {
+            SectionDetector.SectionType.INTRO  -> "intro-breath"
+            SectionDetector.SectionType.OUTRO  -> "outro-off"
+            SectionDetector.SectionType.BREAK  -> "break-breath"
+            SectionDetector.SectionType.CLIMAX -> if (engine == FgEngine.STROBE) "climax-strobe" else "climax-rotate"
+            SectionDetector.SectionType.BUILD  -> "build-rotate"
+            SectionDetector.SectionType.BEAT   -> when (engine) {
+                FgEngine.BLINK -> "beat-blink"
+                else           -> "beat-pulse"
+            }
+            SectionDetector.SectionType.VOCAL  -> if (engine == FgEngine.BREATH) "vocal-breath" else "vocal-pulse"
+            SectionDetector.SectionType.VERSE  -> "verse-on-pulse"
+            SectionDetector.SectionType.CHORUS -> "chorus-rotate"
+            SectionDetector.SectionType.BRIDGE -> "bridge-breath"
+            SectionDetector.SectionType.END    -> "end-off"
+        }
+
     // ──────────────────────────────────────────────────────────────
-    // Frame building — 모든 섹션에 BEAT 섹션과 동일한 1/4박 패턴 적용
+    // Frame building (V3 로직 유지)
     // ──────────────────────────────────────────────────────────────
 
     private fun buildFramesFromSections(
@@ -247,6 +326,7 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
         sections: List<V8Section>,
         beatTimesMs: List<Long>,
         durationMs: Long,
+        isBalladMode: Boolean,
         finalOffMs: Long,
         downbeatMs: Long = 0L,
         beatsPerBar: Int = 4
@@ -257,21 +337,95 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
             if (t >= 0L) frameMap[t] = payload
         }
 
+        data class RepeatKey(
+            val engine: FgEngine,
+            val fgR: Int, val fgG: Int, val fgB: Int,
+            val bgR: Int, val bgG: Int, val bgB: Int,
+            val period: Int, val randomDelay: Int
+        )
+        var lastRepeatKey: RepeatKey? = null
+
+        val sameTypeCountMap = mutableMapOf<SectionDetector.SectionType, Int>()
+
         for ((index, section) in sections.withIndex()) {
-            // END/OUTRO: 비트 이펙트 없음 (GEN에서 별도 처리 가능)
-            if (section.engine == FgEngine.OFF_TRANSIT) continue
+            val sameTypeIdx = sameTypeCountMap.getOrDefault(section.type, 0)
+            sameTypeCountMap[section.type] = sameTypeIdx + 1
+            lastRepeatKey = null
 
             val effectiveBeats = section.beatTimesMs
 
             Log.d(TAG, "v2 section[$index] ${section.type} ${section.startMs}~${section.endMs} " +
-                "engine=${section.engine} beats=${effectiveBeats.size}")
+                "engine=${section.engine} beats=${effectiveBeats.size} ballad=$isBalladMode")
 
-            // 모든 섹션에 1/4박 White-C1-C2-C3 패턴 적용
-            for (t in effectiveBeats) {
-                val beatInBar = beatInBar(t, downbeatMs, globalBeatMs = section.beatMs, beatsPerBar)
-                val (color, fade) = beatSectionColorAndFade(beatInBar, palette)
-                put(t, LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
+            // ── BEAT 섹션: 1/4박 White-C1-C2-C3 패턴 ─────────────────
+            if (section.type == SectionDetector.SectionType.BEAT) {
+                for (t in effectiveBeats) {
+                    val beatInBar = beatInBar(t, downbeatMs, globalBeatMs = section.beatMs, beatsPerBar)
+                    val (color, fade) = beatSectionColorAndFade(beatInBar, palette)
+                    put(t, LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
+                }
+                continue
             }
+
+            // OFF_TRANSIT (OUTRO/END): beat에 이펙트 없음
+            if (section.engine == FgEngine.OFF_TRANSIT) continue
+
+            // 일반 섹션: beat마다 section 속성 이펙트
+            for ((beatIndex, t) in effectiveBeats.withIndex()) {
+                val beatEngine = if (section.type == SectionDetector.SectionType.BRIDGE)
+                    bridgePhaseEngine(beatIndex, effectiveBeats.size, section.beatMs, section.relScore, isBalladMode)
+                else section.engine
+
+                val effectiveEngine = beatEngine
+
+                val (fg, bg) = colorsForEngine(palette, effectiveEngine, sameTypeIdx, beatIndex, section.type)
+                val bgNonNull = bg ?: LSColor(0, 0, 0)
+
+                val beatPeriod = when (effectiveEngine) {
+                    FgEngine.STROBE -> 1
+                    FgEngine.BREATH -> msToBreathPeriod(section.beatMs)
+                    else            -> null
+                }
+                val beatRandomDelay = when {
+                    effectiveEngine == FgEngine.STROBE             -> 1
+                    effectiveEngine == FgEngine.ON_TRANSIT_ROTATE  -> null
+                    effectiveEngine == FgEngine.ON_PULSE           -> null
+                    effectiveEngine == FgEngine.BREATH &&
+                        section.type == SectionDetector.SectionType.VERSE -> 0
+                    effectiveEngine == FgEngine.BREATH             -> msToBreathRandomDelay(section.beatMs)
+                    else                                           -> null
+                }
+                val beatRotateTransit = if (effectiveEngine == FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
+                    ON_ROTATE_BALLAD_TRANSIT else 0
+
+                val skipOnPulseOdd = (beatEngine == FgEngine.ON_PULSE && beatIndex % 2 != 0)
+
+                val skipRepeat = if (skipOnPulseOdd) {
+                    true
+                } else if (effectiveEngine == FgEngine.ON_TRANSIT_ROTATE
+                    || effectiveEngine == FgEngine.STROBE
+                    || effectiveEngine == FgEngine.BREATH) {
+                    val key = RepeatKey(effectiveEngine,
+                        fg.r, fg.g, fg.b, bgNonNull.r, bgNonNull.g, bgNonNull.b,
+                        beatPeriod ?: 0, beatRandomDelay ?: 0)
+                    val dup = (key == lastRepeatKey); lastRepeatKey = key; dup
+                } else {
+                    lastRepeatKey = null; false
+                }
+
+                if (!skipRepeat) {
+                    put(t, buildPayload(effectiveEngine, fg, bg, section.beatMs, beatPeriod,
+                        beatRandomDelay ?: 0, rotateTransit = beatRotateTransit))
+                }
+
+                if (beatEngine == FgEngine.ON_PULSE && !skipOnPulseOdd) {
+                    val holdMs = minOf(ON_PULSE_ACCENT_HOLD_MS * 2L, section.beatMs * 44L / 100L).coerceAtLeast(60L)
+                    val offT   = minOf(section.endMs - 1L, t + holdMs)
+                    if (offT > t)
+                        put(offT, LSEffectPayload.Effects.off(transit = 3).toByteArray())
+                }
+            }
+
         }
 
         // finalOffMs 이후 프레임 제거 (경계 포함) → finalOffMs 위치는 off 페이로드로 덮어씀
@@ -327,6 +481,30 @@ class AutoTimelineGeneratorBeat_v2 : AutoTimelineGenerator, SectionAwareGenerato
     }
 
     private fun buildOffPayload(): ByteArray = LSEffectPayload.Effects.off(transit = ON_TRANSIT).toByteArray()
+
+    // ──────────────────────────────────────────────────────────────
+    // Bridge phase engine (V3와 동일)
+    // ──────────────────────────────────────────────────────────────
+
+    private fun bridgePhaseEngine(
+        beatIndex: Int, totalBeats: Int, beatMs: Long, relScore: Float, isBalladMode: Boolean
+    ): FgEngine {
+        if (isBalladMode || relScore < 0.1f) return FgEngine.BREATH
+        if (totalBeats <= 0) return FgEngine.STROBE
+        val strobeEntry = (0.80f - relScore * 0.55f).coerceIn(0.20f, 0.85f)
+        return when {
+            totalBeats < 8  -> FgEngine.STROBE
+            totalBeats < 16 -> {
+                val phase = beatIndex.toFloat() / totalBeats
+                if (phase < strobeEntry) FgEngine.BREATH else FgEngine.ON_TRANSIT_ROTATE
+            }
+            else -> {
+                val phase      = beatIndex.toFloat() / totalBeats
+                val rotateEntry = (strobeEntry - 0.25f - relScore * 0.10f).coerceIn(0.10f, strobeEntry - 0.10f)
+                if (phase < rotateEntry) FgEngine.BREATH else FgEngine.ON_TRANSIT_ROTATE
+            }
+        }
+    }
 
     // ──────────────────────────────────────────────────────────────
     // Palette & color (V3와 동일)
