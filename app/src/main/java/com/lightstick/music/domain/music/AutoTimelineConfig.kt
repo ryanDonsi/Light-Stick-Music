@@ -86,7 +86,7 @@ object AutoTimelineConfig {
      * - V2: 성능과 정확도 균형
      * - V3: 최고 정확도 필요할 때 (추천)
      */
-    const val BEAT_DETECTOR_VERSION = 3
+    const val BEAT_DETECTOR_VERSION = 0
 
     /**
      * BeatDetector 버전별 hopMs (Hop Size)
@@ -247,7 +247,7 @@ object AutoTimelineConfig {
      * - V3: 최고 품질 (느려도 괜찮음)
      * - V6: 미래 확장용
      */
-    const val EFFECT_RULE_VERSION = 1
+    const val EFFECT_RULE_VERSION = 2
 
     // =========================================================================
     // ORCHESTRATION: 엔진 선택 및 조합

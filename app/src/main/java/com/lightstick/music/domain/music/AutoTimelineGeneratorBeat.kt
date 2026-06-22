@@ -188,6 +188,18 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
 
         // v0용 색상 세그먼트
         private const val COLOR_SEGMENT_MS_V0 = 5_000L
+
+        /**
+         * EFFECT_RULE_VERSION을 EffectMatchingEngine 라우터 버전으로 매핑
+         * - 0 → 0 (EffectMatchingEngineV0)
+         * - 1, 2 → 1 (EffectMatchingEngineV1)
+         * - 3, 6 → 2 (EffectMatchingEngineV2)
+         */
+        private fun effectRuleToEngineVersion(effectRuleVersion: Int): Int = when (effectRuleVersion) {
+            1, 2 -> 1
+            3, 6 -> 2
+            else -> 0
+        }
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -295,34 +307,26 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val globalBeatMs = beatInfo.beatMs.coerceIn(MIN_BEAT_MS, MAX_BEAT_MS)
         val beatsPerBar = beatInfo.beatsPerBar
         val downbeatMs = beatInfo.downbeatMs
+        val beatTimesMs = beatInfo.beats.map { it.timeMs }.filter { it in 0..durationMs }
 
-        val frames = ArrayList<Pair<Long, ByteArray>>()
-        for (beat in beatInfo.beats) {
-            val t = beat.timeMs
-            if (t < 0 || t >= durationMs) continue
+        val engine = EffectMatchingEngineRouter.createEngine(0)
+        val palette = engine.buildPalette(musicId)
 
-            val beatInBar = if (globalBeatMs > 0L) {
-                val steps = Math.round((t - downbeatMs).toDouble() / globalBeatMs.toDouble())
-                (((steps % beatsPerBar) + beatsPerBar) % beatsPerBar).toInt()
-            } else 0
-
-            val color = when (beatInBar) {
-                0 -> LSColor(255, 255, 255)  // White
-                1 -> LSColor(255, 0, 255)    // Purple
-                2 -> LSColor(255, 255, 0)    // Yellow
-                else -> LSColor(0, 255, 255) // Cyan
-            }
-            val fade = when (beatInBar) {
-                0, 2 -> 100
-                else -> 35
-            }
-
-            frames.add(t to LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
-        }
+        val t0Effect = System.currentTimeMillis()
+        val frames = engine.buildFrames(
+            palette = palette,
+            sectionGroups = emptyList(),
+            beatTimesMs = beatTimesMs,
+            durationMs = durationMs,
+            isBalladMode = false,
+            finalOffMs = durationMs,
+            downbeatMs = downbeatMs,
+            beatsPerBar = beatsPerBar
+        )
+        val tEffect = System.currentTimeMillis() - t0Effect
 
         val tTotal = System.currentTimeMillis() - t0Total
         val tSection = 0L
-        val tEffect = 0L
         val tOverhead = tTotal - tBeat - tSection - tEffect
 
         logTimelineStats(fileName, musicId, durationMs, tTotal, tBeat, detectorVer, tSection, 0, false, tEffect, 0, tOverhead)
@@ -399,29 +403,27 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
 
         val sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
 
-        // 비트 프레임 생성 (단순 ON/OFF)
-        val frames = ArrayList<Pair<Long, ByteArray>>()
-        var rangeSkip = 0
+        // 이펙트 엔진 사용
+        val engine = EffectMatchingEngineRouter.createEngine(1)
+        val palette = engine.buildPalette(musicId)
 
-        for (beat in beatTimesMs) {
-            val beatInBar = if (globalBeatMs > 0L) {
-                val steps = Math.round((beat - downbeatMs).toDouble() / globalBeatMs.toDouble())
-                (((steps % beatsPerBar) + beatsPerBar) % beatsPerBar).toInt()
-            } else 0
-
-            val color = when (beatInBar) {
-                0 -> LSColor(255, 255, 255)
-                1 -> LSColor(255, 0, 255)
-                2 -> LSColor(255, 255, 0)
-                else -> LSColor(0, 255, 255)
-            }
-            val fade = when (beatInBar) {
-                0, 2 -> 100
-                else -> 35
-            }
-
-            frames.add(beat to LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
-        }
+        val t0Effect = System.currentTimeMillis()
+        val frames = engine.buildFrames(
+            palette = palette,
+            sectionGroups = sectionGroups.map { g ->
+                EffectMatchingEngine.SectionGroup(
+                    startMs = g.startMs, endMs = g.endMs,
+                    type = g.type, annotatedBeats = g.annotatedBeats
+                )
+            },
+            beatTimesMs = beatTimesMs,
+            durationMs = durationMs,
+            isBalladMode = false,
+            finalOffMs = finalOffMs,
+            downbeatMs = downbeatMs,
+            beatsPerBar = beatsPerBar
+        )
+        val tEffect = System.currentTimeMillis() - t0Effect
 
         // 섹션 메타
         val sectionMetas = sectionGroups.mapIndexed { idx, g ->
@@ -441,7 +443,6 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         }
 
         val tTotal = System.currentTimeMillis() - t0Total
-        val tEffect = 0L
         val tOverhead = tTotal - tBeat - tSection - tEffect
 
         logTimelineStats(fileName, musicId, durationMs, tTotal, tBeat, detectorVer, tSection, sectionDetectorVer, true, tEffect, 1, tOverhead)
@@ -461,8 +462,6 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val fileName = musicPath.substringAfterLast("/").substringBeforeLast(".")
         val t0Total = System.currentTimeMillis()
         Log.d(TAG, "v3 [PERF] start file=$fileName musicId=$musicId")
-
-        val palette = buildPalette(musicId)
 
         val detectorVer = AutoTimelineConfig.BEAT_DETECTOR_VERSION
         val effectiveHopMs = AutoTimelineConfig.beatDetectorHopMs(detectorVer)
@@ -529,13 +528,19 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val isBalladMode = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
                         || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
 
-        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode,
-            fullEnv = fullEnv, durationMs = durationMs, hopMs = effectiveHopMs)
+        // 이펙트 엔진 사용 (EffectMatchingEngineRouter)
+        val engine = EffectMatchingEngineRouter.createEngine(2)
+        val palette = engine.buildPalette(musicId)
 
         val t0Effect = System.currentTimeMillis()
-        val frames = buildFramesFromSections(
+        val frames = engine.buildFrames(
             palette = palette,
-            sections = v8Sections,
+            sectionGroups = sectionGroups.map { g ->
+                EffectMatchingEngine.SectionGroup(
+                    startMs = g.startMs, endMs = g.endMs,
+                    type = g.type, annotatedBeats = g.annotatedBeats
+                )
+            },
             beatTimesMs = beatTimesMs,
             durationMs = durationMs,
             isBalladMode = isBalladMode,
