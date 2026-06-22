@@ -7,10 +7,7 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.AutoTimelineGenerator
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v0
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v1
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v2
-import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat_v3
+import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat
 import com.lightstick.music.domain.music.SectionAwareGenerator
 import com.lightstick.music.domain.music.SectionMetaStorage
 import kotlinx.coroutines.async
@@ -73,14 +70,11 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
             }
         }
 
-        val generator: AutoTimelineGenerator = when (AutoTimelineConfig.GENERATOR_VERSION) {
-            0  -> AutoTimelineGeneratorBeat_v0()
-            1  -> AutoTimelineGeneratorBeat_v1()
-            2  -> AutoTimelineGeneratorBeat_v2()
-            3  -> AutoTimelineGeneratorBeat_v3()
-            else -> throw IllegalArgumentException("Unsupported generator version: ${AutoTimelineConfig.GENERATOR_VERSION} (supported: 0~4)")
-        }
+        // 통합 생성기 (AutoTimelineGeneratorBeat)는 AutoTimelineConfig 설정으로 모든 버전 지원
+        val generator: AutoTimelineGenerator = AutoTimelineGeneratorBeat()
         val sectionStorage = if (generator is SectionAwareGenerator) SectionMetaStorage(version) else null
+
+        Log.d(TAG, "생성기: AutoTimelineGeneratorBeat (effectRule=${AutoTimelineConfig.EFFECT_RULE_VERSION} useSection=${AutoTimelineConfig.USE_SECTION_DETECTOR})")
 
         // 이미 생성된 파일은 제외한 실제 처리 대상만 추려 정확한 total 확보
         val filesToProcess = if (TEST_FORCE_REGENERATE) {
