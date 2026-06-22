@@ -2015,6 +2015,7 @@ class App(tk.Tk):
         self.v_play_time = tk.StringVar(value="0:00 / 0:00")  # 시간 표시
         self._play_obj = None              # pydub PlayObject
         self._playback_start_time = 0      # 재생 시작 시간 (ms)
+        self._is_analyzing = False         # 분석 중 여부
 
         self._build_ui()
         self._load_state()
@@ -3759,15 +3760,22 @@ class App(tk.Tk):
         self._stop_playback = False
 
     def _update_play_buttons(self):
-        """재생 상태에 따라 버튼 활성화/비활성화"""
+        """재생 상태에 따라 버튼 활성화/비활성화 (분석 중엔 비활성화)"""
         if not HAS_PYDUB:
             return
         try:
-            if self._is_playing:
+            if self._is_analyzing:
+                # 분석 중: 모든 버튼 비활성화
+                self._play_btn.config(state="disabled")
+                self._pause_btn.config(state="disabled")
+                self._stop_btn.config(state="disabled")
+            elif self._is_playing:
+                # 재생 중
                 self._play_btn.config(state="disabled")
                 self._pause_btn.config(state="normal")
                 self._stop_btn.config(state="normal")
             else:
+                # 정지 상태
                 self._play_btn.config(state="normal")
                 self._pause_btn.config(state="disabled")
                 self._stop_btn.config(state="disabled")
@@ -3790,6 +3798,11 @@ class App(tk.Tk):
     def _do_analyze(self, audio_path, bin_path, engine, tol_ms, bpm_hint,
                     librosa_sections=None):
         import time
+
+        # 분석 시작: 재생 버튼 비활성화
+        self._is_analyzing = True
+        self.after(0, self._update_play_buttons)
+
         SEP  = "─" * 62
         SEP2 = "═" * 62
         eng_name, eng_acc, _ = ENGINE_INFO[engine]
@@ -4299,6 +4312,10 @@ class App(tk.Tk):
         if HAS_MPL:
             self.after(0, lambda: self.map_btn.config(state="normal"))
             self.after(0, lambda: self.save_btn.config(state="normal"))
+
+        # 분석 완료: 재생 버튼 활성화
+        self._is_analyzing = False
+        self.after(0, self._update_play_buttons)
 
     # ── 비트맵 창 ─────────────────────────────────
 
