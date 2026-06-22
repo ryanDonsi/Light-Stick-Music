@@ -18,16 +18,9 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
-        private const val VERSION     = 13
-        private const val HOP_MS      = 10L
-        private val MIN_BEAT_MS = AutoTimelineConfig.MIN_BEAT_MS
-        private val MAX_BEAT_MS = AutoTimelineConfig.MAX_BEAT_MS
-        private const val MAX_DECODE_MS = 600_000L  // 최대 10분 (OOM 방지)
-
-        // IIR filter coefficients (V8 최적화)
-        private const val LOW_ALPHA     = 0.12f
-        private const val MID_LP1_ALPHA = 0.35f
-        private const val MID_LP2_ALPHA = 0.08f
+        private const val MIN_BEAT_MS = AutoTimelineConfig.MIN_BEAT_MS
+        private const val MAX_BEAT_MS = AutoTimelineConfig.MAX_BEAT_MS
+        private const val MAX_DECODE_MS = 600_000L
     }
 
 
@@ -213,6 +206,4 @@ class AutoTimelineGeneratorBeat_v0 : AutoTimelineGenerator {
             ((bf + m) * 255f).toInt().coerceIn(0, 255)
         )
     }
-
-    fun getVersion(): Int = VERSION
 }
