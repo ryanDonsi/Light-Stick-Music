@@ -3968,16 +3968,19 @@ class App(tk.Tk):
         self.after(0, _lb)
 
         # ② Ground-truth — 캐시 우선 사용 (GT는 오디오가 변하지 않으면 재실행 불필요)
-        # 🔧 개선: 엔진별이 아닌 오디오별 캐싱 (같은 오디오는 모든 엔진이 공유)
+        # 🔧 개선: 같은 오디오(music_id)면 모든 엔진이 동일한 GT 재사용 (엔진별 중복 분석 방지)
         records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
         cached_gt_ms  = None
         cached_gt_bpm = None
         try:
             with open(records_path, encoding="utf-8") as _f:
                 _recs = json.load(_f)
-            # 같은 오디오 파일의 첫 번째 레코드에서 GT 정보 추출 (엔진 무관)
+            # music_id 정규화 (바이너리 파일명 기준)
+            music_id_display = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id
+
+            # 같은 music_id를 가진 모든 레코드 중 첫 번째에서 GT 정보 추출 (엔진 무관)
             _cached = next((r for r in _recs
-                            if str(r.get("music_id", "")) == str(audio_hash_id) and
+                            if r.get("music_id") == music_id_display and
                                r.get("beats", {}).get("gt_ms") and
                                r.get("summary", {}).get("bpm_gt")), None)
             if _cached:
@@ -3986,7 +3989,9 @@ class App(tk.Tk):
                 if _gt_beats and _gt_bpm:
                     cached_gt_ms  = _gt_beats
                     cached_gt_bpm = _gt_bpm
-        except Exception:
+                    self.after(0, lambda: self._log(
+                        f"  [✓ 캐시 사용] music_id={music_id_display} 기존 분석 결과 재사용", "green"))
+        except Exception as _cache_err:
             pass
 
         _step2_start = time.time()
