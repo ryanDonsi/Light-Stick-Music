@@ -2998,26 +2998,32 @@ class App(tk.Tk):
 
     def _run_all_thread(self, targets, engines, tol_ms, bpm_hint):
         total = len(targets)
+        cached_gt_sections = {}  # 오디오 경로별 GT 섹션 캐시
+
         for idx, (iid, item) in enumerate(targets, 1):
             audio = item["path"]
             binf  = item["bin_path"]
             name  = os.path.basename(audio)
 
-            # GT 섹션 분석: 오디오당 1회만 실행 후 엔진별로 공유
+            # GT 섹션 분석: 곡당 1회만 실행 (캐시 확인)
             pre_lib_sections = []
-            if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
+            if audio not in cached_gt_sections and (HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA):
                 try:
                     src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
                     self.after(0, lambda n=name, i=idx, t=total, s=src:
                                self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션/{s})"))
                     _dur = get_audio_duration(audio)
                     pre_lib_sections = detect_gt_sections(audio, _dur)
+                    cached_gt_sections[audio] = pre_lib_sections  # 캐시에 저장
                     self.after(0, lambda n=len(pre_lib_sections), nm=name:
                                self._log(f"[GT섹션]  {nm} — {n}개 감지", "gray"))
                 except Exception as _se:
                     import traceback
+                    cached_gt_sections[audio] = []  # 실패도 캐시하여 재시도 방지
                     self.after(0, lambda e=str(_se)[:100], tb=traceback.format_exc()[:200], nm=name:
                                self._log(f"[❌ GT섹션] {nm} 감지 실패: {e}", "red"))
+            else:
+                pre_lib_sections = cached_gt_sections.get(audio, [])
 
             for engine in engines:
                 eng_lbl = ENGINE_INFO[engine][0]
@@ -3945,14 +3951,18 @@ class App(tk.Tk):
         self.after(0, _lb)
 
         # ② Ground-truth — 캐시 우선 사용 (GT는 오디오가 변하지 않으면 재실행 불필요)
+        # 🔧 개선: 엔진별이 아닌 오디오별 캐싱 (같은 오디오는 모든 엔진이 공유)
         records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
         cached_gt_ms  = None
         cached_gt_bpm = None
         try:
             with open(records_path, encoding="utf-8") as _f:
                 _recs = json.load(_f)
+            # 같은 오디오 파일의 첫 번째 레코드에서 GT 정보 추출 (엔진 무관)
             _cached = next((r for r in _recs
-                            if r.get("_key") == f"{audio_hash_id}_{engine}"), None)
+                            if str(r.get("music_id", "")) == str(audio_hash_id) and
+                               r.get("beats", {}).get("gt_ms") and
+                               r.get("summary", {}).get("bpm_gt")), None)
             if _cached:
                 _gt_beats = _cached.get("beats", {}).get("gt_ms")
                 _gt_bpm   = _cached.get("summary", {}).get("bpm_gt")
