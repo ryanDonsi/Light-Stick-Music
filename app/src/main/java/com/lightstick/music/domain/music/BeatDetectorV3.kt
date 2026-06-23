@@ -364,7 +364,7 @@ object BeatDetectorV3 {
             try { codec?.stop() }     catch (_: Throwable) {}
             try { codec?.release() }  catch (_: Throwable) {}
             try { extractor.release() } catch (_: Throwable) {}
-            OdfResult(emptyList(), emptyList(), HOP_MS, 0L)
+            OdfResult(FloatArray(0), FloatArray(0), HOP_MS, 0L)
         }
     }
 
@@ -621,7 +621,7 @@ object BeatDetectorV3 {
             val sFrame = segIdx * segFrames
             val eFrame = min(odf.size, sFrame + segFrames)
             if (eFrame - sFrame < 8) { segIdx++; continue }
-            val segOdf   = odf.subList(sFrame, eFrame)
+            val segOdf   = odf.copyOfRange(sFrame, eFrame)
             val segPhase = estimatePhaseFromOdf(segOdf, beatMs, hopMs)
             val segDur   = (eFrame - sFrame).toLong() * hopMs
             val segTimes = dpBeatTracker(segOdf, beatMs, hopMs, segDur, anchorMs = segPhase)
