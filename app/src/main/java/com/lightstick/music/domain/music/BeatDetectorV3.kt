@@ -261,7 +261,7 @@ object BeatDetectorV3 {
                                 val mono = monoSum / channelCount / 32768f
 
                                 ringBuf[ringHead] = mono
-                                ringHead = (ringHead + 1) % FFT_SIZE
+                                ringHead = (ringHead + 1) and 2047
                                 totalSamples++
                                 samplesUntilNextFrame--
 
@@ -269,7 +269,7 @@ object BeatDetectorV3 {
                                     samplesUntilNextFrame = hopSamples
                                     val oldest = ringHead
                                     for (i in 0 until FFT_SIZE) {
-                                        fftBuf[i] = ringBuf[(oldest + i) % FFT_SIZE] * hannWindow[i]
+                                        fftBuf[i] = ringBuf[(oldest + i) and 2047] * hannWindow[i]
                                     }
                                     fft.realForward(fftBuf)
 
