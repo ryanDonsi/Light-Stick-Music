@@ -87,7 +87,7 @@ object BeatDetectorV2 {
             return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
 
-        val beatMs = estimateBpmV1Style(odfTempo, hopMs, params.minBeatMs, params.maxBeatMs, songName)
+        val beatMs = estimateBpm(odfTempo, hopMs, params.minBeatMs, params.maxBeatMs, songName)
         val phaseMs = estimatePhaseFromOdf(odfTrack, beatMs, hopMs)
         val dpTimes = dpBeatTracker(odfTrack, beatMs, hopMs, anchorMs = phaseMs)
 
@@ -344,7 +344,7 @@ object BeatDetectorV2 {
     }
 
 
-    private fun estimateBpmV1Style(
+    private fun estimateBpm(
         odf: List<Float>,
         hopMs: Long,
         minBeatMs: Long,
