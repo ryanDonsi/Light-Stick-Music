@@ -31,6 +31,7 @@ object BeatDetectorV2 {
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
+    private const val DP_TIGHTNESS      = 100.0f
 
     private const val TIME_SIG_THREE_RATIO   = 1.20f
     private const val TIME_SIG_SIX_RATIO     = 1.25f
@@ -325,8 +326,6 @@ object BeatDetectorV2 {
 
             codec.stop(); codec.release(); extractor.release()
 
-            val durationMs = totalSamples * 1000L / sampleRate
-
             val maxTempo = odfTempo.maxOrNull() ?: 1f
             val normTempo = if (maxTempo > 1e-6f) odfTempo.map { it / maxTempo } else odfTempo
 
@@ -339,7 +338,7 @@ object BeatDetectorV2 {
             try { codec?.stop() }     catch (_: Throwable) {}
             try { codec?.release() }  catch (_: Throwable) {}
             try { extractor.release() } catch (_: Throwable) {}
-            OdfResult(emptyList(), emptyList(), HOP_MS, 0L)
+            OdfResult(emptyList(), emptyList(), HOP_MS)
         }
     }
 
@@ -507,7 +506,7 @@ object BeatDetectorV2 {
                 val pScore   = if (isFreeStart) 0f else cumscore[p]
                 val lag      = (t - p).toFloat().coerceAtLeast(1f)
                 val logRatio = ln(lag / fpb)
-                val penalty  = tightness * logRatio * logRatio
+                val penalty  = DP_TIGHTNESS * logRatio * logRatio
                 val cand     = pScore - penalty
                 if (cand > bestVal) { bestVal = cand; prev[t] = p }
             }
