@@ -78,7 +78,7 @@ object AutoTimelineConfig {
      * - V1: 호환성 유지, 레거시 지원
      * - V2: 최고 정확도 필요할 때 (추천, 현재 기본값)
      */
-    const val BEAT_DETECTOR_VERSION = 0
+    const val BEAT_DETECTOR_VERSION = 2
 
     /**
      * BeatDetector 버전별 hopMs (Hop Size)
@@ -177,7 +177,7 @@ object AutoTimelineConfig {
      *     - 팔레트 색상 없음 (고정 색상)
      *     - 계산 오버헤드 거의 없음
      *
-     * V1/V2: 단일 색상 비트 이펙트 (섹션 기반)
+     * V1: 단일 색상 비트 이펙트 (섹션 기반)
      *     이펙트 타입: ON (각 비트마다)
      *     색상 규칙:
      *       - 각 비트마다 ON 이펙트 (색상: 팔레트 기반)
@@ -193,7 +193,7 @@ object AutoTimelineConfig {
      *     - 섹션별 색상 로테이션
      *     - 단순하지만 시각적 만족도 높음
      *
-     * V3: V8 이펙트 규칙 (고급, 섹션 기반)
+     * V2: 다양한 이펙트 규칙 (고급, 섹션 기반)
      *     이펙트 타입: ON_PULSE, STROBE, BREATH, ON_TRANSIT_ROTATE, BLINK, OFF_TRANSIT
      *     섹션별 엔진 할당 (FgEngine):
      *       - INTRO/OUTRO: BREATH (부드러운 호흡 효과)
@@ -227,81 +227,16 @@ object AutoTimelineConfig {
      *     "8개의 섹션 타입별 엔진 조합" 또는 "8가지 이펙트 타입"을 지원
      *     현재 AutoTimelineGeneratorBeat v3에 통합됨
      *
-     * V6: V8 확장 이펙트 (V3과 유사, 향후 확장 예정)
-     *     현재: V3과 동일한 구현
-     *     향후: 추가 이펙트 타입 또는 AI 기반 엔진 추가 예정
-     *
      * 선택 기준:
-     * - V0: 빠른 처리 필요, 테스트용
-     * - V1: 일반적인 사용 (권장, 속도와 품질 균형)
-     * - V3: 최고 품질 (느려도 괜찮음)
-     * - V6: 미래 확장용
+     * - V0: 비트확인 테스트용
+     * - V1: 이펙트 테스트용
+     * - V2: 일반적인 사용(권장, 속도와 품질 균형)
      */
     const val EFFECT_RULE_VERSION = 2
-
-    // =========================================================================
-    // ORCHESTRATION: 엔진 선택 및 조합
-    // =========================================================================
-
-    // 섹션 감지는 항상 활성화 (성능 최적화로 inlining하지 않음)
-    // SectionDetectorRouter 실행 (오버헤드 ~30-50%)
-    // - 섹션별 다른 이펙트 규칙 적용
-    // - 이펙트 다양성 높음
-    // - 음악 구조 시각화 가능
-
-    // =========================================================================
-    // LEGACY: 하위 호환성 (GENERATOR_VERSION)
-    // =========================================================================
-
-    /**
-     * 타임라인 생성기 버전 (호환성 유지용)
-     *
-     * 내부적으로는 위의 (EFFECT_RULE_VERSION, USE_SECTION_DETECTOR) 조합으로 결정되지만
-     * 기존 코드 호환성을 위해 GENERATOR_VERSION도 유지한다.
-     *
-     * 매핑:
-     *  0 → EFFECT_RULE_VERSION=0, USE_SECTION_DETECTOR=false
-     *      (v0: 비트 검증 모드, 가장 빠름)
-     *
-     *  1 → EFFECT_RULE_VERSION=1, USE_SECTION_DETECTOR=true
-     *      (v1: 섹션+단순 비트, 첫 섹션 기반 버전)
-     *
-     *  2 → EFFECT_RULE_VERSION=1, USE_SECTION_DETECTOR=true
-     *      (v2: v1과 동일 로직, 최적화만 다름, 현재 기본값)
-     *
-     *  3 → EFFECT_RULE_VERSION=3, USE_SECTION_DETECTOR=true
-     *      (v3: V8 이펙트 규칙, 고급 버전)
-     *
-     *  6 → EFFECT_RULE_VERSION=6, USE_SECTION_DETECTOR=true
-     *      (v6: V8 확장, 미래 예약)
-     *
-     * 주의: GENERATOR_VERSION과 새 설정을 동시에 바꾸지 말 것
-     * → VERSION이 증가되어 캐시가 무효화됨
-     */
-    const val GENERATOR_VERSION = 2
 
     const val PALETTE_SIZE = 4
 
     /** 비트 감지기 공통 BPM 탐색 범위 — 모든 생성기에서 공유 */
     const val MIN_BEAT_MS = 375L   // ~160 BPM (BeatDetector 내부 하한과 일치)
     const val MAX_BEAT_MS = 1200L  // ~50 BPM
-
-    /**
-     * GENERATOR_VERSION에서 EFFECT_RULE_VERSION으로 변환 (하위 호환성)
-     */
-    fun effectRuleVersionForGenerator(generatorVersion: Int = GENERATOR_VERSION): Int = when (generatorVersion) {
-        0 -> 0
-        1, 2 -> 1
-        3 -> 3
-        6 -> 6
-        else -> EFFECT_RULE_VERSION
-    }
-
-    /**
-     * GENERATOR_VERSION에서 USE_SECTION_DETECTOR로 변환 (하위 호환성)
-     */
-    fun useSectionDetectorForGenerator(generatorVersion: Int = GENERATOR_VERSION): Boolean = when (generatorVersion) {
-        0 -> false
-        else -> true
-    }
 }
