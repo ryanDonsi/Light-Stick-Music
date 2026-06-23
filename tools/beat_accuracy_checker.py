@@ -2034,7 +2034,7 @@ class App(tk.Tk):
         self._play_obj = None              # pydub PlayObject
         self._playback_start_time = 0      # 재생 시작 시간 (ms)
         self._is_analyzing = False         # 분석 중 여부
-        self._style_sections_logged = False # [ 2/6 ], [ 3/6 ] 이미 로그됨 여부 (공유 리소스)
+        self._shared_analysis_logged = False # [ 1/6 ], [ 2/6 ], [ 3/6 ] 이미 로그됨 여부 (공유 리소스)
 
         self._build_ui()
         self._load_state()
@@ -3887,9 +3887,10 @@ class App(tk.Tk):
             except Exception:
                 self._audio_duration_ms = 0
 
-        # ① 바이너리
+        # ① 바이너리 (첫 번째 엔진에서만 로그)
         _step1_start = time.time()
-        self.after(0, lambda: self._log("[ 1/6 ]  앱 바이너리 분석 (타임라인 + 섹션)…", "gray"))
+        if not self._shared_analysis_logged:
+            self.after(0, lambda: self._log("[ 1/6 ]  앱 바이너리 분석 (타임라인 + 섹션)…", "gray"))
         try:
             version, frame_count, app_ms_timeline = parse_timeline_binary(bin_path)
             # ★ 이펙트 정보 추출
@@ -3905,8 +3906,9 @@ class App(tk.Tk):
                        self._log(f"[❌ 실패] 바이너리 파싱 오류: {m}", "red"))
             raise
         _steps_timing['binary'] = time.time() - _step1_start
-        self.after(0, lambda t=_steps_timing['binary']:
-                   self._log(f"  └─ 완료 ({t:.2f}초)", "gray"))
+        if not self._shared_analysis_logged:
+            self.after(0, lambda t=_steps_timing['binary']:
+                       self._log(f"  └─ 완료 ({t:.2f}초)", "gray"))
 
         bin_id   = extract_music_id(bin_path) or os.path.splitext(os.path.basename(bin_path))[0]
 
@@ -3964,39 +3966,40 @@ class App(tk.Tk):
         music_id = bin_id   # 바이너리 파일명 기준 ID
 
         def _lb():
-            self._log(SEP, "gray")
-            self._log(f"  타임라인 바이너리: {os.path.basename(bin_path)}")
-            if sections:
-                self._log(f"  섹션 바이너리: 감지됨 ({len(sections)}개 섹션)", "green")
-            self._log(f"  Music ID (bin) : {bin_id}  |  Music ID (mp3 hash) : {audio_hash_id}",
-                      "yellow" if bin_id != audio_hash_id else "green")
-            self._log(f"  포맷 버전  : {version}")
+            if not self._shared_analysis_logged:
+                self._log(SEP, "gray")
+                self._log(f"  타임라인 바이너리: {os.path.basename(bin_path)}")
+                if sections:
+                    self._log(f"  섹션 바이너리: 감지됨 ({len(sections)}개 섹션)", "green")
+                self._log(f"  Music ID (bin) : {bin_id}  |  Music ID (mp3 hash) : {audio_hash_id}",
+                          "yellow" if bin_id != audio_hash_id else "green")
+                self._log(f"  포맷 버전  : {version}")
 
-            # ★ 두 소스 비트 비교
-            self._log(f"\n  【앱 비트 소스】: {beats_source} 바이너리", "cyan" if beats_source == "섹션" else "gray")
-            self._log(f"    타임라인: {len(app_ms_timeline)}개 비트  |  BPM {app_timeline_st.get('bpm',0):.1f}  |  간격 {app_timeline_st.get('median_ms',0):.1f}ms")
-            if app_ms_from_sections:
-                self._log(f"    섹션  : {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms", "green")
-            else:
-                self._log(f"    사용중: {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms")
+                # ★ 두 소스 비트 비교
+                self._log(f"\n  【앱 비트 소스】: {beats_source} 바이너리", "cyan" if beats_source == "섹션" else "gray")
+                self._log(f"    타임라인: {len(app_ms_timeline)}개 비트  |  BPM {app_timeline_st.get('bpm',0):.1f}  |  간격 {app_timeline_st.get('median_ms',0):.1f}ms")
+                if app_ms_from_sections:
+                    self._log(f"    섹션  : {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms", "green")
+                else:
+                    self._log(f"    사용중: {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms")
 
-            # ★ 이펙트 정보 표시
-            if timeline_effects:
-                self._log(f"\n  【타임라인 이펙트】: {len(timeline_effects)}종류", "cyan")
-                # 이펙트별 정보 표시 (상위 5개)
-                sorted_effects = sorted(timeline_effects.items(),
-                                       key=lambda x: x[1]['count'], reverse=True)[:5]
-                for eid, stats in sorted_effects:
-                    first = _fmt_sec(stats['first_time'] / 1000.0)
-                    last = _fmt_sec(stats['last_time'] / 1000.0)
-                    self._log(f"    [ID {eid:3d}] {stats['count']:3d}회  {first}~{last}  간격 {stats['gap_range'][0]:.0f}~{stats['gap_range'][1]:.0f}ms")
+                # ★ 이펙트 정보 표시
+                if timeline_effects:
+                    self._log(f"\n  【타임라인 이펙트】: {len(timeline_effects)}종류", "cyan")
+                    # 이펙트별 정보 표시 (상위 5개)
+                    sorted_effects = sorted(timeline_effects.items(),
+                                           key=lambda x: x[1]['count'], reverse=True)[:5]
+                    for eid, stats in sorted_effects:
+                        first = _fmt_sec(stats['first_time'] / 1000.0)
+                        last = _fmt_sec(stats['last_time'] / 1000.0)
+                        self._log(f"    [ID {eid:3d}] {stats['count']:3d}회  {first}~{last}  간격 {stats['gap_range'][0]:.0f}~{stats['gap_range'][1]:.0f}ms")
 
-            # 품질 지표
-            g = app_st.get('gaps_600', 0)
-            s = app_st.get('short_100', 0)
-            self._log(f"\n  대형갭>600ms: {g}개{'  ← 주의' if g else ''}", "yellow" if g else None)
-            self._log(f"  단기간<100ms: {s}개{'  ← 주의' if s else ''}", "yellow" if s else None)
-            self._log(f"  이상 인터벌: {app_st.get('anomaly_pct',0):.1f}%")
+                # 품질 지표
+                g = app_st.get('gaps_600', 0)
+                s = app_st.get('short_100', 0)
+                self._log(f"\n  대형갭>600ms: {g}개{'  ← 주의' if g else ''}", "yellow" if g else None)
+                self._log(f"  단기간<100ms: {s}개{'  ← 주의' if s else ''}", "yellow" if s else None)
+                self._log(f"  이상 인터벌: {app_st.get('anomaly_pct',0):.1f}%")
         self.after(0, _lb)
 
         # ② Ground-truth — 캐시 우선 사용 (엔진별 분석 결과 캐싱)
@@ -4187,7 +4190,7 @@ class App(tk.Tk):
 
             try:
                 # [ 2/6 ] 로그는 첫 번째 엔진에서만 표시 (공유 리소스)
-                if not self._style_sections_logged:
+                if not self._shared_analysis_logged:
                     if cached_style:
                         self.after(0, lambda: self._log("[ 2/6 ]  음악 스타일 분류 (저장된 캐시 사용)…", "green"))
                     else:
@@ -4198,12 +4201,12 @@ class App(tk.Tk):
                         audio_path, ref_sec, ref_bpm)
 
                 _steps_timing['style'] = time.time() - _step2_start
-                if not self._style_sections_logged:
+                if not self._shared_analysis_logged:
                     self.after(0, lambda s=librosa_style, t=_steps_timing['style']:
                         self._log(f"  └─ {s}  ({t:.2f}초)", "cyan"))
             except Exception as _ex:
                 _steps_timing['style'] = time.time() - _step2_start
-                if not self._style_sections_logged:
+                if not self._shared_analysis_logged:
                     self.after(0, lambda e=str(_ex), t=_steps_timing['style']:
                                self._log(f"  └─ 분석 오류: {e}  ({t:.2f}초)", "red"))
         else:
@@ -4229,21 +4232,21 @@ class App(tk.Tk):
                         pass
 
                     if cached_sections:
-                        if not self._style_sections_logged:
+                        if not self._shared_analysis_logged:
                             self.after(0, lambda:
                                        self._log(f"[ 3/6 ]  GT 섹션 분석 (저장된 캐시 사용)…", "green"))
                         librosa_sections = cached_sections
                         _steps_timing['sections'] = time.time() - _step3_start
-                        if not self._style_sections_logged:
+                        if not self._shared_analysis_logged:
                             self.after(0, lambda n=len(librosa_sections), t=_steps_timing['sections']:
                                 self._log(f"  └─ {n}개 섹션 (캐시)  ({t:.3f}초)", "cyan"))
                     else:
-                        if not self._style_sections_logged:
+                        if not self._shared_analysis_logged:
                             self.after(0, lambda: self._log(f"[ 3/6 ]  GT 섹션 분석 ({src})…", "gray"))
                         try:
                             librosa_sections = detect_gt_sections(audio_path, duration_sec)
                             _steps_timing['sections'] = time.time() - _step3_start
-                            if not self._style_sections_logged:
+                            if not self._shared_analysis_logged:
                                 self.after(0, lambda n=len(librosa_sections), t=_steps_timing['sections']:
                                     self._log(f"  └─ {n}개 섹션 감지  ({t:.2f}초)", "cyan"))
 
@@ -4272,7 +4275,7 @@ class App(tk.Tk):
                             raise
 
                     # 섹션 타입 및 신뢰도 표시 (첫 번째 엔진에서만)
-                    if librosa_sections and not self._style_sections_logged:
+                    if librosa_sections and not self._shared_analysis_logged:
                         try:
                             # 섹션 유형 분포
                             from collections import Counter
@@ -4299,7 +4302,7 @@ class App(tk.Tk):
                         self._log(f"  GT 섹션 : {n}개 (사전계산)", "cyan"))
 
                 # ★ 섹션 의미성 검증 (첫 번째 엔진에서만 표시)
-                if librosa_sections and sections and not self._style_sections_logged:
+                if librosa_sections and sections and not self._shared_analysis_logged:
                     try:
                         validation = validate_section_meaning(sections, librosa_sections)
                         score = validation.get('alignment_score', 0)
@@ -4316,8 +4319,8 @@ class App(tk.Tk):
                 self.after(0, lambda e=str(_ex): self._log(f"  GT 섹션 오류: {e}", "red"))
 
         # 첫 번째 엔진 분석 후 플래그 설정 (이후 엔진에서는 style/sections 로그 표시 안함)
-        if not self._style_sections_logged:
-            self._style_sections_logged = True
+        if not self._shared_analysis_logged:
+            self._shared_analysis_logged = True
 
         # ── GT 비트 감지 결과 로깅 (실제 실행은 위에서 완료) ────────────────────
         def _log_gt_detection():
