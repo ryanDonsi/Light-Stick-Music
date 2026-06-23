@@ -2034,6 +2034,7 @@ class App(tk.Tk):
         self._play_obj = None              # pydub PlayObject
         self._playback_start_time = 0      # 재생 시작 시간 (ms)
         self._is_analyzing = False         # 분석 중 여부
+        self._style_sections_logged = False # [ 2/6 ], [ 3/6 ] 이미 로그됨 여부 (공유 리소스)
 
         self._build_ui()
         self._load_state()
@@ -4185,22 +4186,26 @@ class App(tk.Tk):
                 pass
 
             try:
-                if cached_style:
-                    self.after(0, lambda: self._log("[ 2/6 ]  음악 스타일 분류 (저장된 캐시 사용)…", "green"))
-                else:
-                    self.after(0, lambda: self._log("[ 2/6 ]  음악 스타일 분류…", "gray"))
+                # [ 2/6 ] 로그는 첫 번째 엔진에서만 표시 (공유 리소스)
+                if not self._style_sections_logged:
+                    if cached_style:
+                        self.after(0, lambda: self._log("[ 2/6 ]  음악 스타일 분류 (저장된 캐시 사용)…", "green"))
+                    else:
+                        self.after(0, lambda: self._log("[ 2/6 ]  음악 스타일 분류…", "gray"))
 
                 if not cached_style:
                     librosa_style, librosa_style_features = compute_music_style_librosa(
                         audio_path, ref_sec, ref_bpm)
 
                 _steps_timing['style'] = time.time() - _step2_start
-                self.after(0, lambda s=librosa_style, t=_steps_timing['style']:
-                    self._log(f"  └─ {s}  ({t:.2f}초)", "cyan"))
+                if not self._style_sections_logged:
+                    self.after(0, lambda s=librosa_style, t=_steps_timing['style']:
+                        self._log(f"  └─ {s}  ({t:.2f}초)", "cyan"))
             except Exception as _ex:
                 _steps_timing['style'] = time.time() - _step2_start
-                self.after(0, lambda e=str(_ex), t=_steps_timing['style']:
-                           self._log(f"  └─ 분석 오류: {e}  ({t:.2f}초)", "red"))
+                if not self._style_sections_logged:
+                    self.after(0, lambda e=str(_ex), t=_steps_timing['style']:
+                               self._log(f"  └─ 분석 오류: {e}  ({t:.2f}초)", "red"))
         else:
             _steps_timing['style'] = 0.0
         if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
@@ -4224,19 +4229,23 @@ class App(tk.Tk):
                         pass
 
                     if cached_sections:
-                        self.after(0, lambda:
-                                   self._log(f"[ 3/6 ]  GT 섹션 분석 (저장된 캐시 사용)…", "green"))
+                        if not self._style_sections_logged:
+                            self.after(0, lambda:
+                                       self._log(f"[ 3/6 ]  GT 섹션 분석 (저장된 캐시 사용)…", "green"))
                         librosa_sections = cached_sections
                         _steps_timing['sections'] = time.time() - _step3_start
-                        self.after(0, lambda n=len(librosa_sections), t=_steps_timing['sections']:
-                            self._log(f"  └─ {n}개 섹션 (캐시)  ({t:.3f}초)", "cyan"))
+                        if not self._style_sections_logged:
+                            self.after(0, lambda n=len(librosa_sections), t=_steps_timing['sections']:
+                                self._log(f"  └─ {n}개 섹션 (캐시)  ({t:.3f}초)", "cyan"))
                     else:
-                        self.after(0, lambda: self._log(f"[ 3/6 ]  GT 섹션 분석 ({src})…", "gray"))
+                        if not self._style_sections_logged:
+                            self.after(0, lambda: self._log(f"[ 3/6 ]  GT 섹션 분석 ({src})…", "gray"))
                         try:
                             librosa_sections = detect_gt_sections(audio_path, duration_sec)
                             _steps_timing['sections'] = time.time() - _step3_start
-                            self.after(0, lambda n=len(librosa_sections), t=_steps_timing['sections']:
-                                self._log(f"  └─ {n}개 섹션 감지  ({t:.2f}초)", "cyan"))
+                            if not self._style_sections_logged:
+                                self.after(0, lambda n=len(librosa_sections), t=_steps_timing['sections']:
+                                    self._log(f"  └─ {n}개 섹션 감지  ({t:.2f}초)", "cyan"))
 
                             # 캐시 저장
                             try:
@@ -4262,8 +4271,8 @@ class App(tk.Tk):
                                        self._log(f"  [❌ GT섹션 감지 실패] {m}", "red"))
                             raise
 
-                    # 섹션 타입 및 신뢰도 표시
-                    if librosa_sections:
+                    # 섹션 타입 및 신뢰도 표시 (첫 번째 엔진에서만)
+                    if librosa_sections and not self._style_sections_logged:
                         try:
                             # 섹션 유형 분포
                             from collections import Counter
@@ -4289,8 +4298,8 @@ class App(tk.Tk):
                     self.after(0, lambda n=len(librosa_sections):
                         self._log(f"  GT 섹션 : {n}개 (사전계산)", "cyan"))
 
-                # ★ 섹션 의미성 검증
-                if librosa_sections and sections:
+                # ★ 섹션 의미성 검증 (첫 번째 엔진에서만 표시)
+                if librosa_sections and sections and not self._style_sections_logged:
                     try:
                         validation = validate_section_meaning(sections, librosa_sections)
                         score = validation.get('alignment_score', 0)
@@ -4305,6 +4314,10 @@ class App(tk.Tk):
                                    self._log(f"  [섹션 검증] 오류: {e}", "red"))
             except Exception as _ex:
                 self.after(0, lambda e=str(_ex): self._log(f"  GT 섹션 오류: {e}", "red"))
+
+        # 첫 번째 엔진 분석 후 플래그 설정 (이후 엔진에서는 style/sections 로그 표시 안함)
+        if not self._style_sections_logged:
+            self._style_sections_logged = True
 
         # ── GT 비트 감지 결과 로깅 (실제 실행은 위에서 완료) ────────────────────
         def _log_gt_detection():
