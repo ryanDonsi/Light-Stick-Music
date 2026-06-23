@@ -17,7 +17,8 @@ import kotlin.math.sqrt
  *
  *  V0 : BeatDetectorV0 (IIR 3밴드 ODF + Autocorrelation, hopMs=50ms)
  *  V1 : BeatDetectorV1 (IIR 3밴드 ODF + Autocorrelation + log-normal prior, PCM, hopMs=10ms)
- *  V2 : BeatDetectorV2 (SuperFlux ODF + DBN HMM, 스트리밍, hopMs=10ms) — envelope 별도 decode
+ *  V2 : BeatDetectorV2 (Dual ODF + DP tracking, 스트리밍, hopMs=10ms) — envelope 별도 decode
+ *  V3 : V2로 리다이렉트 (V3 = V2의 개선 버전으로 통합)
  */
 object BeatDetectorRouter {
 
@@ -77,8 +78,7 @@ object BeatDetectorRouter {
         maxBeatMs: Long
     ): BeatInfo = when (version) {
         1    -> detectV1(filePath, hopMs, minBeatMs, maxBeatMs)
-        2    -> detectV2(filePath, hopMs, minBeatMs, maxBeatMs)
-        3    -> detectV3(filePath, hopMs, minBeatMs, maxBeatMs)
+        2, 3 -> detectV2(filePath, hopMs, minBeatMs, maxBeatMs)
         else -> detectV0(filePath, hopMs, minBeatMs, maxBeatMs)
     }
 
@@ -126,26 +126,7 @@ object BeatDetectorRouter {
         )
     }
 
-    /** V3: SuperFlux 스트리밍 → BeatDetectorV3.detect + 별도 Envelope decode */
-    private fun detectV3(filePath: String, hopMs: Long, minBeatMs: Long, maxBeatMs: Long): BeatInfo {
-        val r = BeatDetectorV3.detect(
-            filePath,
-            BeatDetectorV3.Params(
-                minBeatMs = minBeatMs.coerceAtLeast(375L),
-                maxBeatMs = maxBeatMs.coerceAtMost(1000L)
-            )
-        )
-        val decoded = decodeWithEnvelopes(filePath, hopMs, collectPcm = false)
-        return BeatInfo(
-            beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
-            beatMs      = r.beatMs,
-            beatsPerBar = r.timeSignature.beatsPerBar,
-            downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs,
-            envelopes   = decoded.toAudioEnvelopes(hopMs)
-        )
-    }
-
-    /** V0: 4밴드 Envelope decode → BeatDetectorV0.detect */
+/** V0: 4밴드 Envelope decode → BeatDetectorV0.detect */
     private fun detectV0(filePath: String, hopMs: Long, minBeatMs: Long, maxBeatMs: Long): BeatInfo {
         val decoded = decodeWithEnvelopes(filePath, hopMs, collectPcm = false)
         if (decoded.full.isEmpty()) return emptyBeatInfo()
