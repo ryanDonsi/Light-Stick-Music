@@ -27,7 +27,7 @@ object BeatDetectorV2 {
     private const val BPM_PRIOR_STD_OCTAVE  = 1.0f
     private const val BPM_HALF_TEMPO_RATIO  = 0.70f
     private const val BPM_DOUBLE_TEMPO_RATIO = 1.00f
-    private const val BPM_SUBBBEAT_RATIO_MAX = 0.65f
+    private const val BPM_SUBBEAT_RATIO_MAX = 0.65f
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -55,7 +55,7 @@ object BeatDetectorV2 {
         val beatsPerBar: Int get() = numerator
     }
 
-    enum class BeatSource { LOW, MID, FULL, LOW_MID, MID_FULL, LOW_FULL }
+    enum class BeatSource { FULL }
 
     data class Params(
         val minBeatMs: Long = 280L,
@@ -89,9 +89,9 @@ object BeatDetectorV2 {
 
         val beatMs = estimateBpmV1Style(odfTempo, hopMs, params.minBeatMs, params.maxBeatMs, songName)
         val phaseMs = estimatePhaseFromOdf(odfTrack, beatMs, hopMs)
-        val dpTimes = dpBeatTracker(odfTrack, beatMs, hopMs, durationMs, anchorMs = phaseMs)
+        val dpTimes = dpBeatTracker(odfTrack, beatMs, hopMs, anchorMs = phaseMs)
 
-        val expectedBeats = max(1, (durationMs / beatMs).toInt())
+        val expectedBeats = max(1, (odfTrack.size.toLong() * hopMs / beatMs).toInt())
         val dpOk = dpTimes.size >= max(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
 
         val beats: List<TimedBeat>
@@ -100,7 +100,7 @@ object BeatDetectorV2 {
             beats  = dpTimes.map { TimedBeat(it, 1f) }
             reason = "dp"
         } else {
-            beats  = fallbackSegmentBeats(odfTrack, hopMs, beatMs, durationMs)
+            beats  = fallbackSegmentBeats(odfTrack, hopMs, beatMs)
             reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
         }
 
@@ -131,7 +131,17 @@ object BeatDetectorV2 {
         )
     }
 
-    private data class FilterBand(val startBin: Int, val weights: FloatArray)
+    private data class FilterBand(val startBin: Int, val weights: FloatArray) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is FilterBand) return false
+            return startBin == other.startBin && weights.contentEquals(other.weights)
+        }
+
+        override fun hashCode(): Int {
+            return 31 * startBin + weights.contentHashCode()
+        }
+    }
 
     private fun buildLogFilterbank(sampleRate: Int): Array<FilterBand> {
         val numBins  = FFT_SIZE / 2 + 1
@@ -428,7 +438,7 @@ object BeatDetectorV2 {
         }
 
         if (doubleLag <= maxLag && doubleRatio >= BPM_DOUBLE_TEMPO_RATIO
-            && subBeatRatio < BPM_SUBBBEAT_RATIO_MAX) {
+            && subBeatRatio < BPM_SUBBEAT_RATIO_MAX) {
             Log.d(TAG, "V2$t doubleTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
                 " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
                 " doubleRatio=$doubleRatio subRatio=$subBeatRatio")
@@ -453,7 +463,7 @@ object BeatDetectorV2 {
 
     private fun dpBeatTracker(
         odf: List<Float>, targetPeriodMs: Long, hopMs: Long,
-        durationMs: Long, anchorMs: Long = 0L
+        anchorMs: Long = 0L
     ): LongArray {
         if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
         val n           = odf.size
@@ -527,7 +537,7 @@ object BeatDetectorV2 {
     }
 
     private fun fallbackSegmentBeats(
-        odf: List<Float>, hopMs: Long, beatMs: Long, durationMs: Long
+        odf: List<Float>, hopMs: Long, beatMs: Long
     ): List<TimedBeat> {
         val segmentMs = 20_000L
         val segFrames = (segmentMs / hopMs).toInt().coerceAtLeast(1)
@@ -540,7 +550,7 @@ object BeatDetectorV2 {
             val segOdf   = odf.subList(sFrame, eFrame)
             val segPhase = estimatePhaseFromOdf(segOdf, beatMs, hopMs)
             val segDur   = (eFrame - sFrame).toLong() * hopMs
-            val segTimes = dpBeatTracker(segOdf, beatMs, hopMs, segDur, anchorMs = segPhase)
+            val segTimes = dpBeatTracker(segOdf, beatMs, hopMs, anchorMs = segPhase)
             val offset   = sFrame.toLong() * hopMs
             segTimes.forEach { result += TimedBeat(offset + it, FILL_CONFIDENCE) }
             segIdx++
@@ -569,7 +579,7 @@ object BeatDetectorV2 {
         val startMs  = max(0L, firstActive.toLong() * hopMs - beatMs)
         val cutoffMs = lastActive.toLong() * hopMs + beatMs
 
-        return beats.filter { it >= startMs && it <= cutoffMs }.toLongArray()
+        return beats.filter { it in startMs..cutoffMs }.toLongArray()
     }
 
     private fun detectTimeSignature(odf: List<Float>, beatMs: Long, hopMs: Long): TimeSignature {
