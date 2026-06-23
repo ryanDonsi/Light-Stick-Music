@@ -99,11 +99,10 @@ object AutoTimelineConfig {
      * V2 (10ms):
      *   - 스트리밍 처리, Dual ODF 내부에서 고정
      *   - 청크 단위로 처리해 메모리 효율적
-     *   - V3는 V2로 통합됨 (legacy: version 3 요청시 V2로 리다이렉트)
      */
     fun beatDetectorHopMs(version: Int = BEAT_DETECTOR_VERSION): Long = when (version) {
-        1, 2, 3 -> 10L  // V1, V2 (V3는 V2로 리다이렉트)
-        else    -> 50L   // V0
+        1, 2 -> 10L
+        else -> 50L   // V0
     }
 
     // =========================================================================

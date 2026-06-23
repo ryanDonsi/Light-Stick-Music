@@ -18,7 +18,6 @@ import kotlin.math.sqrt
  *  V0 : BeatDetectorV0 (IIR 3밴드 ODF + Autocorrelation, hopMs=50ms)
  *  V1 : BeatDetectorV1 (IIR 3밴드 ODF + Autocorrelation + log-normal prior, PCM, hopMs=10ms)
  *  V2 : BeatDetectorV2 (Dual ODF + DP tracking, 스트리밍, hopMs=10ms) — envelope 별도 decode
- *  V3 : V2로 리다이렉트 (V3 = V2의 개선 버전으로 통합)
  */
 object BeatDetectorRouter {
 
@@ -78,7 +77,7 @@ object BeatDetectorRouter {
         maxBeatMs: Long
     ): BeatInfo = when (version) {
         1    -> detectV1(filePath, hopMs, minBeatMs, maxBeatMs)
-        2, 3 -> detectV2(filePath, hopMs, minBeatMs, maxBeatMs)
+        2    -> detectV2(filePath, hopMs, minBeatMs, maxBeatMs)
         else -> detectV0(filePath, hopMs, minBeatMs, maxBeatMs)
     }
 
