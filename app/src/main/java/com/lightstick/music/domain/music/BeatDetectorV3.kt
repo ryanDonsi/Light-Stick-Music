@@ -212,8 +212,9 @@ object BeatDetectorV3 {
             val curBand    = FloatArray(NUM_BANDS)
             val prevBand   = FloatArray(NUM_BANDS)
 
-            val odfTempoList = ArrayList<Float>()
-            val odfTrackList = ArrayList<Float>()
+            // 두 개의 독립적인 ODF 배열 생성
+            val odfTempo   = ArrayList<Float>()
+            val odfTrack   = ArrayList<Float>()
 
             val ringBuf    = FloatArray(FFT_SIZE)
             var ringHead   = 0
@@ -261,7 +262,7 @@ object BeatDetectorV3 {
                                 val mono = monoSum / channelCount / 32768f
 
                                 ringBuf[ringHead] = mono
-                                ringHead = (ringHead + 1) and 2047
+                                ringHead = (ringHead + 1) % FFT_SIZE
                                 totalSamples++
                                 samplesUntilNextFrame--
 
@@ -269,7 +270,7 @@ object BeatDetectorV3 {
                                     samplesUntilNextFrame = hopSamples
                                     val oldest = ringHead
                                     for (i in 0 until FFT_SIZE) {
-                                        fftBuf[i] = ringBuf[(oldest + i) and 2047] * hannWindow[i]
+                                        fftBuf[i] = ringBuf[(oldest + i) % FFT_SIZE] * hannWindow[i]
                                     }
                                     fft.realForward(fftBuf)
 
@@ -287,9 +288,9 @@ object BeatDetectorV3 {
                                         curBand[b] = ln(1f + LOG_LAMBDA * sum)
                                     }
 
-                                    if (odfTempoList.isEmpty()) {
-                                        odfTempoList.add(0f)
-                                        odfTrackList.add(0f)
+                                    if (odfTempo.isEmpty()) {
+                                        odfTempo.add(0f)
+                                        odfTrack.add(0f)
                                     } else {
                                         var fluxTempo = 0f
                                         var fluxTrack = 0f
@@ -312,10 +313,9 @@ object BeatDetectorV3 {
                                                 fluxTrack += diff * weight
                                             }
                                         }
-                                        odfTempoList.add(fluxTempo)
-                                        odfTrackList.add(fluxTrack)
+                                        odfTempo.add(fluxTempo)
+                                        odfTrack.add(fluxTrack)
                                     }
-
                                     curBand.copyInto(prevBand)
                                 }
                                 byteIdx += stepBytes
@@ -333,15 +333,11 @@ object BeatDetectorV3 {
 
             val durationMs = totalSamples * 1000L / sampleRate
 
-            val maxTempo = odfTempoList.maxOrNull() ?: 1f
-            val normTempo = if (maxTempo > 1e-6f) {
-                odfTempoList.map { it / maxTempo }
-            } else odfTempoList
+            val maxTempo = odfTempo.maxOrNull() ?: 1f
+            val normTempo = if (maxTempo > 1e-6f) odfTempo.map { it / maxTempo } else odfTempo
 
-            val maxTrack = odfTrackList.maxOrNull() ?: 1f
-            val normTrack = if (maxTrack > 1e-6f) {
-                odfTrackList.map { it / maxTrack }
-            } else odfTrackList
+            val maxTrack = odfTrack.maxOrNull() ?: 1f
+            val normTrack = if (maxTrack > 1e-6f) odfTrack.map { it / maxTrack } else odfTrack
 
             OdfResult(normTempo, normTrack, hopMs, durationMs)
         } catch (t: Throwable) {
@@ -354,9 +350,6 @@ object BeatDetectorV3 {
     }
 
     // =========================================================================
-    // 자기상관을 FFT로 계산 (O(n log n) 최적화)
-    // 원래: O(n*maxLag) 직접 계산
-    // 최적화: FFT → |X(f)|^2 → IFFT → 정규화
     // V1 방식 BPM 추정 — librosa beat_track 동일한 autocorr × log-normal prior
     //
     // autocorr[lag] = mean(odf[i] * odf[i+lag])
@@ -377,7 +370,7 @@ object BeatDetectorV3 {
         val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
         if (odf.size <= maxLag + 2) return minBeatMs
 
-        // ── 1. autocorr × log-normal prior (직접 계산) ───────────────────────────
+        // ── 1. autocorr × log-normal prior ───────────────────────────────────
         val acVals     = FloatArray(maxLag + 1)
         val priorVals  = FloatArray(maxLag + 1)
         val scoreVals  = FloatArray(maxLag + 1)
@@ -423,7 +416,7 @@ object BeatDetectorV3 {
         // ── 4. half-tempo 관련 수치 (튜닝 기준: BPM_HALF_TEMPO_RATIO=%.2f) ──
         val halfLag = bestLag / 2
         val halfMs  = halfLag * hopMs
-        val halfAc  = if (halfLag >= minLag && halfLag <= maxLag) acVals[halfLag] else run {
+        val halfAc  = if (halfLag >= minLag) acVals[halfLag] else run {
             var s = 0f; var c = 0
             for (i in 0 until odf.size - halfLag) { s += odf[i] * odf[i + halfLag]; c++ }
             if (c > 0) s / c else 0f
