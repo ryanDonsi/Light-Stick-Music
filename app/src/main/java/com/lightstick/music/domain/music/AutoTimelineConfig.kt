@@ -63,28 +63,20 @@ object AutoTimelineConfig {
      *     특징: Prior를 이용해 비트 후보 확률 보정
      *     주의: PCM 버퍼 크기 제한 있음 (OOM 방지)
      *
-     * V2: SuperFlux ODF + Dynamic Programming (DBN HMM)
+     * V2: Dual ODF + Dynamic Programming
      *     입력: 스트리밍 (청크 단위 처리)
      *     hopMs: 10ms (높은 분해능)
      *     정확도: 높음, 속도: 느림
      *     용도: 고정확도 요구 (발라드, 복잡한 시간 서명)
-     *     특징: SuperFlux는 spectral flux 대신 mel-spectrogram 기반 onset
-     *           DBN HMM은 상태 전이 확률로 부자연스러운 비트 시퀀스 제거
+     *     특징: odfTempo로 BPM 추정, odfTrack으로 DP 위상 추적
+     *           Kick 밴드에 1.5배 가중치 적용 (드럼 강조)
+     *           Hann window 캐싱으로 성능 최적화
      *     메모리: 낮음 (스트리밍 처리)
-     *
-     * V3: V2 기반 + 위상 보정 (Phase Correction)
-     *     입력: 스트리밍
-     *     hopMs: 10ms
-     *     정확도: 매우 높음, 속도: V2 대비 약간 느림
-     *     용도: 최고 정확도 필요 (현재 기본값)
-     *     특징: 감지된 비트 시퀀스를 스펙트럼 위상 정보로 미세 조정
-     *           위상이 일치하지 않는 비트를 제거하거나 시간 이동
      *
      * 선택 기준:
      * - V0: 테스트용, 저사양 기기용
      * - V1: 호환성 유지, 레거시 지원
-     * - V2: 성능과 정확도 균형
-     * - V3: 최고 정확도 필요할 때 (추천)
+     * - V2: 최고 정확도 필요할 때 (추천, 현재 기본값)
      */
     const val BEAT_DETECTOR_VERSION = 0
 
@@ -104,15 +96,14 @@ object AutoTimelineConfig {
      *   - PCM 경로 전용 (detectPcm 내부에서도 10ms 고정)
      *   - 프레임 수: 1000ms 음악 → 100개 엔벨로프 값
      *
-     * V2/V3 (10ms):
-     *   - 스트리밍 처리, SuperFlux 내부에서 고정
+     * V2 (10ms):
+     *   - 스트리밍 처리, Dual ODF 내부에서 고정
      *   - 청크 단위로 처리해 메모리 효율적
+     *   - V3는 V2로 통합됨 (legacy: version 3 요청시 V2로 리다이렉트)
      */
     fun beatDetectorHopMs(version: Int = BEAT_DETECTOR_VERSION): Long = when (version) {
-        1    -> 10L
-        2    -> 10L
-        3    -> 10L
-        else -> 50L   // V0
+        1, 2, 3 -> 10L  // V1, V2 (V3는 V2로 리다이렉트)
+        else    -> 50L   // V0
     }
 
     // =========================================================================
