@@ -82,7 +82,7 @@ object BeatDetectorV2 {
         val songName = musicPath.substringAfterLast("/").substringBeforeLast(".")
         Log.d(TAG, "V2 [$songName] start")
 
-        val (odfTempo, odfTrack, hopMs, durationMs) = streamingOdf(musicPath)
+        val (odfTempo, odfTrack, hopMs) = streamingOdf(musicPath)
         if (odfTempo.isEmpty() || odfTrack.isEmpty()) {
             return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
@@ -172,7 +172,7 @@ object BeatDetectorV2 {
         }
     }
 
-    private data class OdfResult(val odfTempo: List<Float>, val odfTrack: List<Float>, val hopMs: Long, val durationMs: Long)
+    private data class OdfResult(val odfTempo: List<Float>, val odfTrack: List<Float>, val hopMs: Long)
 
     private fun streamingOdf(musicPath: String): OdfResult {
         val extractor = MediaExtractor()
@@ -188,7 +188,7 @@ object BeatDetectorV2 {
             }
             if (trackIndex < 0 || format == null) {
                 extractor.release()
-                return OdfResult(emptyList(), emptyList(), HOP_MS, 0L)
+                return OdfResult(emptyList(), emptyList(), HOP_MS)
             }
             extractor.selectTrack(trackIndex)
 
@@ -333,7 +333,7 @@ object BeatDetectorV2 {
             val maxTrack = odfTrack.maxOrNull() ?: 1f
             val normTrack = if (maxTrack > 1e-6f) odfTrack.map { it / maxTrack } else odfTrack
 
-            OdfResult(normTempo, normTrack, hopMs, durationMs)
+            OdfResult(normTempo, normTrack, hopMs)
         } catch (t: Throwable) {
             Log.e(TAG, "V2 streamingOdf fail: ${t.message}")
             try { codec?.stop() }     catch (_: Throwable) {}
@@ -468,19 +468,18 @@ object BeatDetectorV2 {
         if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
         val n           = odf.size
         val fpb         = (targetPeriodMs / hopMs).toInt().coerceAtLeast(1)
-        val tightness   = 100.0f
         val anchorFrame = if (anchorMs > 0L) (anchorMs / hopMs).toInt().coerceIn(0, n - 1) else -1
 
-        val gaussHalf = fpb; val gaussSize = gaussHalf * 2 + 1
+        val gaussSize = fpb * 2 + 1
         val gaussWin  = FloatArray(gaussSize) { k ->
-            val i = (k - gaussHalf).toFloat()
+            val i = (k - fpb).toFloat()
             exp(-0.5f * (i * 32.0f / fpb) * (i * 32.0f / fpb))
         }
         val localscore = FloatArray(n)
         for (t in 0 until n) {
             var sc = 0f
             for (k in 0 until gaussSize) {
-                val idx = t - gaussHalf + k
+                val idx = t - fpb + k
                 if (idx in 0 until n) sc += gaussWin[k] * odf[idx]
             }
 
@@ -549,7 +548,6 @@ object BeatDetectorV2 {
             if (eFrame - sFrame < 8) { segIdx++; continue }
             val segOdf   = odf.subList(sFrame, eFrame)
             val segPhase = estimatePhaseFromOdf(segOdf, beatMs, hopMs)
-            val segDur   = (eFrame - sFrame).toLong() * hopMs
             val segTimes = dpBeatTracker(segOdf, beatMs, hopMs, anchorMs = segPhase)
             val offset   = sFrame.toLong() * hopMs
             segTimes.forEach { result += TimedBeat(offset + it, FILL_CONFIDENCE) }
