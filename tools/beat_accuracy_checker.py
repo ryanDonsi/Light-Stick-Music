@@ -4029,15 +4029,14 @@ class App(tk.Tk):
         # 엔진별 단계 번호 결정
         step_num = {"beat_transformer": 4, "madmom": 5, "librosa": 6}.get(engine, 4)
 
+        # GT 비트 감지 실행 (로그는 나중에 표시)
+        gt_cache_flag = False
         if cached_gt_ms is not None:
-            self.after(0, lambda sn=step_num, en=eng_name: self._log(
-                f"\n[ {sn}/6 ]  {en} 비트 분석 (저장된 캐시 사용)…", "green"))
+            gt_cache_flag = True
             ref_ms  = cached_gt_ms
             ref_bpm = cached_gt_bpm
             _steps_timing['gt'] = 0.0
         else:
-            self.after(0, lambda sn=step_num, en=eng_name, acc=eng_acc: self._log(
-                f"\n[ {sn}/6 ]  {en} 비트 분석…", "gray"))
             try:
                 if engine == "beat_transformer":
                     ref_sec, ref_bpm = detect_beats_beat_transformer(audio_path)
@@ -4047,8 +4046,6 @@ class App(tk.Tk):
                     ref_sec, ref_bpm = detect_beats_librosa(audio_path, bpm_hint)
                 ref_ms = [int(t * 1000) for t in ref_sec]
                 _steps_timing['gt'] = time.time() - _step_gt_start
-                self.after(0, lambda t=_steps_timing['gt'], n=len(ref_sec):
-                           self._log(f"  └─ {n}개 비트 감지 ({t:.2f}초)", "gray"))
             except Exception as e:
                 self.after(0, lambda m=str(e)[:150]:
                            self._log(f"[❌ 실패] {eng_name} 감지 오류: {m}", "red"))
@@ -4308,6 +4305,16 @@ class App(tk.Tk):
                                    self._log(f"  [섹션 검증] 오류: {e}", "red"))
             except Exception as _ex:
                 self.after(0, lambda e=str(_ex): self._log(f"  GT 섹션 오류: {e}", "red"))
+
+        # ── GT 비트 감지 결과 로깅 (실제 실행은 위에서 완료) ────────────────────
+        def _log_gt_detection():
+            step_num_label = {"beat_transformer": 4, "madmom": 5, "librosa": 6}.get(engine, 4)
+            if gt_cache_flag:
+                self._log(f"\n[ {step_num_label}/6 ]  {eng_name} 비트 분석 (저장된 캐시 사용)…", "green")
+            else:
+                self._log(f"\n[ {step_num_label}/6 ]  {eng_name} 비트 분석 완료…", "gray")
+            self._log(f"  └─ {len(ref_sec)}개 비트 감지 ({_steps_timing['gt']:.2f}초)", "gray")
+        self.after(0, _log_gt_detection)
 
         # ── 타임라인 이펙트별 비트 정확도 분석 ────────────────────────
         effect_results = []
