@@ -175,7 +175,7 @@ object BeatDetectorV3 {
         }
     }
 
-    private data class OdfResult(val odfTempo: FloatArray, val odfTrack: FloatArray, val hopMs: Long, val durationMs: Long)
+    private data class OdfResult(val odfTempo: List<Float>, val odfTrack: List<Float>, val hopMs: Long, val durationMs: Long)
 
     private fun streamingOdf(musicPath: String): OdfResult {
         val extractor = MediaExtractor()
@@ -191,7 +191,7 @@ object BeatDetectorV3 {
             }
             if (trackIndex < 0 || format == null) {
                 extractor.release()
-                return OdfResult(FloatArray(0), FloatArray(0), HOP_MS, 0L)
+                return OdfResult(emptyList(), emptyList(), HOP_MS, 0L)
             }
             extractor.selectTrack(trackIndex)
 
@@ -212,11 +212,8 @@ object BeatDetectorV3 {
             val curBand    = FloatArray(NUM_BANDS)
             val prevBand   = FloatArray(NUM_BANDS)
 
-            // FloatArray 동적 할당 (초기 용량: 약 3분 20초 분량)
-            var capacity = 20000
-            var odfTempoArray = FloatArray(capacity)
-            var odfTrackArray = FloatArray(capacity)
-            var frameCount = 0
+            val odfTempoList = ArrayList<Float>()
+            val odfTrackList = ArrayList<Float>()
 
             val ringBuf    = FloatArray(FFT_SIZE)
             var ringHead   = 0
@@ -290,9 +287,9 @@ object BeatDetectorV3 {
                                         curBand[b] = ln(1f + LOG_LAMBDA * sum)
                                     }
 
-                                    if (frameCount == 0) {
-                                        odfTempoArray[frameCount] = 0f
-                                        odfTrackArray[frameCount] = 0f
+                                    if (odfTempoList.isEmpty()) {
+                                        odfTempoList.add(0f)
+                                        odfTrackList.add(0f)
                                     } else {
                                         var fluxTempo = 0f
                                         var fluxTrack = 0f
@@ -315,16 +312,8 @@ object BeatDetectorV3 {
                                                 fluxTrack += diff * weight
                                             }
                                         }
-                                        odfTempoArray[frameCount] = fluxTempo
-                                        odfTrackArray[frameCount] = fluxTrack
-                                    }
-                                    frameCount++
-
-                                    // 용량 부족 시 동적 확장
-                                    if (frameCount >= capacity) {
-                                        capacity *= 2
-                                        odfTempoArray = odfTempoArray.copyOf(capacity)
-                                        odfTrackArray = odfTrackArray.copyOf(capacity)
+                                        odfTempoList.add(fluxTempo)
+                                        odfTrackList.add(fluxTrack)
                                     }
 
                                     curBand.copyInto(prevBand)
@@ -344,19 +333,15 @@ object BeatDetectorV3 {
 
             val durationMs = totalSamples * 1000L / sampleRate
 
-            // 최종 크기로 배열 정리
-            odfTempoArray = odfTempoArray.copyOfRange(0, frameCount)
-            odfTrackArray = odfTrackArray.copyOfRange(0, frameCount)
-
-            val maxTempo = odfTempoArray.maxOrNull() ?: 1f
+            val maxTempo = odfTempoList.maxOrNull() ?: 1f
             val normTempo = if (maxTempo > 1e-6f) {
-                FloatArray(frameCount) { i -> odfTempoArray[i] / maxTempo }
-            } else odfTempoArray
+                odfTempoList.map { it / maxTempo }
+            } else odfTempoList
 
-            val maxTrack = odfTrackArray.maxOrNull() ?: 1f
+            val maxTrack = odfTrackList.maxOrNull() ?: 1f
             val normTrack = if (maxTrack > 1e-6f) {
-                FloatArray(frameCount) { i -> odfTrackArray[i] / maxTrack }
-            } else odfTrackArray
+                odfTrackList.map { it / maxTrack }
+            } else odfTrackList
 
             OdfResult(normTempo, normTrack, hopMs, durationMs)
         } catch (t: Throwable) {
@@ -364,7 +349,7 @@ object BeatDetectorV3 {
             try { codec?.stop() }     catch (_: Throwable) {}
             try { codec?.release() }  catch (_: Throwable) {}
             try { extractor.release() } catch (_: Throwable) {}
-            OdfResult(FloatArray(0), FloatArray(0), HOP_MS, 0L)
+            OdfResult(emptyList(), emptyList(), HOP_MS, 0L)
         }
     }
 
@@ -381,7 +366,7 @@ object BeatDetectorV3 {
     // =========================================================================
 
     private fun estimateBpmV1Style(
-        odf: FloatArray,
+        odf: List<Float>,
         hopMs: Long,
         minBeatMs: Long,
         maxBeatMs: Long,
@@ -495,7 +480,7 @@ object BeatDetectorV3 {
         return bestMs
     }
 
-    private fun estimatePhaseFromOdf(odf: FloatArray, beatMs: Long, hopMs: Long): Long {
+    private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
         val fpb = max(1, (beatMs / hopMs).toInt())
         if (odf.size < fpb * 2) return 0L
         var bestPhase = 0; var bestScore = Float.NEGATIVE_INFINITY
@@ -508,7 +493,7 @@ object BeatDetectorV3 {
     }
 
     private fun dpBeatTracker(
-        odf: FloatArray, targetPeriodMs: Long, hopMs: Long,
+        odf: List<Float>, targetPeriodMs: Long, hopMs: Long,
         durationMs: Long, anchorMs: Long = 0L
     ): LongArray {
         if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
@@ -584,7 +569,7 @@ object BeatDetectorV3 {
     }
 
     private fun fallbackSegmentBeats(
-        odf: FloatArray, hopMs: Long, beatMs: Long, durationMs: Long
+        odf: List<Float>, hopMs: Long, beatMs: Long, durationMs: Long
     ): List<TimedBeat> {
         val segmentMs = 20_000L
         val segFrames = (segmentMs / hopMs).toInt().coerceAtLeast(1)
@@ -594,7 +579,7 @@ object BeatDetectorV3 {
             val sFrame = segIdx * segFrames
             val eFrame = min(odf.size, sFrame + segFrames)
             if (eFrame - sFrame < 8) { segIdx++; continue }
-            val segOdf   = odf.copyOfRange(sFrame, eFrame)
+            val segOdf   = odf.subList(sFrame, eFrame)
             val segPhase = estimatePhaseFromOdf(segOdf, beatMs, hopMs)
             val segDur   = (eFrame - sFrame).toLong() * hopMs
             val segTimes = dpBeatTracker(segOdf, beatMs, hopMs, segDur, anchorMs = segPhase)
@@ -605,7 +590,7 @@ object BeatDetectorV3 {
         return result.sortedBy { it.timeMs }
     }
 
-    private fun clipToAudioContent(beats: LongArray, odf: FloatArray, hopMs: Long, beatMs: Long): LongArray {
+    private fun clipToAudioContent(beats: LongArray, odf: List<Float>, hopMs: Long, beatMs: Long): LongArray {
         if (beats.isEmpty() || odf.size < 4) return beats
         val fpb = max(1, (beatMs / hopMs).toInt())
         val win = fpb * 2
@@ -629,7 +614,7 @@ object BeatDetectorV3 {
         return beats.filter { it >= startMs && it <= cutoffMs }.toLongArray()
     }
 
-    private fun detectTimeSignature(odf: FloatArray, beatMs: Long, hopMs: Long): TimeSignature {
+    private fun detectTimeSignature(odf: List<Float>, beatMs: Long, hopMs: Long): TimeSignature {
         if (odf.size < 8 || beatMs <= 0L) return TimeSignature.FOUR_FOUR
         val bf    = (beatMs / hopMs).toInt().coerceAtLeast(1)
         val corr3 = lagCorr(odf, bf * 3); val corr4 = lagCorr(odf, bf * 4); val corr6 = lagCorr(odf, bf * 6)
@@ -640,7 +625,7 @@ object BeatDetectorV3 {
         }
     }
 
-    private fun lagCorr(odf: FloatArray, lag: Int): Float {
+    private fun lagCorr(odf: List<Float>, lag: Int): Float {
         if (lag <= 0 || lag >= odf.size) return 0f
         var sum = 0f; var i = 0
         while (i + lag < odf.size) { sum += odf[i] * odf[i + lag]; i++ }
@@ -648,7 +633,7 @@ object BeatDetectorV3 {
     }
 
     private fun detectDownbeatEnhanced(
-        beatTimesMs: List<Long>, odf: FloatArray,
+        beatTimesMs: List<Long>, odf: List<Float>,
         beatMs: Long, beatsPerBar: Int, hopMs: Long
     ): Long {
         if (beatTimesMs.isEmpty() || beatMs <= 0L) return 0L
