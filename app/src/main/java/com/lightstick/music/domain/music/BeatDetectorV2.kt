@@ -9,12 +9,15 @@ import kotlin.math.*
 
 /**
  * BeatDetectorV2 — madmom 풀 파이프라인 (SuperFlux ODF + DBN HMM + Ellis DP)
+ * Refactored to use same source architecture as V3 (dual ODF, Hann window caching)
  *
  * ODF:
  *   PCM 디코딩과 동시에 STFT 계산 (madmom 스트리밍 방식 — PCM 배열을 메모리에 쌓지 않음)
  *   ring buffer (FFT_SIZE) → Hanning windowed FFT → log magnitude: log(1 + 1000|X|)
  *   → 이전 프레임에 ±1 bin max filter 적용
  *   → positive spectral flux = SuperFlux ODF (Böck & Widmer, 2013)
+ *   1. odfTempo (순수 ODF): BPM 및 Time Signature 측정용
+ *   2. odfTrack (가중치 ODF): Phase, DP Tracker용 (킥 대역 1.5x 가중치)
  *
  * BPM + 위상:
  *   DBN HMM Forward (Viterbi-max 근사, madmom DBNBeatTrackingProcessor 방식)
@@ -36,6 +39,11 @@ object BeatDetectorV2 {
     private const val NUM_BANDS = 24
     private const val FB_FMIN   = 27.5f   // Hz — 피아노 A0
     private const val FB_FMAX   = 16000f  // Hz
+
+    // Hann Window 캐시
+    private val cachedHannWindow: FloatArray = FloatArray(FFT_SIZE) { i ->
+        (0.5 * (1.0 - cos(2.0 * PI * i / (FFT_SIZE - 1)))).toFloat()
+    }
 
     // DBN 파라미터 (madmom DBNBeatTrackingProcessor 기본값)
     private const val DBN_TRANSITION_LAMBDA  = 100f
@@ -99,27 +107,24 @@ object BeatDetectorV2 {
         musicPath: String,
         params: Params = Params()
     ): DetectResult {
-        // ── 1. 스트리밍 디코딩 + SuperFlux ODF 동시 계산 ─────────────────
-        val (odf, hopMs, durationMs) = streamingOdf(musicPath)
-        if (odf.isEmpty()) {
+        val songName = musicPath.substringAfterLast("/").substringBeforeLast(".")
+        Log.d(TAG, "V2 [$songName] ------------------ Beat Detection Start ------------------")
+
+        // 투 트랙 ODF 반환: odfTempo(BPM용 순정), odfTrack(트래킹용 킥 가중치)
+        val (odfTempo, odfTrack, hopMs, durationMs) = streamingOdf(musicPath)
+        if (odfTempo.isEmpty() || odfTrack.isEmpty()) {
             return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
-        Log.d(TAG, "V2 SuperFlux odf frames=${odf.size} hopMs=$hopMs durationMs=$durationMs")
 
-        // ── 2. DBN HMM 템포 추정 ─────────────────────────────────────────
+        // DBN HMM 템포 추정 (odfTempo 사용)
         val beatMs = dbnEstimateTempo(
-            odf, hopMs, params.minBeatMs, params.maxBeatMs,
+            odfTempo, hopMs, params.minBeatMs, params.maxBeatMs,
             DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA
         )
-        Log.d(TAG, "V2 beatMs=$beatMs (${60_000L / beatMs} BPM)")
 
-        // ── 3. 위상 추정 (comb-phase) ──────────────────────────────────────
-        val phaseMs = estimatePhaseFromOdf(odf, beatMs, hopMs)
-        Log.d(TAG, "V2 phaseMs=$phaseMs")
-
-        // ── 4. Global Ellis DP ────────────────────────────────────────────
-        val dpTimes = dpBeatTracker(odf, beatMs, hopMs, durationMs, anchorMs = phaseMs)
-        Log.d(TAG, "V2 dpTimes=${dpTimes.size}")
+        // [🔥 위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
+        val phaseMs = estimatePhaseFromOdf(odfTrack, beatMs, hopMs)
+        val dpTimes = dpBeatTracker(odfTrack, beatMs, hopMs, durationMs, anchorMs = phaseMs)
 
         val expectedBeats = max(1, (durationMs / beatMs).toInt())
         val dpOk = dpTimes.size >= max(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
@@ -130,30 +135,28 @@ object BeatDetectorV2 {
             beats  = dpTimes.map { TimedBeat(it, 1f) }
             reason = "dp"
         } else {
-            Log.w(TAG, "V2 DP insufficient (${dpTimes.size}/$expectedBeats) → segment fallback")
-            beats  = fallbackSegmentBeats(odf, hopMs, beatMs, durationMs)
+            beats  = fallbackSegmentBeats(odfTrack, hopMs, beatMs, durationMs)
             reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
         }
 
         if (beats.isEmpty()) {
-            Log.w(TAG, "V2 detect FAIL")
             return DetectResult(emptyList(), 0L, null, "all failed", 0L, TimeSignature.FOUR_FOUR)
         }
 
-        // ── 5. 페이드아웃/무음 구간 비트 제거 ───────────────────────────────
-        val clippedTimes  = clipToAudioContent(beats.map { it.timeMs }.toLongArray(), odf, hopMs, beatMs)
+        // 구간 클리핑은 전체 에너지를 보는 odfTempo 사용
+        val clippedTimes  = clipToAudioContent(beats.map { it.timeMs }.toLongArray(), odfTempo, hopMs, beatMs)
         val clippedBeats  = if (clippedTimes.size < beats.size) {
             val timeSet = clippedTimes.toHashSet()
             beats.filter { it.timeMs in timeSet }
-                 .also { Log.d(TAG, "V2 clipToContent: ${beats.size}→${it.size} beats") }
         } else beats
 
-        val timeSignature = detectTimeSignature(odf, beatMs, hopMs)
+        // 박자표는 odfTempo, 다운비트(1박 강세)는 odfTrack 사용
+        val timeSignature = detectTimeSignature(odfTempo, beatMs, hopMs)
         val downbeatMs    = detectDownbeatEnhanced(
-            clippedBeats.map { it.timeMs }, odf, beatMs, timeSignature.beatsPerBar, hopMs)
+            clippedBeats.map { it.timeMs }, odfTrack, beatMs, timeSignature.beatsPerBar, hopMs)
         val downbeatOffsetMs = (downbeatMs - (clippedBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        Log.d(TAG, "V2 OK beats=${clippedBeats.size} beatMs=$beatMs timeSig=${timeSignature.type} reason=$reason")
+        Log.d(TAG, "V2 ------------------ Detect Complete ------------------")
 
         return DetectResult(
             beats            = clippedBeats,
@@ -209,7 +212,7 @@ object BeatDetectorV2 {
         }
     }
 
-    private data class OdfResult(val odf: List<Float>, val hopMs: Long, val durationMs: Long)
+    private data class OdfResult(val odfTempo: List<Float>, val odfTrack: List<Float>, val hopMs: Long, val durationMs: Long)
 
     private fun streamingOdf(musicPath: String): OdfResult {
         val extractor = MediaExtractor()
@@ -225,7 +228,7 @@ object BeatDetectorV2 {
             }
             if (trackIndex < 0 || format == null) {
                 extractor.release()
-                return OdfResult(emptyList(), HOP_MS, 0L)
+                return OdfResult(emptyList(), emptyList(), HOP_MS, 0L)
             }
             extractor.selectTrack(trackIndex)
 
@@ -236,24 +239,24 @@ object BeatDetectorV2 {
             val hopMs        = hopSamples * 1000L / sampleRate
             val stepBytes    = channelCount * 2
 
-            // FFT / ODF 상태
             val fft        = FloatFFT_1D(FFT_SIZE.toLong())
-            val hannWindow = FloatArray(FFT_SIZE) { i ->
-                (0.5 * (1.0 - cos(2.0 * PI * i / (FFT_SIZE - 1)))).toFloat()
-            }
+            val hannWindow = cachedHannWindow
             val numBins    = FFT_SIZE / 2 + 1
             val fftBuf     = FloatArray(FFT_SIZE)
-            val curMag     = FloatArray(numBins)   // raw magnitude (필터뱅크 입력)
+            val curMag     = FloatArray(numBins)
             val filterbank = buildLogFilterbank(sampleRate)
+
             val curBand    = FloatArray(NUM_BANDS)
             val prevBand   = FloatArray(NUM_BANDS)
-            val odf        = ArrayList<Float>()
 
-            // ring buffer — 마지막 FFT_SIZE 샘플을 순환 저장
+            // 두 개의 독립적인 ODF 배열 생성
+            val odfTempo   = ArrayList<Float>()
+            val odfTrack   = ArrayList<Float>()
+
             val ringBuf    = FloatArray(FFT_SIZE)
-            var ringHead   = 0               // 다음 쓰기 위치
+            var ringHead   = 0
             var totalSamples         = 0L
-            var samplesUntilNextFrame = FFT_SIZE  // 첫 프레임은 FFT_SIZE 샘플 필요
+            var samplesUntilNextFrame = FFT_SIZE
 
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0); codec.start()
@@ -287,7 +290,6 @@ object BeatDetectorV2 {
 
                             var byteIdx = 0
                             while (byteIdx + stepBytes <= chunk.size) {
-                                // 스테레오 → 모노 다운믹스
                                 var monoSum = 0f
                                 for (c in 0 until channelCount) {
                                     val lo = chunk[byteIdx + c * 2].toInt() and 0xFF
@@ -296,7 +298,6 @@ object BeatDetectorV2 {
                                 }
                                 val mono = monoSum / channelCount / 32768f
 
-                                // ring buffer에 저장
                                 ringBuf[ringHead] = mono
                                 ringHead = (ringHead + 1) % FFT_SIZE
                                 totalSamples++
@@ -304,15 +305,12 @@ object BeatDetectorV2 {
 
                                 if (samplesUntilNextFrame <= 0) {
                                     samplesUntilNextFrame = hopSamples
-
-                                    // ring buffer에서 현재 윈도우 추출 + Hanning 적용
-                                    val oldest = ringHead  // ringHead가 가장 오래된 샘플 위치
+                                    val oldest = ringHead
                                     for (i in 0 until FFT_SIZE) {
                                         fftBuf[i] = ringBuf[(oldest + i) % FFT_SIZE] * hannWindow[i]
                                     }
                                     fft.realForward(fftBuf)
 
-                                    // raw magnitude (필터뱅크 입력 — log 압축 전)
                                     curMag[0]           = abs(fftBuf[0])
                                     curMag[numBins - 1] = abs(fftBuf[1])
                                     for (k in 1 until numBins - 1) {
@@ -320,7 +318,6 @@ object BeatDetectorV2 {
                                         curMag[k] = sqrt(re * re + im * im)
                                     }
 
-                                    // Log filterbank: magnitude → 24 bands → log(1+λ×band)
                                     for (b in 0 until NUM_BANDS) {
                                         val fb = filterbank[b]
                                         var sum = 0f
@@ -328,19 +325,33 @@ object BeatDetectorV2 {
                                         curBand[b] = ln(1f + LOG_LAMBDA * sum)
                                     }
 
-                                    if (odf.isEmpty()) {
-                                        odf.add(0f)  // 첫 프레임은 이전 프레임 없음
+                                    if (odfTempo.isEmpty()) {
+                                        odfTempo.add(0f)
+                                        odfTrack.add(0f)
                                     } else {
-                                        // SuperFlux: ±1 band max filter → positive flux
-                                        var flux = 0f
+                                        var fluxTempo = 0f
+                                        var fluxTrack = 0f
                                         for (b in 0 until NUM_BANDS) {
                                             var prevMax = prevBand[b]
                                             if (b > 0 && prevBand[b - 1] > prevMax) prevMax = prevBand[b - 1]
                                             if (b < NUM_BANDS - 1 && prevBand[b + 1] > prevMax) prevMax = prevBand[b + 1]
+
                                             val diff = curBand[b] - prevMax
-                                            if (diff > 0f) flux += diff
+                                            if (diff > 0f) {
+                                                // 순정 에너지는 Tempo 산출용으로 적립
+                                                fluxTempo += diff
+
+                                                // 가중치 에너지는 Phase/DP 트래킹용으로 적립
+                                                val weight = when {
+                                                    b <= 5 -> 1.5f   // Kick 대역
+                                                    b >= 16 -> 0.5f  // Hi-hat 대역
+                                                    else -> 1.0f
+                                                }
+                                                fluxTrack += diff * weight
+                                            }
                                         }
-                                        odf.add(flux)
+                                        odfTempo.add(fluxTempo)
+                                        odfTrack.add(fluxTrack)
                                     }
                                     curBand.copyInto(prevBand)
                                 }
@@ -359,17 +370,19 @@ object BeatDetectorV2 {
 
             val durationMs = totalSamples * 1000L / sampleRate
 
-            // 전역 정규화 → [0, 1]
-            val maxVal = odf.maxOrNull() ?: 1f
-            val normOdf = if (maxVal > 1e-6f) odf.map { it / maxVal } else odf
+            val maxTempo = odfTempo.maxOrNull() ?: 1f
+            val normTempo = if (maxTempo > 1e-6f) odfTempo.map { it / maxTempo } else odfTempo
 
-            OdfResult(normOdf, hopMs, durationMs)
+            val maxTrack = odfTrack.maxOrNull() ?: 1f
+            val normTrack = if (maxTrack > 1e-6f) odfTrack.map { it / maxTrack } else odfTrack
+
+            OdfResult(normTempo, normTrack, hopMs, durationMs)
         } catch (t: Throwable) {
             Log.e(TAG, "V2 streamingOdf fail: ${t.message}")
             try { codec?.stop() }     catch (_: Throwable) {}
             try { codec?.release() }  catch (_: Throwable) {}
             try { extractor.release() } catch (_: Throwable) {}
-            OdfResult(emptyList(), HOP_MS, 0L)
+            OdfResult(emptyList(), emptyList(), HOP_MS, 0L)
         }
     }
 
