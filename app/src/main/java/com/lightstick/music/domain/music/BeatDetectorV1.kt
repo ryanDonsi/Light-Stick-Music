@@ -3,53 +3,22 @@ package com.lightstick.music.domain.music
 import android.util.Log
 import kotlin.math.*
 
-/**
- * BeatDetectorV1 (= 버전 14)
- *
- * librosa beat_track 충실 재현. V4 의 두 가지 근본 결함을 해소:
- *
- * 문제 A — BPM 오추정 (V4 8-seed comb filter)
- *   V4: 8개 이산 씨드(80/90/100/110/120/125/140/160 BPM)만 채점
- *   → 비표준 BPM(74/117.5/126/147.7 등)을 잡지 못함 → 30-60% BPM 오차
- *   수정: 모든 lag 에 대해 autocorrelation 연속 스윕 + log-normal prior 직접 곱셈
- *         harmonic folding 규칙 제거 → prior 가 octave 해소
- *         (librosa: ac_df * logprior, prior = exp(-0.5*(log2(bpm/120)/1octave)^2))
- *
- * 문제 B — 세그먼트 비트가 DP 를 덮어씀 (V4 segment merge)
- *   V4: segment 감지 비트(confidence≈0.5~1.0)가 DP FILL 비트(0.20) override
- *   → 잘못된 위상·BPM 의 세그먼트 비트가 전곡 DP 를 무력화
- *   수정: 전곡 DP 결과를 주 출력으로 사용, 세그먼트 루프는 DP 실패 시 fallback 만 사용
- *
- * 유지:
- *   - Multi-band flux ODF + localNormalizeMean (V4 Fix E)
- *   - Ellis DP, Gaussian local scoring, tightness=100 (V4 Rev3)
- *   - 고정 위상 보정 제거 (DP 가 자연스럽게 최적 위상 탐색)
- */
 object BeatDetectorV1 {
 
     private const val TAG = "AutoTimeline_BeatDetectorV1"
 
     private const val FILL_CONFIDENCE = 0.20f
-
     private const val LOCAL_NORM_WINDOW  = 60
     private const val GLOBAL_NORM_WINDOW = 80
-
     private const val TIME_SIG_THREE_RATIO = 1.20f
     private const val TIME_SIG_SIX_RATIO   = 1.25f
-
     private const val DOWNBEAT_W_LOW_ENERGY  = 0.50f
     private const val DOWNBEAT_W_BAR_COMB    = 0.30f
     private const val DOWNBEAT_W_CONSISTENCY = 0.20f
 
-    // log-normal prior 중심: 120 BPM (500ms), std: 1 octave (librosa default)
     private const val PRIOR_CENTER_MS  = 500L
     private const val PRIOR_STD_OCTAVE = 1.0f
-
-    // half-tempo 체크: autocorr[halfLag] / autocorr[bestLag] >= 이 값이면 빠른 템포 선택
-    // prior 가 느린 BPM 쪽으로 과도하게 치우쳐 TOMBOY/Stars 등 140+ BPM 곡에서 반박자 오류 방지
     private const val HALF_TEMPO_RATIO = 0.60f
-
-    // DP 실패 판단 기준: 예상 비트 수의 25% 미만이면 fallback
     private const val DP_MIN_BEAT_RATIO = 0.25f
 
     data class TimedBeat(val timeMs: Long, val confidence: Float)
@@ -98,14 +67,10 @@ object BeatDetectorV1 {
         val beatTimesMs: List<Long> get() = beats.map { it.timeMs }
     }
 
-    // IIR 계수 (AutoTimelineGeneratorBeat_v0 와 동일)
     private const val LOW_ALPHA     = 0.12f
     private const val MID_LP1_ALPHA = 0.35f
     private const val MID_LP2_ALPHA = 0.08f
 
-    // =========================================================================
-    // PCM 입력 entry point — 내부에서 IIR 필터로 low/mid/full 엔벨로프 계산 후 detect()
-    // =========================================================================
 
     fun detectPcm(
         monoSamples: FloatArray,
@@ -149,9 +114,6 @@ object BeatDetectorV1 {
         return detect(normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outFull), params)
     }
 
-    // =========================================================================
-    // Public entry point
-    // =========================================================================
 
     fun detect(
         lowEnv: List<Float>,
@@ -169,24 +131,18 @@ object BeatDetectorV1 {
         val full       = fullEnv.take(minSize)
         val durationMs = minSize * params.hopMs
 
-        // ── 1. Multi-band flux ODF ────────────────────────────────────────────
         val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)
 
-        // ── 2. Dense BPM 추정 (librosa 방식) + half-tempo 체크 ────────────────
         val beatMs = estimateBpmDense(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs)
                      ?: 500L
         Log.d(TAG, "V1 beatMs=$beatMs (${60_000L / beatMs} BPM) durationMs=$durationMs")
 
-        // ── 3. 위상 추정 (comb-phase) — DP 앵커로 사용 ───────────────────────
-        //    DP가 잘못된 위상에 수렴하는 문제(Dynamite 등) 방지
         val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
         Log.d(TAG, "V1 phaseMs=$phaseMs")
 
-        // ── 4. Global DP (전곡 단위, 위상 앵커 주입) ─────────────────────────
         val dpTimes = dpBeatTracker(globalOdf, beatMs, params.hopMs, durationMs, anchorMs = phaseMs)
         Log.d(TAG, "V1 dpTimes=${dpTimes.size}")
 
-        // DP 품질 검증
         val expectedBeats = max(1, (durationMs / beatMs).toInt())
         val dpOk = dpTimes.size >= max(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
 
@@ -211,7 +167,6 @@ object BeatDetectorV1 {
             beats.map { it.timeMs }, low, beatMs, timeSignature.beatsPerBar, params.hopMs)
         val downbeatOffsetMs = (downbeatMs - (beats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        // [DIAG] detect() 최종 출력에서 비정상 간격 탐지
         val beatTimes = beats.map { it.timeMs }
         for (i in 1 until beatTimes.size) {
             val gap = beatTimes[i] - beatTimes[i - 1]
@@ -233,17 +188,6 @@ object BeatDetectorV1 {
         )
     }
 
-    // =========================================================================
-    // Dense BPM 추정 — librosa beat_track 방식
-    //
-    // autocorr[lag] = mean(odf[i] * odf[i+lag])
-    // prior[lag]    = exp(-0.5 * (log2(lag*hopMs / PRIOR_CENTER_MS) / STD)^2)
-    // score[lag]    = autocorr[lag] * prior[lag]   ← librosa: ac_df * logprior
-    // best lag      = argmax(score)
-    //
-    // harmonic folding 없음 → prior 가 자연스럽게 octave 해소
-    // 모든 lag 를 1 프레임 단위로 스윕 → 비표준 BPM 도 정확히 탐지
-    // =========================================================================
 
     private fun estimateBpmDense(
         odf: List<Float>,
@@ -266,7 +210,6 @@ object BeatDetectorV1 {
             val acVal = sum / count
             acVals[lag] = acVal
 
-            // log-normal prior: exp(-0.5*(log2(lagMs/500ms)/1octave)^2)
             val lagMs    = lag * hopMs
             val logRatio = ln(lagMs.toFloat() / PRIOR_CENTER_MS) / ln(2f)
             val prior    = exp(-0.5f * (logRatio / PRIOR_STD_OCTAVE) * (logRatio / PRIOR_STD_OCTAVE))
@@ -277,10 +220,6 @@ object BeatDetectorV1 {
 
         if (bestLag <= 0) return null
 
-        // ── half-tempo 체크 ──────────────────────────────────────────────────
-        // prior 가 낮은 BPM(긴 주기)을 선호하는 경향이 있어 140+ BPM 곡에서 반박자 오류 발생
-        // ex) TOMBOY GT=147.7 BPM (406ms) → prior 편향으로 75 BPM (800ms) 선택됨
-        // halfLag의 autocorr 가 bestLag의 55% 이상이면 빠른 템포(halfLag) 선택
         val halfLag = bestLag / 2
         if (halfLag >= minLag) {
             val halfAc = acVals[halfLag]
@@ -298,315 +237,3 @@ object BeatDetectorV1 {
         return resultMs
     }
 
-    // =========================================================================
-    // 위상 추정 — comb-phase scoring
-    //
-    // 모든 가능한 위상(0..fpb-1)에 대해 해당 위상으로 grid를 놓았을 때
-    // ODF 합계를 계산하고 최대 위상을 반환한다.
-    //
-    // 이 함수로 얻은 phaseMs 를 DP 앵커로 사용하면 Dynamite 류의
-    // "BPM은 맞지만 위상 완전 오류" 문제를 방지한다.
-    // =========================================================================
-
-    private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
-        val fpb = max(1, (beatMs / hopMs).toInt())
-        if (odf.size < fpb * 2) return 0L
-        var bestPhase = 0; var bestScore = Float.NEGATIVE_INFINITY
-        for (ph in 0 until fpb) {
-            var score = 0f; var f = ph
-            while (f < odf.size) { score += odf[f]; f += fpb }
-            if (score > bestScore) { bestScore = score; bestPhase = ph }
-        }
-        return bestPhase.toLong() * hopMs
-    }
-
-    // =========================================================================
-    // Ellis DP Beat Tracker — Gaussian local scoring + tightness=100 (V4 Rev3 유지)
-    //
-    // localscore[t] = conv(odf, gaussWin)[t]
-    //   gaussWin[k] = exp(-0.5*(k*32/fpb)^2),  k ∈ [-fpb, fpb]
-    //
-    // cumscore[t] = max_p { cumscore[p] - 100*(ln(t-p) - ln(fpb))^2 } + localscore[t]
-    //
-    // edge trimming: localscore < 0.5*RMS 인 앞뒤 비트 제거 (librosa trim=True)
-    // =========================================================================
-
-    private fun dpBeatTracker(
-        odf: List<Float>,
-        targetPeriodMs: Long,
-        hopMs: Long,
-        durationMs: Long,
-        anchorMs: Long = 0L   // 위상 앵커: estimatePhaseFromOdf 결과를 주입하여 위상 오류 방지
-    ): LongArray {
-        if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
-        val n            = odf.size
-        val fpb          = (targetPeriodMs / hopMs).toInt().coerceAtLeast(1)
-        val tightness    = 100.0f
-        val anchorFrame  = if (anchorMs > 0L) (anchorMs / hopMs).toInt().coerceIn(0, n - 1) else -1
-
-        // ── Gaussian local scoring ──────────────────────────────────────────
-        val gaussHalf = fpb
-        val gaussSize = gaussHalf * 2 + 1
-        val gaussWin  = FloatArray(gaussSize) { k ->
-            val i = (k - gaussHalf).toFloat()
-            exp(-0.5f * (i * 32.0f / fpb) * (i * 32.0f / fpb))
-        }
-        val localscore = FloatArray(n)
-        for (t in 0 until n) {
-            var s = 0f
-            for (k in 0 until gaussSize) {
-                val idx = t - gaussHalf + k
-                if (idx in 0 until n) s += gaussWin[k] * odf[idx]
-            }
-            localscore[t] = s
-        }
-
-        // ── DP ──────────────────────────────────────────────────────────────
-        // p == 0 또는 p == anchorFrame 이면 "자유 시작" 으로 pScore = 0 취급
-        // → anchorFrame(comb-phase 추정 위상)에서 chain 을 시작할 수 있어
-        //   전역 DP 가 잘못된 위상에 수렴하는 문제를 방지한다
-        val cumscore = FloatArray(n) { Float.NEGATIVE_INFINITY }
-        val prev     = IntArray(n)  { -1 }
-        val searchRange = fpb * 2
-
-        for (t in 0 until n) {
-            val pLo = max(0, t - searchRange)
-            val pHi = max(0, t - max(1, fpb / 2))
-            var bestVal = Float.NEGATIVE_INFINITY
-            for (p in pLo..pHi) {
-                val isFreeStart = (p == 0 || p == anchorFrame)
-                if (cumscore[p] == Float.NEGATIVE_INFINITY && !isFreeStart) continue
-                val pScore   = if (isFreeStart) 0f else cumscore[p]
-                val lag      = (t - p).toFloat().coerceAtLeast(1f)
-                val logRatio = ln(lag / fpb)
-                val penalty  = tightness * logRatio * logRatio
-                val cand     = pScore - penalty
-                if (cand > bestVal) { bestVal = cand; prev[t] = p }
-            }
-            cumscore[t] = if (bestVal == Float.NEGATIVE_INFINITY) localscore[t]
-                          else bestVal + localscore[t]
-        }
-
-        // ── Backtrack ────────────────────────────────────────────────────────
-        var t     = cumscore.indices.maxByOrNull { cumscore[it] } ?: return LongArray(0)
-        val beats = mutableListOf<Long>()
-        var iter  = 0
-        while (t > 0 && iter < n) {
-            beats.add(t.toLong() * hopMs)
-            val p = prev[t]
-            if (p < 0 || p == t) break
-            t = p; iter++
-        }
-
-        // ── Edge trimming (localscore < 0.5 * RMS) ──────────────────────────
-        val preTrim = beats.reversed().toLongArray()
-        // [DIAG] pre-trim 에서 비정상 간격 탐지
-        for (i in 1 until preTrim.size) {
-            val gap = preTrim[i] - preTrim[i - 1]
-            if (gap < hopMs * 10L) {
-                Log.w(TAG, "V1 DP close-pair [PRE-TRIM]: ${preTrim[i-1]}ms→${preTrim[i]}ms gap=${gap}ms idx=$i")
-            }
-        }
-
-        if (preTrim.size < 2) return preTrim
-        val rms    = sqrt(localscore.map { it * it }.average().toFloat())
-        val trimTh = 0.5f * rms
-        var s = 0
-        while (s < preTrim.size && localscore[(preTrim[s] / hopMs).toInt().coerceIn(0, n-1)] < trimTh) s++
-        var e = preTrim.size - 1
-        while (e > s && localscore[(preTrim[e] / hopMs).toInt().coerceIn(0, n-1)] < trimTh) e--
-        val result = if (s > e) preTrim else preTrim.sliceArray(s..e)
-        // [DIAG] post-trim 에서 비정상 간격 탐지
-        for (i in 1 until result.size) {
-            val gap = result[i] - result[i - 1]
-            if (gap < hopMs * 10L) {
-                Log.w(TAG, "V1 DP close-pair [POST-TRIM]: ${result[i-1]}ms→${result[i]}ms gap=${gap}ms idx=$i")
-            }
-        }
-        return result
-    }
-
-    // =========================================================================
-    // Fallback — 세그먼트 단위 DP (전곡 DP 실패 시에만 사용)
-    // =========================================================================
-
-    private fun fallbackSegmentBeats(
-        low: List<Float>, mid: List<Float>, full: List<Float>,
-        params: Params, beatMs: Long, durationMs: Long
-    ): List<TimedBeat> {
-        val n          = min(low.size, min(mid.size, full.size))
-        val segFrames  = max(1, (params.segmentMs / params.hopMs).toInt())
-        val result     = ArrayList<TimedBeat>()
-
-        for (segIdx in 0 until (n + segFrames - 1) / segFrames) {
-            val s = segIdx * segFrames
-            val e = min(n, s + segFrames)
-            if (e - s < 8) continue
-
-            val odf      = computeMultiBandFluxOdf(low.subList(s, e), mid.subList(s, e), full.subList(s, e), params)
-            val segPhase = estimatePhaseFromOdf(odf, beatMs, params.hopMs)
-            val segTimes = dpBeatTracker(odf, beatMs, params.hopMs, (e - s).toLong() * params.hopMs, anchorMs = segPhase)
-            val offset   = s.toLong() * params.hopMs
-            segTimes.forEach { result += TimedBeat(offset + it, FILL_CONFIDENCE) }
-        }
-        return result.sortedBy { it.timeMs }
-    }
-
-    // =========================================================================
-    // Multi-band Positive Flux ODF (V4 Fix E 유지)
-    // =========================================================================
-
-    private fun computeMultiBandFluxOdf(
-        low: List<Float>, mid: List<Float>, full: List<Float>, params: Params
-    ): List<Float> {
-        val n = minOf(low.size, mid.size, full.size)
-        val lowFlux  = computeOdf(low.take(n),  params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val midFlux  = computeOdf(mid.take(n),  params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val fullFlux = computeOdf(full.take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val combined = ArrayList<Float>(n)
-        for (i in 0 until n) {
-            combined += lowFlux[i] * 1.0f + midFlux[i] * 1.8f + fullFlux[i] * 0.8f
-        }
-        return localNormalizeMean(combined, GLOBAL_NORM_WINDOW)
-    }
-
-    // Fix E: 배경 평균 제거 후 0-1 정규화
-    private fun localNormalizeMean(src: List<Float>, windowFrames: Int): List<Float> {
-        if (src.isEmpty()) return emptyList()
-        val bgRemoved = ArrayList<Float>(src.size)
-        for (i in src.indices) {
-            val lo = max(0, i - windowFrames); val hi = min(src.lastIndex, i + windowFrames)
-            var localMean = 0f; var cnt = 0
-            for (j in lo..hi) { localMean += src[j]; cnt++ }
-            localMean = if (cnt > 0) localMean / cnt else 0f
-            bgRemoved.add((src[i] - localMean).coerceAtLeast(0f))
-        }
-        val out = ArrayList<Float>(src.size)
-        for (i in bgRemoved.indices) {
-            val lo = max(0, i - windowFrames); val hi = min(bgRemoved.lastIndex, i + windowFrames)
-            var localMax = 0f
-            for (j in lo..hi) if (bgRemoved[j] > localMax) localMax = bgRemoved[j]
-            out.add(if (localMax > 1e-6f) (bgRemoved[i] / localMax).coerceIn(0f, 1f) else 0f)
-        }
-        return out
-    }
-
-    // =========================================================================
-    // 박자표 감지
-    // =========================================================================
-
-    private fun detectTimeSignature(onset: List<Float>, beatMs: Long, hopMs: Long): TimeSignature {
-        if (onset.size < 8 || beatMs <= 0L) return TimeSignature.FOUR_FOUR
-        val bf    = (beatMs / hopMs).toInt().coerceAtLeast(1)
-        val corr3 = lagCorr(onset, bf * 3)
-        val corr4 = lagCorr(onset, bf * 4)
-        val corr6 = lagCorr(onset, bf * 6)
-        return when {
-            corr3 > corr4 * TIME_SIG_THREE_RATIO                           -> TimeSignature.THREE_FOUR
-            corr6 > corr4 * TIME_SIG_SIX_RATIO && corr3 > corr4 * 0.85f  -> TimeSignature.SIX_EIGHT
-            else                                                            -> TimeSignature.FOUR_FOUR
-        }
-    }
-
-    private fun lagCorr(onset: List<Float>, lag: Int): Float {
-        if (lag <= 0 || lag >= onset.size) return 0f
-        var sum = 0f; var i = 0
-        while (i + lag < onset.size) { sum += onset[i] * onset[i + lag]; i++ }
-        return sum / i.toFloat().coerceAtLeast(1f)
-    }
-
-    // =========================================================================
-    // 다운비트 감지
-    // =========================================================================
-
-    private fun detectDownbeatEnhanced(
-        beatTimesMs: List<Long>, lowEnv: List<Float>,
-        beatMs: Long, beatsPerBar: Int, hopMs: Long
-    ): Long {
-        if (beatTimesMs.isEmpty() || beatMs <= 0L) return 0L
-        if (beatTimesMs.size < beatsPerBar) return beatTimesMs.first()
-
-        val phaseSum = FloatArray(beatsPerBar); val phaseCnt = IntArray(beatsPerBar)
-        for (i in beatTimesMs.indices) {
-            val ph = i % beatsPerBar
-            val fr = (beatTimesMs[i] / hopMs).toInt().coerceIn(0, lowEnv.lastIndex)
-            phaseSum[ph] += lowEnv[fr]; phaseCnt[ph]++
-        }
-        val avgEnergy = FloatArray(beatsPerBar) { p ->
-            if (phaseCnt[p] > 0) phaseSum[p] / phaseCnt[p] else 0f
-        }
-
-        val barFrames = ((beatMs * beatsPerBar) / hopMs).toInt().coerceAtLeast(1)
-        val combScore = FloatArray(beatsPerBar)
-        for (ph in 0 until beatsPerBar) {
-            val anchor = (beatTimesMs.getOrElse(ph) { ph.toLong() * beatMs } / hopMs).toInt()
-            var k = anchor; var sum = 0f; var cnt = 0
-            while (k < lowEnv.size) { sum += lowEnv[k.coerceIn(0, lowEnv.lastIndex)]; cnt++; k += barFrames }
-            k = anchor - barFrames
-            while (k >= 0) { sum += lowEnv[k.coerceIn(0, lowEnv.lastIndex)]; cnt++; k -= barFrames }
-            combScore[ph] = if (cnt > 0) sum / cnt else 0f
-        }
-
-        val consistScore = FloatArray(beatsPerBar)
-        for (ph in 0 until beatsPerBar) {
-            val energies = beatTimesMs.filterIndexed { i, _ -> i % beatsPerBar == ph }
-                .map { t -> lowEnv[(t / hopMs).toInt().coerceIn(0, lowEnv.lastIndex)] }
-            if (energies.size >= 2) {
-                val avg = energies.average().toFloat()
-                val std = sqrt(energies.map { (it - avg) * (it - avg) }.average().toFloat())
-                val cv  = if (avg > 0.001f) std / avg else 1f
-                consistScore[ph] = ((1f - cv.coerceIn(0f, 1f)) * avg).coerceAtLeast(0f)
-            }
-        }
-
-        fun FloatArray.normMax(): FloatArray {
-            val mx = maxOrNull() ?: return this
-            return if (mx > 0.001f) FloatArray(size) { this[it] / mx } else this
-        }
-        val bestPhase = (0 until beatsPerBar).maxByOrNull { p ->
-            avgEnergy.normMax()[p] * DOWNBEAT_W_LOW_ENERGY  +
-            combScore.normMax()[p]  * DOWNBEAT_W_BAR_COMB   +
-            consistScore.normMax()[p] * DOWNBEAT_W_CONSISTENCY
-        } ?: 0
-
-        return beatTimesMs.getOrElse(bestPhase) { beatTimesMs.first() }
-    }
-
-    // =========================================================================
-    // ODF utilities
-    // =========================================================================
-
-    private fun computeOdf(env: List<Float>, smoothWindow: Int, normWindow: Int): List<Float> =
-        localNormalizeMax(positiveDiff(movingAverage(env, smoothWindow)), normWindow)
-
-    private fun localNormalizeMax(src: List<Float>, windowFrames: Int): List<Float> {
-        if (src.isEmpty()) return emptyList()
-        val out = ArrayList<Float>(src.size)
-        for (i in src.indices) {
-            val lo = max(0, i - windowFrames); val hi = min(src.lastIndex, i + windowFrames)
-            var localMax = 0f
-            for (j in lo..hi) if (src[j] > localMax) localMax = src[j]
-            out.add(if (localMax > 1e-6f) (src[i] / localMax).coerceIn(0f, 1f) else 0f)
-        }
-        return out
-    }
-
-    private fun movingAverage(src: List<Float>, window: Int): List<Float> {
-        if (src.isEmpty() || window <= 1) return src.toList()
-        val out = ArrayList<Float>(src.size); val half = window / 2
-        for (i in src.indices) {
-            var sum = 0f; var count = 0
-            val s = max(0, i - half); val e = min(src.lastIndex, i + half)
-            for (j in s..e) { sum += src[j]; count++ }
-            out += if (count == 0) 0f else sum / count.toFloat()
-        }
-        return out
-    }
-
-    private fun positiveDiff(src: List<Float>): List<Float> {
-        if (src.isEmpty()) return emptyList()
-        val out = ArrayList<Float>(src.size); out += 0f
-        for (i in 1 until src.size) out += max(0f, src[i] - src[i - 1])
-        return out
-    }
-}

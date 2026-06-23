@@ -7,11 +7,6 @@ import android.util.Log
 import org.jtransforms.fft.FloatFFT_1D
 import kotlin.math.*
 
-/**
- * BeatDetectorV2 — Dual ODF Architecture
- * 1. odfTempo (순수 ODF): BPM 및 Time Signature 측정용
- * 2. odfTrack (가중치 ODF): Phase, DP Tracker, Downbeat 측정용 (킥 대역 1.5x 가중치)
- */
 object BeatDetectorV2 {
 
     private const val TAG = "AutoTimelineV2"
@@ -24,17 +19,15 @@ object BeatDetectorV2 {
     private const val FB_FMIN   = 27.5f
     private const val FB_FMAX   = 16000f
 
-    // Hann Window 캐시
     private val cachedHannWindow: FloatArray = FloatArray(FFT_SIZE) { i ->
         (0.5 * (1.0 - cos(2.0 * PI * i / (FFT_SIZE - 1)))).toFloat()
     }
 
-    // V1 방식 BPM 추정 파라미터 (librosa log-normal prior + half/double-tempo 체크)
-    private const val BPM_PRIOR_CENTER_MS   = 500L    // 120 BPM
-    private const val BPM_PRIOR_STD_OCTAVE  = 1.0f    // σ = 1 octave
-    private const val BPM_HALF_TEMPO_RATIO  = 0.70f   // halfTempoFix 임계 (모든날 0.654 제외, 상향)
-    private const val BPM_DOUBLE_TEMPO_RATIO = 1.00f  // doubleTempoFix: 2배 주기가 더 강할 때만 적용
-    private const val BPM_SUBBBEAT_RATIO_MAX = 0.65f  // doubleTempoFix 게이트: K-pop 하이햇 차단
+    private const val BPM_PRIOR_CENTER_MS   = 500L
+    private const val BPM_PRIOR_STD_OCTAVE  = 1.0f
+    private const val BPM_HALF_TEMPO_RATIO  = 0.70f
+    private const val BPM_DOUBLE_TEMPO_RATIO = 1.00f
+    private const val BPM_SUBBBEAT_RATIO_MAX = 0.65f
 
     private const val FILL_CONFIDENCE   = 0.20f
     private const val DP_MIN_BEAT_RATIO = 0.25f
@@ -87,18 +80,14 @@ object BeatDetectorV2 {
         params: Params = Params()
     ): DetectResult {
         val songName = musicPath.substringAfterLast("/").substringBeforeLast(".")
-        Log.d(TAG, "V2 [$songName] ------------------ Beat Detection Start ------------------")
+        Log.d(TAG, "V2 [$songName] start")
 
-        // 투 트랙 ODF 반환: odfTempo(BPM용 순정), odfTrack(트래킹용 킥 가중치)
         val (odfTempo, odfTrack, hopMs, durationMs) = streamingOdf(musicPath)
         if (odfTempo.isEmpty() || odfTrack.isEmpty()) {
             return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
 
-        // BPM 추정: V1 방식 autocorr × log-normal prior + half-tempo 체크 (odfTempo 사용)
         val beatMs = estimateBpmV1Style(odfTempo, hopMs, params.minBeatMs, params.maxBeatMs, songName)
-
-        // [🔥 위상(Phase)과 DP 트래킹은 odfTrack(가중치)를 사용하여 스네어 엇박을 무시합니다]
         val phaseMs = estimatePhaseFromOdf(odfTrack, beatMs, hopMs)
         val dpTimes = dpBeatTracker(odfTrack, beatMs, hopMs, durationMs, anchorMs = phaseMs)
 
@@ -119,20 +108,18 @@ object BeatDetectorV2 {
             return DetectResult(emptyList(), 0L, null, "all failed", 0L, TimeSignature.FOUR_FOUR)
         }
 
-        // 구간 클리핑은 전체 에너지를 보는 odfTempo 사용
         val clippedTimes  = clipToAudioContent(beats.map { it.timeMs }.toLongArray(), odfTempo, hopMs, beatMs)
         val clippedBeats  = if (clippedTimes.size < beats.size) {
             val timeSet = clippedTimes.toHashSet()
             beats.filter { it.timeMs in timeSet }
         } else beats
 
-        // 박자표는 odfTempo, 다운비트(1박 강세)는 odfTrack 사용
         val timeSignature = detectTimeSignature(odfTempo, beatMs, hopMs)
         val downbeatMs    = detectDownbeatEnhanced(
             clippedBeats.map { it.timeMs }, odfTrack, beatMs, timeSignature.beatsPerBar, hopMs)
         val downbeatOffsetMs = (downbeatMs - (clippedBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        Log.d(TAG, "V2 ------------------ Detect Complete ------------------")
+        Log.d(TAG, "V2 complete")
 
         return DetectResult(
             beats            = clippedBeats,
@@ -212,7 +199,6 @@ object BeatDetectorV2 {
             val curBand    = FloatArray(NUM_BANDS)
             val prevBand   = FloatArray(NUM_BANDS)
 
-            // 두 개의 독립적인 ODF 배열 생성
             val odfTempo   = ArrayList<Float>()
             val odfTrack   = ArrayList<Float>()
 
@@ -301,10 +287,8 @@ object BeatDetectorV2 {
 
                                             val diff = curBand[b] - prevMax
                                             if (diff > 0f) {
-                                                // 순정 에너지는 Tempo 산출용으로 적립
                                                 fluxTempo += diff
 
-                                                // 가중치 에너지는 Phase/DP 트래킹용으로 적립
                                                 val weight = when {
                                                     b <= 5 -> 1.5f   // Kick 대역
                                                     b >= 16 -> 0.5f  // Hi-hat 대역
@@ -349,14 +333,6 @@ object BeatDetectorV2 {
         }
     }
 
-    // =========================================================================
-    // V1 방식 BPM 추정 — librosa beat_track 동일한 autocorr × log-normal prior
-    //
-    // autocorr[lag] = mean(odf[i] * odf[i+lag])
-    // prior[lag]    = exp(-0.5*(log2(lagMs/500ms)/1octave)^2)
-    // score[lag]    = autocorr[lag] * prior[lag]
-    // half-tempo 체크: autocorr[halfLag]/autocorr[bestLag] >= 0.60 → 2배 BPM 선택
-    // =========================================================================
 
     private fun estimateBpmV1Style(
         odf: List<Float>,
@@ -370,7 +346,6 @@ object BeatDetectorV2 {
         val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
         if (odf.size <= maxLag + 2) return minBeatMs
 
-        // ── 1. autocorr × log-normal prior ───────────────────────────────────
         val acVals     = FloatArray(maxLag + 1)
         val priorVals  = FloatArray(maxLag + 1)
         val scoreVals  = FloatArray(maxLag + 1)
@@ -399,7 +374,6 @@ object BeatDetectorV2 {
         val bestAc  = acVals[bestLag]
         val bestPrior = priorVals[bestLag]
 
-        // ── 2. TOP-5 후보 로그 ───────────────────────────────────────────────
         val top5 = (minLag..maxLag)
             .sortedByDescending { scoreVals[it] }
             .take(5)
@@ -410,10 +384,8 @@ object BeatDetectorV2 {
         }
         Log.d(TAG, "V2$t TOP5: $top5str")
 
-        // ── 3. WINNER 상세 로그 ──────────────────────────────────────────────
         Log.d(TAG, "V2$t WINNER: ${bestMs}ms(${bestBpm}BPM) ac=$bestAc prior=$bestPrior score=$bestScore")
 
-        // ── 4. half-tempo 관련 수치 (튜닝 기준: BPM_HALF_TEMPO_RATIO=%.2f) ──
         val halfLag = bestLag / 2
         val halfMs  = halfLag * hopMs
         val halfAc  = if (halfLag >= minLag) acVals[halfLag] else run {
@@ -426,7 +398,6 @@ object BeatDetectorV2 {
             " ac=$halfAc ratio=$halfRatio  [threshold=${BPM_HALF_TEMPO_RATIO}]" +
             if (halfLag >= minLag) "" else " (below minLag)")
 
-        // ── 5. double-tempo 관련 수치 (로그 + fix 공용) ──────────────────────
         val doubleLag    = bestLag * 2
         val doubleMs     = doubleLag * hopMs
         val doubleAc     = if (doubleLag <= maxLag) acVals[doubleLag] else 0f
@@ -442,7 +413,6 @@ object BeatDetectorV2 {
                 " | subBeat=${subBeatLag*hopMs}ms subRatio=$subBeatRatio")
         }
 
-        // ── 6. prior 스냅샷 — 주요 BPM 지점별 prior 값 ─────────────────────
         val snapBpms = longArrayOf(60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160)
         val priorSnap = snapBpms.joinToString(" ") { bpm ->
             val ms = 60_000L / bpm
@@ -451,16 +421,12 @@ object BeatDetectorV2 {
         }
         Log.d(TAG, "V2$t PRIOR_SNAP: $priorSnap")
 
-        // ── 7. half-tempo 체크: prior 편향으로 2배 느린 BPM 선택 → 절반 주기로 보정 ──
         if (halfLag >= minLag && bestAc > 0f && halfRatio >= BPM_HALF_TEMPO_RATIO) {
             Log.d(TAG, "V2$t halfTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
                 " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM) ratio=$halfRatio")
             return halfMs
         }
 
-        // ── 8. double-tempo 체크: 2배 주기가 더 강하고 반박자 에너지가 낮으면 느린 템포 선택 ──
-        // 조건: doubleRatio ≥ 1.00 (2배 주기가 현재 lag보다 강함 = 현재 lag는 진짜 반박자)
-        //       subRatio < 0.65   (반박자 에너지 낮음 = K-pop 하이햇 아님)
         if (doubleLag <= maxLag && doubleRatio >= BPM_DOUBLE_TEMPO_RATIO
             && subBeatRatio < BPM_SUBBBEAT_RATIO_MAX) {
             Log.d(TAG, "V2$t doubleTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
@@ -508,7 +474,6 @@ object BeatDetectorV2 {
                 if (idx in 0 until n) sc += gaussWin[k] * odf[idx]
             }
 
-            // 전역 위상 관성 추가 (Phase Drift 완화)
             if (anchorFrame >= 0) {
                 val distanceToGrid = abs(t - anchorFrame) % fpb
                 val phaseDiff = min(distanceToGrid, fpb - distanceToGrid)
