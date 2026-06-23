@@ -372,7 +372,7 @@ object BeatDetectorV3 {
     // 자기상관을 FFT로 계산 (O(n log n) 최적화)
     // 원래: O(n*maxLag) 직접 계산
     // 최적화: FFT → |X(f)|^2 → IFFT → 정규화
-    private fun computeAutocorrelationFFT(odf: List<Float>, maxLag: Int): FloatArray {
+    private fun computeAutocorrelationFFT(odf: FloatArray, maxLag: Int): FloatArray {
         val n = odf.size
         var fftSize = 1
         while (fftSize < n + maxLag) fftSize *= 2
