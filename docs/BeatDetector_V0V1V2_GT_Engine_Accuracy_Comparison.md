@@ -5,6 +5,8 @@
 **총 곡**: 32곡
 **정확도 가중치**: madmom 60% + Beat Transformer 40%
 **평가 메트릭**: F-Measure (70ms tolerance window), Precision, Recall, BPM Error
+**정렬 순서**: K-POP Dance(16) → K-POP Pop(9) → K-POP Ballad(2) → POP(3) → CLASSICAL(1) → Other(1)
+**등급 기준**: madmom GT 엔진 기준 (S/A/B/C/D)
 
 ---
 
