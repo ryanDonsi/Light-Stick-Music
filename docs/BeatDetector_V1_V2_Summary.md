@@ -10,6 +10,9 @@
 |------|------------------|------------------|
 | **ODF (특징 추출)** | IIR 3밴드 에너지 | Dual ODF: SuperFlux(Tempo) + SuperFlux(Track) |
 | **BPM 추정** | Autocorrelation + Log-Normal Prior | DBN HMM Forward (Viterbi-max) |
+| **Beat Tracking** | Ellis DP + Comb-phase | Ellis DP + DBN HMM |
+| **위상 추적** | Comb-phase 위상 앵커 | DBN HMM Forward (동적 추적) |
+| **다운비트 감지** | 기본 DP 기반 | Dynamic Programming + 910ms guard |
 | **Hop 크기** | 10ms | 10ms |
 | **하모닉 보정** | half-tempo ratio 체크 (60%) | 910ms guard + combPriorScore |
 | **외부 의존성** | 없음 | JTransforms FFT 라이브러리 |
