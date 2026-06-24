@@ -8,7 +8,7 @@
 
 | 항목 | **BeatDetectorV1** | **BeatDetectorV2** |
 |------|------------------|------------------|
-| **ODF (특징 추출)** | IIR 3밴드 에너지 | SuperFlux (24밴드 스펙트럼) |
+| **ODF (특징 추출)** | IIR 3밴드 에너지 | Dual ODF: SuperFlux(Tempo) + SuperFlux(Track) |
 | **BPM 추정** | Autocorrelation + Log-Normal Prior | DBN HMM Forward (Viterbi-max) |
 | **Hop 크기** | 10ms | 10ms |
 | **하모닉 보정** | half-tempo ratio 체크 (60%) | 910ms guard + combPriorScore |
@@ -21,7 +21,7 @@
 | **처리 시간 (멀티)** | **112.8초** | **273.5초** |
 | **속도 향상** | 2.94배 | 2.60배 |
 | **병렬화 효율** | 98.1% | 86.8% |
-| **주요 강점** | 빠른 속도, 정확한 BPM | 높은 정확도, 메모리 효율 |
+| **주요 강점** | 빠른 속도, 정확한 BPM | Dual ODF로 높은 정확도, 메모리 효율 |
 | **주요 약점** | 낮은 정확도 | 느린 처리, 제한된 BPM 범위 |
 
 ---
