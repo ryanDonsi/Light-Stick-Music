@@ -1,215 +1,228 @@
-# BeatDetector V0/V1/V2 GT엔진별 정확도 비교 (곡별 상세)
+# BeatDetector V0/V1/V2 GT엔진별 정확도 비교 (실제 측정 데이터)
 
-**분석 기준**: madmom (GTZAN F1: 85.6%), Beat Transformer (GTZAN F1: 88.5%)
-**측정 날짜**: 2026-06-24
+**분석 기준**: Beat Transformer (GTZAN F1: 88.5%), madmom (GTZAN F1: 85.6%)
+**측정 날짜**: 2026-06-23
 **총 곡**: 32곡
-**가중 평균**: madmom 60% + Beat Transformer 40%
+**정확도 가중치**: Beat Transformer 60% + madmom 40%
+**평가 메트릭**: F-Measure (70ms tolerance window)
 
 ---
 
-## 📊 전체 곡 정확도 비교 (madmom 기준)
+## 📊 전체 곡 정확도 비교
 
-| # | 곡제목 | 장르 | V0 | V1 | V2 |
-|---|--------|------|-----|-----|-----|
-| 1 | BLACKPINK JUMP | K-POP Dance | 0.869 | 0.923 | 0.909 |
-| 2 | BLACKPINK Kill This Love | K-POP Dance | 0.844 | 0.923 | 0.909 |
-| 3 | Golden | K-POP Dance | 0.866 | 0.923 | 0.909 |
-| 4 | I'll Like You | K-POP Dance | 0.866 | 0.923 | 0.909 |
-| 5 | ILLIT Cherish | K-POP Dance | 0.854 | 0.923 | 0.909 |
-| 6 | ILLIT It's Me | K-POP Dance | 0.849 | 0.923 | 0.909 |
-| 7 | ILLIT Lucky Girl Syndrome | K-POP Dance | 0.863 | 0.923 | 0.909 |
-| 8 | IYKYK | K-POP Dance | 0.866 | 0.923 | 0.909 |
-| 9 | LE SSERAFIM SPAGHETTI | K-POP Dance | 0.859 | 0.923 | 0.909 |
-| 10 | Magnetic | K-POP Dance | 0.856 | 0.923 | 0.909 |
-| 11 | Midnight Fiction | K-POP Dance | 0.859 | 0.923 | 0.909 |
-| 12 | Soda Pop | K-POP Dance | 0.859 | 0.923 | 0.909 |
-| 13 | Stray Kids God's Menu | K-POP Dance | 0.865 | 0.923 | 0.909 |
-| 14 | Tick-Tack | K-POP Dance | 0.870 | 0.923 | 0.909 |
-| 15 | aespa Next Level | K-POP Dance | 0.844 | 0.923 | 0.909 |
-| 16 | aespa Supernova | K-POP Dance | 0.862 | 0.923 | 0.909 |
-| 17 | Almond Chocolate | K-POP Pop | 0.755 | 0.821 | 0.960 |
-| 18 | Attention (뉴진스) | K-POP Pop | 0.766 | 0.821 | 0.960 |
-| 19 | Celebrity | K-POP Pop | 0.751 | 0.821 | 0.960 |
-| 20 | Entrance | K-POP Pop | 0.744 | 0.821 | 0.960 |
-| 21 | Good Goodbye | K-POP Pop | 0.766 | 0.821 | 0.960 |
-| 22 | My World | K-POP Pop | 0.742 | 0.821 | 0.960 |
-| 23 | Pimple | K-POP Pop | 0.743 | 0.821 | 0.960 |
-| 24 | TOMBOY | K-POP Pop | 0.750 | 0.821 | 0.960 |
-| 25 | iKON Love Scenario | K-POP Pop | 0.760 | 0.821 | 0.960 |
-| 26 | Let's go see the stars | K-POP Ballad | 0.893 | 0.965 | 0.977 |
-| 27 | 모든 날 모든 순간 | K-POP Ballad | 0.896 | 0.965 | 0.977 |
-| 28 | Charlie Puth - Attention | POP | 0.745 | 0.798 | 0.908 |
-| 29 | Dynamite | POP | 0.732 | 0.798 | 0.908 |
-| 30 | Ed Sheeran - Shape of You | POP | 0.732 | 0.798 | 0.908 |
-| 31 | Bach Brandenburg Concerto | CLASSICAL | 0.919 | 0.969 | 0.283 |
-| 32 | The_Drum_cover_by_COOMO | Other | 0.448 | 0.500 | 0.500 |
+| # | 곡제목 | 장르 | V0 (BT) | V0 (madmom) | V1 (BT) | V1 (madmom) | V2 (BT) | V2 (madmom) |
+|---|--------|------|--------|-----------|--------|-----------|--------|-----------|
+| 1 | Almond Chocolate | K-POP Pop | 0.996 | 0.617 | 0.941 | 0.981 | 0.986 | 0.999 |
+| 2 | Attention | K-POP Pop | 0.278 | 0.268 | 0.885 | 0.902 | 0.878 | 0.898 |
+| 3 | BLACKPINK - 'Kill This Love' MV | K-POP Dance | 0.494 | 0.474 | 0.829 | 0.979 | 0.939 | 0.979 |
+| 4 | BLACKPINK - ‘뛰어(JUMP)’ MV | Unknown | 0.293 | 0.328 | 0.853 | 0.941 | 0.879 | 0.927 |
+| 5 | Celebrity (Celebrity) | K-POP Pop | 0.440 | 0.417 | 0.812 | 0.995 | 0.692 | 0.794 |
+| 6 | Charlie Puth - Attention [Official Video] | POP | 0.308 | 0.125 | 0.907 | 0.922 | 0.963 | 0.971 |
+| 7 | Dynamite | POP | 0.997 | 0.414 | 0.819 | 0.895 | 0.984 | 0.988 |
+| 8 | Ed Sheeran - Shape of You (Official Music Video) | POP | 0.246 | 0.263 | 0.231 | 0.253 | 0.266 | 0.275 |
+| 9 | Entrance | K-POP Pop | 0.455 | 0.339 | 0.329 | 0.439 | 0.786 | 1.000 |
+| 10 | Golden | K-POP Dance | 0.440 | 0.511 | 0.647 | 0.833 | 0.818 | 0.874 |
+| 11 | Good Goodbye | K-POP Pop | 0.647 | 0.658 | 0.790 | 0.870 | 0.880 | 0.971 |
+| 12 | ILLIT (아일릿) 'Lucky Girl Syndrome' Official MV | K-POP Dance | 0.985 | 0.848 | 0.914 | 0.967 | 0.965 | 0.971 |
+| 13 | ILLIT (아일릿) ‘Cherish (My Love)’ Dance Practice (Fix Ver.) | K-POP Dance | 0.288 | 0.311 | 0.458 | 0.620 | 0.839 | 0.764 |
+| 14 | ILLIT(아일릿) 'It’s Me' (4K)  STUDIO CHOOM ORIGINAL | K-POP Dance | 0.179 | 0.357 | 0.827 | 0.989 | 0.852 | 0.987 |
+| 15 | IYKYK (If You Know You Know) | K-POP Dance | 0.273 | 0.283 | 0.820 | 0.883 | 0.965 | 0.998 |
+| 16 | I’ll Like You | Unknown | 0.317 | 0.288 | 0.812 | 0.977 | 0.958 | 0.993 |
+| 17 | LE SSERAFIM(르세라핌) 'SPAGHETTI' (4K)  STUDIO CHOOM ORIGINAL | K-POP Dance | 0.529 | 0.443 | 0.741 | 0.846 | 0.930 | 0.944 |
+| 18 | Let's go see the stars (별 보러 가자) | K-POP Ballad | 0.430 | 0.467 | 0.825 | 0.970 | 0.900 | 0.954 |
+| 19 | Magnetic | K-POP Dance | 0.381 | 0.343 | 0.791 | 0.976 | 0.496 | 0.525 |
+| 20 | Midnight Fiction | K-POP Dance | 0.275 | 0.282 | 0.685 | 0.944 | 0.928 | 0.968 |
+| 21 | My World | K-POP Pop | 0.283 | 0.267 | 0.808 | 0.971 | 0.957 | 0.974 |
+| 22 | Pimple | K-POP Pop | 0.248 | 0.253 | 0.565 | 0.618 | 0.946 | 0.984 |
+| 23 | Soda Pop Official Lyric Video  KPop Demon Hunters  Sony Animation | K-POP Dance | 0.287 | 0.299 | 0.830 | 0.994 | 0.873 | 0.968 |
+| 24 | Stray Kids 神메뉴(God's Menu) MV | K-POP Dance | 0.219 | 0.378 | 0.580 | 0.947 | 0.599 | 0.942 |
+| 25 | TOMBOY | K-POP Pop | 0.257 | 0.278 | 0.573 | 0.653 | 0.928 | 0.927 |
+| 26 | The_Drum_cover_by_COOMO | Other | 0.318 | 0.285 | 0.473 | 0.514 | 0.488 | 0.469 |
+| 27 | Tick-Tack | K-POP Dance | 0.281 | 0.298 | 0.826 | 0.953 | 0.978 | 0.988 |
+| 28 | [클래식을 좋아하세요! CD 01] Bach 01 Brandenburg Concerto No.3 In G Majo | CLASSICAL | 0.260 | 0.258 | 0.939 | 0.969 | 0.266 | 0.283 |
+| 29 | aespa 에스파 'Next Level' MV | Unknown | 0.248 | 0.256 | 0.738 | 0.787 | 0.784 | 0.799 |
+| 30 | aespa 에스파 'Supernova' MV | Unknown | 0.948 | 0.240 | 0.757 | 0.915 | 0.760 | 0.763 |
+| 31 | iKON - ‘사랑을 했다(LOVE SCENARIO)’ MV | K-POP Pop | 0.250 | 0.184 | 0.878 | 0.937 | 0.993 | 0.989 |
+| 32 | 모든 날, 모든 순간 Every day, Every Moment | K-POP Ballad | 0.567 | 0.409 | 0.844 | 0.960 | 0.893 | 1.000 |
 
 ---
 
-## 🔍 곡별 상세 정확도 (madmom vs Beat Transformer)
+## 📈 등급 분포
 
+| 버전 | A | B | C | D | F |
+|------|---|---|---|---|---|
+| V0 | 1 | 3 | 19 | 69 | 4 |
+| V1 | 26 | 16 | 16 | 3 | 35 |
+| V2 | 17 | 14 | 11 | 5 | 49 |
 
-### K-POP Dance (16곡)
+---
 
-| # | 곡제목 | V0 (madmom) | V0 (BT) | V1 (madmom) | V1 (BT) | V2 (madmom) | V2 (BT) |
-|---|--------|-----------|---------|-----------|---------|-----------|----------|
-| 1 | BLACKPINK JUMP | 0.869 | 0.881 | 0.923 | 0.935 | 0.909 | 0.921 |
-| 2 | BLACKPINK Kill This Love | 0.844 | 0.862 | 0.923 | 0.940 | 0.909 | 0.926 |
-| 3 | Golden | 0.866 | 0.863 | 0.923 | 0.920 | 0.909 | 0.906 |
-| 4 | I'll Like You | 0.866 | 0.841 | 0.923 | 0.898 | 0.909 | 0.884 |
-| 5 | ILLIT Cherish | 0.854 | 0.861 | 0.923 | 0.930 | 0.909 | 0.916 |
-| 6 | ILLIT It's Me | 0.849 | 0.860 | 0.923 | 0.934 | 0.909 | 0.920 |
-| 7 | ILLIT Lucky Girl Syndrome | 0.863 | 0.841 | 0.923 | 0.901 | 0.909 | 0.887 |
-| 8 | IYKYK | 0.866 | 0.884 | 0.923 | 0.941 | 0.909 | 0.927 |
-| 9 | LE SSERAFIM SPAGHETTI | 0.859 | 0.848 | 0.923 | 0.912 | 0.909 | 0.898 |
-| 10 | Magnetic | 0.856 | 0.847 | 0.923 | 0.914 | 0.909 | 0.900 |
-| 11 | Midnight Fiction | 0.859 | 0.857 | 0.923 | 0.921 | 0.909 | 0.907 |
-| 12 | Soda Pop | 0.859 | 0.862 | 0.923 | 0.926 | 0.909 | 0.912 |
-| 13 | Stray Kids God's Menu | 0.865 | 0.869 | 0.923 | 0.927 | 0.909 | 0.913 |
-| 14 | Tick-Tack | 0.870 | 0.875 | 0.923 | 0.928 | 0.909 | 0.914 |
-| 15 | aespa Next Level | 0.844 | 0.815 | 0.923 | 0.894 | 0.909 | 0.880 |
-| 16 | aespa Supernova | 0.862 | 0.856 | 0.923 | 0.917 | 0.909 | 0.903 |
+## 📊 버전별 정확도 평균
 
-### K-POP Pop (9곡)
+| 버전 | 평균 F-Measure | 정확도 |
+|------|----------------|--------|
+| V0 | 0.361 | 36.1% |
+| V1 | 0.786 | 78.6% |
+| V2 | 0.821 | 82.1% |
 
-| # | 곡제목 | V0 (madmom) | V0 (BT) | V1 (madmom) | V1 (BT) | V2 (madmom) | V2 (BT) |
-|---|--------|-----------|---------|-----------|---------|-----------|----------|
-| 1 | Almond Chocolate | 0.755 | 0.783 | 0.821 | 0.849 | 0.960 | 0.988 |
-| 2 | Attention (뉴진스) | 0.766 | 0.762 | 0.821 | 0.818 | 0.960 | 0.957 |
-| 3 | Celebrity | 0.751 | 0.757 | 0.821 | 0.827 | 0.960 | 0.966 |
-| 4 | Entrance | 0.744 | 0.762 | 0.821 | 0.839 | 0.960 | 0.978 |
-| 5 | Good Goodbye | 0.766 | 0.778 | 0.821 | 0.833 | 0.960 | 0.972 |
-| 6 | My World | 0.742 | 0.723 | 0.821 | 0.802 | 0.960 | 0.941 |
-| 7 | Pimple | 0.743 | 0.768 | 0.821 | 0.846 | 0.960 | 0.985 |
-| 8 | TOMBOY | 0.750 | 0.739 | 0.821 | 0.810 | 0.960 | 0.949 |
-| 9 | iKON Love Scenario | 0.760 | 0.782 | 0.821 | 0.843 | 0.960 | 0.982 |
+---
 
-### K-POP Ballad (2곡)
+## 🔍 GT엔진별 정확도
 
-| # | 곡제목 | V0 (madmom) | V0 (BT) | V1 (madmom) | V1 (BT) | V2 (madmom) | V2 (BT) |
-|---|--------|-----------|---------|-----------|---------|-----------|----------|
-| 1 | Let's go see the stars | 0.893 | 0.897 | 0.965 | 0.969 | 0.977 | 0.981 |
-| 2 | 모든 날 모든 순간 | 0.896 | 0.883 | 0.965 | 0.953 | 0.977 | 0.965 |
+| 버전 | Beat Transformer | madmom | 가중평균 (BT 60% + madmom 40%) |
+|------|------------------|--------|-------------------------------|
+| V0 | 0.419 (41.9%) | 0.358 (35.8%) | 0.395 (39.5%) |
+| V1 | 0.741 (74.1%) | 0.856 (85.6%) | 0.787 (78.7%) |
+| V2 | 0.824 (82.4%) | 0.871 (87.1%) | 0.843 (84.3%) |
 
-### POP (3곡)
+---
 
-| # | 곡제목 | V0 (madmom) | V0 (BT) | V1 (madmom) | V1 (BT) | V2 (madmom) | V2 (BT) |
-|---|--------|-----------|---------|-----------|---------|-----------|----------|
-| 1 | Charlie Puth - Attention | 0.745 | 0.723 | 0.798 | 0.776 | 0.908 | 0.886 |
-| 2 | Dynamite | 0.732 | 0.732 | 0.798 | 0.799 | 0.908 | 0.909 |
-| 3 | Ed Sheeran - Shape of You | 0.732 | 0.714 | 0.798 | 0.781 | 0.908 | 0.891 |
+## 🎭 장르별 정확도 비교
 
 ### CLASSICAL (1곡)
 
-| # | 곡제목 | V0 (madmom) | V0 (BT) | V1 (madmom) | V1 (BT) | V2 (madmom) | V2 (BT) |
-|---|--------|-----------|---------|-----------|---------|-----------|----------|
-| 1 | Bach Brandenburg Concerto | 0.919 | 0.877 | 0.969 | 0.927 | 0.283 | 0.241 |
+| 곡제목 | V0 (BT) | V0 (madmom) | V1 (BT) | V1 (madmom) | V2 (BT) | V2 (madmom) |
+|--------|---------|-----------|---------|-----------|---------|----------|
+| [클래식을 좋아하세요! CD 01] Bach 01 Brandenburg Concerto No.3 In G Majo | 0.260 | 0.258 | 0.939 | 0.969 | 0.266 | 0.283 |
+
+**CLASSICAL 평균** | 0.260 | 0.258 | 0.939 | 0.969 | 0.266 | 0.283 |
+
+### K-POP Ballad (2곡)
+
+| 곡제목 | V0 (BT) | V0 (madmom) | V1 (BT) | V1 (madmom) | V2 (BT) | V2 (madmom) |
+|--------|---------|-----------|---------|-----------|---------|----------|
+| Let's go see the stars (별 보러 가자) | 0.430 | 0.467 | 0.825 | 0.970 | 0.900 | 0.954 |
+| 모든 날, 모든 순간 Every day, Every Moment | 0.567 | 0.409 | 0.844 | 0.960 | 0.893 | 1.000 |
+
+**K-POP Ballad 평균** | 0.498 | 0.438 | 0.834 | 0.965 | 0.896 | 0.977 |
+
+### K-POP Dance (12곡)
+
+| 곡제목 | V0 (BT) | V0 (madmom) | V1 (BT) | V1 (madmom) | V2 (BT) | V2 (madmom) |
+|--------|---------|-----------|---------|-----------|---------|----------|
+| BLACKPINK - 'Kill This Love' MV | 0.494 | 0.474 | 0.829 | 0.979 | 0.939 | 0.979 |
+| Golden | 0.440 | 0.511 | 0.647 | 0.833 | 0.818 | 0.874 |
+| ILLIT (아일릿) 'Lucky Girl Syndrome' Official MV | 0.985 | 0.848 | 0.914 | 0.967 | 0.965 | 0.971 |
+| ILLIT (아일릿) ‘Cherish (My Love)’ Dance Practice (Fix Ver.) | 0.288 | 0.311 | 0.458 | 0.620 | 0.839 | 0.764 |
+| ILLIT(아일릿) 'It’s Me' (4K)  STUDIO CHOOM ORIGINAL | 0.179 | 0.357 | 0.827 | 0.989 | 0.852 | 0.987 |
+| IYKYK (If You Know You Know) | 0.273 | 0.283 | 0.820 | 0.883 | 0.965 | 0.998 |
+| LE SSERAFIM(르세라핌) 'SPAGHETTI' (4K)  STUDIO CHOOM ORIGINAL | 0.529 | 0.443 | 0.741 | 0.846 | 0.930 | 0.944 |
+| Magnetic | 0.381 | 0.343 | 0.791 | 0.976 | 0.496 | 0.525 |
+| Midnight Fiction | 0.275 | 0.282 | 0.685 | 0.944 | 0.928 | 0.968 |
+| Soda Pop Official Lyric Video  KPop Demon Hunters  Sony Animation | 0.287 | 0.299 | 0.830 | 0.994 | 0.873 | 0.968 |
+| Stray Kids 神메뉴(God's Menu) MV | 0.219 | 0.378 | 0.580 | 0.947 | 0.599 | 0.942 |
+| Tick-Tack | 0.281 | 0.298 | 0.826 | 0.953 | 0.978 | 0.988 |
+
+**K-POP Dance 평균** | 0.386 | 0.402 | 0.746 | 0.911 | 0.848 | 0.909 |
+
+### K-POP Pop (9곡)
+
+| 곡제목 | V0 (BT) | V0 (madmom) | V1 (BT) | V1 (madmom) | V2 (BT) | V2 (madmom) |
+|--------|---------|-----------|---------|-----------|---------|----------|
+| Almond Chocolate | 0.996 | 0.617 | 0.941 | 0.981 | 0.986 | 0.999 |
+| Attention | 0.278 | 0.268 | 0.885 | 0.902 | 0.878 | 0.898 |
+| Celebrity (Celebrity) | 0.440 | 0.417 | 0.812 | 0.995 | 0.692 | 0.794 |
+| Entrance | 0.455 | 0.339 | 0.329 | 0.439 | 0.786 | 1.000 |
+| Good Goodbye | 0.647 | 0.658 | 0.790 | 0.870 | 0.880 | 0.971 |
+| My World | 0.283 | 0.267 | 0.808 | 0.971 | 0.957 | 0.974 |
+| Pimple | 0.248 | 0.253 | 0.565 | 0.618 | 0.946 | 0.984 |
+| TOMBOY | 0.257 | 0.278 | 0.573 | 0.653 | 0.928 | 0.927 |
+| iKON - ‘사랑을 했다(LOVE SCENARIO)’ MV | 0.250 | 0.184 | 0.878 | 0.937 | 0.993 | 0.989 |
+
+**K-POP Pop 평균** | 0.428 | 0.364 | 0.731 | 0.818 | 0.894 | 0.948 |
 
 ### Other (1곡)
 
-| # | 곡제목 | V0 (madmom) | V0 (BT) | V1 (madmom) | V1 (BT) | V2 (madmom) | V2 (BT) |
-|---|--------|-----------|---------|-----------|---------|-----------|----------|
-| 1 | The_Drum_cover_by_COOMO | 0.448 | 0.408 | 0.500 | 0.460 | 0.500 | 0.460 |
+| 곡제목 | V0 (BT) | V0 (madmom) | V1 (BT) | V1 (madmom) | V2 (BT) | V2 (madmom) |
+|--------|---------|-----------|---------|-----------|---------|----------|
+| The_Drum_cover_by_COOMO | 0.318 | 0.285 | 0.473 | 0.514 | 0.488 | 0.469 |
+
+**Other 평균** | 0.318 | 0.285 | 0.473 | 0.514 | 0.488 | 0.469 |
+
+### POP (3곡)
+
+| 곡제목 | V0 (BT) | V0 (madmom) | V1 (BT) | V1 (madmom) | V2 (BT) | V2 (madmom) |
+|--------|---------|-----------|---------|-----------|---------|----------|
+| Charlie Puth - Attention [Official Video] | 0.308 | 0.125 | 0.907 | 0.922 | 0.963 | 0.971 |
+| Dynamite | 0.997 | 0.414 | 0.819 | 0.895 | 0.984 | 0.988 |
+| Ed Sheeran - Shape of You (Official Music Video) | 0.246 | 0.263 | 0.231 | 0.253 | 0.266 | 0.275 |
+
+**POP 평균** | 0.517 | 0.267 | 0.652 | 0.690 | 0.737 | 0.745 |
+
+### Unknown (4곡)
+
+| 곡제목 | V0 (BT) | V0 (madmom) | V1 (BT) | V1 (madmom) | V2 (BT) | V2 (madmom) |
+|--------|---------|-----------|---------|-----------|---------|----------|
+| BLACKPINK - ‘뛰어(JUMP)’ MV | 0.293 | 0.328 | 0.853 | 0.941 | 0.879 | 0.927 |
+| I’ll Like You | 0.317 | 0.288 | 0.812 | 0.977 | 0.958 | 0.993 |
+| aespa 에스파 'Next Level' MV | 0.248 | 0.256 | 0.738 | 0.787 | 0.784 | 0.799 |
+| aespa 에스파 'Supernova' MV | 0.948 | 0.240 | 0.757 | 0.915 | 0.760 | 0.763 |
+
+**Unknown 평균** | 0.451 | 0.278 | 0.790 | 0.905 | 0.845 | 0.871 |
+
 
 ---
 
-## 📈 장르별 평균 정확도
+## 🏆 성능 순위 (V2 가중평균 기준)
 
-### madmom 기준
+### 상위 15곡
 
-| 장르 | 곡수 | V0 평균 | V1 평균 | V2 평균 |
-|------|------|--------|--------|--------|
-| K-POP Dance | 16 | 0.860 | 0.923 | 0.909 |
-| K-POP Pop | 9 | 0.758 | 0.821 | 0.960 |
-| K-POP Ballad | 2 | 0.899 | 0.965 | 0.977 |
-| POP | 3 | 0.735 | 0.798 | 0.908 |
-| CLASSICAL | 1 | 0.915 | 0.969 | 0.283 |
-| Other | 1 | 0.446 | 0.500 | 0.500 |
+| 순위 | 곡제목 | 장르 | V2 (BT) | V2 (madmom) | 가중평균 |
+|------|--------|------|---------|-----------|----------|
+| 1 | iKON - ‘사랑을 했다(LOVE SCENARIO)’ MV | K-POP Pop | 0.993 | 0.989 | 0.991 |
+| 2 | Almond Chocolate | K-POP Pop | 0.986 | 0.999 | 0.991 |
+| 3 | Dynamite | POP | 0.984 | 0.988 | 0.985 |
+| 4 | Tick-Tack | K-POP Dance | 0.978 | 0.988 | 0.982 |
+| 5 | IYKYK (If You Know You Know) | K-POP Dance | 0.965 | 0.998 | 0.978 |
+| 6 | I’ll Like You | Unknown | 0.958 | 0.993 | 0.972 |
+| 7 | ILLIT (아일릿) 'Lucky Girl Syndrome' Official MV | K-POP Dance | 0.965 | 0.971 | 0.967 |
+| 8 | Charlie Puth - Attention [Official Video] | POP | 0.963 | 0.971 | 0.966 |
+| 9 | My World | K-POP Pop | 0.957 | 0.974 | 0.964 |
+| 10 | Pimple | K-POP Pop | 0.946 | 0.984 | 0.961 |
+| 11 | BLACKPINK - 'Kill This Love' MV | K-POP Dance | 0.939 | 0.979 | 0.955 |
+| 12 | Midnight Fiction | K-POP Dance | 0.928 | 0.968 | 0.944 |
+| 13 | 모든 날, 모든 순간 Every day, Every Moment | K-POP Ballad | 0.893 | 1.000 | 0.936 |
+| 14 | LE SSERAFIM(르세라핌) 'SPAGHETTI' (4K)  STUDIO CHOOM ORIGINAL | K-POP Dance | 0.930 | 0.944 | 0.936 |
+| 15 | TOMBOY | K-POP Pop | 0.928 | 0.927 | 0.928 |
 
-### Beat Transformer 기준
+### 하위 15곡
 
-| 장르 | 곡수 | V0 평균 | V1 평균 | V2 평균 |
-|------|------|--------|--------|--------|
-| K-POP Dance | 16 | 0.858 | 0.921 | 0.907 |
-| K-POP Pop | 9 | 0.759 | 0.822 | 0.961 |
-| K-POP Ballad | 2 | 0.885 | 0.952 | 0.964 |
-| POP | 3 | 0.744 | 0.807 | 0.917 |
-| CLASSICAL | 1 | 0.896 | 0.950 | 0.264 |
-| Other | 1 | 0.461 | 0.515 | 0.515 |
-
----
-
-## 📊 전체 평균 정확도
-
-| GT 엔진 | V0 | V1 | V2 |
-|--------|-----|-----|-----|
-| madmom | 0.809 | 0.873 | 0.895 |
-| Beat Transformer | 0.807 | 0.871 | 0.893 |
-
-### 가중 평균 (madmom 60% + BT 40%)
-
-| 버전 | 가중 평균 정확도 |
-|------|------------------|
-| V0 | 0.808 |
-| V1 | 0.872 |
-| V2 | 0.894 |
-
----
-
-## 🏆 성능 순위
-
-### madmom 기준 - 정확도 높은 상위 10곡 (V2)
-
-| 순위 | 곡제목 | 장르 | V2 정확도 |
-|------|--------|------|----------|
-| 1 | Let's go see the stars | K-POP Ballad | 0.977 |
-| 2 | 모든 날 모든 순간 | K-POP Ballad | 0.977 |
-| 3 | Almond Chocolate | K-POP Pop | 0.960 |
-| 4 | Attention (뉴진스) | K-POP Pop | 0.960 |
-| 5 | Celebrity | K-POP Pop | 0.960 |
-| 6 | Entrance | K-POP Pop | 0.960 |
-| 7 | Good Goodbye | K-POP Pop | 0.960 |
-| 8 | My World | K-POP Pop | 0.960 |
-| 9 | Pimple | K-POP Pop | 0.960 |
-| 10 | TOMBOY | K-POP Pop | 0.960 |
-
-### madmom 기준 - 정확도 낮은 상위 10곡 (V2)
-
-| 순위 | 곡제목 | 장르 | V2 정확도 |
-|------|--------|------|----------|
-| 1 | Bach Brandenburg Concerto | CLASSICAL | 0.283 |
-| 2 | The_Drum_cover_by_COOMO | Other | 0.500 |
-| 3 | Ed Sheeran - Shape of You | POP | 0.908 |
-| 4 | Dynamite | POP | 0.908 |
-| 5 | Charlie Puth - Attention | POP | 0.908 |
-| 6 | aespa Supernova | K-POP Dance | 0.909 |
-| 7 | aespa Next Level | K-POP Dance | 0.909 |
-| 8 | Tick-Tack | K-POP Dance | 0.909 |
-| 9 | Stray Kids God's Menu | K-POP Dance | 0.909 |
-| 10 | Soda Pop | K-POP Dance | 0.909 |
+| 순위 | 곡제목 | 장르 | V2 (BT) | V2 (madmom) | 가중평균 |
+|------|--------|------|---------|-----------|----------|
+| 1 | Ed Sheeran - Shape of You (Official Music Video) | POP | 0.266 | 0.275 | 0.269 |
+| 2 | [클래식을 좋아하세요! CD 01] Bach 01 Brandenburg Concerto No.3 In G Majo | CLASSICAL | 0.266 | 0.283 | 0.273 |
+| 3 | The_Drum_cover_by_COOMO | Other | 0.488 | 0.469 | 0.481 |
+| 4 | Magnetic | K-POP Dance | 0.496 | 0.525 | 0.507 |
+| 5 | Celebrity (Celebrity) | K-POP Pop | 0.692 | 0.794 | 0.733 |
+| 6 | Stray Kids 神메뉴(God's Menu) MV | K-POP Dance | 0.599 | 0.942 | 0.736 |
+| 7 | aespa 에스파 'Supernova' MV | Unknown | 0.760 | 0.763 | 0.761 |
+| 8 | aespa 에스파 'Next Level' MV | Unknown | 0.784 | 0.799 | 0.790 |
+| 9 | ILLIT (아일릿) ‘Cherish (My Love)’ Dance Practice (Fix Ver.) | K-POP Dance | 0.839 | 0.764 | 0.809 |
+| 10 | Golden | K-POP Dance | 0.818 | 0.874 | 0.840 |
+| 11 | Entrance | K-POP Pop | 0.786 | 1.000 | 0.872 |
+| 12 | Attention | K-POP Pop | 0.878 | 0.898 | 0.886 |
+| 13 | BLACKPINK - ‘뛰어(JUMP)’ MV | Unknown | 0.879 | 0.927 | 0.898 |
+| 14 | ILLIT(아일릿) 'It’s Me' (4K)  STUDIO CHOOM ORIGINAL | K-POP Dance | 0.852 | 0.987 | 0.906 |
+| 15 | Soda Pop Official Lyric Video  KPop Demon Hunters  Sony Animation | K-POP Dance | 0.873 | 0.968 | 0.911 |
 
 ---
 
-## 💡 주요 발견
+## 📋 최종 요약
 
-### 1. 버전별 성능
-- **V0**: 가장 빠르지만 정확도 낮음 (madmom 기준: 80.9%)
-- **V1**: 속도와 정확도 균형 (madmom 기준: 87.3%)
-- **V2**: 가장 느리지만 정확도 높음 (madmom 기준: 89.5%)
+### 버전별 성능
+- **V0**: 가장 빠르지만 정확도 낮음 (36.1%)
+- **V1**: 속도와 정확도 균형 (78.6%)
+- **V2**: 가장 느리지만 정확도 높음 (82.1%)
 
-### 2. GT엔진별 차이
-- madmom과 Beat Transformer는 평균 0.25%p 차이
-- K-POP Pop 장르에서 가장 큰 차이 발생
-- CLASSICAL에서는 madmom이 더 높은 평가
+### GT엔진 특성
+- **Beat Transformer**: 더 엄격한 평가 기준
+- **madmom**: 상대적으로 관대한 평가
+- **권장**: 두 엔진의 가중평균(BT 60% + madmom 40%)을 정확도 지표로 활용
 
-### 3. 장르별 특성
-- **최고 성능**: K-POP Ballad (V2: 97.7%)
-- **최대 향상**: K-POP Pop (+13.9%p, V1→V2)
-- **가장 어려운 장르**: CLASSICAL (V2에서 정확도 급락)
+### 최고 성능 곡 (V2 가중평균 기준)
+**iKON - ‘사랑을 했다(LOVE SCENARIO)’ MV** (K-POP Pop): 0.991
 
-### 4. 추천 사용 시나리오
-- **V0**: 실시간 처리 필요 시 (정확도: 80.8%)
-- **V1**: 일반적인 사용 (정확도: 87.2%)
-- **V2**: 최고 정확도 필요 시 (정확도: 89.4%)
+### 최저 성능 곡 (V2 가중평균 기준)
+**Ed Sheeran - Shape of You (Official Music Video)** (POP): 0.269
 
 
