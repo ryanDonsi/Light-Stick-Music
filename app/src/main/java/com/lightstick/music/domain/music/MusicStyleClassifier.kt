@@ -5,24 +5,32 @@ import com.lightstick.music.core.constants.AppConstants
 import kotlin.math.sqrt
 
 /**
- * 음악 스타일 분류기 (6종).
+ * 음악 스타일 분류기 (7종).
  *
  * 입력: IIR 4밴드 envelope + beatMs + beats
  * 출력: MusicStyle
  *
  * 분류 우선순위:
- *  1. BALLAD    — 느린 템포 + 낮은 에너지
- *  2. EDM       — 빠른 템포 + 베이스 강함 + 비트 규칙성 최고 + onset 밀도 높음
- *  3. DANCE_POP — 빠른 템포 + 베이스 높음 + 규칙적
- *  4. HIPHOP_RNB— 중간 템포 + 베이스 강함 + 규칙성 낮음
- *  5. ROCK      — 고음역 비율 높음 + energyFlux 큼
- *  6. POP       — catch-all
+ *  1. TROT      — 느린-중간 템포 + 매우 높은 저음 비율 + 매우 낮은 고음 + 극도로 규칙적인 비트
+ *  2. BALLAD    — 느린 템포 + 낮은 에너지
+ *  3. EDM       — 빠른 템포 + 베이스 강함 + 비트 규칙성 최고 + onset 밀도 높음
+ *  4. DANCE_POP — 빠른 템포 + 베이스 높음 + 규칙적
+ *  5. HIPHOP_RNB— 중간 템포 + 베이스 강함 + 규칙성 낮음
+ *  6. ROCK      — 고음역 비율 높음 + energyFlux 큼
+ *  7. POP       — catch-all
  */
 object MusicStyleClassifier {
 
     private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
     // ── 임계값 ────────────────────────────────────────────────────
+
+    // TROT (트로트: 느린 한국 대중가요, 매우 높은 저음 비율 + 극도로 규칙적)
+    private const val TROT_BEAT_MS_MIN          = 350L
+    private const val TROT_BEAT_MS_MAX          = 550L
+    private const val TROT_LOW_RATIO_MIN        = 0.60f   // 저음 비율 60% 이상
+    private const val TROT_HIGH_RATIO_MAX       = 0.05f   // 고음 비율 5% 이하
+    private const val TROT_PERIODICITY_MIN      = 0.95f   // 극도로 규칙적인 비트
 
     // BALLAD
     private const val BALLAD_BEAT_MS_MIN        = 700L
@@ -52,7 +60,7 @@ object MusicStyleClassifier {
 
     // ── 공개 API ──────────────────────────────────────────────────
 
-    enum class MusicStyle { EDM, DANCE_POP, HIPHOP_RNB, BALLAD, ROCK, POP }
+    enum class MusicStyle { TROT, EDM, DANCE_POP, HIPHOP_RNB, BALLAD, ROCK, POP }
 
     data class ClassifyResult(
         val style: MusicStyle,
@@ -118,6 +126,7 @@ object MusicStyleClassifier {
         // ── 2. 분류 (우선순위 순) ─────────────────────────────────
 
         val style = when {
+            isTrotStyle(beatMs, lowRatio, highRatio, periodicity)       -> MusicStyle.TROT
             isBalladStyle(beatMs, avgFull)                              -> MusicStyle.BALLAD
             isEdmStyle(beatMs, lowRatio, periodicity, onsetDensity)     -> MusicStyle.EDM
             isDancePop(beatMs, lowRatio, periodicity)                   -> MusicStyle.DANCE_POP
@@ -147,6 +156,16 @@ object MusicStyleClassifier {
     }
 
     // ── 분류 조건 ─────────────────────────────────────────────────
+
+    private fun isTrotStyle(
+        beatMs: Long, lowRatio: Float, highRatio: Float, periodicity: Float
+    ): Boolean {
+        if (beatMs < TROT_BEAT_MS_MIN || beatMs >= TROT_BEAT_MS_MAX) return false
+        // 매우 높은 저음 비율 + 극도로 낮은 고음 + 극도로 규칙적인 비트
+        return lowRatio >= TROT_LOW_RATIO_MIN &&
+               highRatio <= TROT_HIGH_RATIO_MAX &&
+               periodicity >= TROT_PERIODICITY_MIN
+    }
 
     private fun isBalladStyle(beatMs: Long, avgEnergy: Float): Boolean {
         if (beatMs < BALLAD_BEAT_MS_MIN) return false
