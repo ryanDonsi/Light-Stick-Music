@@ -25,12 +25,13 @@ object MusicStyleClassifier {
 
     // ── 임계값 ────────────────────────────────────────────────────
 
-    // TROT (트로트: 느린 한국 대중가요, 매우 높은 저음 비율 + 극도로 규칙적)
+    // TROT (트로트: 느린 한국 대중가요, 높은 저음 + 높은 중음(보컬) + 극도로 규칙적)
     private const val TROT_BEAT_MS_MIN          = 350L
     private const val TROT_BEAT_MS_MAX          = 550L
     private const val TROT_LOW_RATIO_MIN        = 0.60f   // 저음 비율 60% 이상
     private const val TROT_HIGH_RATIO_MAX       = 0.05f   // 고음 비율 5% 이하
-    private const val TROT_PERIODICITY_MIN      = 0.95f   // 극도로 규칙적인 비트
+    private const val TROT_MID_RATIO_MIN        = 0.10f   // 중음(보컬) 비율 10% 이상 — K-POP과 구분
+    private const val TROT_PERIODICITY_MIN      = 0.96f   // 극도로 규칙적인 비트 (0.95→0.96 강화)
 
     // BALLAD
     private const val BALLAD_BEAT_MS_MIN        = 700L
@@ -126,7 +127,7 @@ object MusicStyleClassifier {
         // ── 2. 분류 (우선순위 순) ─────────────────────────────────
 
         val style = when {
-            isTrotStyle(beatMs, lowRatio, highRatio, periodicity)       -> MusicStyle.TROT
+            isTrotStyle(beatMs, lowRatio, midRatio, highRatio, periodicity) -> MusicStyle.TROT
             isBalladStyle(beatMs, avgFull)                              -> MusicStyle.BALLAD
             isEdmStyle(beatMs, lowRatio, periodicity, onsetDensity)     -> MusicStyle.EDM
             isDancePop(beatMs, lowRatio, periodicity)                   -> MusicStyle.DANCE_POP
@@ -158,12 +159,13 @@ object MusicStyleClassifier {
     // ── 분류 조건 ─────────────────────────────────────────────────
 
     private fun isTrotStyle(
-        beatMs: Long, lowRatio: Float, highRatio: Float, periodicity: Float
+        beatMs: Long, lowRatio: Float, midRatio: Float, highRatio: Float, periodicity: Float
     ): Boolean {
         if (beatMs < TROT_BEAT_MS_MIN || beatMs >= TROT_BEAT_MS_MAX) return false
-        // 매우 높은 저음 비율 + 극도로 낮은 고음 + 극도로 규칙적인 비트
+        // 높은 저음 + 높은 중음(보컬) + 낮은 고음 + 극도로 규칙적인 비트 (K-POP과 구분)
         return lowRatio >= TROT_LOW_RATIO_MIN &&
                highRatio <= TROT_HIGH_RATIO_MAX &&
+               midRatio >= TROT_MID_RATIO_MIN &&
                periodicity >= TROT_PERIODICITY_MIN
     }
 
