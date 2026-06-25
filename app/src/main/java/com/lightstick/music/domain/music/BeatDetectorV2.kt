@@ -391,6 +391,9 @@ object BeatDetectorV2 {
         val numIntv     = intervals.size
         if (numIntv == 0 || odf.size < minInterval * 2) return minBeatMs
 
+        val LOG_BPM_CENTER = ln(120f)
+        val LOG_BPM_SX2    = 2f * 0.5f * 0.5f  // σ=0.5 (log-BPM) — 옥타브 오류 강하게 방지
+
         val totalStates    = intervals.sum()
         val stateIntv      = IntArray(totalStates)
         val statePos       = IntArray(totalStates)
@@ -417,10 +420,22 @@ object BeatDetectorV2 {
         }
 
         val LOG_ZERO    = -1e9f
-        val logInitUnif = -ln(numIntv.toFloat())  // madmom: uniform initial distribution
+
+        // Initial distribution: log-BPM prior (tempos near 120 BPM favored)
+        val logInitDist = FloatArray(numIntv) { ii ->
+            val bpm   = 60_000f / intervals[ii].toFloat()
+            val d     = ln(bpm) - LOG_BPM_CENTER
+            val prior = exp(-(d * d) / LOG_BPM_SX2.toDouble()).toFloat()
+            ln(prior.coerceAtLeast(1e-6f))
+        }
+        val initMax = logInitDist.max(); var initSumE = 0.0
+        for (v in logInitDist) initSumE += exp((v - initMax).toDouble())
+        val initLogZ = initMax + ln(initSumE.toFloat())
+        for (i in logInitDist.indices) logInitDist[i] -= initLogZ
+
         var logFwd = FloatArray(totalStates) { LOG_ZERO }
         for (ii in 0 until numIntv) {
-            logFwd[intvStartState[ii]] = logInitUnif  // 균등 초기 prior — madmom과 동일
+            logFwd[intvStartState[ii]] = logInitDist[ii]  // log-BPM prior를 초기 분포에 직접 적용
         }
 
         val intvBeatAccum = FloatArray(numIntv)
@@ -471,9 +486,6 @@ object BeatDetectorV2 {
             val cntB = (n.toFloat() / intervals[bestII]).coerceAtLeast(1f)
             if (intvBeatAccum[ii] / cntI > intvBeatAccum[bestII] / cntB) bestII = ii
         }
-
-        val LOG_BPM_CENTER = ln(120f)
-        val LOG_BPM_SX2    = 2f * 0.8f * 0.8f  // σ=0.8 (log-BPM) — 옥타브 오류 방지용 좁은 prior
 
         fun combPriorScore(beatMs: Long): Float {
             val fpb = max(1, (beatMs / hopMs).toInt())
