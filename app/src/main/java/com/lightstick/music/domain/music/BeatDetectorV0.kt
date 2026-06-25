@@ -3,49 +3,21 @@ package com.lightstick.music.domain.music
 import android.util.Log
 import kotlin.math.*
 
-/**
- * BeatDetectorV0 (= 버전 14)
- *
- * librosa beat_track 충실 재현. V4 의 두 가지 근본 결함을 해소:
- *
- * 문제 A — BPM 오추정 (V4 8-seed comb filter)
- *   V4: 8개 이산 씨드(80/90/100/110/120/125/140/160 BPM)만 채점
- *   → 비표준 BPM(74/117.5/126/147.7 등)을 잡지 못함 → 30-60% BPM 오차
- *   수정: 모든 lag 에 대해 autocorrelation 연속 스윕 + log-normal prior 직접 곱셈
- *         harmonic folding 규칙 제거 → prior 가 octave 해소
- *         (librosa: ac_df * logprior, prior = exp(-0.5*(log2(bpm/120)/1octave)^2))
- *
- * 문제 B — 세그먼트 비트가 DP 를 덮어씀 (V4 segment merge)
- *   V4: segment 감지 비트(confidence≈0.5~1.0)가 DP FILL 비트(0.20) override
- *   → 잘못된 위상·BPM 의 세그먼트 비트가 전곡 DP 를 무력화
- *   수정: 전곡 DP 결과를 주 출력으로 사용, 세그먼트 루프는 DP 실패 시 fallback 만 사용
- *
- * 유지:
- *   - Multi-band flux ODF + localNormalizeMean (V4 Fix E)
- *   - Ellis DP, Gaussian local scoring, tightness=100 (V4 Rev3)
- *   - 고정 위상 보정 제거 (DP 가 자연스럽게 최적 위상 탐색)
- */
 object BeatDetectorV0 {
 
     private const val TAG = "AutoTimeline_BeatDetectorV0"
 
     private const val FILL_CONFIDENCE = 0.20f
-
     private const val LOCAL_NORM_WINDOW  = 60
     private const val GLOBAL_NORM_WINDOW = 80
-
     private const val TIME_SIG_THREE_RATIO = 1.20f
     private const val TIME_SIG_SIX_RATIO   = 1.25f
-
     private const val DOWNBEAT_W_LOW_ENERGY  = 0.50f
     private const val DOWNBEAT_W_BAR_COMB    = 0.30f
     private const val DOWNBEAT_W_CONSISTENCY = 0.20f
 
-    // DBN 템포 추정 파라미터 (dbnEstimateTempo 에서 사용)
-    private const val DBN_TRANSITION_LAMBDA  = 100f  // 템포 변경 패널티 (높을수록 안정)
-    private const val DBN_OBSERVATION_LAMBDA = 8     // 박자 존 폭 = 1/8 (madmom 기본값 1/16보다 넓게)
-
-    // DP 실패 판단 기준: 예상 비트 수의 25% 미만이면 fallback
+    private const val DBN_TRANSITION_LAMBDA  = 100f
+    private const val DBN_OBSERVATION_LAMBDA = 8
     private const val DP_MIN_BEAT_RATIO = 0.25f
 
     data class TimedBeat(val timeMs: Long, val confidence: Float)
@@ -94,10 +66,6 @@ object BeatDetectorV0 {
         val beatTimesMs: List<Long> get() = beats.map { it.timeMs }
     }
 
-    // =========================================================================
-    // Public entry point
-    // =========================================================================
-
     fun detect(
         lowEnv: List<Float>,
         midEnv: List<Float>,
@@ -114,26 +82,17 @@ object BeatDetectorV0 {
         val full       = fullEnv.take(minSize)
         val durationMs = minSize * params.hopMs
 
-        // ── 1. Multi-band flux ODF ────────────────────────────────────────────
         val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)
-
-        // ── 2. DBN 템포 추정 (madmom DBNBeatTracker 방식) ────────────────────
-        //    autocorrelation + prior 대신 HMM Forward 알고리즘으로 (tempo, phase) 동시 추정
-        //    → 2×/0.5× BPM 오류를 구조적으로 방지
         val beatMs = dbnEstimateTempo(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs,
                                       DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA)
         Log.d(TAG, "V0 beatMs=$beatMs (${60_000L / beatMs} BPM) durationMs=$durationMs")
 
-        // ── 3. 위상 추정 (comb-phase) — DP 앵커로 사용 ───────────────────────
-        //    DP가 잘못된 위상에 수렴하는 문제(Dynamite 등) 방지
         val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
         Log.d(TAG, "V0 phaseMs=$phaseMs")
 
-        // ── 4. Global DP (전곡 단위, 위상 앵커 주입) ─────────────────────────
         val dpTimes = dpBeatTracker(globalOdf, beatMs, params.hopMs, durationMs, anchorMs = phaseMs)
         Log.d(TAG, "V0 dpTimes=${dpTimes.size}")
 
-        // DP 품질 검증
         val expectedBeats = max(1, (durationMs / beatMs).toInt())
         val dpOk = dpTimes.size >= max(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
 
@@ -171,35 +130,13 @@ object BeatDetectorV0 {
         )
     }
 
-    // =========================================================================
-    // DBN 템포 추정 — madmom DBNBeatTrackingProcessor 핵심 알고리즘 이식
-    //
-    // autocorrelation + prior 방식의 근본 문제인 2×/0.5× BPM 오류를
-    // HMM Forward 알고리즘으로 구조적으로 해소한다.
-    //
-    // 상태 공간:
-    //   각 후보 템포 interval i 에 대해 i 개의 위상 상태 (0..i-1) 존재
-    //   전체 상태 수 = sum(minInterval..maxInterval) ≈ 1,100 (20ms hop 기준)
-    //
-    // 전이 모델:
-    //   위상 내부: state(p, i) → state(p+1, i)  확률 1.0 (결정론적)
-    //   박자 경계: state(last, i) → state(0, j)  ∝ exp(-λ × |j/i - 1|)
-    //              → 템포 변경에 지수 패널티 → 2×/0.5× 점프 구조적 억제
-    //
-    // 관측 모델:
-    //   박자 위치(p=0): log(odf[t])
-    //   비박자 위치:    log((1-odf[t]) / (obsLambda-1))
-    //
-    // 복잡도: O(n × S) = O(12,000 × 1,100) ≈ 13M ops → 20ms 이하
-    // =========================================================================
-
     private fun dbnEstimateTempo(
         odf: List<Float>,
         hopMs: Long,
         minBeatMs: Long,
         maxBeatMs: Long,
         transitionLambda: Float = 100f,
-        observationLambda: Int  = 8       // madmom default 16 → 우리 ODF 는 피크 폭이 넓어 8 사용
+        observationLambda: Int  = 8
     ): Long {
         val minInterval = max(1, (minBeatMs / hopMs).toInt())
         val maxInterval = max(minInterval + 1, (maxBeatMs / hopMs).toInt())
@@ -207,7 +144,6 @@ object BeatDetectorV0 {
         val numIntv     = intervals.size
         if (numIntv == 0 || odf.size < minInterval * 2) return minBeatMs
 
-        // ── 상태 공간 구축 ──────────────────────────────────────────────────
         val totalStates     = intervals.sum()
         val stateIntv       = IntArray(totalStates)
         val statePos        = IntArray(totalStates)
@@ -226,7 +162,6 @@ object BeatDetectorV0 {
             }
         }
 
-        // ── 박자 경계 로그 전이 확률 사전 계산 ─────────────────────────────
         val bbLogTrans = Array(numIntv) { fromII ->
             val fi  = intervals[fromII].toFloat()
             val raw = FloatArray(numIntv) { toII ->
@@ -239,9 +174,6 @@ object BeatDetectorV0 {
             FloatArray(numIntv) { toII -> raw[toII] - logZ }
         }
 
-        // ── HMM Forward (Viterbi-max 근사, log 도메인) ──────────────────────
-        // 초기 분포: 약한 log-Gaussian prior (σ=1.2, center=120 BPM)
-        //   - 느린곡(66-78 BPM)의 octave 오류를 막되 과도하게 당기지 않도록 넓은 sigma
         val LOG_ZERO           = -1e9f
         val logInitUnif        = -ln(numIntv.toFloat())
         val dbnPriorCenter     = ln(120f)
@@ -253,7 +185,7 @@ object BeatDetectorV0 {
             logFwd[intvStartState[ii]] = logInitUnif - (diff * diff) / dbnPriorSigmaX2
         }
 
-        val intvBeatAccum = FloatArray(numIntv)  // accumulated beat-start probability per interval
+        val intvBeatAccum = FloatArray(numIntv)
 
         val n = odf.size
         for (t in 0 until n) {
@@ -261,7 +193,6 @@ object BeatDetectorV0 {
             val logBeat    = ln(act)
             val logNonBeat = ln((1f - act) / (observationLambda - 1).toFloat())
 
-            // 각 interval 의 마지막 상태 log 확률 캐싱 (박자 경계 계산용)
             val lastLogFwd = FloatArray(numIntv) { ii ->
                 logFwd[intvStartState[ii] + intervals[ii] - 1]
             }
@@ -286,14 +217,12 @@ object BeatDetectorV0 {
                 if (logPrev > LOG_ZERO) logFwdNew[st] = logPrev + logObs
             }
 
-            // 언더플로 방지 정규화
             val peak = logFwdNew.max()
             if (peak > LOG_ZERO) for (i in logFwdNew.indices) {
                 if (logFwdNew[i] > LOG_ZERO) logFwdNew[i] -= peak
             }
             logFwd = logFwdNew
 
-            // 박자 시작 상태의 확률을 누적 (전 프레임에 걸쳐 합산)
             for (ii in 0 until numIntv) {
                 val bss = intvStartState[ii]
                 if (logFwd[bss] > LOG_ZERO) {
@@ -302,9 +231,6 @@ object BeatDetectorV0 {
             }
         }
 
-        // ── per-beat 정규화 후 최적 tempo 추출 ──────────────────────────────
-        // 각 interval 의 기대 박자 수(n/interval)로 나눠 평균 확률로 비교
-        // → 느린 interval 이 총 누적값이 높아도 평균이 낮으면 탈락
         var bestII = 0
         for (ii in 1 until numIntv) {
             val cntI = (n.toFloat() / intervals[ii]).coerceAtLeast(1f)
@@ -312,15 +238,9 @@ object BeatDetectorV0 {
             if (intvBeatAccum[ii] / cntI > intvBeatAccum[bestII] / cntB) bestII = ii
         }
 
-        // ── 하모닉 옥타브 보정 ────────────────────────────────────────────────
         val LOG_BPM_CENTER  = ln(120f)
-        val LOG_BPM_SX2     = 2f * 1.5f * 1.5f  // 2σ²
+        val LOG_BPM_SX2     = 2f * 1.5f * 1.5f
 
-        // combPriorScore: raw sum (fpb/n 정규화 제거)
-        // 이유: * fpb/n 는 저BPM 이 유리해지는 편향 발생
-        //   - 120BPM 곡을 60BPM 으로 잘못 감지 시: 60BPM raw ≈ 120BPM raw (수학적 동등)
-        //   - prior(120BPM)=1.0 > prior(60BPM)=0.90 → 120BPM 선택 → 0.5× 오류 수정
-        //   - 진짜 66BPM 곡: 66BPM raw ≈ 2× 132BPM raw → 66BPM 유지 → 느린 곡 보호
         fun combPriorScore(beatMs: Long): Float {
             val raw   = combFilterScore(odf, beatMs, hopMs)
             val bpm   = 60_000f / beatMs.toFloat()
@@ -333,15 +253,6 @@ object BeatDetectorV0 {
         var bestCorrMs  = resultMs
         var bestCorrPBS = combPriorScore(resultMs)
 
-        // harmRatios: 0.5(2x 업스케일), 4/3(4/3x 다운스케일) 유지
-        //   0.5  → DBN이 0.5x 잘못 감지 시 2x 보정 (Dynamite 류)
-        //   4/3  → DBN이 4/3x 잘못 감지 시 3/4x 보정 (사랑을 했다: 157→117BPM)
-        //          raw 정규화 fix 덕에 이전 오탐(133→100, 107→81)은 재발 없음
-        //          (올바른 BPM의 raw comb score >> 4/3 후보의 raw comb score)
-        // 제거된 비율과 그 이유:
-        //   2/3  → 74BPM → 111BPM (1.5× 오류 3곡 원인)
-        //   1.5  → 117BPM → 78BPM (0.67× 오류 원인)
-        //   2.0  → 역방향(느리게)으로 오탐 가능성
         val harmRatios  = floatArrayOf(0.5f, 4f/3f)
         for (r in harmRatios) {
             val frames = ((resultMs.toFloat() * r) / hopMs.toFloat() + 0.5f).toInt()
@@ -361,7 +272,6 @@ object BeatDetectorV0 {
         return bestCorrMs
     }
 
-    // 옥타브 보정용: 최적 위상에서의 comb filter ODF 합 반환
     private fun combFilterScore(odf: List<Float>, beatMs: Long, hopMs: Long): Float {
         val fpb = max(1, (beatMs / hopMs).toInt())
         if (odf.size < fpb * 2) return 0f
@@ -373,16 +283,6 @@ object BeatDetectorV0 {
         }
         return best
     }
-
-    // =========================================================================
-    // 위상 추정 — comb-phase scoring
-    //
-    // 모든 가능한 위상(0..fpb-1)에 대해 해당 위상으로 grid를 놓았을 때
-    // ODF 합계를 계산하고 최대 위상을 반환한다.
-    //
-    // 이 함수로 얻은 phaseMs 를 DP 앵커로 사용하면 Dynamite 류의
-    // "BPM은 맞지만 위상 완전 오류" 문제를 방지한다.
-    // =========================================================================
 
     private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
         val fpb = max(1, (beatMs / hopMs).toInt())
@@ -396,23 +296,12 @@ object BeatDetectorV0 {
         return bestPhase.toLong() * hopMs
     }
 
-    // =========================================================================
-    // Ellis DP Beat Tracker — Gaussian local scoring + tightness=100 (V4 Rev3 유지)
-    //
-    // localscore[t] = conv(odf, gaussWin)[t]
-    //   gaussWin[k] = exp(-0.5*(k*32/fpb)^2),  k ∈ [-fpb, fpb]
-    //
-    // cumscore[t] = max_p { cumscore[p] - 100*(ln(t-p) - ln(fpb))^2 } + localscore[t]
-    //
-    // edge trimming: localscore < 0.5*RMS 인 앞뒤 비트 제거 (librosa trim=True)
-    // =========================================================================
-
     private fun dpBeatTracker(
         odf: List<Float>,
         targetPeriodMs: Long,
         hopMs: Long,
         durationMs: Long,
-        anchorMs: Long = 0L   // 위상 앵커: estimatePhaseFromOdf 결과를 주입하여 위상 오류 방지
+        anchorMs: Long = 0L
     ): LongArray {
         if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
         val n            = odf.size
@@ -420,7 +309,6 @@ object BeatDetectorV0 {
         val tightness    = 100.0f
         val anchorFrame  = if (anchorMs > 0L) (anchorMs / hopMs).toInt().coerceIn(0, n - 1) else -1
 
-        // ── Gaussian local scoring ──────────────────────────────────────────
         val gaussHalf = fpb
         val gaussSize = gaussHalf * 2 + 1
         val gaussWin  = FloatArray(gaussSize) { k ->
@@ -437,10 +325,6 @@ object BeatDetectorV0 {
             localscore[t] = s
         }
 
-        // ── DP ──────────────────────────────────────────────────────────────
-        // p == 0 또는 p == anchorFrame 이면 "자유 시작" 으로 pScore = 0 취급
-        // → anchorFrame(comb-phase 추정 위상)에서 chain 을 시작할 수 있어
-        //   전역 DP 가 잘못된 위상에 수렴하는 문제를 방지한다
         val cumscore = FloatArray(n) { Float.NEGATIVE_INFINITY }
         val prev     = IntArray(n)  { -1 }
         val searchRange = fpb * 2
@@ -463,7 +347,6 @@ object BeatDetectorV0 {
                           else bestVal + localscore[t]
         }
 
-        // ── Backtrack ────────────────────────────────────────────────────────
         var t     = cumscore.indices.maxByOrNull { cumscore[it] } ?: return LongArray(0)
         val beats = mutableListOf<Long>()
         var iter  = 0
@@ -474,7 +357,6 @@ object BeatDetectorV0 {
             t = p; iter++
         }
 
-        // ── Edge trimming (localscore < 0.5 * RMS) ──────────────────────────
         val result = beats.reversed().toLongArray()
         if (result.size < 2) return result
         val rms    = sqrt(localscore.map { it * it }.average().toFloat())
@@ -485,10 +367,6 @@ object BeatDetectorV0 {
         while (e > s && localscore[(result[e] / hopMs).toInt().coerceIn(0, n-1)] < trimTh) e--
         return if (s > e) result else result.sliceArray(s..e)
     }
-
-    // =========================================================================
-    // Fallback — 세그먼트 단위 DP (전곡 DP 실패 시에만 사용)
-    // =========================================================================
 
     private fun fallbackSegmentBeats(
         low: List<Float>, mid: List<Float>, full: List<Float>,
@@ -512,10 +390,6 @@ object BeatDetectorV0 {
         return result.sortedBy { it.timeMs }
     }
 
-    // =========================================================================
-    // Multi-band Positive Flux ODF (V4 Fix E 유지)
-    // =========================================================================
-
     private fun computeMultiBandFluxOdf(
         low: List<Float>, mid: List<Float>, full: List<Float>, params: Params
     ): List<Float> {
@@ -530,7 +404,6 @@ object BeatDetectorV0 {
         return localNormalizeMean(combined, GLOBAL_NORM_WINDOW)
     }
 
-    // Fix E: 배경 평균 제거 후 0-1 정규화
     private fun localNormalizeMean(src: List<Float>, windowFrames: Int): List<Float> {
         if (src.isEmpty()) return emptyList()
         val bgRemoved = ArrayList<Float>(src.size)
@@ -551,10 +424,6 @@ object BeatDetectorV0 {
         return out
     }
 
-    // =========================================================================
-    // 박자표 감지
-    // =========================================================================
-
     private fun detectTimeSignature(onset: List<Float>, beatMs: Long, hopMs: Long): TimeSignature {
         if (onset.size < 8 || beatMs <= 0L) return TimeSignature.FOUR_FOUR
         val bf    = (beatMs / hopMs).toInt().coerceAtLeast(1)
@@ -574,10 +443,6 @@ object BeatDetectorV0 {
         while (i + lag < onset.size) { sum += onset[i] * onset[i + lag]; i++ }
         return sum / i.toFloat().coerceAtLeast(1f)
     }
-
-    // =========================================================================
-    // 다운비트 감지
-    // =========================================================================
 
     private fun detectDownbeatEnhanced(
         beatTimesMs: List<Long>, lowEnv: List<Float>,
@@ -631,10 +496,6 @@ object BeatDetectorV0 {
 
         return beatTimesMs.getOrElse(bestPhase) { beatTimesMs.first() }
     }
-
-    // =========================================================================
-    // ODF utilities
-    // =========================================================================
 
     private fun computeOdf(env: List<Float>, smoothWindow: Int, normWindow: Int): List<Float> =
         localNormalizeMax(positiveDiff(movingAverage(env, smoothWindow)), normWindow)
