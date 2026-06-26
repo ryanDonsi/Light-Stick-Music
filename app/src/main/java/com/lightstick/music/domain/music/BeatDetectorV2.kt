@@ -430,6 +430,32 @@ object BeatDetectorV2 {
         }
         Log.d(TAG, "V2$t PRIOR_SNAP: $priorSnap")
 
+        // ════════════════════════════════════════════════════════════════════════════════════════
+        // 📊 조건 조정용 상세 메트릭 로그 (조건 검사 직전)
+        // ════════════════════════════════════════════════════════════════════════════════════════
+        if (halfLag >= minLag && bestAc > 0f) {
+            val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
+
+            // 메인 메트릭 로그 (파싱 가능한 형식)
+            Log.d(TAG, "BEAT_METRICS | song=$songName | bestLag=$bestLag | bestMs=$bestMs | bestBpm=$bestBpm | " +
+                "bestAc=$bestAc | bestPrior=$bestPrior | halfLag=$halfLag | halfMs=$halfMs | halfAc=$halfAc | " +
+                "halfRatio=$halfRatio | doubleLag=$doubleLag | doubleMs=$doubleMs | doubleAc=$doubleAc | " +
+                "doubleRatio=$doubleRatio | subBeatRatio=$subBeatRatio | tempoRatio=$tempoRatio | " +
+                "minLag=$minLag | maxLag=$maxLag | hopMs=$hopMs")
+
+            // 조건별 체크 결과 (디버깅용)
+            val cond1_tempoOk = tempoRatio in 1.95f..2.05f
+            val cond1_halfOk = halfRatio >= 0.68f
+            val cond2_halfOk = halfRatio >= BPM_HALF_TEMPO_RATIO
+            val cond3_tempoOk = tempoRatio in 1.95f..2.05f
+            val cond3_halfOk = halfRatio in 0.45f..0.59999f
+
+            Log.d(TAG, "BEAT_CONDITIONS | song=$songName | " +
+                "cond1=${if(cond1_tempoOk && cond1_halfOk) "✓" else "✗"}(tempo=$cond1_tempoOk half=$cond1_halfOk) | " +
+                "cond2=${if(cond2_halfOk) "✓" else "✗"}(half=$cond2_halfOk) | " +
+                "cond3=${if(cond3_tempoOk && cond3_halfOk) "✓" else "✗"}(tempo=$cond3_tempoOk half=$cond3_halfOk)")
+        }
+
         if (halfLag >= minLag && bestAc > 0f) {
             val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
 
