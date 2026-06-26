@@ -430,10 +430,32 @@ object BeatDetectorV2 {
         }
         Log.d(TAG, "V2$t PRIOR_SNAP: $priorSnap")
 
-        if (halfLag >= minLag && bestAc > 0f && halfRatio >= BPM_HALF_TEMPO_RATIO) {
-            Log.d(TAG, "V2$t halfTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
-                " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM) ratio=$halfRatio")
-            return halfMs
+        if (halfLag >= minLag && bestAc > 0f) {
+            // ── 1️⃣ 명시적 2배 Octave Error 감지 (1.9-2.1배) ───────────────────
+            // 장윤정 - 초혼 (142.86 BPM → 71.8 BPM): ratio=1.990
+            val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
+            if (tempoRatio in 1.9f..2.1f && halfRatio >= 0.50f) {
+                Log.d(TAG, "V2$t halfTempoFix FIRED (2x octave): ${bestMs}ms(${bestBpm}BPM)" +
+                    " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
+                    " ratio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)}")
+                return halfMs
+            }
+
+            // ── 2️⃣ 일반 half-tempo (기존 조건) ──────────────────────────────
+            if (halfRatio >= BPM_HALF_TEMPO_RATIO) {
+                Log.d(TAG, "V2$t halfTempoFix FIRED (normal): ${bestMs}ms(${bestBpm}BPM)" +
+                    " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM) ratio=$halfRatio")
+                return halfMs
+            }
+
+            // ── 3️⃣ 약한 반박자 감지 (Ed Sheeran Shape of You 해결) ────────────
+            // subBeatRatio < 0.45 → 현재 lag는 반박자일 가능성 높음
+            if (subBeatRatio < 0.45f && halfRatio >= 0.55f) {
+                Log.d(TAG, "V2$t halfTempoFix FIRED (weak subbeat): ${bestMs}ms(${bestBpm}BPM)" +
+                    " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
+                    " halfRatio=$halfRatio subRatio=$subBeatRatio")
+                return halfMs
+            }
         }
 
         if (doubleLag <= maxLag && doubleRatio >= BPM_DOUBLE_TEMPO_RATIO
