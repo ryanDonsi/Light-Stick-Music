@@ -458,30 +458,27 @@ object BeatDetectorV2 {
 
         if (halfLag >= minLag && bestAc > 0f) {
             val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
+            val normLag = (bestLag - minLag).toFloat() / (maxLag - minLag).toFloat()
 
-            // ── 1️⃣ 명시적 2배 Octave Error 감지 (1.95-2.05배, halfRatio >= 0.68) ────
-            // Stray Kids God's Menu (78→157), 장윤정 초혼 (71→142) 해결
-            // 오탐 제거 (모든 날, 모든 순간 같은 경우 방지)
-            if (tempoRatio in 1.95f..2.05f && halfRatio >= 0.68f) {
-                Log.d(TAG, "V2$t halfTempoFix FIRED (2x octave): ${bestMs}ms(${bestBpm}BPM)" +
+            // ── 1️⃣ 명시적 2배 Octave Error (중간-높은 halfRatio + 약한신호 + 명확한 double) ────
+            // Stray Kids: tempoRatio=2.00 halfRatio=0.843 bestAc=1.5e-4 doubleRatio=1.059
+            // 오탐 제거: halfRatio를 0.75-0.90 범위로 제한하여 과도한 harmonic content 제외
+            // 보호: 모든 날(bestAc=1.25e-3 > 1.0e-3)
+            if (tempoRatio in 1.95f..2.05f && halfRatio in 0.75f..0.89999f && bestAc < 1.0e-03f && doubleRatio > 0f) {
+                Log.d(TAG, "V2$t halfTempoFix FIRED (2x octave strong): ${bestMs}ms(${bestBpm}BPM)" +
                     " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
-                    " ratio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)}")
+                    " halfRatio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)} bestAc=$bestAc doubleRatio=$doubleRatio")
                 return halfMs
             }
 
-            // ── 2️⃣ 일반 half-tempo (기존 조건) ──────────────────────────────
-            if (halfRatio >= BPM_HALF_TEMPO_RATIO) {
-                Log.d(TAG, "V2$t halfTempoFix FIRED (normal): ${bestMs}ms(${bestBpm}BPM)" +
-                    " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM) ratio=$halfRatio")
-                return halfMs
-            }
-
-            // ── 3️⃣ 약한 반박자 감지 (Ed Sheeran Shape of You 해결) ────────────
-            // 2배 tempoRatio + 약한 half-ratio (0.45~0.60) 감지
-            if (tempoRatio in 1.95f..2.05f && halfRatio in 0.45f..0.59999f) {
-                Log.d(TAG, "V2$t halfTempoFix FIRED (weak subbeat): ${bestMs}ms(${bestBpm}BPM)" +
+            // ── 2️⃣ 약한 신호 + 중간 halfRatio + 명확한 double (초혼, 사랑참 해결) ────
+            // 초혼: tempoRatio=1.98 halfRatio=0.618 bestAc=5.1e-4 doubleRatio=0.951
+            // 사랑참: tempoRatio=1.98 halfRatio=0.698 bestAc=9.6e-4 doubleRatio=0.912
+            // 보호: 모든 날(bestAc=1.25e-3), LE SSERAFIM(doubleRatio=0)
+            if (tempoRatio in 1.95f..2.05f && halfRatio in 0.60f..0.74999f && bestAc < 1.0e-03f && doubleRatio > 0f) {
+                Log.d(TAG, "V2$t halfTempoFix FIRED (2x moderate signal): ${bestMs}ms(${bestBpm}BPM)" +
                     " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
-                    " halfRatio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)}")
+                    " halfRatio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)} bestAc=$bestAc doubleRatio=$doubleRatio")
                 return halfMs
             }
         }
