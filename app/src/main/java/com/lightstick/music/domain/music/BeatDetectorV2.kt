@@ -431,11 +431,12 @@ object BeatDetectorV2 {
         Log.d(TAG, "V2$t PRIOR_SNAP: $priorSnap")
 
         if (halfLag >= minLag && bestAc > 0f) {
-            // ── 1️⃣ 명시적 2배 Octave Error 감지 (1.95-2.05배, 강한 half-ratio) ────
-            // Stray Kids God's Menu (78→157), 장윤정 곡들 (71→142) 해결
-            // 더 엄격한 조건으로 오탐 제거 (모든 날, 모든 순간 같은 경우 방지)
             val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
-            if (tempoRatio in 1.95f..2.05f && halfRatio >= 0.65f && bestAc > 0.15f) {
+
+            // ── 1️⃣ 명시적 2배 Octave Error 감지 (1.95-2.05배, halfRatio >= 0.68) ────
+            // Stray Kids God's Menu (78→157), 장윤정 초혼 (71→142) 해결
+            // 오탐 제거 (모든 날, 모든 순간 같은 경우 방지)
+            if (tempoRatio in 1.95f..2.05f && halfRatio >= 0.68f) {
                 Log.d(TAG, "V2$t halfTempoFix FIRED (2x octave): ${bestMs}ms(${bestBpm}BPM)" +
                     " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
                     " ratio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)}")
@@ -450,11 +451,11 @@ object BeatDetectorV2 {
             }
 
             // ── 3️⃣ 약한 반박자 감지 (Ed Sheeran Shape of You 해결) ────────────
-            // subBeatRatio < 0.45 → 현재 lag는 반박자일 가능성 높음
-            if (subBeatRatio < 0.45f && halfRatio >= 0.55f) {
+            // 2배 tempoRatio + 약한 half-ratio (0.45~0.60) 감지
+            if (tempoRatio in 1.95f..2.05f && halfRatio in 0.45f..0.59999f) {
                 Log.d(TAG, "V2$t halfTempoFix FIRED (weak subbeat): ${bestMs}ms(${bestBpm}BPM)" +
                     " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
-                    " halfRatio=$halfRatio subRatio=$subBeatRatio")
+                    " halfRatio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)}")
                 return halfMs
             }
         }
