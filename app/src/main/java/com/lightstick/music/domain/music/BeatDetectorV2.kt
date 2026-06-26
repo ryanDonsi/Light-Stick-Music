@@ -481,28 +481,40 @@ object BeatDetectorV2 {
             }
         }
 
-        // doubleTempoFix 조건 1: 심각한 2배 오류 (오류율 > 50%)
+        // doubleTempoFix Refined V3: 신뢰도 기반 2배 오류 감지
+        // 거짓양성 제거: bestAc < 0.002 필터 + 신뢰도 비율 필터
         val doubleErrorRate = kotlin.math.abs(doubleMs.toFloat() / bestMs.toFloat() - 1.0f) * 100
-        if (doubleLag <= maxLag &&
-            doubleRatio > 0.5f &&
-            subBeatRatio < BPM_SUBBEAT_RATIO_MAX &&
-            doubleErrorRate > 50) {
-            Log.d(TAG, "V2$t doubleTempoFix CONDITION1 FIRED: ${bestMs}ms(${bestBpm}BPM)" +
-                " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
-                " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate%")
-            return doubleMs
-        }
 
-        // doubleTempoFix 조건 2: 중간 수준 오류 (25% < 오류율 ≤ 50%)
-        if (doubleLag <= maxLag &&
-            doubleRatio > 0.70f &&
-            subBeatRatio < BPM_SUBBEAT_RATIO_MAX &&
-            doubleErrorRate > 25 &&
-            doubleErrorRate <= 50) {
-            Log.d(TAG, "V2$t doubleTempoFix CONDITION2 FIRED: ${bestMs}ms(${bestBpm}BPM)" +
-                " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
-                " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate%")
-            return doubleMs
+        // 신뢰도 필터 추가 (bestAc가 0.002 이상이면 회피 - 이미 높은 신뢰도)
+        if (doubleLag <= maxLag && bestAc < 0.002f) {
+            // 신뢰도 비율 필터
+            val doubleAcRatio = if (bestAc > 0f) doubleAc / bestAc else 0f
+            val reliabilityFilterPass = (halfRatio >= 0.45f) || (halfRatio < 0.45f && doubleAcRatio >= 0.97f)
+
+            // doubleTempoFix 조건 1: 심각한 2배 오류 (오류율 > 50%)
+            if (doubleRatio > 0.5f &&
+                subBeatRatio < BPM_SUBBEAT_RATIO_MAX &&
+                doubleErrorRate > 50 &&
+                reliabilityFilterPass) {
+                Log.d(TAG, "V2$t doubleTempoFix CONDITION1 FIRED (Refined V3): ${bestMs}ms(${bestBpm}BPM)" +
+                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
+                    " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate% " +
+                    "bestAc=$bestAc halfRatio=$halfRatio doubleAcRatio=$doubleAcRatio")
+                return doubleMs
+            }
+
+            // doubleTempoFix 조건 2: 중간 수준 오류 (25% < 오류율 ≤ 50%)
+            if (doubleRatio > 0.70f &&
+                subBeatRatio < BPM_SUBBEAT_RATIO_MAX &&
+                doubleErrorRate > 25 &&
+                doubleErrorRate <= 50 &&
+                reliabilityFilterPass) {
+                Log.d(TAG, "V2$t doubleTempoFix CONDITION2 FIRED (Refined V3): ${bestMs}ms(${bestBpm}BPM)" +
+                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
+                    " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate% " +
+                    "bestAc=$bestAc halfRatio=$halfRatio doubleAcRatio=$doubleAcRatio")
+                return doubleMs
+            }
         }
 
         // doubleTempoFix 조건 3: 경계선 사례 (subBeatRatio 0.65~0.71, doubleRatio 0.85~0.95)
