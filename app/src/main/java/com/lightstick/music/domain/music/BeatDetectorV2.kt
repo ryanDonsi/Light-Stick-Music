@@ -431,10 +431,11 @@ object BeatDetectorV2 {
         Log.d(TAG, "V2$t PRIOR_SNAP: $priorSnap")
 
         if (halfLag >= minLag && bestAc > 0f) {
-            // ── 1️⃣ 명시적 2배 Octave Error 감지 (1.9-2.1배) ───────────────────
+            // ── 1️⃣ 명시적 2배 Octave Error 감지 (1.95-2.05배, 강한 half-ratio) ────
             // Stray Kids God's Menu (78→157), 장윤정 곡들 (71→142) 해결
+            // 더 엄격한 조건으로 오탐 제거 (모든 날, 모든 순간 같은 경우 방지)
             val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
-            if (tempoRatio in 1.9f..2.1f && halfRatio >= 0.50f) {
+            if (tempoRatio in 1.95f..2.05f && halfRatio >= 0.65f && bestAc > 0.15f) {
                 Log.d(TAG, "V2$t halfTempoFix FIRED (2x octave): ${bestMs}ms(${bestBpm}BPM)" +
                     " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
                     " ratio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)}")
