@@ -505,6 +505,17 @@ object BeatDetectorV2 {
             return doubleMs
         }
 
+        // doubleTempoFix 조건 3: 경계선 사례 (subBeatRatio 0.65~0.71, doubleRatio 0.85~0.95)
+        if (doubleLag <= maxLag &&
+            doubleRatio in 0.85f..0.95f &&
+            subBeatRatio in 0.65f..0.71f &&
+            doubleErrorRate > 50) {
+            Log.d(TAG, "V2$t doubleTempoFix CONDITION3 FIRED: ${bestMs}ms(${bestBpm}BPM)" +
+                " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
+                " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate% (borderline case)")
+            return doubleMs
+        }
+
         Log.d(TAG, "V2$t RESULT: ${bestMs}ms (${bestBpm}BPM)")
         return bestMs
     }
