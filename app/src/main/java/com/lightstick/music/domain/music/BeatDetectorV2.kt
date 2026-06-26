@@ -481,11 +481,27 @@ object BeatDetectorV2 {
             }
         }
 
-        if (doubleLag <= maxLag && doubleRatio >= BPM_DOUBLE_TEMPO_RATIO
-            && subBeatRatio < BPM_SUBBEAT_RATIO_MAX) {
-            Log.d(TAG, "V2$t doubleTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
+        // doubleTempoFix 조건 1: 심각한 2배 오류 (오류율 > 50%)
+        val doubleErrorRate = kotlin.math.abs(doubleMs.toFloat() / bestMs.toFloat() - 1.0f) * 100
+        if (doubleLag <= maxLag &&
+            doubleRatio > 0.5f &&
+            subBeatRatio < BPM_SUBBEAT_RATIO_MAX &&
+            doubleErrorRate > 50) {
+            Log.d(TAG, "V2$t doubleTempoFix CONDITION1 FIRED: ${bestMs}ms(${bestBpm}BPM)" +
                 " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
-                " doubleRatio=$doubleRatio subRatio=$subBeatRatio")
+                " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate%")
+            return doubleMs
+        }
+
+        // doubleTempoFix 조건 2: 중간 수준 오류 (25% < 오류율 ≤ 50%)
+        if (doubleLag <= maxLag &&
+            doubleRatio > 0.70f &&
+            subBeatRatio < BPM_SUBBEAT_RATIO_MAX &&
+            doubleErrorRate > 25 &&
+            doubleErrorRate <= 50) {
+            Log.d(TAG, "V2$t doubleTempoFix CONDITION2 FIRED: ${bestMs}ms(${bestBpm}BPM)" +
+                " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
+                " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate%")
             return doubleMs
         }
 
