@@ -460,25 +460,23 @@ object BeatDetectorV2 {
             val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
             val normLag = (bestLag - minLag).toFloat() / (maxLag - minLag).toFloat()
 
-            // ── 1️⃣ 명시적 2배 Octave Error (중간-높은 halfRatio + 약한신호 + 명확한 double) ────
-            // Stray Kids: tempoRatio=2.00 halfRatio=0.843 bestAc=1.5e-4 doubleRatio=1.059
-            // 오탐 제거: halfRatio를 0.75-0.90 범위로 제한하여 과도한 harmonic content 제외
-            // 보호: 모든 날(bestAc=1.25e-3 > 1.0e-3)
-            if (tempoRatio in 1.95f..2.05f && halfRatio in 0.75f..0.89999f && bestAc < 1.0e-03f && doubleRatio > 0f) {
-                Log.d(TAG, "V2$t halfTempoFix FIRED (2x octave strong): ${bestMs}ms(${bestBpm}BPM)" +
+            // ── 명시적 2배 Octave Error (낮은 halfRatio + 강한 doubleRatio 확인) ────
+            // Madmom 기준 2배 오류 곡들:
+            // - 초혼: tempoRatio=1.98 halfRatio=0.618 doubleRatio=0.951
+            // - 진미령: tempoRatio=2.00 halfRatio=0.536 doubleRatio=1.313
+            // - 별보러가자: tempoRatio=2.00 halfRatio=0.556 doubleRatio=1.109
+            // - TOMBOY: tempoRatio=2.00 halfRatio=0.643 doubleRatio=1.094
+            //
+            // 보호 대상: "모든 날" (doubleRatio=0, HR=0.654 → 조건 제외)
+            //
+            // 핵심 메트릭:
+            // - 2배 오류는 낮은 halfRatio (< 0.70)
+            // - 2배 오류는 강한 doubleRatio (>= 0.95)
+            // - doubleRatio=0인 곡은 자동 제외되어 보호됨
+            if (tempoRatio in 1.95f..2.05f && halfRatio < 0.70f && doubleRatio >= 0.95f) {
+                Log.d(TAG, "V2$t halfTempoFix FIRED (2x octave low halfRatio): ${bestMs}ms(${bestBpm}BPM)" +
                     " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
-                    " halfRatio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)} bestAc=$bestAc doubleRatio=$doubleRatio")
-                return halfMs
-            }
-
-            // ── 2️⃣ 약한 신호 + 중간 halfRatio + 명확한 double (초혼, 사랑참 해결) ────
-            // 초혼: tempoRatio=1.98 halfRatio=0.618 bestAc=5.1e-4 doubleRatio=0.951
-            // 사랑참: tempoRatio=1.98 halfRatio=0.698 bestAc=9.6e-4 doubleRatio=0.912
-            // 보호: 모든 날(bestAc=1.25e-3), LE SSERAFIM(doubleRatio=0)
-            if (tempoRatio in 1.95f..2.05f && halfRatio in 0.60f..0.74999f && bestAc < 1.0e-03f && doubleRatio > 0f) {
-                Log.d(TAG, "V2$t halfTempoFix FIRED (2x moderate signal): ${bestMs}ms(${bestBpm}BPM)" +
-                    " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
-                    " halfRatio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)} bestAc=$bestAc doubleRatio=$doubleRatio")
+                    " halfRatio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)} doubleRatio=$doubleRatio")
                 return halfMs
             }
         }
