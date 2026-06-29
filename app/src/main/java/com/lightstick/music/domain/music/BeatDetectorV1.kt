@@ -174,6 +174,14 @@ object BeatDetectorV1 {
 
         val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)
 
+        // ODF 샘플 데이터 로깅 (그래프 생성용)
+        val odfSampleInterval = max(1, globalOdf.size / 100)
+        val odfSamples = StringBuilder("V1 ODF_DATA: title=\"$songTitle\" ")
+        for (i in globalOdf.indices step odfSampleInterval) {
+            odfSamples.append("t=${(i * params.hopMs)}ms:${String.format("%.4f", globalOdf[i])};")
+        }
+        Log.d(TAG, odfSamples.toString())
+
         val beatMs = estimateBpmDense(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs, songTitle)
                      ?: 500L
         Log.d(TAG, "V1 beatMs=$beatMs (${60_000L / beatMs} BPM) durationMs=$durationMs")
@@ -244,8 +252,16 @@ object BeatDetectorV1 {
         if (odf.size <= maxLag + 2) return null
 
         val acVals    = FloatArray(maxLag + 1)
+        val priorVals = FloatArray(maxLag + 1)
+        val scoreVals = FloatArray(maxLag + 1)
         var bestScore = Float.NEGATIVE_INFINITY
         var bestLag   = -1
+
+        // ODF 통계
+        val odfMax = odf.maxOrNull() ?: 0f
+        val odfMean = if (odf.isNotEmpty()) odf.sum() / odf.size else 0f
+        val songInfo = if (!songTitle.isNullOrEmpty()) " title=\"$songTitle\"" else ""
+        Log.d(TAG, "V1 ODF_STATS:$songInfo size=${odf.size} max=${String.format("%.6f", odfMax)} mean=${String.format("%.6f", odfMean)}")
 
         for (lag in minLag..maxLag) {
             var sum = 0f; var count = 0
@@ -260,8 +276,18 @@ object BeatDetectorV1 {
             val prior    = exp(-0.5f * (logRatio / PRIOR_STD_OCTAVE) * (logRatio / PRIOR_STD_OCTAVE))
 
             val score = acVal * prior
+            priorVals[lag] = prior
+            scoreVals[lag] = score
             if (score > bestScore) { bestScore = score; bestLag = lag }
         }
+
+        // 진단 로그: AC, Prior, Score 곡선 (5ms 간격)
+        val diag = StringBuilder("V1 AUTOCORR_ANALYSIS:$songInfo ")
+        for (lag in minLag..maxLag step max(1, (maxLag - minLag) / 15)) {
+            val bpm = 60_000L / (lag * hopMs)
+            diag.append("lag=$lag(${bpm}BPM) ac=${String.format("%.4f", acVals[lag])} prior=${String.format("%.4f", priorVals[lag])} score=${String.format("%.4f", scoreVals[lag])};")
+        }
+        Log.d(TAG, diag.toString())
 
         if (bestLag <= 0) return null
 
