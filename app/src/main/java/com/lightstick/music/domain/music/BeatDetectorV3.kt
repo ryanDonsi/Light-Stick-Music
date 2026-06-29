@@ -425,9 +425,18 @@ object BeatDetectorV3 {
         }
 
         val minSize = minOf(lowEnv.size, midEnv.size, fullEnv.size)
-        val low = if (lowEnv is FloatArray) lowEnv else lowEnv.take(minSize).toFloatArray()
-        val mid = if (midEnv is FloatArray) midEnv else midEnv.take(minSize).toFloatArray()
-        val full = if (fullEnv is FloatArray) fullEnv else fullEnv.take(minSize).toFloatArray()
+        val low: FloatArray = when (lowEnv) {
+            is FloatArray -> lowEnv.copyOf(minSize)
+            else -> lowEnv.take(minSize).toFloatArray()
+        }
+        val mid: FloatArray = when (midEnv) {
+            is FloatArray -> midEnv.copyOf(minSize)
+            else -> midEnv.take(minSize).toFloatArray()
+        }
+        val full: FloatArray = when (fullEnv) {
+            is FloatArray -> fullEnv.copyOf(minSize)
+            else -> fullEnv.take(minSize).toFloatArray()
+        }
 
         // ODF 계산 (V1과 동일)
         val globalOdf = BeatDetectorV1.computeMultiBandFluxOdf(
