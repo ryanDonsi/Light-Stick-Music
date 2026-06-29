@@ -236,6 +236,8 @@ class ODFOptimizer:
         global_window: int = 80,
         prior_center_ms: int = 500,
         prior_std_octave: float = 2.0,
+        min_beat_ms: int = 375,
+        max_beat_ms: int = 1000,
         hop_ms: int = 50
     ) -> dict:
         """파일에서 ODF 계산 및 BPM 탐지"""
@@ -261,7 +263,9 @@ class ODFOptimizer:
             bpm, ac_vals, prior_vals, score_vals = self.detect_bpm(
                 odf, hop_ms=hop_ms,
                 prior_center_ms=prior_center_ms,
-                prior_std_octave=prior_std_octave
+                prior_std_octave=prior_std_octave,
+                min_beat_ms=min_beat_ms,
+                max_beat_ms=max_beat_ms
             )
 
             return {
