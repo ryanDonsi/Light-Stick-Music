@@ -38,7 +38,7 @@ object BeatDetectorV3 {
 
     // BPM 탐지 파라미터
     private const val PRIOR_CENTER_MS = 500L
-    private const val PRIOR_STD_OCTAVE = 2.0f
+    private const val PRIOR_STD_OCTAVE = 1.0f  // V3: Tempogram이 필터링하므로 좁혀도 OK
     private const val HALF_TEMPO_RATIO = 0.60f
     private const val DP_MIN_BEAT_RATIO = 0.25f
 
@@ -373,9 +373,12 @@ object BeatDetectorV3 {
             val tempogram = computeTempogram(odf, hopMs, minBeatMs, maxBeatMs)
             val (bestBpm, confidence) = findModalPeak(tempogram, hopMs, minBeatMs)
 
+            // 디버그 로그
+            val odfMax = odf.maxOrNull() ?: 0f
+            val odfAvg = odf.average().toFloat()
             Log.d(
                 TAG,
-                "V3 Tempogram: BPM=$bestBpm, Confidence=$confidence"
+                "V3 Tempogram: BPM=$bestBpm, Confidence=$confidence, ODF[max=$odfMax avg=$odfAvg]"
             )
 
             return Triple(bestBpm, confidence, tempogram)
@@ -459,6 +462,10 @@ object BeatDetectorV3 {
             halfTempoRatio = params.halfTempoRatio,
             doubleTempoRatio = params.doubleTempoRatio
         )
+
+        if (bestBpm <= 0f) {
+            Log.w(TAG, "V3 BPM탐지 실패! 신호 확인 필요 (ODF 약함)")
+        }
 
         Log.d(
             TAG,
