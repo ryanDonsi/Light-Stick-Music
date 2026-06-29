@@ -101,7 +101,7 @@ object AutoTimelineConfig {
      *   - 청크 단위로 처리해 메모리 효율적
      */
     fun beatDetectorHopMs(version: Int = BEAT_DETECTOR_VERSION): Long = when (version) {
-        1, 2 -> 10L
+        1, 2, 3 -> 10L
         else -> 50L   // V0
     }
 
