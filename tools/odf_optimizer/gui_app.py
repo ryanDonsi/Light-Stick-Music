@@ -114,7 +114,12 @@ class ODFOptimizerApp(QMainWindow):
         self.files: Dict[str, str] = {}  # {filename: filepath}
         self.results = {}  # {filename: result}
 
+        # 파일 목록 저장 경로
+        self.config_dir = Path(__file__).parent
+        self.file_list_path = self.config_dir / "file_list.json"
+
         self.init_ui()
+        self.load_file_list()
 
     def init_ui(self):
         """UI 초기화"""
@@ -125,10 +130,21 @@ class ODFOptimizerApp(QMainWindow):
         # 왼쪽: 파일 목록
         left_layout = QVBoxLayout()
 
-        # 파일 추가 버튼
+        # 파일 추가/삭제 버튼
+        btn_layout = QHBoxLayout()
         add_btn = QPushButton("📁 파일 추가")
         add_btn.clicked.connect(self.add_files)
-        left_layout.addWidget(add_btn)
+        btn_layout.addWidget(add_btn)
+
+        remove_btn = QPushButton("🗑️ 선택 삭제")
+        remove_btn.clicked.connect(self.remove_selected_file)
+        btn_layout.addWidget(remove_btn)
+
+        clear_btn = QPushButton("🔄 모두 지우기")
+        clear_btn.clicked.connect(self.clear_all_files)
+        btn_layout.addWidget(clear_btn)
+
+        left_layout.addLayout(btn_layout)
 
         # 파일 목록
         self.file_list = QListWidget()
@@ -368,6 +384,28 @@ class ODFOptimizerApp(QMainWindow):
         layout.addLayout(left_layout, 1)
         layout.addLayout(right_layout, 2)
 
+    def load_file_list(self):
+        """저장된 파일 목록 로드"""
+        try:
+            if self.file_list_path.exists():
+                with open(self.file_list_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    for filename, filepath in data.items():
+                        if Path(filepath).exists():
+                            self.files[filename] = filepath
+                            item = QListWidgetItem(filename)
+                            self.file_list.addItem(item)
+        except Exception as e:
+            print(f"파일 목록 로드 실패: {e}")
+
+    def save_file_list(self):
+        """파일 목록 저장"""
+        try:
+            with open(self.file_list_path, 'w', encoding='utf-8') as f:
+                json.dump(self.files, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"파일 목록 저장 실패: {e}")
+
     def add_files(self):
         """파일 추가"""
         files, _ = QFileDialog.getOpenFileNames(
@@ -377,9 +415,38 @@ class ODFOptimizerApp(QMainWindow):
 
         for file in files:
             filename = Path(file).stem
-            self.files[filename] = file
-            item = QListWidgetItem(filename)
-            self.file_list.addItem(item)
+            if filename not in self.files:
+                self.files[filename] = file
+                item = QListWidgetItem(filename)
+                self.file_list.addItem(item)
+
+        self.save_file_list()
+
+    def remove_selected_file(self):
+        """선택된 파일 삭제"""
+        current_item = self.file_list.currentItem()
+        if current_item:
+            filename = current_item.text()
+            if filename in self.files:
+                del self.files[filename]
+                self.file_list.takeItem(self.file_list.row(current_item))
+                if filename in self.results:
+                    del self.results[filename]
+                self.result_label.setText("파일이 삭제되었습니다")
+                self.save_file_list()
+        else:
+            QMessageBox.warning(self, "경고", "삭제할 파일을 선택하세요")
+
+    def clear_all_files(self):
+        """모든 파일 삭제"""
+        reply = QMessageBox.question(self, "확인", "모든 파일을 삭제하시겠습니까?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.files.clear()
+            self.results.clear()
+            self.file_list.clear()
+            self.result_label.setText("모든 파일이 삭제되었습니다")
+            self.save_file_list()
 
     def on_file_selected(self, item):
         """파일 선택"""
@@ -695,6 +762,11 @@ class ODFOptimizerApp(QMainWindow):
             QMessageBox.information(self, "성공", f"결과가 저장되었습니다:\n{filepath}")
         except Exception as e:
             QMessageBox.critical(self, "오류", f"저장 실패: {str(e)}")
+
+    def closeEvent(self, event):
+        """애플리케이션 종료 시 파일 목록 저장"""
+        self.save_file_list()
+        event.accept()
 
 
 def main():
