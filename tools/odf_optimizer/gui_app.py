@@ -114,12 +114,14 @@ class ODFOptimizerApp(QMainWindow):
         self.files: Dict[str, str] = {}  # {filename: filepath}
         self.results = {}  # {filename: result}
 
-        # 파일 목록 저장 경로
+        # 파일 목록, 설정 저장 경로
         self.config_dir = Path(__file__).parent
         self.file_list_path = self.config_dir / "file_list.json"
+        self.config_path = self.config_dir / "config.json"
 
         self.init_ui()
         self.load_file_list()
+        self.load_config()
 
     def init_ui(self):
         """UI 초기화"""
@@ -195,7 +197,7 @@ class ODFOptimizerApp(QMainWindow):
         self.param_widgets = {}
 
         for label_text, param_name, min_val, max_val, default_val, tooltip_text in params_info:
-            label = QLabel(f"<b>{label_text}</b>")
+            label = QLabel(f"<b>{label_text}</b> <span style='color:gray'>(기본값: {default_val})</span>")
             label.setToolTip(tooltip_text)
             param_layout.addWidget(label)
 
@@ -251,14 +253,14 @@ class ODFOptimizerApp(QMainWindow):
         signal_layout.addWidget(QLabel("<b>🎙️ 음성 전처리 설정</b>"))
 
         # 샘플레이트
-        signal_layout.addWidget(QLabel("<b>Sample Rate (Hz)</b>"))
+        signal_layout.addWidget(QLabel("<b>Sample Rate (Hz)</b> <span style='color:gray'>(기본값: 28000)</span>"))
         self.sr_combo = QComboBox()
         self.sr_combo.addItems(["16000", "22050", "28000", "44100"])
         self.sr_combo.setCurrentText("28000")
         signal_layout.addWidget(self.sr_combo)
 
         # Normalization
-        signal_layout.addWidget(QLabel("<b>Normalization (0.0-2.0)</b>"))
+        signal_layout.addWidget(QLabel("<b>Normalization (0.0-2.0)</b> <span style='color:gray'>(기본값: 1.0)</span>"))
         self.norm_spin = QDoubleSpinBox()
         self.norm_spin.setRange(0.0, 2.0)
         self.norm_spin.setValue(1.0)
@@ -267,7 +269,7 @@ class ODFOptimizerApp(QMainWindow):
         signal_layout.addWidget(self.norm_spin)
 
         # Pre-emphasis
-        signal_layout.addWidget(QLabel("<b>Pre-emphasis (0.0-1.0)</b>"))
+        signal_layout.addWidget(QLabel("<b>Pre-emphasis (0.0-1.0)</b> <span style='color:gray'>(기본값: 0.0)</span>"))
         self.preemph_spin = QDoubleSpinBox()
         self.preemph_spin.setRange(0.0, 1.0)
         self.preemph_spin.setValue(0.0)
@@ -276,7 +278,7 @@ class ODFOptimizerApp(QMainWindow):
         signal_layout.addWidget(self.preemph_spin)
 
         # Compression
-        signal_layout.addWidget(QLabel("<b>Compression Ratio (1.0-10.0)</b>"))
+        signal_layout.addWidget(QLabel("<b>Compression Ratio (1.0-10.0)</b> <span style='color:gray'>(기본값: 1.0)</span>"))
         self.compress_spin = QDoubleSpinBox()
         self.compress_spin.setRange(1.0, 10.0)
         self.compress_spin.setValue(1.0)
@@ -286,16 +288,16 @@ class ODFOptimizerApp(QMainWindow):
 
         # Bandpass Filter
         signal_layout.addWidget(QLabel("<b>Bandpass Filter</b>"))
-        self.bandpass_check = QCheckBox("활성화")
+        self.bandpass_check = QCheckBox("활성화 (기본값: 비활성화)")
         signal_layout.addWidget(self.bandpass_check)
 
-        signal_layout.addWidget(QLabel("Low Freq (Hz)"))
+        signal_layout.addWidget(QLabel("Low Freq (Hz) <span style='color:gray'>(기본값: 50)</span>"))
         self.bandpass_low_spin = QSpinBox()
         self.bandpass_low_spin.setRange(0, 500)
         self.bandpass_low_spin.setValue(50)
         signal_layout.addWidget(self.bandpass_low_spin)
 
-        signal_layout.addWidget(QLabel("High Freq (Hz)"))
+        signal_layout.addWidget(QLabel("High Freq (Hz) <span style='color:gray'>(기본값: 8000)</span>"))
         self.bandpass_high_spin = QSpinBox()
         self.bandpass_high_spin.setRange(1000, 20000)
         self.bandpass_high_spin.setValue(8000)
@@ -304,7 +306,7 @@ class ODFOptimizerApp(QMainWindow):
         # IIR 필터 계수
         signal_layout.addWidget(QLabel("<b>🎚️ IIR 필터 계수</b>"))
 
-        signal_layout.addWidget(QLabel("LOW_ALPHA (0.05-0.5)"))
+        signal_layout.addWidget(QLabel("LOW_ALPHA (0.05-0.5) <span style='color:gray'>(기본값: 0.12)</span>"))
         self.low_alpha_spin = QDoubleSpinBox()
         self.low_alpha_spin.setRange(0.05, 0.5)
         self.low_alpha_spin.setValue(0.12)
@@ -312,14 +314,14 @@ class ODFOptimizerApp(QMainWindow):
         self.low_alpha_spin.setToolTip("저역 필터 계수 (작을수록 부드러움)")
         signal_layout.addWidget(self.low_alpha_spin)
 
-        signal_layout.addWidget(QLabel("MID_LP1_ALPHA (0.1-0.9)"))
+        signal_layout.addWidget(QLabel("MID_LP1_ALPHA (0.1-0.9) <span style='color:gray'>(기본값: 0.35)</span>"))
         self.mid_lp1_spin = QDoubleSpinBox()
         self.mid_lp1_spin.setRange(0.1, 0.9)
         self.mid_lp1_spin.setValue(0.35)
         self.mid_lp1_spin.setSingleStep(0.05)
         signal_layout.addWidget(self.mid_lp1_spin)
 
-        signal_layout.addWidget(QLabel("MID_LP2_ALPHA (0.01-0.3)"))
+        signal_layout.addWidget(QLabel("MID_LP2_ALPHA (0.01-0.3) <span style='color:gray'>(기본값: 0.08)</span>"))
         self.mid_lp2_spin = QDoubleSpinBox()
         self.mid_lp2_spin.setRange(0.01, 0.3)
         self.mid_lp2_spin.setValue(0.08)
@@ -329,7 +331,7 @@ class ODFOptimizerApp(QMainWindow):
         # ODF 대역 가중치
         signal_layout.addWidget(QLabel("<b>📊 ODF 대역 가중치</b>"))
 
-        signal_layout.addWidget(QLabel("Weight Low (0.0-3.0)"))
+        signal_layout.addWidget(QLabel("Weight Low (0.0-3.0) <span style='color:gray'>(기본값: 1.0)</span>"))
         self.weight_low_spin = QDoubleSpinBox()
         self.weight_low_spin.setRange(0.0, 3.0)
         self.weight_low_spin.setValue(1.0)
@@ -337,7 +339,7 @@ class ODFOptimizerApp(QMainWindow):
         self.weight_low_spin.setToolTip("저역 가중치 (기본: 1.0)")
         signal_layout.addWidget(self.weight_low_spin)
 
-        signal_layout.addWidget(QLabel("Weight Mid (0.0-3.0)"))
+        signal_layout.addWidget(QLabel("Weight Mid (0.0-3.0) <span style='color:gray'>(기본값: 1.8)</span>"))
         self.weight_mid_spin = QDoubleSpinBox()
         self.weight_mid_spin.setRange(0.0, 3.0)
         self.weight_mid_spin.setValue(1.8)
@@ -345,7 +347,7 @@ class ODFOptimizerApp(QMainWindow):
         self.weight_mid_spin.setToolTip("중역 가중치 (기본: 1.8)")
         signal_layout.addWidget(self.weight_mid_spin)
 
-        signal_layout.addWidget(QLabel("Weight Full (0.0-3.0)"))
+        signal_layout.addWidget(QLabel("Weight Full (0.0-3.0) <span style='color:gray'>(기본값: 0.8)</span>"))
         self.weight_full_spin = QDoubleSpinBox()
         self.weight_full_spin.setRange(0.0, 3.0)
         self.weight_full_spin.setValue(0.8)
@@ -384,6 +386,30 @@ class ODFOptimizerApp(QMainWindow):
         layout.addLayout(left_layout, 1)
         layout.addLayout(right_layout, 2)
 
+    # 파라미터 기본값
+    DEFAULT_PARAMS = {
+        'smooth_window': 3,
+        'local_window': 60,
+        'global_window': 80,
+        'prior_center_ms': 500,
+        'prior_std_octave': 2.0,
+        'min_beat_ms': 375,
+        'max_beat_ms': 1000,
+        'sample_rate': 28000,
+        'normalize_strength': 1.0,
+        'pre_emphasis': 0.0,
+        'compress_ratio': 1.0,
+        'enable_bandpass': False,
+        'bandpass_low': 50.0,
+        'bandpass_high': 8000.0,
+        'low_alpha': 0.12,
+        'mid_lp1_alpha': 0.35,
+        'mid_lp2_alpha': 0.08,
+        'weight_low': 1.0,
+        'weight_mid': 1.8,
+        'weight_full': 0.8,
+    }
+
     def load_file_list(self):
         """저장된 파일 목록 로드"""
         try:
@@ -405,6 +431,78 @@ class ODFOptimizerApp(QMainWindow):
                 json.dump(self.files, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"파일 목록 저장 실패: {e}")
+
+    def load_config(self):
+        """저장된 설정 로드"""
+        try:
+            if self.config_path.exists():
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    # ODF 파라미터 로드
+                    for param_name, widget in self.param_widgets.items():
+                        if param_name in config:
+                            widget.setValue(config[param_name])
+
+                    # 신호 처리 파라미터 로드
+                    if 'sample_rate' in config:
+                        self.sr_combo.setCurrentText(str(config['sample_rate']))
+                    if 'normalize_strength' in config:
+                        self.norm_spin.setValue(config['normalize_strength'])
+                    if 'pre_emphasis' in config:
+                        self.preemph_spin.setValue(config['pre_emphasis'])
+                    if 'compress_ratio' in config:
+                        self.compress_spin.setValue(config['compress_ratio'])
+                    if 'enable_bandpass' in config:
+                        self.bandpass_check.setChecked(config['enable_bandpass'])
+                    if 'bandpass_low' in config:
+                        self.bandpass_low_spin.setValue(config['bandpass_low'])
+                    if 'bandpass_high' in config:
+                        self.bandpass_high_spin.setValue(config['bandpass_high'])
+                    if 'low_alpha' in config:
+                        self.low_alpha_spin.setValue(config['low_alpha'])
+                    if 'mid_lp1_alpha' in config:
+                        self.mid_lp1_spin.setValue(config['mid_lp1_alpha'])
+                    if 'mid_lp2_alpha' in config:
+                        self.mid_lp2_spin.setValue(config['mid_lp2_alpha'])
+                    if 'weight_low' in config:
+                        self.weight_low_spin.setValue(config['weight_low'])
+                    if 'weight_mid' in config:
+                        self.weight_mid_spin.setValue(config['weight_mid'])
+                    if 'weight_full' in config:
+                        self.weight_full_spin.setValue(config['weight_full'])
+        except Exception as e:
+            print(f"설정 로드 실패: {e}")
+
+    def save_config(self):
+        """현재 설정 저장"""
+        try:
+            config = {}
+
+            # ODF 파라미터 저장
+            for param_name, widget in self.param_widgets.items():
+                config[param_name] = widget.value()
+
+            # 신호 처리 파라미터 저장
+            config.update({
+                'sample_rate': int(self.sr_combo.currentText()),
+                'normalize_strength': float(self.norm_spin.value()),
+                'pre_emphasis': float(self.preemph_spin.value()),
+                'compress_ratio': float(self.compress_spin.value()),
+                'enable_bandpass': self.bandpass_check.isChecked(),
+                'bandpass_low': float(self.bandpass_low_spin.value()),
+                'bandpass_high': float(self.bandpass_high_spin.value()),
+                'low_alpha': float(self.low_alpha_spin.value()),
+                'mid_lp1_alpha': float(self.mid_lp1_spin.value()),
+                'mid_lp2_alpha': float(self.mid_lp2_spin.value()),
+                'weight_low': float(self.weight_low_spin.value()),
+                'weight_mid': float(self.weight_mid_spin.value()),
+                'weight_full': float(self.weight_full_spin.value()),
+            })
+
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"설정 저장 실패: {e}")
 
     def add_files(self):
         """파일 추가"""
@@ -764,8 +862,9 @@ class ODFOptimizerApp(QMainWindow):
             QMessageBox.critical(self, "오류", f"저장 실패: {str(e)}")
 
     def closeEvent(self, event):
-        """애플리케이션 종료 시 파일 목록 저장"""
+        """애플리케이션 종료 시 파일 목록 및 설정 저장"""
         self.save_file_list()
+        self.save_config()
         event.accept()
 
 
