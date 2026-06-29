@@ -1,0 +1,142 @@
+{
+  "application": {
+    "title": "V1 ODF Optimizer",
+    "version": "1.0-beta",
+    "description": "Light-Stick-Music V1 BeatDetector ODF 최적화 도구"
+  },
+  "audio": {
+    "sample_rate": 28000,
+    "hop_ms": 50,
+    "channel": "mono"
+  },
+  "default_parameters": {
+    "smooth_window": {
+      "value": 3,
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "description": "ODF 평활화 윈도우 크기"
+    },
+    "local_window": {
+      "value": 60,
+      "min": 30,
+      "max": 120,
+      "step": 5,
+      "description": "로컬 정규화 윈도우 프레임 수"
+    },
+    "global_window": {
+      "value": 80,
+      "min": 30,
+      "max": 120,
+      "step": 5,
+      "description": "전역 정규화 윈도우 프레임 수"
+    },
+    "prior_center_ms": {
+      "value": 500,
+      "min": 300,
+      "max": 800,
+      "step": 10,
+      "description": "로그-정규 사전확률 중심값 (ms)",
+      "bpm_center": 120
+    },
+    "prior_std_octave": {
+      "value": 2.0,
+      "min": 0.5,
+      "max": 4.0,
+      "step": 0.1,
+      "description": "로그-정규 사전확률 표준편차 (옥타브 단위)"
+    },
+    "min_beat_ms": {
+      "value": 375,
+      "min": 250,
+      "max": 500,
+      "step": 25,
+      "description": "최소 비트 간격 (ms) - 최대 BPM 제한",
+      "max_bpm_limit": 160
+    },
+    "max_beat_ms": {
+      "value": 1000,
+      "min": 800,
+      "max": 1500,
+      "step": 50,
+      "description": "최대 비트 간격 (ms) - 최소 BPM 제한",
+      "min_bpm_limit": 60
+    }
+  },
+  "iir_filter": {
+    "low_alpha": 0.12,
+    "mid_lp1_alpha": 0.35,
+    "mid_lp2_alpha": 0.08,
+    "description": "IIR 필터 계수 (Kotlin BeatDetectorV1과 동일)"
+  },
+  "multi_band_weights": {
+    "low": 1.0,
+    "mid": 1.8,
+    "full": 0.8,
+    "description": "다중 대역 ODF 결합 가중치"
+  },
+  "preset_profiles": {
+    "balanced": {
+      "name": "균형잡힌 설정 (권장)",
+      "smooth_window": 3,
+      "local_window": 60,
+      "global_window": 80,
+      "prior_center_ms": 500,
+      "prior_std_octave": 2.0,
+      "min_beat_ms": 375,
+      "max_beat_ms": 1000,
+      "target": "전체 곡 83.3% 정확도 달성"
+    },
+    "weak_signal": {
+      "name": "약한 신호 최적화",
+      "smooth_window": 5,
+      "local_window": 80,
+      "global_window": 100,
+      "prior_center_ms": 500,
+      "prior_std_octave": 2.5,
+      "min_beat_ms": 400,
+      "max_beat_ms": 1000,
+      "target": "저음역 신호 강화"
+    },
+    "fast_songs": {
+      "name": "빠른 곡 최적화",
+      "smooth_window": 2,
+      "local_window": 40,
+      "global_window": 60,
+      "prior_center_ms": 400,
+      "prior_std_octave": 1.8,
+      "min_beat_ms": 250,
+      "max_beat_ms": 600,
+      "target": "고속 곡 (≥140 BPM) 최적화"
+    },
+    "slow_songs": {
+      "name": "느린 곡 최적화",
+      "smooth_window": 4,
+      "local_window": 90,
+      "global_window": 100,
+      "prior_center_ms": 600,
+      "prior_std_octave": 2.5,
+      "min_beat_ms": 500,
+      "max_beat_ms": 1200,
+      "target": "저속 곡 (<80 BPM) 최적화"
+    }
+  },
+  "madmom_gt": {
+    "total_songs": 43,
+    "accuracy_target": 0.833,
+    "description": "43곡 ground truth BPM 데이터셋"
+  },
+  "ui": {
+    "window_width": 1600,
+    "window_height": 900,
+    "plot_figsize": [10, 6],
+    "monospace_font": "Monospace",
+    "monospace_font_size": 10
+  },
+  "performance": {
+    "cache_results": true,
+    "background_processing": true,
+    "max_concurrent_workers": 1,
+    "description": "UI는 QThread로 백그라운드 처리, 결과는 메모리 캐시"
+  }
+}
