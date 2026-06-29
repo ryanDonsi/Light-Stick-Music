@@ -19,7 +19,7 @@ try:
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
         QPushButton, QSlider, QLabel, QListWidget, QListWidgetItem,
         QFileDialog, QSplitter, QTabWidget, QDoubleSpinBox, QSpinBox,
-        QMessageBox, QProgressBar
+        QMessageBox, QProgressBar, QComboBox, QCheckBox
     )
     from PyQt6.QtCore import Qt, QThread, pyqtSignal
     from PyQt6.QtGui import QFont, QColor
@@ -228,7 +228,119 @@ class ODFOptimizerApp(QMainWindow):
 
         tabs.addTab(result_widget, "결과")
 
-        # Tab 3: 배치 분석
+        # Tab 3: 신호 처리 (음성 전처리)
+        signal_widget = QWidget()
+        signal_layout = QVBoxLayout(signal_widget)
+
+        signal_layout.addWidget(QLabel("<b>🎙️ 음성 전처리 설정</b>"))
+
+        # 샘플레이트
+        signal_layout.addWidget(QLabel("<b>Sample Rate (Hz)</b>"))
+        self.sr_combo = QComboBox()
+        self.sr_combo.addItems(["16000", "22050", "28000", "44100"])
+        self.sr_combo.setCurrentText("28000")
+        signal_layout.addWidget(self.sr_combo)
+
+        # Normalization
+        signal_layout.addWidget(QLabel("<b>Normalization (0.0-2.0)</b>"))
+        self.norm_spin = QDoubleSpinBox()
+        self.norm_spin.setRange(0.0, 2.0)
+        self.norm_spin.setValue(1.0)
+        self.norm_spin.setSingleStep(0.1)
+        self.norm_spin.setToolTip("음성의 크기 정규화 (0=안함, 1=기본, 2=강함)")
+        signal_layout.addWidget(self.norm_spin)
+
+        # Pre-emphasis
+        signal_layout.addWidget(QLabel("<b>Pre-emphasis (0.0-1.0)</b>"))
+        self.preemph_spin = QDoubleSpinBox()
+        self.preemph_spin.setRange(0.0, 1.0)
+        self.preemph_spin.setValue(0.0)
+        self.preemph_spin.setSingleStep(0.05)
+        self.preemph_spin.setToolTip("고주파 강화 필터 (0=안함, 0.97=표준)")
+        signal_layout.addWidget(self.preemph_spin)
+
+        # Compression
+        signal_layout.addWidget(QLabel("<b>Compression Ratio (1.0-10.0)</b>"))
+        self.compress_spin = QDoubleSpinBox()
+        self.compress_spin.setRange(1.0, 10.0)
+        self.compress_spin.setValue(1.0)
+        self.compress_spin.setSingleStep(0.5)
+        self.compress_spin.setToolTip("동적 범위 압축 (1=안함, 4=강함)")
+        signal_layout.addWidget(self.compress_spin)
+
+        # Bandpass Filter
+        signal_layout.addWidget(QLabel("<b>Bandpass Filter</b>"))
+        self.bandpass_check = QCheckBox("활성화")
+        signal_layout.addWidget(self.bandpass_check)
+
+        signal_layout.addWidget(QLabel("Low Freq (Hz)"))
+        self.bandpass_low_spin = QSpinBox()
+        self.bandpass_low_spin.setRange(0, 500)
+        self.bandpass_low_spin.setValue(50)
+        signal_layout.addWidget(self.bandpass_low_spin)
+
+        signal_layout.addWidget(QLabel("High Freq (Hz)"))
+        self.bandpass_high_spin = QSpinBox()
+        self.bandpass_high_spin.setRange(1000, 20000)
+        self.bandpass_high_spin.setValue(8000)
+        signal_layout.addWidget(self.bandpass_high_spin)
+
+        # IIR 필터 계수
+        signal_layout.addWidget(QLabel("<b>🎚️ IIR 필터 계수</b>"))
+
+        signal_layout.addWidget(QLabel("LOW_ALPHA (0.05-0.5)"))
+        self.low_alpha_spin = QDoubleSpinBox()
+        self.low_alpha_spin.setRange(0.05, 0.5)
+        self.low_alpha_spin.setValue(0.12)
+        self.low_alpha_spin.setSingleStep(0.01)
+        self.low_alpha_spin.setToolTip("저역 필터 계수 (작을수록 부드러움)")
+        signal_layout.addWidget(self.low_alpha_spin)
+
+        signal_layout.addWidget(QLabel("MID_LP1_ALPHA (0.1-0.9)"))
+        self.mid_lp1_spin = QDoubleSpinBox()
+        self.mid_lp1_spin.setRange(0.1, 0.9)
+        self.mid_lp1_spin.setValue(0.35)
+        self.mid_lp1_spin.setSingleStep(0.05)
+        signal_layout.addWidget(self.mid_lp1_spin)
+
+        signal_layout.addWidget(QLabel("MID_LP2_ALPHA (0.01-0.3)"))
+        self.mid_lp2_spin = QDoubleSpinBox()
+        self.mid_lp2_spin.setRange(0.01, 0.3)
+        self.mid_lp2_spin.setValue(0.08)
+        self.mid_lp2_spin.setSingleStep(0.01)
+        signal_layout.addWidget(self.mid_lp2_spin)
+
+        # ODF 대역 가중치
+        signal_layout.addWidget(QLabel("<b>📊 ODF 대역 가중치</b>"))
+
+        signal_layout.addWidget(QLabel("Weight Low (0.0-3.0)"))
+        self.weight_low_spin = QDoubleSpinBox()
+        self.weight_low_spin.setRange(0.0, 3.0)
+        self.weight_low_spin.setValue(1.0)
+        self.weight_low_spin.setSingleStep(0.1)
+        self.weight_low_spin.setToolTip("저역 가중치 (기본: 1.0)")
+        signal_layout.addWidget(self.weight_low_spin)
+
+        signal_layout.addWidget(QLabel("Weight Mid (0.0-3.0)"))
+        self.weight_mid_spin = QDoubleSpinBox()
+        self.weight_mid_spin.setRange(0.0, 3.0)
+        self.weight_mid_spin.setValue(1.8)
+        self.weight_mid_spin.setSingleStep(0.1)
+        self.weight_mid_spin.setToolTip("중역 가중치 (기본: 1.8)")
+        signal_layout.addWidget(self.weight_mid_spin)
+
+        signal_layout.addWidget(QLabel("Weight Full (0.0-3.0)"))
+        self.weight_full_spin = QDoubleSpinBox()
+        self.weight_full_spin.setRange(0.0, 3.0)
+        self.weight_full_spin.setValue(0.8)
+        self.weight_full_spin.setSingleStep(0.1)
+        self.weight_full_spin.setToolTip("전역 가중치 (기본: 0.8)")
+        signal_layout.addWidget(self.weight_full_spin)
+
+        signal_layout.addStretch()
+        tabs.addTab(signal_widget, "신호 처리")
+
+        # Tab 4: 배치 분석
         batch_widget = QWidget()
         batch_layout = QVBoxLayout(batch_widget)
 
@@ -294,7 +406,7 @@ class ODFOptimizerApp(QMainWindow):
             QMessageBox.warning(self, "경고", "파일을 선택하세요")
             return
 
-        # 파라미터 수집
+        # 파라미터 수집 (ODF 계산 파라미터)
         params = {
             'smooth_window': int(self.param_widgets['smooth_window'].value()),
             'local_window': int(self.param_widgets['local_window'].value()),
@@ -303,6 +415,22 @@ class ODFOptimizerApp(QMainWindow):
             'prior_std_octave': float(self.param_widgets['prior_std_octave'].value()),
             'min_beat_ms': int(self.param_widgets['min_beat_ms'].value()),
             'max_beat_ms': int(self.param_widgets['max_beat_ms'].value()),
+            # 음성 전처리 파라미터
+            'sample_rate': int(self.sr_combo.currentText()),
+            'normalize_strength': float(self.norm_spin.value()),
+            'pre_emphasis': float(self.preemph_spin.value()),
+            'compress_ratio': float(self.compress_spin.value()),
+            'enable_bandpass': self.bandpass_check.isChecked(),
+            'bandpass_low': float(self.bandpass_low_spin.value()),
+            'bandpass_high': float(self.bandpass_high_spin.value()),
+            # IIR 필터 계수
+            'low_alpha': float(self.low_alpha_spin.value()),
+            'mid_lp1_alpha': float(self.mid_lp1_spin.value()),
+            'mid_lp2_alpha': float(self.mid_lp2_spin.value()),
+            # ODF 대역 가중치
+            'weight_low': float(self.weight_low_spin.value()),
+            'weight_mid': float(self.weight_mid_spin.value()),
+            'weight_full': float(self.weight_full_spin.value()),
         }
 
         # 백그라운드 처리
