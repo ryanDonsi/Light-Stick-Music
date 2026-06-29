@@ -518,13 +518,17 @@ object BeatDetectorV2 {
         }
 
         // doubleTempoFix 조건 3: 경계선 사례 (subBeatRatio 0.65~0.71, doubleRatio 0.85~0.95)
+        // 신뢰도 필터 추가: doubleAc >= bestAc * 0.95
+        // (진정한 2배 오류는 doubleAc가 bestAc와 비슷하거나 높음)
         if (doubleLag <= maxLag &&
-            doubleRatio in 0.85f..0.95f &&
-            subBeatRatio in 0.65f..0.71f &&
-            doubleErrorRate > 50) {
-            Log.d(TAG, "V2$t doubleTempoFix CONDITION3 FIRED: ${bestMs}ms(${bestBpm}BPM)" +
+            doubleRatio >= 0.85f && doubleRatio <= 0.95f &&
+            subBeatRatio >= 0.65f && subBeatRatio <= 0.71f &&
+            doubleErrorRate > 50 &&
+            doubleAc >= bestAc * 0.95f) {
+            Log.d(TAG, "V2$t doubleTempoFix CONDITION3 FIRED (improved): ${bestMs}ms(${bestBpm}BPM)" +
                 " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
-                " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate% (borderline case)")
+                " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate%" +
+                " doubleAc=$doubleAc (>= bestAc*0.95=${bestAc*0.95f})")
             return doubleMs
         }
 
