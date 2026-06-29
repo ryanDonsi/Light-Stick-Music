@@ -89,13 +89,15 @@ object BeatDetectorRouter {
     private fun detectV1(filePath: String, hopMs: Long, minBeatMs: Long, maxBeatMs: Long): BeatInfo {
         val decoded = decodeWithEnvelopes(filePath, hopMs, collectPcm = true)
         if (decoded.full.isEmpty()) return emptyBeatInfo()
+        val songTitle = java.io.File(filePath).nameWithoutExtension
         val r = BeatDetectorV1.detectPcm(
             decoded.pcm, decoded.sampleRate,
             BeatDetectorV1.Params(
                 hopMs     = hopMs,
                 minBeatMs = minBeatMs.coerceAtLeast(375L),
                 maxBeatMs = maxBeatMs.coerceAtMost(1000L)
-            )
+            ),
+            songTitle
         )
         return BeatInfo(
             beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
