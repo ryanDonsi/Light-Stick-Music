@@ -244,6 +244,87 @@ object BeatDetectorV3 {
     }
 
     /**
+     * 구간별 BPM 탐지 (섹션 경계 기반)
+     *
+     * Tempogram을 시간 구간별로 분석하여 각 섹션의 BPM을 따로 계산
+     * 반박자 문제 해결용: 곡의 일부는 71.8 BPM, 일부는 142.9 BPM인 경우
+     *
+     * @param tempogram 전체 곡의 Tempogram
+     * @param hopMs ODF 홉 간격
+     * @param minBeatMs 최소 비트 간격 (lag 계산용)
+     * @param sectionBoundariesMs 섹션 경계 시간 (ms)
+     * @return List<Pair<시작시간Ms, BPM>>
+     */
+    fun detectSectionBpms(
+        tempogram: Array<FloatArray>,
+        hopMs: Long,
+        minBeatMs: Long,
+        sectionBoundariesMs: List<Long> = emptyList()
+    ): List<Pair<Long, Float>> {
+        if (tempogram.isEmpty() || tempogram[0].isEmpty()) {
+            return emptyList()
+        }
+
+        val minLag = maxOf(1, (minBeatMs / hopMs).toInt())
+        val totalTimeFrames = tempogram[0].size
+        val totalDurationMs = totalTimeFrames * hopMs
+
+        // 경계 프레임 계산
+        val boundaryFrames = mutableListOf(0)  // 항상 처음부터 시작
+        for (boundaryMs in sectionBoundariesMs) {
+            val frame = (boundaryMs / hopMs).toInt().coerceIn(1, totalTimeFrames - 1)
+            if (!boundaryFrames.contains(frame)) {
+                boundaryFrames.add(frame)
+            }
+        }
+        boundaryFrames.add(totalTimeFrames)  // 끝점 추가
+        boundaryFrames.sort()
+
+        val result = mutableListOf<Pair<Long, Float>>()
+
+        // 각 섹션별로 BPM 계산
+        for (i in 0 until boundaryFrames.size - 1) {
+            val startFrame = boundaryFrames[i]
+            val endFrame = boundaryFrames[i + 1]
+            val startMs = startFrame * hopMs
+
+            if (endFrame - startFrame < 2) continue  // 너무 짧은 섹션 무시
+
+            // 이 섹션의 Tempogram 슬라이스
+            val sectionStrengths = FloatArray(tempogram.size)
+            for (lagIdx in tempogram.indices) {
+                var sum = 0f
+                for (tIdx in startFrame until endFrame) {
+                    sum += tempogram[lagIdx][tIdx]
+                }
+                sectionStrengths[lagIdx] = sum / (endFrame - startFrame)
+            }
+
+            // 정규화
+            val maxStrength = sectionStrengths.maxOrNull() ?: 1f
+            if (maxStrength > 1e-6f) {
+                for (i in sectionStrengths.indices) {
+                    sectionStrengths[i] = sectionStrengths[i] / maxStrength
+                }
+            }
+
+            // 이 섹션의 모달 피크
+            val bestLagIdx = sectionStrengths.indices.maxByOrNull { sectionStrengths[it] } ?: 0
+            val bestLag = bestLagIdx + minLag
+            val sectionBpm = 60_000L / (bestLag * hopMs)
+
+            result.add(Pair(startMs, sectionBpm.toFloat()))
+
+            Log.d(
+                TAG,
+                "V3 SectionBPM: frame[$startFrame-$endFrame] @ ${startMs}ms = ${sectionBpm} BPM"
+            )
+        }
+
+        return result
+    }
+
+    /**
      * V3 BPM 탐지
      */
     fun estimateBpmV3(
@@ -341,7 +422,8 @@ object BeatDetectorV3 {
         midEnv: List<Float>,
         fullEnv: List<Float>,
         params: Params = Params(),
-        songTitle: String? = null
+        songTitle: String? = null,
+        sectionBoundariesMs: List<Long> = emptyList()
     ): DetectResultV3 {
         if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
             return DetectResultV3(
@@ -378,6 +460,22 @@ object BeatDetectorV3 {
             TAG,
             "V3 detect: title=\"$songTitle\" BPM=$bestBpm Confidence=${confidence * 100}%"
         )
+
+        // 섹션별 BPM 분석 (구간별 다른 비트 감지)
+        if (sectionBoundariesMs.isNotEmpty() && tempogram != null) {
+            val sectionBpms = detectSectionBpms(
+                tempogram,
+                hopMs = params.hopMs,
+                minBeatMs = params.minBeatMs,
+                sectionBoundariesMs = sectionBoundariesMs
+            )
+            if (sectionBpms.isNotEmpty()) {
+                val sectionInfo = sectionBpms.joinToString(", ") { (ms, bpm) ->
+                    "${ms}ms: ${bpm.toInt()} BPM"
+                }
+                Log.d(TAG, "V3 Sections: $sectionInfo")
+            }
+        }
 
         // DP를 사용한 비트 추적 (V1의 dpBeatTracker 사용)
         val durationMs = minSize * params.hopMs
