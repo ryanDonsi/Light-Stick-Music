@@ -503,12 +503,12 @@ class ODFOptimizerApp(QMainWindow):
         self.canvas.draw()
 
     def batch_analyze(self):
-        """등록된 모든 곡 배치 분석"""
+        """등록된 모든 곡 배치 분석 (실시간 결과 표시)"""
         if not self.files:
             QMessageBox.warning(self, "경고", "파일을 추가해주세요")
             return
 
-        # 파라미터 수집
+        # 파라미터 수집 (ODF 파라미터 + 신호 처리 파라미터)
         params = {
             'smooth_window': int(self.param_widgets['smooth_window'].value()),
             'local_window': int(self.param_widgets['local_window'].value()),
@@ -517,29 +517,47 @@ class ODFOptimizerApp(QMainWindow):
             'prior_std_octave': float(self.param_widgets['prior_std_octave'].value()),
             'min_beat_ms': int(self.param_widgets['min_beat_ms'].value()),
             'max_beat_ms': int(self.param_widgets['max_beat_ms'].value()),
+            # 신호 처리 파라미터
+            'sample_rate': int(self.sr_combo.currentText()),
+            'normalize_strength': float(self.norm_spin.value()),
+            'pre_emphasis': float(self.preemph_spin.value()),
+            'compress_ratio': float(self.compress_spin.value()),
+            'enable_bandpass': self.bandpass_check.isChecked(),
+            'bandpass_low': float(self.bandpass_low_spin.value()),
+            'bandpass_high': float(self.bandpass_high_spin.value()),
+            # IIR 필터 계수
+            'low_alpha': float(self.low_alpha_spin.value()),
+            'mid_lp1_alpha': float(self.mid_lp1_spin.value()),
+            'mid_lp2_alpha': float(self.mid_lp2_spin.value()),
+            # ODF 대역 가중치
+            'weight_low': float(self.weight_low_spin.value()),
+            'weight_mid': float(self.weight_mid_spin.value()),
+            'weight_full': float(self.weight_full_spin.value()),
         }
 
-        self.batch_result_label.setText("배치 분석 중...\n")
-
-        # 각 파일 분석
-        summary = "곡\tGT BPM\t검출 BPM\t오차율\t정확도\n"
-        summary += "-" * 70 + "\n"
+        # 헤더 표시
+        total_files = len(self.files)
+        summary = f"🔄 배치 분석 진행 중... (0/{total_files})\n"
+        summary += "곡\t\t\t\tGT BPM\t검출 BPM\t오차율\t정확도\n"
+        summary += "-" * 90 + "\n"
+        self.batch_result_label.setText(summary)
 
         correct_count = 0
         total_count = 0
+        completed = 0
 
-        for filename, filepath in self.files.items():
-            self.worker = ProcessWorker(self.optimizer, filepath, params)
-            self.worker.finished.connect(lambda result, fn=filename: None)
-
-            # 동기적으로 처리
+        # 각 파일 순차 분석
+        for idx, (filename, filepath) in enumerate(self.files.items(), 1):
             try:
+                # 동기적으로 처리
                 result = self.optimizer.optimize(filepath, **params)
                 if result:
                     self.results[filename] = result
                     detected_bpm = result['bpm']
 
                     gt_bpm = MADMOM_GT.get(filename, None)
+
+                    # 결과 생성
                     if gt_bpm:
                         error_pct = abs(detected_bpm - gt_bpm) / gt_bpm * 100
                         is_correct = error_pct <= 1
@@ -549,19 +567,85 @@ class ODFOptimizerApp(QMainWindow):
                         else:
                             status = "❌"
 
-                        summary += f"{filename[:20]:<20}\t{gt_bpm:.1f}\t{detected_bpm:.1f}\t{error_pct:.1f}%\t{status}\n"
+                        result_line = f"{filename[:30]:<30}\t{gt_bpm:.1f}\t{detected_bpm:.1f}\t{error_pct:>6.1f}%\t{status}\n"
                         total_count += 1
                     else:
-                        summary += f"{filename[:20]:<20}\t-\t{detected_bpm:.1f}\t-\t-\n"
-            except Exception as e:
-                summary += f"{filename[:20]:<20}\t오류: {str(e)[:20]}\n"
+                        result_line = f"{filename[:30]:<30}\t-\t{detected_bpm:.1f}\t-\t-\n"
+                else:
+                    result_line = f"{filename[:30]:<30}\t오류\t-\t-\t❌\n"
 
-        # 결과 요약
+            except Exception as e:
+                result_line = f"{filename[:30]:<30}\t오류: {str(e)[:15]}\n"
+
+            completed += 1
+
+            # 실시간 업데이트 (각 곡마다)
+            header = f"🔄 배치 분석 진행 중... ({completed}/{total_files})\n"
+            header += "곡\t\t\t\tGT BPM\t검출 BPM\t오차율\t정확도\n"
+            header += "-" * 90 + "\n"
+
+            # 이전 결과들 + 새로운 결과
+            current_summary = summary.replace(
+                f"🔄 배치 분석 진행 중... (0/{total_files})\n",
+                header
+            )
+            current_summary = header
+
+            # 지금까지의 모든 결과 재구성
+            for idx2, (fn, fp) in enumerate(list(self.files.items())[:completed]):
+                if idx2 < completed - 1:
+                    # 이미 완료된 곡들
+                    if fn in self.results:
+                        res = self.results[fn]
+                        det_bpm = res['bpm']
+                        gt = MADMOM_GT.get(fn, None)
+                        if gt:
+                            err = abs(det_bpm - gt) / gt * 100
+                            st = "✅" if err <= 1 else "❌"
+                            current_summary += f"{fn[:30]:<30}\t{gt:.1f}\t{det_bpm:.1f}\t{err:>6.1f}%\t{st}\n"
+                        else:
+                            current_summary += f"{fn[:30]:<30}\t-\t{det_bpm:.1f}\t-\t-\n"
+                else:
+                    # 현재 완료된 곡
+                    current_summary += result_line
+
+            # 진행률 추가
+            if completed < total_files:
+                current_summary += f"\n⏳ 분석 중... ({completed}/{total_files})"
+                if total_count > 0:
+                    current_accuracy = correct_count / total_count * 100
+                    current_summary += f" | 현재 정확도: {correct_count}/{total_count} = {current_accuracy:.1f}%"
+
+            self.batch_result_label.setText(current_summary)
+
+            # UI 업데이트
+            __import__('PyQt6.QtWidgets').QApplication.processEvents()
+
+        # 최종 결과 요약
+        final_summary = f"✅ 배치 분석 완료! ({total_files}/{total_files})\n"
+        final_summary += "곡\t\t\t\tGT BPM\t검출 BPM\t오차율\t정확도\n"
+        final_summary += "-" * 90 + "\n"
+
+        for filename, filepath in self.files.items():
+            if filename in self.results:
+                res = self.results[filename]
+                det_bpm = res['bpm']
+                gt = MADMOM_GT.get(filename, None)
+                if gt:
+                    err = abs(det_bpm - gt) / gt * 100
+                    st = "✅" if err <= 1 else "❌"
+                    final_summary += f"{filename[:30]:<30}\t{gt:.1f}\t{det_bpm:.1f}\t{err:>6.1f}%\t{st}\n"
+                else:
+                    final_summary += f"{filename[:30]:<30}\t-\t{det_bpm:.1f}\t-\t-\n"
+
+        # 정확도 요약
         if total_count > 0:
             accuracy = correct_count / total_count * 100
-            summary += f"\n정확도: {correct_count}/{total_count} = {accuracy:.1f}%\n"
+            final_summary += "\n" + "=" * 90 + "\n"
+            final_summary += f"📊 최종 정확도: {correct_count}/{total_count} = {accuracy:.1f}%\n"
+            final_summary += f"정확 곡: {correct_count}곡, 부정확 곡: {total_count - correct_count}곡\n"
 
-        self.batch_result_label.setText(summary)
+        self.batch_result_label.setText(final_summary)
 
     def export_results(self):
         """결과를 JSON으로 내보내기"""
