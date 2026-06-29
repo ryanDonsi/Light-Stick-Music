@@ -545,7 +545,7 @@ object BeatDetectorV3 {
 
         return DetectResultV3(
             beats = beats,
-            beatMs = bestBpm.toLong(),
+            beatMs = if (bestBpm > 0f) (60_000L / bestBpm.toLong()) else 0L,
             confidence = confidence,
             source = BeatSource.FULL,
             reason = reason,
