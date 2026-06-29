@@ -257,24 +257,48 @@ object BeatDetectorV1 {
 
         if (bestLag <= 0) return null
 
+        val bestMs = bestLag * hopMs
+        val bestBpm = 60_000L / bestMs
+        val bestAc = acVals[bestLag]
+
         // prior 가 낮은 BPM(긴 주기)을 선호하는 경향이 있어 140+ BPM 곡에서 반박자 오류 발생
         // ex) TOMBOY GT=147.7 BPM (406ms) → prior 편향으로 75 BPM (800ms) 선택됨
         // halfLag의 autocorr 가 bestLag의 55% 이상이면 빠른 템포(halfLag) 선택
         val halfLag = bestLag / 2
         if (halfLag >= minLag) {
             val halfAc = acVals[halfLag]
-            val bestAc = acVals[bestLag]
-            if (bestAc > 0f && halfAc / bestAc >= HALF_TEMPO_RATIO) {
+            val halfRatio = if (bestAc > 0f) halfAc / bestAc else 0f
+            if (bestAc > 0f && halfRatio >= HALF_TEMPO_RATIO) {
                 val halfMs = halfLag * hopMs
-                Log.d(TAG, "V1 halfTempoCheck: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
-                    " → ${halfMs}ms(${60_000L/halfMs}BPM)  ratio=${halfAc/bestAc}")
+                val halfBpm = 60_000L / halfMs
+                Log.d(TAG, "V1 halfTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
+                    " → ${halfMs}ms(${halfBpm}BPM)" +
+                    " halfRatio=${String.format("%.4f", halfRatio)}" +
+                    " bestAc=${String.format("%.6f", bestAc)} halfAc=${String.format("%.6f", halfAc)}")
                 return halfMs
             }
         }
 
-        val resultMs = bestLag * hopMs
-        Log.d(TAG, "V1 estimateBpmDense: ${resultMs}ms (${60_000L / resultMs} BPM)")
-        return resultMs
+        // 2배 속도 검사 (doubleTempoFix와 동일한 로직)
+        // 현재 검출이 절반 배속일 가능성 체크
+        val doubleLag = bestLag * 2
+        if (doubleLag <= maxLag) {
+            val doubleAc = acVals[doubleLag]
+            val doubleRatio = if (bestAc > 0f) doubleAc / bestAc else 0f
+
+            // 에러율 계산 (BeatDetectorV2와 동일)
+            val doubleMs = doubleLag * hopMs
+            val errorRate = kotlin.math.abs(doubleMs.toFloat() / bestMs.toFloat() - 1.0f) * 100
+
+            // 상세 로그: 모든 메트릭 기록
+            Log.d(TAG, "V1 BPM_METRICS: bestLag=$bestLag bestMs=$bestMs bestBpm=$bestBpm bestAc=${String.format("%.6f", bestAc)} " +
+                "halfLag=$halfLag halfRatio=${if(halfLag >= minLag) String.format("%.4f", if(bestAc > 0f) acVals[halfLag]/bestAc else 0f) else "N/A"} " +
+                "doubleLag=$doubleLag doubleMs=$doubleMs doubleBpm=${60_000L/doubleMs} doubleAc=${String.format("%.6f", doubleAc)} doubleRatio=${String.format("%.4f", doubleRatio)} " +
+                "subBeatRatio=N/A errorRate=${String.format("%.1f", errorRate)}%")
+        }
+
+        Log.d(TAG, "V1 RESULT: ${bestMs}ms (${bestBpm}BPM)")
+        return bestMs
     }
 
     private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
