@@ -24,9 +24,9 @@ def test_dummy_audio():
 
     optimizer = ODFOptimizer()
 
-    # 테스트용 더미 오디오 생성 (1초, 28kHz)
+    # 테스트용 더미 오디오 생성 (10초, 28kHz) - BPM 탐지를 위해 충분한 길이
     sr = 28000
-    duration_s = 1.0
+    duration_s = 10.0  # 1초에서 10초로 확대
     num_samples = int(sr * duration_s)
 
     # 120 BPM 신호 생성 (0.5초 간격, 2Hz)
@@ -66,22 +66,30 @@ def test_dummy_audio():
 
     # BPM 탐지
     print("\n[BPM 탐지]")
+    min_beat_ms = 375
+    max_beat_ms = 1000
+    hop_ms = 50
+    min_lag = max(1, min_beat_ms // hop_ms)
+    max_lag = max(min_lag + 1, max_beat_ms // hop_ms)
+
     bpm, ac_vals, prior_vals, score_vals = optimizer.detect_bpm(
-        odf, hop_ms=50,
+        odf, hop_ms=hop_ms,
         prior_center_ms=500,
         prior_std_octave=2.0,
-        min_beat_ms=375,
-        max_beat_ms=1000
+        min_beat_ms=min_beat_ms,
+        max_beat_ms=max_beat_ms
     )
+
+    print(f"   분석 범위: lag {min_lag}~{max_lag} (BPM {60000/(max_lag*hop_ms):.1f}~{60000/(min_lag*hop_ms):.1f})")
+    print(f"   필요 프레임: {max_lag + 3}개 이상, 실제: {len(odf)}개")
 
     if bpm:
         print(f"✅ 검출 BPM: {bpm:.1f}")
         print(f"   예상 BPM (120): 차이 {abs(bpm - 120):.1f}")
+        print(f"✅ AC 값: {len(ac_vals)} 개")
+        print(f"   최대 AC: {np.max(ac_vals):.6f}")
     else:
-        print(f"⚠️  BPM 탐지 실패")
-
-    print(f"✅ AC 값: {len(ac_vals)} 개")
-    print(f"   최대 AC: {np.max(ac_vals):.6f}")
+        print(f"⚠️  BPM 탐지 실패 (ODF 프레임이 부족함)")
 
     print("\n✅ 기본 기능 테스트 완료\n")
 
