@@ -41,9 +41,9 @@ object BeatDetectorV1 {
     private const val DOWNBEAT_W_BAR_COMB    = 0.30f
     private const val DOWNBEAT_W_CONSISTENCY = 0.20f
 
-    // log-normal prior 중심: 120 BPM (500ms), std: 1 octave (librosa default)
+    // log-normal prior 중심: 120 BPM (500ms), std: 2 octave (Ed Sheeran 등 약한 신호 곡 개선용)
     private const val PRIOR_CENTER_MS  = 500L
-    private const val PRIOR_STD_OCTAVE = 1.0f
+    private const val PRIOR_STD_OCTAVE = 2.0f
 
     // half-tempo 체크: autocorr[halfLag] / autocorr[bestLag] >= 이 값이면 빠른 템포 선택
     // prior 가 느린 BPM 쪽으로 과도하게 치우쳐 TOMBOY/Stars 등 140+ BPM 곡에서 반박자 오류 방지
