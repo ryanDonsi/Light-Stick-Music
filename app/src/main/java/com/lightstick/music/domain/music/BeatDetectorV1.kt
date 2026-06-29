@@ -305,7 +305,6 @@ object BeatDetectorV1 {
             if (bestAc > 0f && halfRatio >= HALF_TEMPO_RATIO) {
                 val halfMs = halfLag * hopMs
                 val halfBpm = 60_000L / halfMs
-                val songInfo = if (!songTitle.isNullOrEmpty()) " title=\"$songTitle\"" else ""
                 Log.d(TAG, "V1 halfTempoFix FIRED:$songInfo ${bestMs}ms(${bestBpm}BPM)" +
                     " → ${halfMs}ms(${halfBpm}BPM)" +
                     " halfRatio=${String.format("%.4f", halfRatio)}" +
@@ -326,14 +325,12 @@ object BeatDetectorV1 {
             val errorRate = kotlin.math.abs(doubleMs.toFloat() / bestMs.toFloat() - 1.0f) * 100
 
             // 상세 로그: 모든 메트릭 기록 + 곡 정보
-            val songInfo = if (!songTitle.isNullOrEmpty()) " title=\"$songTitle\"" else ""
             Log.d(TAG, "V1 BPM_METRICS:$songInfo bestLag=$bestLag bestMs=$bestMs bestBpm=$bestBpm bestAc=${String.format("%.6f", bestAc)} " +
                 "halfLag=$halfLag halfRatio=${if(halfLag >= minLag) String.format("%.4f", if(bestAc > 0f) acVals[halfLag]/bestAc else 0f) else "N/A"} " +
                 "doubleLag=$doubleLag doubleMs=$doubleMs doubleBpm=${60_000L/doubleMs} doubleAc=${String.format("%.6f", doubleAc)} doubleRatio=${String.format("%.4f", doubleRatio)} " +
                 "subBeatRatio=N/A errorRate=${String.format("%.1f", errorRate)}%")
         }
 
-        val songInfo = if (!songTitle.isNullOrEmpty()) " title=\"$songTitle\"" else ""
         Log.d(TAG, "V1 RESULT:$songInfo ${bestMs}ms (${bestBpm}BPM)")
         return bestMs
     }
