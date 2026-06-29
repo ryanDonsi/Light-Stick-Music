@@ -141,7 +141,7 @@ object BeatDetectorV3 {
      * Returns: FloatArray[BPM_bins][time_frames]
      */
     fun computeTempogram(
-        odf: FloatArray,
+        odf: List<Float>,
         hopMs: Long,
         minBeatMs: Long,
         maxBeatMs: Long,
@@ -501,7 +501,7 @@ object BeatDetectorV3 {
             Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → fallback")
             beats = fallbackSegmentBeats(
                 low, mid, full, params, bestBpm.toLong(), durationMs
-            )
+            ).map { TimedBeat(it.timeMs, it.confidence) }
             reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
         }
 
@@ -541,16 +541,16 @@ object BeatDetectorV3 {
 
     private fun computeMultiBandFluxOdf(
         low: FloatArray, mid: FloatArray, full: FloatArray, params: Params
-    ): List<Float> {
+    ): FloatArray {
         val n = minOf(low.size, mid.size, full.size)
-        val lowFlux = computeOdf(low.take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val midFlux = computeOdf(mid.take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val fullFlux = computeOdf(full.take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
+        val lowFlux = computeOdf(low.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
+        val midFlux = computeOdf(mid.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
+        val fullFlux = computeOdf(full.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
         val combined = ArrayList<Float>(n)
         for (i in 0 until n) {
             combined += lowFlux[i] * 1.0f + midFlux[i] * 1.8f + fullFlux[i] * 0.8f
         }
-        return localNormalizeMean(combined, GLOBAL_NORM_WINDOW)
+        return localNormalizeMean(combined, GLOBAL_NORM_WINDOW).toFloatArray()
     }
 
     private fun computeOdf(env: List<Float>, smoothWindow: Int, normWindow: Int): List<Float> =
@@ -621,7 +621,7 @@ object BeatDetectorV3 {
         return out
     }
 
-    private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
+    private fun estimatePhaseFromOdf(odf: FloatArray, beatMs: Long, hopMs: Long): Long {
         val fpb = maxOf(1, (beatMs / hopMs).toInt())
         if (odf.size < fpb * 2) return 0L
         var bestPhase = 0
@@ -642,7 +642,7 @@ object BeatDetectorV3 {
     }
 
     private fun dpBeatTracker(
-        odf: List<Float>,
+        odf: FloatArray,
         targetPeriodMs: Long,
         hopMs: Long,
         durationMs: Long,
@@ -744,7 +744,7 @@ object BeatDetectorV3 {
         return result.sortedBy { it.timeMs }
     }
 
-    private fun detectTimeSignature(onset: List<Float>, beatMs: Long, hopMs: Long): TimeSignature {
+    private fun detectTimeSignature(onset: FloatArray, beatMs: Long, hopMs: Long): TimeSignature {
         if (onset.size < 8 || beatMs <= 0L) return TimeSignature.FOUR_FOUR
         val bf = (beatMs / hopMs).toInt().coerceAtLeast(1)
         val corr3 = lagCorr(onset, bf * 3)
@@ -757,7 +757,7 @@ object BeatDetectorV3 {
         }
     }
 
-    private fun lagCorr(onset: List<Float>, lag: Int): Float {
+    private fun lagCorr(onset: FloatArray, lag: Int): Float {
         if (lag <= 0 || lag >= onset.size) return 0f
         var sum = 0f
         var i = 0
