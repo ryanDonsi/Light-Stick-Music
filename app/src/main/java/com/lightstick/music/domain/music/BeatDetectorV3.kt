@@ -141,7 +141,7 @@ object BeatDetectorV3 {
      * Returns: FloatArray[BPM_bins][time_frames]
      */
     fun computeTempogram(
-        odf: List<Float>,
+        odf: FloatArray,
         hopMs: Long,
         minBeatMs: Long,
         maxBeatMs: Long,
