@@ -26,7 +26,15 @@ object BeatDetectorV3 {
 
     private const val TAG = "AutoTimeline_BeatDetectorV3"
 
+    // V1 상수들
+    private const val FILL_CONFIDENCE = 0.20f
+    private const val LOCAL_NORM_WINDOW = 60
     private const val GLOBAL_NORM_WINDOW = 80
+    private const val TIME_SIG_THREE_RATIO = 1.20f
+    private const val TIME_SIG_SIX_RATIO = 1.25f
+    private const val DOWNBEAT_W_LOW_ENERGY = 0.50f
+    private const val DOWNBEAT_W_BAR_COMB = 0.30f
+    private const val DOWNBEAT_W_CONSISTENCY = 0.20f
 
     // BPM 탐지 파라미터
     private const val PRIOR_CENTER_MS = 500L
@@ -439,12 +447,7 @@ object BeatDetectorV3 {
         }
 
         // ODF 계산 (V1과 동일)
-        val globalOdf = BeatDetectorV1.computeMultiBandFluxOdf(
-            low, mid, full,
-            smooth_window = 3,
-            local_window = params.onsetSmoothWindow,
-            global_window = GLOBAL_NORM_WINDOW
-        )
+        val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)
 
         // V3 BPM 탐지
         val (bestBpm, confidence, tempogram) = estimateBpmV3(
@@ -478,10 +481,10 @@ object BeatDetectorV3 {
             }
         }
 
-        // DP를 사용한 비트 추적 (V1의 dpBeatTracker 사용)
+        // DP를 사용한 비트 추적
         val durationMs = minSize * params.hopMs
-        val phaseMs = BeatDetectorV1.estimatePhaseFromOdf(globalOdf, bestBpm.toLong(), params.hopMs)
-        val dpTimes = BeatDetectorV1.dpBeatTracker(
+        val phaseMs = estimatePhaseFromOdf(globalOdf, bestBpm.toLong(), params.hopMs)
+        val dpTimes = dpBeatTracker(
             globalOdf, bestBpm.toLong(), params.hopMs,
             durationMs, anchorMs = phaseMs
         )
@@ -496,9 +499,9 @@ object BeatDetectorV3 {
             reason = "dp"
         } else {
             Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → fallback")
-            beats = BeatDetectorV1.fallbackSegmentBeats(
+            beats = fallbackSegmentBeats(
                 low, mid, full, params, bestBpm.toLong(), durationMs
-            ).map { TimedBeat(it, 0.5f) }
+            )
             reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
         }
 
@@ -510,8 +513,8 @@ object BeatDetectorV3 {
             )
         }
 
-        val timeSignature = BeatDetectorV1.detectTimeSignature(globalOdf, bestBpm.toLong(), params.hopMs)
-        val downbeatMs = BeatDetectorV1.detectDownbeatEnhanced(
+        val timeSignature = detectTimeSignature(globalOdf, bestBpm.toLong(), params.hopMs)
+        val downbeatMs = detectDownbeatEnhanced(
             beats.map { it.timeMs }, low, bestBpm.toLong(),
             timeSignature.beatsPerBar, params.hopMs
         )
@@ -532,5 +535,301 @@ object BeatDetectorV3 {
             timeSignature = timeSignature,
             tempogram = tempogram
         )
+    }
+
+    // ====================== V1 호환 헬퍼 메서드들 ======================
+
+    private fun computeMultiBandFluxOdf(
+        low: FloatArray, mid: FloatArray, full: FloatArray, params: Params
+    ): List<Float> {
+        val n = minOf(low.size, mid.size, full.size)
+        val lowFlux = computeOdf(low.take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
+        val midFlux = computeOdf(mid.take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
+        val fullFlux = computeOdf(full.take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
+        val combined = ArrayList<Float>(n)
+        for (i in 0 until n) {
+            combined += lowFlux[i] * 1.0f + midFlux[i] * 1.8f + fullFlux[i] * 0.8f
+        }
+        return localNormalizeMean(combined, GLOBAL_NORM_WINDOW)
+    }
+
+    private fun computeOdf(env: List<Float>, smoothWindow: Int, normWindow: Int): List<Float> =
+        localNormalizeMax(positiveDiff(movingAverage(env, smoothWindow)), normWindow)
+
+    private fun movingAverage(src: List<Float>, window: Int): List<Float> {
+        if (src.isEmpty() || window <= 1) return src.toList()
+        val out = ArrayList<Float>(src.size)
+        val half = window / 2
+        for (i in src.indices) {
+            var sum = 0f
+            var count = 0
+            val s = maxOf(0, i - half)
+            val e = minOf(src.lastIndex, i + half)
+            for (j in s..e) {
+                sum += src[j]
+                count++
+            }
+            out += if (count == 0) 0f else sum / count.toFloat()
+        }
+        return out
+    }
+
+    private fun positiveDiff(src: List<Float>): List<Float> {
+        if (src.isEmpty()) return emptyList()
+        val out = ArrayList<Float>(src.size)
+        out += 0f
+        for (i in 1 until src.size) out += maxOf(0f, src[i] - src[i - 1])
+        return out
+    }
+
+    private fun localNormalizeMax(src: List<Float>, windowFrames: Int): List<Float> {
+        if (src.isEmpty()) return emptyList()
+        val out = ArrayList<Float>(src.size)
+        for (i in src.indices) {
+            val lo = maxOf(0, i - windowFrames)
+            val hi = minOf(src.lastIndex, i + windowFrames)
+            var localMax = 0f
+            for (j in lo..hi) if (src[j] > localMax) localMax = src[j]
+            out.add(if (localMax > 1e-6f) (src[i] / localMax).coerceIn(0f, 1f) else 0f)
+        }
+        return out
+    }
+
+    private fun localNormalizeMean(src: List<Float>, windowFrames: Int): List<Float> {
+        if (src.isEmpty()) return emptyList()
+        val bgRemoved = ArrayList<Float>(src.size)
+        for (i in src.indices) {
+            val lo = maxOf(0, i - windowFrames)
+            val hi = minOf(src.lastIndex, i + windowFrames)
+            var localMean = 0f
+            var cnt = 0
+            for (j in lo..hi) {
+                localMean += src[j]
+                cnt++
+            }
+            localMean = if (cnt > 0) localMean / cnt else 0f
+            bgRemoved.add((src[i] - localMean).coerceAtLeast(0f))
+        }
+        val out = ArrayList<Float>(src.size)
+        for (i in bgRemoved.indices) {
+            val lo = maxOf(0, i - windowFrames)
+            val hi = minOf(bgRemoved.lastIndex, i + windowFrames)
+            var localMax = 0f
+            for (j in lo..hi) if (bgRemoved[j] > localMax) localMax = bgRemoved[j]
+            out.add(if (localMax > 1e-6f) (bgRemoved[i] / localMax).coerceIn(0f, 1f) else 0f)
+        }
+        return out
+    }
+
+    private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {
+        val fpb = maxOf(1, (beatMs / hopMs).toInt())
+        if (odf.size < fpb * 2) return 0L
+        var bestPhase = 0
+        var bestScore = Float.NEGATIVE_INFINITY
+        for (ph in 0 until fpb) {
+            var score = 0f
+            var f = ph
+            while (f < odf.size) {
+                score += odf[f]
+                f += fpb
+            }
+            if (score > bestScore) {
+                bestScore = score
+                bestPhase = ph
+            }
+        }
+        return bestPhase.toLong() * hopMs
+    }
+
+    private fun dpBeatTracker(
+        odf: List<Float>,
+        targetPeriodMs: Long,
+        hopMs: Long,
+        durationMs: Long,
+        anchorMs: Long = 0L
+    ): LongArray {
+        if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
+        val n = odf.size
+        val fpb = (targetPeriodMs / hopMs).toInt().coerceAtLeast(1)
+        val tightness = 100.0f
+        val anchorFrame = if (anchorMs > 0L) (anchorMs / hopMs).toInt().coerceIn(0, n - 1) else -1
+
+        val gaussHalf = fpb
+        val gaussSize = gaussHalf * 2 + 1
+        val gaussWin = FloatArray(gaussSize) { k ->
+            val i = (k - gaussHalf).toFloat()
+            exp(-0.5f * (i * 32.0f / fpb) * (i * 32.0f / fpb))
+        }
+        val localscore = FloatArray(n)
+        for (t in 0 until n) {
+            var s = 0f
+            for (k in 0 until gaussSize) {
+                val idx = t - gaussHalf + k
+                if (idx in 0 until n) s += gaussWin[k] * odf[idx]
+            }
+            localscore[t] = s
+        }
+
+        val cumscore = FloatArray(n) { Float.NEGATIVE_INFINITY }
+        val prev = IntArray(n) { -1 }
+        val searchRange = fpb * 2
+
+        for (t in 0 until n) {
+            val pLo = maxOf(0, t - searchRange)
+            val pHi = maxOf(0, t - maxOf(1, fpb / 2))
+            var bestVal = Float.NEGATIVE_INFINITY
+            for (p in pLo..pHi) {
+                val isFreeStart = (p == 0 || p == anchorFrame)
+                if (cumscore[p] == Float.NEGATIVE_INFINITY && !isFreeStart) continue
+                val pScore = if (isFreeStart) 0f else cumscore[p]
+                val lag = (t - p).toFloat().coerceAtLeast(1f)
+                val logRatio = ln(lag / fpb)
+                val penalty = tightness * logRatio * logRatio
+                val cand = pScore - penalty
+                if (cand > bestVal) {
+                    bestVal = cand
+                    prev[t] = p
+                }
+            }
+            cumscore[t] = if (bestVal == Float.NEGATIVE_INFINITY) localscore[t]
+            else bestVal + localscore[t]
+        }
+
+        var t = cumscore.indices.maxByOrNull { cumscore[it] } ?: return LongArray(0)
+        val beats = mutableListOf<Long>()
+        var iter = 0
+        while (t > 0 && iter < n) {
+            beats.add(t.toLong() * hopMs)
+            val p = prev[t]
+            if (p < 0 || p == t) break
+            t = p
+            iter++
+        }
+
+        val preTrim = beats.reversed().toLongArray()
+        if (preTrim.size < 2) return preTrim
+        val rms = sqrt(localscore.map { it * it }.average().toFloat())
+        val trimTh = 0.5f * rms
+        var s = 0
+        while (s < preTrim.size && localscore[(preTrim[s] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) s++
+        var e = preTrim.size - 1
+        while (e > s && localscore[(preTrim[e] / hopMs).toInt().coerceIn(0, n - 1)] < trimTh) e--
+        return if (s > e) preTrim else preTrim.sliceArray(s..e)
+    }
+
+    private fun fallbackSegmentBeats(
+        low: FloatArray, mid: FloatArray, full: FloatArray,
+        params: Params, beatMs: Long, durationMs: Long
+    ): List<TimedBeat> {
+        val n = minOf(low.size, mid.size, full.size)
+        val segFrames = maxOf(1, (params.segmentMs / params.hopMs).toInt())
+        val result = ArrayList<TimedBeat>()
+
+        for (segIdx in 0 until (n + segFrames - 1) / segFrames) {
+            val s = segIdx * segFrames
+            val e = minOf(n, s + segFrames)
+            if (e - s < 8) continue
+
+            val odf = computeMultiBandFluxOdf(
+                low.copyOfRange(s, e),
+                mid.copyOfRange(s, e),
+                full.copyOfRange(s, e),
+                params
+            )
+            val segPhase = estimatePhaseFromOdf(odf, beatMs, params.hopMs)
+            val segTimes = dpBeatTracker(odf, beatMs, params.hopMs, (e - s).toLong() * params.hopMs, anchorMs = segPhase)
+            val offset = s.toLong() * params.hopMs
+            segTimes.forEach { result += TimedBeat(offset + it, FILL_CONFIDENCE) }
+        }
+        return result.sortedBy { it.timeMs }
+    }
+
+    private fun detectTimeSignature(onset: List<Float>, beatMs: Long, hopMs: Long): TimeSignature {
+        if (onset.size < 8 || beatMs <= 0L) return TimeSignature.FOUR_FOUR
+        val bf = (beatMs / hopMs).toInt().coerceAtLeast(1)
+        val corr3 = lagCorr(onset, bf * 3)
+        val corr4 = lagCorr(onset, bf * 4)
+        val corr6 = lagCorr(onset, bf * 6)
+        return when {
+            corr3 > corr4 * TIME_SIG_THREE_RATIO -> TimeSignature.THREE_FOUR
+            corr6 > corr4 * TIME_SIG_SIX_RATIO && corr3 > corr4 * 0.85f -> TimeSignature.SIX_EIGHT
+            else -> TimeSignature.FOUR_FOUR
+        }
+    }
+
+    private fun lagCorr(onset: List<Float>, lag: Int): Float {
+        if (lag <= 0 || lag >= onset.size) return 0f
+        var sum = 0f
+        var i = 0
+        while (i + lag < onset.size) {
+            sum += onset[i] * onset[i + lag]
+            i++
+        }
+        return sum / i.toFloat().coerceAtLeast(1f)
+    }
+
+    private fun detectDownbeatEnhanced(
+        beatTimesMs: List<Long>, lowEnv: FloatArray,
+        beatMs: Long, beatsPerBar: Int, hopMs: Long
+    ): Long {
+        if (beatTimesMs.isEmpty() || beatMs <= 0L) return 0L
+        if (beatTimesMs.size < beatsPerBar) return beatTimesMs.first()
+
+        val phaseSum = FloatArray(beatsPerBar)
+        val phaseCnt = IntArray(beatsPerBar)
+        for (i in beatTimesMs.indices) {
+            val ph = i % beatsPerBar
+            val fr = (beatTimesMs[i] / hopMs).toInt().coerceIn(0, lowEnv.lastIndex)
+            phaseSum[ph] += lowEnv[fr]
+            phaseCnt[ph]++
+        }
+        val avgEnergy = FloatArray(beatsPerBar) { p ->
+            if (phaseCnt[p] > 0) phaseSum[p] / phaseCnt[p] else 0f
+        }
+
+        val barFrames = ((beatMs * beatsPerBar) / hopMs).toInt().coerceAtLeast(1)
+        val combScore = FloatArray(beatsPerBar)
+        for (ph in 0 until beatsPerBar) {
+            val anchor = (beatTimesMs.getOrElse(ph) { ph.toLong() * beatMs } / hopMs).toInt()
+            var k = anchor
+            var sum = 0f
+            var cnt = 0
+            while (k < lowEnv.size) {
+                sum += lowEnv[k.coerceIn(0, lowEnv.lastIndex)]
+                cnt++
+                k += barFrames
+            }
+            k = anchor - barFrames
+            while (k >= 0) {
+                sum += lowEnv[k.coerceIn(0, lowEnv.lastIndex)]
+                cnt++
+                k -= barFrames
+            }
+            combScore[ph] = if (cnt > 0) sum / cnt else 0f
+        }
+
+        val consistScore = FloatArray(beatsPerBar)
+        for (ph in 0 until beatsPerBar) {
+            val energies = beatTimesMs.filterIndexed { i, _ -> i % beatsPerBar == ph }
+                .map { t -> lowEnv[(t / hopMs).toInt().coerceIn(0, lowEnv.lastIndex)] }
+            if (energies.size >= 2) {
+                val avg = energies.average().toFloat()
+                val std = sqrt(energies.map { (it - avg) * (it - avg) }.average().toFloat())
+                val cv = if (avg > 0.001f) std / avg else 1f
+                consistScore[ph] = ((1f - cv.coerceIn(0f, 1f)) * avg).coerceAtLeast(0f)
+            }
+        }
+
+        fun FloatArray.normMax(): FloatArray {
+            val mx = maxOrNull() ?: return this
+            return if (mx > 0.001f) FloatArray(size) { this[it] / mx } else this
+        }
+        val bestPhase = (0 until beatsPerBar).maxByOrNull { p ->
+            avgEnergy.normMax()[p] * DOWNBEAT_W_LOW_ENERGY +
+                    combScore.normMax()[p] * DOWNBEAT_W_BAR_COMB +
+                    consistScore.normMax()[p] * DOWNBEAT_W_CONSISTENCY
+        } ?: 0
+
+        return beatTimesMs.getOrElse(bestPhase) { beatTimesMs.first() }
     }
 }
