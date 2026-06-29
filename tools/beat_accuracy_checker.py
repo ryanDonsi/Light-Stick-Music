@@ -516,9 +516,27 @@ def detect_beats_beat_transformer(audio_path):
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             if result.stdout: print(result.stdout)
             if result.returncode != 0:
+                stderr_msg = result.stderr if result.stderr else "(stderr 없음)"
+
+                # 에러 원인 분석
+                error_hint = ""
+                if "CUDA" in stderr_msg or "cuda" in stderr_msg.lower():
+                    error_hint = "\n💡 원인: GPU/CUDA 문제 → --cpu 플래그 사용 또는 PyTorch CPU 버전 설치"
+                elif "out of memory" in stderr_msg.lower():
+                    error_hint = "\n💡 원인: GPU 메모리 부족 → 배치 크기 감소 또는 CPU 모드 사용"
+                elif "DilatedTransformer" in stderr_msg:
+                    error_hint = "\n💡 원인: 모델 로드 또는 전방 통과 실패 → PyTorch/라이브러리 버전 호환성 확인"
+                elif "shape" in stderr_msg.lower() or "dimension" in stderr_msg.lower():
+                    error_hint = "\n💡 원인: 입력 차원 불일치 → 오디오 길이 또는 샘플링 레이트 확인"
+
                 raise RuntimeError(
-                    f"bt_infer.py 실패 (exit {result.returncode}):\n{result.stderr[-1000:]}\n\n"
-                    "pip install torch torchaudio librosa einops scipy 설치 후 재시도하세요."
+                    f"Beat Transformer 감지 실패 (exit {result.returncode}):\n"
+                    f"{stderr_msg}\n"
+                    f"{error_hint}\n\n"
+                    "📋 해결 방법:\n"
+                    "1. pip install torch torchaudio librosa einops scipy\n"
+                    "2. bt_infer.py에 --cpu 플래그 추가 시도 (GPU 메모리 부족 시)\n"
+                    "3. PyTorch 버전 확인: python -c \"import torch; print(torch.__version__)\""
                 )
             with open(out_path) as f:
                 data = json.load(f)
@@ -2016,6 +2034,7 @@ class App(tk.Tk):
         self._play_obj = None              # pydub PlayObject
         self._playback_start_time = 0      # 재생 시작 시간 (ms)
         self._is_analyzing = False         # 분석 중 여부
+        self._shared_analysis_logged = False # [ 1/6 ], [ 2/6 ], [ 3/6 ] 이미 로그됨 여부 (공유 리소스)
 
         self._build_ui()
         self._load_state()
@@ -2063,15 +2082,18 @@ class App(tk.Tk):
 
         tl_ctrl = tk.Frame(tl_frame, bg="#1a1a2e")
         tl_ctrl.pack(fill="x", padx=6, pady=(3, 2))
+
+        # 좌측: 비트 감지 범례
         legend_frame = tk.Frame(tl_ctrl, bg="#1a1a2e")
         legend_frame.pack(side="left")
         for lc, lt in [("#69f0ae", "■ 일치(TP)"), ("#ff5252", "■ 오감지(FP)"), ("#448aff", "■ 누락(FN)")]:
             tk.Label(legend_frame, text=lt, bg="#1a1a2e", fg=lc,
                      font=("", 8, "bold")).pack(side="left", padx=6)
         tk.Label(tl_ctrl, text="  |", bg="#1a1a2e", fg="#37474f", font=("", 8)).pack(side="left")
-        # 섹션 범례 (우측)
+
+        # 중앙: 섹션 범례
         sec_legend = tk.Frame(tl_ctrl, bg="#1a1a2e")
-        sec_legend.pack(side="right", padx=(0, 6))
+        sec_legend.pack(side="left", padx=(4, 6))
         tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
                  font=("", 7)).pack(side="left", padx=(0, 3))
         _legend_types = ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO",
@@ -2082,9 +2104,12 @@ class App(tk.Tk):
             sc = _SECTION_COLORS.get(stype, "#546e7a")
             tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
                      font=("", 6, "bold")).pack(side="left", padx=1, pady=1)
-        # ── 줌/스크롤 컨트롤 행 ──────────────────────
-        tl_ctrl2 = tk.Frame(tl_frame, bg="#1a1a2e")
-        tl_ctrl2.pack(fill="x", padx=6, pady=(0, 2))
+
+        tk.Label(tl_ctrl, text="  |", bg="#1a1a2e", fg="#37474f", font=("", 8)).pack(side="left", padx=2)
+
+        # 우측: 타임라인 컨트롤
+        right_ctrl = tk.Frame(tl_ctrl, bg="#1a1a2e")
+        right_ctrl.pack(side="right", padx=(0, 6))
 
         self.zoom_s_var   = tk.DoubleVar(value=0.0)
         self.zoom_e_var   = tk.DoubleVar(value=30.0)
@@ -2097,31 +2122,33 @@ class App(tk.Tk):
                        activeforeground="white", font=("", 8, "bold"), pady=1, padx=6,
                        relief="flat", bd=0)
 
+        # 줌 버튼들
         self._zoom_btns = {}
         for label, mode in [("전체", "full"), ("10초", "10"), ("30초", "30"), ("60초", "60")]:
-            b = tk.Button(tl_ctrl2, text=label,
+            b = tk.Button(right_ctrl, text=label,
                           command=lambda m=mode: self._set_zoom_mode(m), **btn_cfg)
             b.pack(side="left", padx=1)
             self._zoom_btns[mode] = b
         self._zoom_btns["full"].config(**btn_sel)   # 기본 선택
 
-        tk.Label(tl_ctrl2, text="  |", bg="#1a1a2e", fg="#37474f",
-                 font=("", 8)).pack(side="left")
+        tk.Label(right_ctrl, text="  |", bg="#1a1a2e", fg="#37474f",
+                 font=("", 8)).pack(side="left", padx=2)
 
-        tk.Button(tl_ctrl2, text="◀◀", command=self._scroll_to_start,
+        # 스크롤 버튼들
+        tk.Button(right_ctrl, text="◀◀", command=self._scroll_to_start,
                   **btn_cfg).pack(side="left", padx=1)
-        tk.Button(tl_ctrl2, text="◀", command=self._scroll_left,
+        tk.Button(right_ctrl, text="◀", command=self._scroll_left,
                   **btn_cfg).pack(side="left", padx=1)
-        tk.Button(tl_ctrl2, text="▶", command=self._scroll_right,
+        tk.Button(right_ctrl, text="▶", command=self._scroll_right,
                   **btn_cfg).pack(side="left", padx=1)
-        tk.Button(tl_ctrl2, text="▶▶", command=self._scroll_to_end,
+        tk.Button(right_ctrl, text="▶▶", command=self._scroll_to_end,
                   **btn_cfg).pack(side="left", padx=1)
 
-        tk.Label(tl_ctrl2, text="  |", bg="#1a1a2e", fg="#37474f",
-                 font=("", 8)).pack(side="left")
+        tk.Label(right_ctrl, text="  |", bg="#1a1a2e", fg="#37474f",
+                 font=("", 8)).pack(side="left", padx=2)
 
         self.v_zoom_pos = tk.StringVar(value="0:00 ~ 0:00")
-        tk.Label(tl_ctrl2, textvariable=self.v_zoom_pos,
+        tk.Label(right_ctrl, textvariable=self.v_zoom_pos,
                  bg="#1a1a2e", fg="#546e7a", font=("", 8)).pack(side="left", padx=4)
 
         # 캔버스 높이: TICK_H(16) + BEAT_H*3(132) + SEC_H*2(44) = 192px (공백 없음)
@@ -2269,7 +2296,7 @@ class App(tk.Tk):
         song_and_ctrl.pack(side="left", fill="both", expand=True, pady=3)
 
         song_info_inner = tk.Frame(song_and_ctrl, bg="#1e272e")
-        song_info_inner.pack(anchor="w")
+        song_info_inner.pack(anchor="w", side="left")
         self.v_song_title = tk.StringVar(value="—")
         self.v_song_id    = tk.StringVar(value="—")
         tk.Label(song_info_inner, textvariable=self.v_song_title,
@@ -2277,10 +2304,10 @@ class App(tk.Tk):
         tk.Label(song_info_inner, textvariable=self.v_song_id,
                  bg="#1e272e", fg="#546e7a", font=("", 8), anchor="w").pack(anchor="w")
 
-        # 재생 컨트롤 버튼들 (곡 정보 옆)
+        # 재생 컨트롤 버튼들 (곡 정보 우측)
         if HAS_PYDUB:
             ctrl_btn_frame = tk.Frame(song_and_ctrl, bg="#1e272e")
-            ctrl_btn_frame.pack(side="left", padx=(15, 0), pady=3)
+            ctrl_btn_frame.pack(side="right", padx=(40, 20), pady=3)
 
             # 버튼 스타일 (명확한 음악 재생 컨트롤 아이콘)
             btn_bg = "#37474f"
@@ -2989,24 +3016,61 @@ class App(tk.Tk):
 
     def _run_all_thread(self, targets, engines, tol_ms, bpm_hint):
         total = len(targets)
+
+        # 세션 내 캐시 + JSON 기반 장기 캐시
+        cached_gt_sections = {}  # 현재 세션 내 캐시
+        records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
+
+        # JSON 레코드 로드 (music_id별 섹션 캐시)
+        json_gt_sections = {}
+        try:
+            with open(records_path, encoding="utf-8") as _f:
+                _recs = json.load(_f)
+                for rec in _recs:
+                    mid = rec.get("music_id")
+                    sections = rec.get("librosa_sections", [])
+                    if mid and sections and mid not in json_gt_sections:
+                        json_gt_sections[mid] = sections
+        except Exception:
+            pass
+
         for idx, (iid, item) in enumerate(targets, 1):
             audio = item["path"]
             binf  = item["bin_path"]
             name  = os.path.basename(audio)
 
-            # GT 섹션 분석: 오디오당 1회만 실행 후 엔진별로 공유
+            # GT 섹션 분석: music_id 기반 캐싱 (세션 + JSON)
             pre_lib_sections = []
-            if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
+
+            # music_id 계산
+            bin_id = extract_music_id(binf) or os.path.splitext(os.path.basename(binf))[0]
+            mid_display = _to_signed_display(int(bin_id)) if bin_id.lstrip("-").isdigit() else bin_id
+
+            # 1단계: 세션 캐시 확인
+            if bin_id in cached_gt_sections:
+                pre_lib_sections = cached_gt_sections[bin_id]
+                self.after(0, lambda n=len(pre_lib_sections), nm=name:
+                           self._log(f"[GT섹션]  {nm} — {n}개 (세션 캐시 사용)", "gray"))
+            # 2단계: JSON 캐시 확인
+            elif mid_display in json_gt_sections:
+                pre_lib_sections = json_gt_sections[mid_display]
+                cached_gt_sections[bin_id] = pre_lib_sections
+                self.after(0, lambda n=len(pre_lib_sections), nm=name:
+                           self._log(f"[GT섹션]  {nm} — {n}개 (저장된 캐시 사용)", "green"))
+            # 3단계: 새로 분석
+            elif HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
                 try:
                     src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
                     self.after(0, lambda n=name, i=idx, t=total, s=src:
                                self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션/{s})"))
                     _dur = get_audio_duration(audio)
                     pre_lib_sections = detect_gt_sections(audio, _dur)
+                    cached_gt_sections[bin_id] = pre_lib_sections  # 세션 캐시에 저장
                     self.after(0, lambda n=len(pre_lib_sections), nm=name:
                                self._log(f"[GT섹션]  {nm} — {n}개 감지", "gray"))
                 except Exception as _se:
                     import traceback
+                    cached_gt_sections[bin_id] = []  # 실패도 캐시하여 재시도 방지
                     self.after(0, lambda e=str(_se)[:100], tb=traceback.format_exc()[:200], nm=name:
                                self._log(f"[❌ GT섹션] {nm} 감지 실패: {e}", "red"))
 
@@ -3823,9 +3887,10 @@ class App(tk.Tk):
             except Exception:
                 self._audio_duration_ms = 0
 
-        # ① 바이너리
+        # ① 바이너리 (첫 번째 엔진에서만 로그)
         _step1_start = time.time()
-        self.after(0, lambda: self._log("[ 1/4 ]  타임라인 + 섹션 바이너리 파싱…", "gray"))
+        if not self._shared_analysis_logged:
+            self.after(0, lambda: self._log("[ 1/6 ]  앱 바이너리 분석 (타임라인 + 섹션)…", "gray"))
         try:
             version, frame_count, app_ms_timeline = parse_timeline_binary(bin_path)
             # ★ 이펙트 정보 추출
@@ -3841,8 +3906,9 @@ class App(tk.Tk):
                        self._log(f"[❌ 실패] 바이너리 파싱 오류: {m}", "red"))
             raise
         _steps_timing['binary'] = time.time() - _step1_start
-        self.after(0, lambda t=_steps_timing['binary']:
-                   self._log(f"  └─ 완료 ({t:.2f}초)", "gray"))
+        if not self._shared_analysis_logged:
+            self.after(0, lambda t=_steps_timing['binary']:
+                       self._log(f"  └─ 완료 ({t:.2f}초)", "gray"))
 
         bin_id   = extract_music_id(bin_path) or os.path.splitext(os.path.basename(bin_path))[0]
 
@@ -3900,68 +3966,81 @@ class App(tk.Tk):
         music_id = bin_id   # 바이너리 파일명 기준 ID
 
         def _lb():
-            self._log(SEP, "gray")
-            self._log(f"  타임라인 바이너리: {os.path.basename(bin_path)}")
-            if sections:
-                self._log(f"  섹션 바이너리: 감지됨 ({len(sections)}개 섹션)", "green")
-            self._log(f"  Music ID (bin) : {bin_id}  |  Music ID (mp3 hash) : {audio_hash_id}",
-                      "yellow" if bin_id != audio_hash_id else "green")
-            self._log(f"  포맷 버전  : {version}")
+            if not self._shared_analysis_logged:
+                self._log(SEP, "gray")
+                self._log(f"  타임라인 바이너리: {os.path.basename(bin_path)}")
+                if sections:
+                    self._log(f"  섹션 바이너리: 감지됨 ({len(sections)}개 섹션)", "green")
+                self._log(f"  Music ID (bin) : {bin_id}  |  Music ID (mp3 hash) : {audio_hash_id}",
+                          "yellow" if bin_id != audio_hash_id else "green")
+                self._log(f"  포맷 버전  : {version}")
 
-            # ★ 두 소스 비트 비교
-            self._log(f"\n  【앱 비트 소스】: {beats_source} 바이너리", "cyan" if beats_source == "섹션" else "gray")
-            self._log(f"    타임라인: {len(app_ms_timeline)}개 비트  |  BPM {app_timeline_st.get('bpm',0):.1f}  |  간격 {app_timeline_st.get('median_ms',0):.1f}ms")
-            if app_ms_from_sections:
-                self._log(f"    섹션  : {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms", "green")
-            else:
-                self._log(f"    사용중: {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms")
+                # ★ 두 소스 비트 비교
+                self._log(f"\n  【앱 비트 소스】: {beats_source} 바이너리", "cyan" if beats_source == "섹션" else "gray")
+                self._log(f"    타임라인: {len(app_ms_timeline)}개 비트  |  BPM {app_timeline_st.get('bpm',0):.1f}  |  간격 {app_timeline_st.get('median_ms',0):.1f}ms")
+                if app_ms_from_sections:
+                    self._log(f"    섹션  : {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms", "green")
+                else:
+                    self._log(f"    사용중: {len(app_ms)}개 비트  |  BPM {app_st.get('bpm',0):.1f}  |  간격 {app_st.get('median_ms',0):.1f}ms")
 
-            # ★ 이펙트 정보 표시
-            if timeline_effects:
-                self._log(f"\n  【타임라인 이펙트】: {len(timeline_effects)}종류", "cyan")
-                # 이펙트별 정보 표시 (상위 5개)
-                sorted_effects = sorted(timeline_effects.items(),
-                                       key=lambda x: x[1]['count'], reverse=True)[:5]
-                for eid, stats in sorted_effects:
-                    first = _fmt_sec(stats['first_time'] / 1000.0)
-                    last = _fmt_sec(stats['last_time'] / 1000.0)
-                    self._log(f"    [ID {eid:3d}] {stats['count']:3d}회  {first}~{last}  간격 {stats['gap_range'][0]:.0f}~{stats['gap_range'][1]:.0f}ms")
+                # ★ 이펙트 정보 표시
+                if timeline_effects:
+                    self._log(f"\n  【타임라인 이펙트】: {len(timeline_effects)}종류", "cyan")
+                    # 이펙트별 정보 표시 (상위 5개)
+                    sorted_effects = sorted(timeline_effects.items(),
+                                           key=lambda x: x[1]['count'], reverse=True)[:5]
+                    for eid, stats in sorted_effects:
+                        first = _fmt_sec(stats['first_time'] / 1000.0)
+                        last = _fmt_sec(stats['last_time'] / 1000.0)
+                        self._log(f"    [ID {eid:3d}] {stats['count']:3d}회  {first}~{last}  간격 {stats['gap_range'][0]:.0f}~{stats['gap_range'][1]:.0f}ms")
 
-            # 품질 지표
-            g = app_st.get('gaps_600', 0)
-            s = app_st.get('short_100', 0)
-            self._log(f"\n  대형갭>600ms: {g}개{'  ← 주의' if g else ''}", "yellow" if g else None)
-            self._log(f"  단기간<100ms: {s}개{'  ← 주의' if s else ''}", "yellow" if s else None)
-            self._log(f"  이상 인터벌: {app_st.get('anomaly_pct',0):.1f}%")
+                # 품질 지표
+                g = app_st.get('gaps_600', 0)
+                s = app_st.get('short_100', 0)
+                self._log(f"\n  대형갭>600ms: {g}개{'  ← 주의' if g else ''}", "yellow" if g else None)
+                self._log(f"  단기간<100ms: {s}개{'  ← 주의' if s else ''}", "yellow" if s else None)
+                self._log(f"  이상 인터벌: {app_st.get('anomaly_pct',0):.1f}%")
         self.after(0, _lb)
 
-        # ② Ground-truth — 캐시 우선 사용 (GT는 오디오가 변하지 않으면 재실행 불필요)
+        # ② Ground-truth — 캐시 우선 사용 (엔진별 분석 결과 캐싱)
         records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
         cached_gt_ms  = None
         cached_gt_bpm = None
         try:
             with open(records_path, encoding="utf-8") as _f:
                 _recs = json.load(_f)
+            # music_id 정규화 (바이너리 파일명 기준)
+            music_id_display = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id
+
+            # 같은 music_id와 engine을 가진 레코드에서 GT 정보 추출 (엔진별 캐시)
             _cached = next((r for r in _recs
-                            if r.get("_key") == f"{audio_hash_id}_{engine}"), None)
+                            if r.get("music_id") == music_id_display and
+                               r.get("engine") == engine and
+                               r.get("beats", {}).get("gt_ms") and
+                               r.get("summary", {}).get("bpm_gt")), None)
             if _cached:
                 _gt_beats = _cached.get("beats", {}).get("gt_ms")
                 _gt_bpm   = _cached.get("summary", {}).get("bpm_gt")
                 if _gt_beats and _gt_bpm:
                     cached_gt_ms  = _gt_beats
                     cached_gt_bpm = _gt_bpm
-        except Exception:
+                    self.after(0, lambda: self._log(
+                        f"  [✓ 캐시 사용] music_id={music_id_display} 기존 분석 결과 재사용", "green"))
+        except Exception as _cache_err:
             pass
 
-        _step2_start = time.time()
+        _step_gt_start = time.time()
+        # 엔진별 단계 번호 결정
+        step_num = {"beat_transformer": 4, "madmom": 5, "librosa": 6}.get(engine, 4)
+
+        # GT 비트 감지 실행 (로그는 나중에 표시)
+        gt_cache_flag = False
         if cached_gt_ms is not None:
-            self.after(0, lambda: self._log(
-                f"\n[ 2/4 ]  Ground-truth 캐시 사용 ({eng_name} — 재분석 생략)", "gray"))
+            gt_cache_flag = True
             ref_ms  = cached_gt_ms
             ref_bpm = cached_gt_bpm
             _steps_timing['gt'] = 0.0
         else:
-            self.after(0, lambda: self._log(f"\n[ 2/4 ]  Ground-truth 감지… ({eng_name} {eng_acc})", "gray"))
             try:
                 if engine == "beat_transformer":
                     ref_sec, ref_bpm = detect_beats_beat_transformer(audio_path)
@@ -3970,9 +4049,7 @@ class App(tk.Tk):
                 else:
                     ref_sec, ref_bpm = detect_beats_librosa(audio_path, bpm_hint)
                 ref_ms = [int(t * 1000) for t in ref_sec]
-                _steps_timing['gt'] = time.time() - _step2_start
-                self.after(0, lambda t=_steps_timing['gt'], n=len(ref_sec):
-                           self._log(f"  └─ {n}개 비트 감지 ({t:.2f}초)", "gray"))
+                _steps_timing['gt'] = time.time() - _step_gt_start
             except Exception as e:
                 self.after(0, lambda m=str(e)[:150]:
                            self._log(f"[❌ 실패] {eng_name} 감지 오류: {m}", "red"))
@@ -3995,12 +4072,11 @@ class App(tk.Tk):
             self._log(f"  중앙 간격  : {ref_st.get('median_ms',0):.1f} ms")
         self.after(0, _lr)
 
-        # ③ 파형 로드
-        self.after(0, lambda: self._log("\n[ 3/4 ]  파형 로드…", "gray"))
+        # 파형 로드
+        self.after(0, lambda: self._log("\n결과 리포트…", "gray"))
         waveform, wav_sr = load_waveform(audio_path)
 
-        # ④ F-measure + 분류
-        self.after(0, lambda: self._log(f"\n[ 4/4 ]  F-measure 계산 (±{tol_ms}ms)…", "gray"))
+        # F-measure + 분류
         tol_sec          = tol_ms / 1000.0
         f, p, r, tp, fp_cnt, fn = fmeasure(ref_sec, app_sec, tol_sec)
         tp_est, fp_est, fn_ref  = classify_beats(ref_sec, app_sec, tol_sec)
@@ -4088,24 +4164,57 @@ class App(tk.Tk):
                             f"  {stp:4d}  {sfp:4d}  {sfn:4d}  {na}/{ng}", tag)
                     self.after(0, _ls)
 
-        # ── librosa 음악 스타일 + 섹션 감지 ──────────
+        # ── 음악 스타일 분류 (librosa) ──────────────────
+        _step2_start = time.time()
         librosa_style = 'N/A'
         librosa_style_features = {}
         if librosa_sections is None:
             librosa_sections = []
+
+        cached_style = False
         if HAS_LIBROSA:
+            # 스타일 캐시 확인
             try:
-                self.after(0, lambda: self._log("\n[+lib]  Librosa 음악 스타일 분류…", "gray"))
-                librosa_style, librosa_style_features = compute_music_style_librosa(
-                    audio_path, ref_sec, ref_bpm)
-                self.after(0, lambda s=librosa_style, f=librosa_style_features:
-                    self._log(f"  Librosa Style : {s}  |  {f}", "cyan"))
+                with open(records_path, encoding="utf-8") as _f:
+                    _recs = json.load(_f)
+                mid_display = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id
+                _cached_style = next((r for r in _recs
+                                      if r.get("music_id") == mid_display and
+                                         r.get("librosa_style") and r.get("librosa_style") != 'N/A'), None)
+                if _cached_style:
+                    librosa_style = _cached_style.get("librosa_style", 'N/A')
+                    librosa_style_features = _cached_style.get("librosa_style_features", {})
+                    cached_style = True
+            except Exception:
+                pass
+
+            try:
+                # [ 2/6 ] 로그는 첫 번째 엔진에서만 표시 (공유 리소스)
+                if not self._shared_analysis_logged:
+                    if cached_style:
+                        self.after(0, lambda: self._log("[ 2/6 ]  음악 스타일 분류 (저장된 캐시 사용)…", "green"))
+                    else:
+                        self.after(0, lambda: self._log("[ 2/6 ]  음악 스타일 분류…", "gray"))
+
+                if not cached_style:
+                    librosa_style, librosa_style_features = compute_music_style_librosa(
+                        audio_path, ref_sec, ref_bpm)
+
+                _steps_timing['style'] = time.time() - _step2_start
+                if not self._shared_analysis_logged:
+                    self.after(0, lambda s=librosa_style, t=_steps_timing['style']:
+                        self._log(f"  └─ {s}  ({t:.2f}초)", "cyan"))
             except Exception as _ex:
-                self.after(0, lambda e=str(_ex): self._log(f"  Librosa 분석 오류: {e}", "red"))
+                _steps_timing['style'] = time.time() - _step2_start
+                if not self._shared_analysis_logged:
+                    self.after(0, lambda e=str(_ex), t=_steps_timing['style']:
+                               self._log(f"  └─ 분석 오류: {e}  ({t:.2f}초)", "red"))
+        else:
+            _steps_timing['style'] = 0.0
         if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
             try:
                 if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
-                    _gt_sec_start = time.time()
+                    _step3_start = time.time()
                     src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
 
                     # ── 섹션 캐시 확인 ──
@@ -4113,27 +4222,33 @@ class App(tk.Tk):
                     try:
                         with open(records_path, encoding="utf-8") as _f:
                             _recs = json.load(_f)
+                        mid_display = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id
                         _cached = next((r for r in _recs
-                                        if r.get("_key") == f"{audio_hash_id}_sections"), None)
-                        if _cached and _cached.get("sections"):
-                            cached_sections = _cached.get("sections")
+                                        if r.get("music_id") == mid_display and
+                                           r.get("librosa_sections")), None)
+                        if _cached:
+                            cached_sections = _cached.get("librosa_sections", [])
                     except Exception:
                         pass
 
-                    if cached_sections is not None:
-                        self.after(0, lambda s=src:
-                                   self._log(f"[+GT]  GT 섹션 캐시 사용 ({s} — 재분석 생략)", "gray"))
+                    if cached_sections:
+                        if not self._shared_analysis_logged:
+                            self.after(0, lambda:
+                                       self._log(f"[ 3/6 ]  GT 섹션 분석 (저장된 캐시 사용)…", "green"))
                         librosa_sections = cached_sections
-                        _gt_sec_elapsed = time.time() - _gt_sec_start
-                        self.after(0, lambda n=len(librosa_sections), t=_gt_sec_elapsed:
-                            self._log(f"  GT 섹션 : {n}개 (캐시) ({t:.3f}초)", "cyan"))
+                        _steps_timing['sections'] = time.time() - _step3_start
+                        if not self._shared_analysis_logged:
+                            self.after(0, lambda n=len(librosa_sections), t=_steps_timing['sections']:
+                                self._log(f"  └─ {n}개 섹션 (캐시)  ({t:.3f}초)", "cyan"))
                     else:
-                        self.after(0, lambda s=src: self._log(f"[+GT]  GT 섹션 감지 ({s})…", "gray"))
+                        if not self._shared_analysis_logged:
+                            self.after(0, lambda: self._log(f"[ 3/6 ]  GT 섹션 분석 ({src})…", "gray"))
                         try:
                             librosa_sections = detect_gt_sections(audio_path, duration_sec)
-                            _gt_sec_elapsed = time.time() - _gt_sec_start
-                            self.after(0, lambda n=len(librosa_sections), t=_gt_sec_elapsed:
-                                self._log(f"  GT 섹션 : {n}개 감지 ({t:.2f}초)", "cyan"))
+                            _steps_timing['sections'] = time.time() - _step3_start
+                            if not self._shared_analysis_logged:
+                                self.after(0, lambda n=len(librosa_sections), t=_steps_timing['sections']:
+                                    self._log(f"  └─ {n}개 섹션 감지  ({t:.2f}초)", "cyan"))
 
                             # 캐시 저장
                             try:
@@ -4159,8 +4274,8 @@ class App(tk.Tk):
                                        self._log(f"  [❌ GT섹션 감지 실패] {m}", "red"))
                             raise
 
-                    # 섹션 타입 및 신뢰도 표시
-                    if librosa_sections:
+                    # 섹션 타입 및 신뢰도 표시 (첫 번째 엔진에서만)
+                    if librosa_sections and not self._shared_analysis_logged:
                         try:
                             # 섹션 유형 분포
                             from collections import Counter
@@ -4186,8 +4301,8 @@ class App(tk.Tk):
                     self.after(0, lambda n=len(librosa_sections):
                         self._log(f"  GT 섹션 : {n}개 (사전계산)", "cyan"))
 
-                # ★ 섹션 의미성 검증
-                if librosa_sections and sections:
+                # ★ 섹션 의미성 검증 (첫 번째 엔진에서만 표시)
+                if librosa_sections and sections and not self._shared_analysis_logged:
                     try:
                         validation = validate_section_meaning(sections, librosa_sections)
                         score = validation.get('alignment_score', 0)
@@ -4202,6 +4317,20 @@ class App(tk.Tk):
                                    self._log(f"  [섹션 검증] 오류: {e}", "red"))
             except Exception as _ex:
                 self.after(0, lambda e=str(_ex): self._log(f"  GT 섹션 오류: {e}", "red"))
+
+        # 첫 번째 엔진 분석 후 플래그 설정 (이후 엔진에서는 style/sections 로그 표시 안함)
+        if not self._shared_analysis_logged:
+            self._shared_analysis_logged = True
+
+        # ── GT 비트 감지 결과 로깅 (실제 실행은 위에서 완료) ────────────────────
+        def _log_gt_detection():
+            step_num_label = {"beat_transformer": 4, "madmom": 5, "librosa": 6}.get(engine, 4)
+            if gt_cache_flag:
+                self._log(f"\n[ {step_num_label}/6 ]  {eng_name} 비트 분석 (저장된 캐시 사용)…", "green")
+            else:
+                self._log(f"\n[ {step_num_label}/6 ]  {eng_name} 비트 분석 완료…", "gray")
+            self._log(f"  └─ {len(ref_sec)}개 비트 감지 ({_steps_timing['gt']:.2f}초)", "gray")
+        self.after(0, _log_gt_detection)
 
         # ── 타임라인 이펙트별 비트 정확도 분석 ────────────────────────
         effect_results = []

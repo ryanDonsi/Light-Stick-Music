@@ -430,17 +430,105 @@ object BeatDetectorV2 {
         }
         Log.d(TAG, "V2$t PRIOR_SNAP: $priorSnap")
 
-        if (halfLag >= minLag && bestAc > 0f && halfRatio >= BPM_HALF_TEMPO_RATIO) {
-            Log.d(TAG, "V2$t halfTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
-                " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM) ratio=$halfRatio")
-            return halfMs
+        // ════════════════════════════════════════════════════════════════════════════════════════
+        // 📊 조건 조정용 상세 메트릭 로그 (모든 곡에 대해 기록 - if 조건 밖)
+        // ════════════════════════════════════════════════════════════════════════════════════════
+        // 모든 곡의 원본 감지 메트릭 기록
+        Log.d(TAG, "BEAT_METRICS | song=$songName | bestLag=$bestLag | bestMs=$bestMs | bestBpm=$bestBpm | " +
+            "bestAc=$bestAc | bestPrior=$bestPrior | halfLag=$halfLag | halfMs=$halfMs | halfAc=$halfAc | " +
+            "halfRatio=$halfRatio | doubleLag=$doubleLag | doubleMs=$doubleMs | doubleAc=$doubleAc | " +
+            "doubleRatio=$doubleRatio | subBeatRatio=$subBeatRatio | minLag=$minLag | maxLag=$maxLag | hopMs=$hopMs")
+
+        // 절반비트 감지 가능성 있는 곡들에 대해서만 tempoRatio 계산 및 조건 검사 로그
+        if (halfLag >= minLag && bestAc > 0f) {
+            val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
+
+            // 조건별 체크 결과 (디버깅용)
+            val cond1_tempoOk = tempoRatio in 1.95f..2.05f
+            val cond1_halfOk = halfRatio >= 0.68f
+            val cond2_halfOk = halfRatio >= BPM_HALF_TEMPO_RATIO
+            val cond3_tempoOk = tempoRatio in 1.95f..2.05f
+            val cond3_halfOk = halfRatio in 0.45f..0.59999f
+
+            Log.d(TAG, "BEAT_TEMPO_RATIO | song=$songName | tempoRatio=$tempoRatio | " +
+                "cond1=${if(cond1_tempoOk && cond1_halfOk) "✓" else "✗"}(tempo=$cond1_tempoOk half=$cond1_halfOk) | " +
+                "cond2=${if(cond2_halfOk) "✓" else "✗"}(half=$cond2_halfOk) | " +
+                "cond3=${if(cond3_tempoOk && cond3_halfOk) "✓" else "✗"}(tempo=$cond3_tempoOk half=$cond3_halfOk)")
         }
 
-        if (doubleLag <= maxLag && doubleRatio >= BPM_DOUBLE_TEMPO_RATIO
-            && subBeatRatio < BPM_SUBBEAT_RATIO_MAX) {
-            Log.d(TAG, "V2$t doubleTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
+        if (halfLag >= minLag && bestAc > 0f) {
+            val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
+            val normLag = (bestLag - minLag).toFloat() / (maxLag - minLag).toFloat()
+
+            // ── 명시적 2배 Octave Error (낮은 halfRatio + 강한 doubleRatio 확인) ────
+            // Madmom 기준 2배 오류 곡들:
+            // - 초혼: tempoRatio=1.98 halfRatio=0.618 doubleRatio=0.951
+            // - 진미령: tempoRatio=2.00 halfRatio=0.536 doubleRatio=1.313
+            // - 별보러가자: tempoRatio=2.00 halfRatio=0.556 doubleRatio=1.109
+            // - TOMBOY: tempoRatio=2.00 halfRatio=0.643 doubleRatio=1.094
+            //
+            // 보호 대상: "모든 날" (doubleRatio=0, HR=0.654 → 조건 제외)
+            //
+            // 핵심 메트릭:
+            // - 2배 오류는 낮은 halfRatio (< 0.70)
+            // - 2배 오류는 강한 doubleRatio (>= 0.95)
+            // - doubleRatio=0인 곡은 자동 제외되어 보호됨
+            if (tempoRatio in 1.95f..2.05f && halfRatio < 0.70f && doubleRatio >= 0.95f) {
+                Log.d(TAG, "V2$t halfTempoFix FIRED (2x octave low halfRatio): ${bestMs}ms(${bestBpm}BPM)" +
+                    " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
+                    " halfRatio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)} doubleRatio=$doubleRatio")
+                return halfMs
+            }
+        }
+
+        // doubleTempoFix Refined V3: 신뢰도 기반 2배 오류 감지
+        // 거짓양성 제거: bestAc < 0.002 필터 + 신뢰도 비율 필터
+        val doubleErrorRate = kotlin.math.abs(doubleMs.toFloat() / bestMs.toFloat() - 1.0f) * 100
+
+        // 신뢰도 필터 추가 (bestAc가 0.002 이상이면 회피 - 이미 높은 신뢰도)
+        if (doubleLag <= maxLag && bestAc < 0.002f) {
+            // 신뢰도 비율 필터
+            val doubleAcRatio = if (bestAc > 0f) doubleAc / bestAc else 0f
+            val reliabilityFilterPass = (halfRatio >= 0.45f) || (halfRatio < 0.45f && doubleAcRatio >= 0.97f)
+
+            // doubleTempoFix 조건 1: 심각한 2배 오류 (오류율 > 50%)
+            if (doubleRatio > 0.5f &&
+                subBeatRatio < BPM_SUBBEAT_RATIO_MAX &&
+                doubleErrorRate > 50 &&
+                reliabilityFilterPass) {
+                Log.d(TAG, "V2$t doubleTempoFix CONDITION1 FIRED (Refined V3): ${bestMs}ms(${bestBpm}BPM)" +
+                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
+                    " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate% " +
+                    "bestAc=$bestAc halfRatio=$halfRatio doubleAcRatio=$doubleAcRatio")
+                return doubleMs
+            }
+
+            // doubleTempoFix 조건 2: 중간 수준 오류 (25% < 오류율 ≤ 50%)
+            if (doubleRatio > 0.70f &&
+                subBeatRatio < BPM_SUBBEAT_RATIO_MAX &&
+                doubleErrorRate > 25 &&
+                doubleErrorRate <= 50 &&
+                reliabilityFilterPass) {
+                Log.d(TAG, "V2$t doubleTempoFix CONDITION2 FIRED (Refined V3): ${bestMs}ms(${bestBpm}BPM)" +
+                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
+                    " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate% " +
+                    "bestAc=$bestAc halfRatio=$halfRatio doubleAcRatio=$doubleAcRatio")
+                return doubleMs
+            }
+        }
+
+        // doubleTempoFix 조건 3: 경계선 사례 (subBeatRatio 0.65~0.71, doubleRatio 0.85~0.95)
+        // 신뢰도 필터 추가: doubleAc >= bestAc * 0.95
+        // (진정한 2배 오류는 doubleAc가 bestAc와 비슷하거나 높음)
+        if (doubleLag <= maxLag &&
+            doubleRatio >= 0.85f && doubleRatio <= 0.95f &&
+            subBeatRatio >= 0.65f && subBeatRatio <= 0.71f &&
+            doubleErrorRate > 50 &&
+            doubleAc >= bestAc * 0.95f) {
+            Log.d(TAG, "V2$t doubleTempoFix CONDITION3 FIRED (improved): ${bestMs}ms(${bestBpm}BPM)" +
                 " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
-                " doubleRatio=$doubleRatio subRatio=$subBeatRatio")
+                " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate%" +
+                " doubleAc=$doubleAc (>= bestAc*0.95=${bestAc*0.95f})")
             return doubleMs
         }
 

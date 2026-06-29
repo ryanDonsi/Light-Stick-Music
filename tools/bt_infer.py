@@ -77,10 +77,12 @@ def main():
     model.eval()
     print("[bt_infer] 모델 로드 완료")
 
-    # ── 오디오 → 스펙트로그램 ──────────────────────
-    MAX_DURATION = 600.0  # 최대 10분 (OOM 방지)
-    print(f"[bt_infer] 오디오 로드: {args.audio} (최대 {MAX_DURATION:.0f}초)")
-    y, sr = librosa.load(args.audio, sr=22050, mono=True, duration=MAX_DURATION)
+    # ── 오디오 → 스펙트로그램 (청크 처리) ────────────
+    print(f"[bt_infer] 오디오 로드: {args.audio}")
+    y, sr = librosa.load(args.audio, sr=22050, mono=True)
+
+    duration_sec = len(y) / sr
+    print(f"[bt_infer] 오디오 길이: {duration_sec:.1f}초")
 
     # 128-mel log spectrogram (모델 입력 형식: (batch, instr, time, melbin=128))
     hop_length = 512   # ~23ms @ 22050 Hz
@@ -95,28 +97,68 @@ def main():
     # 단일 오디오를 5개 채널로 복제 (demixed 5-stem 대체)
     # shape: (1, 5, T, 128)
     spec = np.stack([spec_mono] * 5, axis=0)  # (5, T, 128)
-    spec = torch.tensor(spec, dtype=torch.float32).unsqueeze(0).to(device)  # (1, 5, T, 128)
 
-    # ── 추론 ──────────────────────────────────────
-    print("[bt_infer] 추론 실행 중…")
-    with torch.no_grad():
-        output, _ = model(spec)  # output: (1, T, 2)
+    # 메모리 부족 대비: 청크 처리 (최대 120초씩)
+    chunk_size_sec = 120.0
+    hop_sec = hop_length / sr
+    chunk_frames = max(1, int(chunk_size_sec / hop_sec))
+    total_frames = spec.shape[1]
 
-    beat_act     = output[0, :, 0].cpu().numpy()
-    downbeat_act = output[0, :, 1].cpu().numpy()
+    all_beat_peaks = []
+    all_downbeat_peaks = []
+    frame_offset = 0
 
-    # ── Peak picking ───────────────────────────────
-    from scipy.signal import find_peaks
+    print(f"[bt_infer] 청크 처리: {chunk_size_sec:.0f}초씩 ({chunk_frames} 프레임)")
 
-    hop_sec  = hop_length / sr
-    min_dist = max(1, int(0.25 / hop_sec))   # 최소 250ms
-    threshold = 0.3
+    # ── 청크별 추론 ──────────────────────────────────
+    for chunk_start in range(0, total_frames, chunk_frames):
+        chunk_end = min(chunk_start + chunk_frames, total_frames)
+        chunk = spec[:, chunk_start:chunk_end, :]  # (5, chunk_T, 128)
 
-    beat_peaks, _     = find_peaks(beat_act,     height=threshold, distance=min_dist)
-    downbeat_peaks, _ = find_peaks(downbeat_act, height=threshold, distance=min_dist)
+        print(f"[bt_infer] 청크 처리: {chunk_start}/{total_frames} (shape={chunk.shape})")
 
-    beats_sec     = [float(i * hop_sec) for i in beat_peaks]
-    downbeats_sec = [float(i * hop_sec) for i in downbeat_peaks]
+        chunk_tensor = torch.tensor(chunk, dtype=torch.float32).unsqueeze(0).to(device)  # (1, 5, chunk_T, 128)
+
+        try:
+            with torch.no_grad():
+                output, _ = model(chunk_tensor)  # output: (1, chunk_T, 2)
+
+            beat_act = output[0, :, 0].cpu().numpy()
+            downbeat_act = output[0, :, 1].cpu().numpy()
+
+            # Peak picking (각 청크별)
+            from scipy.signal import find_peaks
+            min_dist = max(1, int(0.25 / hop_sec))
+            threshold = 0.3
+
+            beat_peaks, _ = find_peaks(beat_act, height=threshold, distance=min_dist)
+            downbeat_peaks, _ = find_peaks(downbeat_act, height=threshold, distance=min_dist)
+
+            # 원본 타임라인으로 변환 (청크 오프셋 적용)
+            beat_peaks = beat_peaks + chunk_start
+            downbeat_peaks = downbeat_peaks + chunk_start
+
+            all_beat_peaks.extend(beat_peaks.tolist())
+            all_downbeat_peaks.extend(downbeat_peaks.tolist())
+
+        except RuntimeError as e:
+            error_msg = str(e)
+            print(f"[bt_infer] ❌ 청크 추론 중 에러 발생: {error_msg}", file=sys.stderr)
+            print(f"[bt_infer] 청크 shape: {chunk.shape}", file=sys.stderr)
+
+            if "out of memory" in error_msg.lower() or "not enough memory" in error_msg.lower():
+                print(f"[bt_infer] 💡 메모리 부족: 청크 크기를 줄여야 합니다", file=sys.stderr)
+
+            sys.exit(1)
+
+    # 중복 제거 및 정렬
+    all_beat_peaks = sorted(set(all_beat_peaks))
+    all_downbeat_peaks = sorted(set(all_downbeat_peaks))
+
+    # 프레임을 초 단위로 변환
+    hop_sec = hop_length / sr
+    beats_sec = [float(i * hop_sec) for i in all_beat_peaks]
+    downbeats_sec = [float(i * hop_sec) for i in all_downbeat_peaks]
 
     print(f"[bt_infer] 비트 {len(beats_sec)}개, 다운비트 {len(downbeats_sec)}개 감지")
 
@@ -169,25 +211,50 @@ def run_inference(audio_path: str, checkpoint_dir: str, code_dir: str = "", devi
     model.load_state_dict(sd, strict=False)
     model.to(_device).eval()
 
-    MAX_DURATION = 600.0  # 최대 10분 (OOM 방지)
-    y, sr = librosa.load(audio_path, sr=22050, mono=True, duration=MAX_DURATION)
+    # 청크 처리 (메모리 부족 대비)
+    y, sr = librosa.load(audio_path, sr=22050, mono=True)
     hop_length = 512
-    S    = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=2048, hop_length=hop_length,
-                                          n_mels=128, fmin=20, fmax=11025, power=2.0)
+    S = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=2048, hop_length=hop_length,
+                                       n_mels=128, fmin=20, fmax=11025, power=2.0)
     spec_mono = librosa.power_to_db(S, ref=np.max).T
-    spec = torch.tensor(np.stack([spec_mono] * 5, axis=0), dtype=torch.float32
-                        ).unsqueeze(0).to(_device)
 
-    with torch.no_grad():
-        output, _ = model(spec)
+    # 5개 채널로 복제
+    spec = np.stack([spec_mono] * 5, axis=0)  # (5, T, 128)
 
-    beat_act = output[0, :, 0].cpu().numpy()
+    # 청크 처리 (최대 120초씩)
+    hop_sec = hop_length / sr
+    chunk_size_sec = 120.0
+    chunk_frames = max(1, int(chunk_size_sec / hop_sec))
+    total_frames = spec.shape[1]
 
     from scipy.signal import find_peaks
-    hop_sec  = hop_length / sr
     min_dist = max(1, int(0.25 / hop_sec))
-    beat_peaks, _ = find_peaks(beat_act, height=0.3, distance=min_dist)
-    beats_sec = sorted(float(i * hop_sec) for i in beat_peaks)
+    all_beat_peaks = []
+
+    for chunk_start in range(0, total_frames, chunk_frames):
+        chunk_end = min(chunk_start + chunk_frames, total_frames)
+        chunk = spec[:, chunk_start:chunk_end, :]  # (5, chunk_T, 128)
+
+        chunk_tensor = torch.tensor(chunk, dtype=torch.float32).unsqueeze(0).to(_device)
+
+        try:
+            with torch.no_grad():
+                output, _ = model(chunk_tensor)
+
+            beat_act = output[0, :, 0].cpu().numpy()
+            beat_peaks, _ = find_peaks(beat_act, height=0.3, distance=min_dist)
+            beat_peaks = beat_peaks + chunk_start
+
+            all_beat_peaks.extend(beat_peaks.tolist())
+
+        except RuntimeError as e:
+            raise RuntimeError(
+                f"추론 중 에러 (청크 shape={chunk.shape}): {str(e)[:150]}\n"
+                f"해결책: 메모리 부족 → CPU 모드 시도 또는 다른 프로그램 종료"
+            )
+
+    all_beat_peaks = sorted(set(all_beat_peaks))
+    beats_sec = sorted(float(i * hop_sec) for i in all_beat_peaks)
 
     bpm = 0.0
     if len(beats_sec) >= 2:
