@@ -147,19 +147,41 @@ class ODFOptimizerApp(QMainWindow):
         param_layout = QVBoxLayout(param_widget)
 
         params_info = [
-            ("Smooth Window", "smooth_window", 1, 10, 3),
-            ("Local Window", "local_window", 30, 120, 60),
-            ("Global Window", "global_window", 30, 120, 80),
-            ("Prior Center (ms)", "prior_center_ms", 300, 800, 500),
-            ("Prior STD (octave)", "prior_std_octave", 0.5, 4.0, 2.0),
-            ("Min Beat (ms)", "min_beat_ms", 250, 500, 375),
-            ("Max Beat (ms)", "max_beat_ms", 800, 1500, 1000),
+            ("Smooth Window", "smooth_window", 1, 10, 3,
+             "ODF 노이즈 제거 (증가 = 부드러움 ↑, 감소 = 민감도 ↑)\n"
+             "기본값 3이 균형잡힘. 느린곡은 5-7, 빠른곡은 1-2"),
+
+            ("Local Window", "local_window", 30, 120, 60,
+             "온셋 구분 윈도우 (프레임)\n"
+             "빠른곡 40-50, 기본 60, 느린곡 80-100"),
+
+            ("Global Window", "global_window", 30, 120, 80,
+             "배경음 제거 윈도우 (프레임)\n"
+             "증가 = 배경 제거 강화, 감소 = 신호 보존"),
+
+            ("Prior Center (ms)", "prior_center_ms", 300, 800, 500,
+             "선호 BPM 중심값\n"
+             "300ms→200BPM, 500ms→120BPM(기본), 700ms→86BPM"),
+
+            ("Prior STD (octave)", "prior_std_octave", 0.5, 4.0, 2.0,
+             "BPM 분포 범위 (옥타브)\n"
+             "1.0=좁음(선택적), 2.0=중간(권장), 3.0+=넓음(포용적)"),
+
+            ("Min Beat (ms)", "min_beat_ms", 250, 500, 375,
+             "최소 비트 간격 = 최대 BPM\n"
+             "375ms→160BPM(기본), 감소→빠른곡 대응"),
+
+            ("Max Beat (ms)", "max_beat_ms", 800, 1500, 1000,
+             "최대 비트 간격 = 최소 BPM\n"
+             "1000ms→60BPM(기본), 증가→느린곡 대응"),
         ]
 
         self.param_widgets = {}
 
-        for label_text, param_name, min_val, max_val, default_val in params_info:
-            param_layout.addWidget(QLabel(f"<b>{label_text}</b>"))
+        for label_text, param_name, min_val, max_val, default_val, tooltip_text in params_info:
+            label = QLabel(f"<b>{label_text}</b>")
+            label.setToolTip(tooltip_text)
+            param_layout.addWidget(label)
 
             h_layout = QHBoxLayout()
 
@@ -175,6 +197,7 @@ class ODFOptimizerApp(QMainWindow):
                 spin.setValue(default_val)
                 spin.valueChanged.connect(self.on_param_changed)
 
+            spin.setToolTip(tooltip_text)
             self.param_widgets[param_name] = spin
             h_layout.addWidget(spin)
             h_layout.addWidget(QLabel(f"{spin.value()}"))
