@@ -108,7 +108,8 @@ object BeatDetectorV1 {
     fun detectPcm(
         monoSamples: FloatArray,
         sampleRate: Int,
-        params: Params = Params()
+        params: Params = Params(),
+        songTitle: String? = null
     ): DetectResult {
         if (monoSamples.isEmpty() || sampleRate <= 0) {
             return DetectResult(emptyList(), 0L, null, "empty pcm", 0L, TimeSignature.FOUR_FOUR)
@@ -144,7 +145,7 @@ object BeatDetectorV1 {
             val mx = src.maxOrNull() ?: 0f
             return if (mx > 1e-6f) src.map { (it / mx).coerceIn(0f, 1f) } else src
         }
-        return detect(normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outFull), params)
+        return detect(normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outFull), params, songTitle)
     }
 
     // Public entry point
@@ -153,7 +154,8 @@ object BeatDetectorV1 {
         lowEnv: List<Float>,
         midEnv: List<Float>,
         fullEnv: List<Float>,
-        params: Params = Params()
+        params: Params = Params(),
+        songTitle: String? = null
     ): DetectResult {
         if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
             return DetectResult(emptyList(), 0L, null, "empty env", 0L, TimeSignature.FOUR_FOUR)
@@ -165,9 +167,14 @@ object BeatDetectorV1 {
         val full       = fullEnv.take(minSize)
         val durationMs = minSize * params.hopMs
 
+        // 곡 정보 로깅
+        if (!songTitle.isNullOrEmpty()) {
+            Log.d(TAG, "V1 SONG_DETECT_START: title=\"$songTitle\" durationMs=$durationMs")
+        }
+
         val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)
 
-        val beatMs = estimateBpmDense(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs)
+        val beatMs = estimateBpmDense(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs, songTitle)
                      ?: 500L
         Log.d(TAG, "V1 beatMs=$beatMs (${60_000L / beatMs} BPM) durationMs=$durationMs")
 
@@ -229,7 +236,8 @@ object BeatDetectorV1 {
         odf: List<Float>,
         hopMs: Long,
         minBeatMs: Long,
-        maxBeatMs: Long
+        maxBeatMs: Long,
+        songTitle: String? = null
     ): Long? {
         val minLag = max(1, (minBeatMs / hopMs).toInt())
         val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
@@ -271,7 +279,8 @@ object BeatDetectorV1 {
             if (bestAc > 0f && halfRatio >= HALF_TEMPO_RATIO) {
                 val halfMs = halfLag * hopMs
                 val halfBpm = 60_000L / halfMs
-                Log.d(TAG, "V1 halfTempoFix FIRED: ${bestMs}ms(${bestBpm}BPM)" +
+                val songInfo = if (!songTitle.isNullOrEmpty()) " title=\"$songTitle\"" else ""
+                Log.d(TAG, "V1 halfTempoFix FIRED:$songInfo ${bestMs}ms(${bestBpm}BPM)" +
                     " → ${halfMs}ms(${halfBpm}BPM)" +
                     " halfRatio=${String.format("%.4f", halfRatio)}" +
                     " bestAc=${String.format("%.6f", bestAc)} halfAc=${String.format("%.6f", halfAc)}")
@@ -290,14 +299,16 @@ object BeatDetectorV1 {
             val doubleMs = doubleLag * hopMs
             val errorRate = kotlin.math.abs(doubleMs.toFloat() / bestMs.toFloat() - 1.0f) * 100
 
-            // 상세 로그: 모든 메트릭 기록
-            Log.d(TAG, "V1 BPM_METRICS: bestLag=$bestLag bestMs=$bestMs bestBpm=$bestBpm bestAc=${String.format("%.6f", bestAc)} " +
+            // 상세 로그: 모든 메트릭 기록 + 곡 정보
+            val songInfo = if (!songTitle.isNullOrEmpty()) " title=\"$songTitle\"" else ""
+            Log.d(TAG, "V1 BPM_METRICS:$songInfo bestLag=$bestLag bestMs=$bestMs bestBpm=$bestBpm bestAc=${String.format("%.6f", bestAc)} " +
                 "halfLag=$halfLag halfRatio=${if(halfLag >= minLag) String.format("%.4f", if(bestAc > 0f) acVals[halfLag]/bestAc else 0f) else "N/A"} " +
                 "doubleLag=$doubleLag doubleMs=$doubleMs doubleBpm=${60_000L/doubleMs} doubleAc=${String.format("%.6f", doubleAc)} doubleRatio=${String.format("%.4f", doubleRatio)} " +
                 "subBeatRatio=N/A errorRate=${String.format("%.1f", errorRate)}%")
         }
 
-        Log.d(TAG, "V1 RESULT: ${bestMs}ms (${bestBpm}BPM)")
+        val songInfo = if (!songTitle.isNullOrEmpty()) " title=\"$songTitle\"" else ""
+        Log.d(TAG, "V1 RESULT:$songInfo ${bestMs}ms (${bestBpm}BPM)")
         return bestMs
     }
 
