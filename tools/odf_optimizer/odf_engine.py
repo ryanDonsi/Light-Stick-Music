@@ -244,9 +244,10 @@ class ODFOptimizer:
     def detect_bpm(
         self, odf: np.ndarray, hop_ms: int = 50,
         prior_center_ms: int = 500, prior_std_octave: float = 2.0,
-        min_beat_ms: int = 375, max_beat_ms: int = 1000
+        min_beat_ms: int = 375, max_beat_ms: int = 1000,
+        half_tempo_ratio: float = 0.60, double_tempo_ratio: float = 0.55
     ) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray]:
-        """BPM 탐지 (AC + Prior 스코어)"""
+        """BPM 탐지 (AC + Prior 스코어 + Half/Double-tempo Check)"""
         min_lag = max(1, min_beat_ms // hop_ms)
         max_lag = max(min_lag + 1, max_beat_ms // hop_ms)
 
@@ -276,6 +277,22 @@ class ODFOptimizer:
 
         # 최고 점수 찾기
         best_lag = np.argmax(score_vals[min_lag:max_lag+1]) + min_lag
+        best_ac = ac_vals[best_lag]
+
+        # Half-tempo check: 2배 빠른 BPM이 더 강한 신호이면 선택
+        half_lag = best_lag // 2
+        if half_lag >= min_lag and best_ac > 1e-6:
+            half_ac = ac_vals[half_lag]
+            if half_ac / best_ac >= half_tempo_ratio:
+                best_lag = half_lag
+
+        # Double-tempo check: 2배 느린 BPM이 충분한 신호이면 선택
+        double_lag = best_lag * 2
+        if double_lag <= max_lag and best_ac > 1e-6:
+            double_ac = ac_vals[double_lag]
+            if double_ac / best_ac >= double_tempo_ratio:
+                best_lag = double_lag
+
         best_bpm = 60000 / (best_lag * hop_ms)
 
         return best_bpm, ac_vals, prior_vals, score_vals
@@ -290,6 +307,8 @@ class ODFOptimizer:
         min_beat_ms: int = 375,
         max_beat_ms: int = 1000,
         hop_ms: int = 50,
+        half_tempo_ratio: float = 0.60,
+        double_tempo_ratio: float = 0.55,
         # 음성 전처리 파라미터
         sample_rate: int = 28000,
         normalize_strength: float = 1.0,
@@ -352,7 +371,9 @@ class ODFOptimizer:
                 prior_center_ms=prior_center_ms,
                 prior_std_octave=prior_std_octave,
                 min_beat_ms=min_beat_ms,
-                max_beat_ms=max_beat_ms
+                max_beat_ms=max_beat_ms,
+                half_tempo_ratio=half_tempo_ratio,
+                double_tempo_ratio=double_tempo_ratio
             )
 
             return {
