@@ -26,15 +26,7 @@ object BeatDetectorV3 {
 
     private const val TAG = "AutoTimeline_BeatDetectorV3"
 
-    // V1에서 상속
-    private const val FILL_CONFIDENCE = 0.20f
-    private const val LOCAL_NORM_WINDOW = 60
     private const val GLOBAL_NORM_WINDOW = 80
-    private const val TIME_SIG_THREE_RATIO = 1.20f
-    private const val TIME_SIG_SIX_RATIO = 1.25f
-    private const val DOWNBEAT_W_LOW_ENERGY = 0.50f
-    private const val DOWNBEAT_W_BAR_COMB = 0.30f
-    private const val DOWNBEAT_W_CONSISTENCY = 0.20f
 
     // BPM 탐지 파라미터
     private const val PRIOR_CENTER_MS = 500L
@@ -433,9 +425,9 @@ object BeatDetectorV3 {
         }
 
         val minSize = minOf(lowEnv.size, midEnv.size, fullEnv.size)
-        val low = lowEnv.take(minSize).toFloatArray()
-        val mid = midEnv.take(minSize).toFloatArray()
-        val full = fullEnv.take(minSize).toFloatArray()
+        val low = if (lowEnv is FloatArray) lowEnv else lowEnv.take(minSize).toFloatArray()
+        val mid = if (midEnv is FloatArray) midEnv else midEnv.take(minSize).toFloatArray()
+        val full = if (fullEnv is FloatArray) fullEnv else fullEnv.take(minSize).toFloatArray()
 
         // ODF 계산 (V1과 동일)
         val globalOdf = BeatDetectorV1.computeMultiBandFluxOdf(
