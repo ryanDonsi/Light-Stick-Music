@@ -78,6 +78,7 @@ object BeatDetectorRouter {
     ): BeatInfo = when (version) {
         1    -> detectV1(filePath, hopMs, minBeatMs, maxBeatMs)
         2    -> detectV2(filePath, hopMs, minBeatMs, maxBeatMs)
+        3    -> detectV3(filePath, hopMs, minBeatMs, maxBeatMs)
         else -> detectV0(filePath, hopMs, minBeatMs, maxBeatMs)
     }
 
@@ -113,6 +114,26 @@ object BeatDetectorRouter {
             BeatDetectorV2.Params(
                 minBeatMs = minBeatMs.coerceAtLeast(375L),
                 maxBeatMs = maxBeatMs.coerceAtMost(1000L)
+            )
+        )
+        val decoded = decodeWithEnvelopes(filePath, hopMs, collectPcm = false)
+        return BeatInfo(
+            beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
+            beatMs      = r.beatMs,
+            beatsPerBar = r.timeSignature.beatsPerBar,
+            downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs,
+            envelopes   = decoded.toAudioEnvelopes(hopMs)
+        )
+    }
+
+    /** V3: Madmom-inspired ACF 기반 BPM 추정 + DP beat tracking */
+    private fun detectV3(filePath: String, hopMs: Long, minBeatMs: Long, maxBeatMs: Long): BeatInfo {
+        val r = BeatDetectorV3.detect(
+            filePath,
+            BeatDetectorV3.Params(
+                minBeatMs = minBeatMs.coerceAtLeast(375L),
+                maxBeatMs = maxBeatMs.coerceAtMost(1000L),
+                hopMs = 10L
             )
         )
         val decoded = decodeWithEnvelopes(filePath, hopMs, collectPcm = false)

@@ -73,10 +73,20 @@ object AutoTimelineConfig {
      *           Hann window 캐싱으로 성능 최적화
      *     메모리: 낮음 (스트리밍 처리)
      *
+     * V3: Madmom 스타일 ACF (Autocorrelation Function) 기반 BPM 추정 + DP
+     *     입력: 스트리밍 (Spectral Flux ODF 계산)
+     *     hopMs: 10ms (높은 분해능)
+     *     정확도: 높음 (특히 반박자 오류 감소), 속도: 중간
+     *     용도: 반박자 오류가 많은 곡에 최적화
+     *     특징: ACF를 이용한 Lag 기반 BPM 추정, Half-tempo 감지 및 보정
+     *           Madmom 라이브러리 스타일의 알고리즘 포팅
+     *     메모리: 낮음 (스트리밍 처리)
+     *
      * 선택 기준:
      * - V0: 테스트용, 저사양 기기용
      * - V1: 호환성 유지, 레거시 지원
-     * - V2: 최고 정확도 필요할 때 (추천, 현재 기본값)
+     * - V2: 높은 정확도 필요할 때 (추천, 현재 기본값)
+     * - V3: 반박자 오류가 많은 경우 (madmom 포팅, 실험적)
      */
     const val BEAT_DETECTOR_VERSION = 2
 
@@ -99,9 +109,13 @@ object AutoTimelineConfig {
      * V2 (10ms):
      *   - 스트리밍 처리, Dual ODF 내부에서 고정
      *   - 청크 단위로 처리해 메모리 효율적
+     *
+     * V3 (10ms):
+     *   - Madmom-inspired ACF 기반 BPM 추정
+     *   - 스트리밍 처리, 프레임 수: 1000ms 음악 → 100개 엔벨로프 값
      */
     fun beatDetectorHopMs(version: Int = BEAT_DETECTOR_VERSION): Long = when (version) {
-        1, 2 -> 10L
+        1, 2, 3 -> 10L
         else -> 50L   // V0
     }
 
