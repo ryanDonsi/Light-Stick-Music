@@ -218,14 +218,23 @@ object BeatDetectorV1 {
             beats.map { it.timeMs }, low, beatMs, timeSignature.beatsPerBar, params.hopMs)
         val downbeatOffsetMs = (downbeatMs - (beats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        // [DIAG] detect() 최종 출력에서 비정상 간격 탐지
+        // 비트 간격 분석
         val beatTimes = beats.map { it.timeMs }
+        val beatGaps = mutableListOf<Long>()
         for (i in 1 until beatTimes.size) {
             val gap = beatTimes[i] - beatTimes[i - 1]
+            beatGaps.add(gap)
             if (gap < beatMs * 3L / 4L) {
-                Log.w(TAG, "V1 detect() short-gap FINAL: ${beatTimes[i-1]}ms→${beatTimes[i]}ms gap=${gap}ms (beatMs=$beatMs) idx=$i reason=$reason")
+                Log.w(TAG, "V1 detect() short-gap: ${beatTimes[i-1]}ms→${beatTimes[i]}ms gap=${gap}ms (beatMs=$beatMs) idx=$i")
             }
         }
+        val avgGap = if (beatGaps.isNotEmpty()) beatGaps.average().toLong() else 0L
+        val minGap = beatGaps.minOrNull() ?: 0L
+        val maxGap = beatGaps.maxOrNull() ?: 0L
+
+        Log.d(TAG, "V1 BEAT_ANALYSIS: title=\"$songTitle\" BPM=${60_000L / beatMs} beatMs=$beatMs " +
+            "beats=${beats.size} gaps=[avg=${avgGap}ms, min=${minGap}ms, max=${maxGap}ms] " +
+            "expected=${expectedBeats} dpOk=$dpOk reason=$reason")
 
         Log.d(TAG, "V1 OK beats=${beats.size} beatMs=$beatMs " +
             "timeSig=${timeSignature.type} reason=$reason first=${beatTimes.firstOrNull()} last=${beatTimes.lastOrNull()}")

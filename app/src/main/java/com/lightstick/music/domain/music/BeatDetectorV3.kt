@@ -517,6 +517,24 @@ object BeatDetectorV3 {
             )
         }
 
+        // 상세 분석 로그
+        val beatMs = if (bestBpm > 0f) (60_000L / bestBpm.toLong()) else 0L
+        val beatTimesMs = beats.map { it.timeMs }
+        val beatGaps = mutableListOf<Long>()
+        for (i in 1 until beatTimesMs.size) {
+            beatGaps.add(beatTimesMs[i] - beatTimesMs[i - 1])
+        }
+        val avgGap = if (beatGaps.isNotEmpty()) beatGaps.average().toLong() else 0L
+        val minGap = beatGaps.minOrNull() ?: 0L
+        val maxGap = beatGaps.maxOrNull() ?: 0L
+
+        Log.d(
+            TAG,
+            "V3 BEAT_ANALYSIS: title=\"$songTitle\" BPM=$bestBpm beatMs=$beatMs " +
+            "beats=${beats.size} gaps=[avg=${avgGap}ms, min=${minGap}ms, max=${maxGap}ms] " +
+            "expected=${expectedBeats} dpOk=$dpOk reason=$reason"
+        )
+
         val timeSignature = detectTimeSignature(globalOdf, bestBpm.toLong(), params.hopMs)
         val downbeatMs = detectDownbeatEnhanced(
             beats.map { it.timeMs }, low, bestBpm.toLong(),
