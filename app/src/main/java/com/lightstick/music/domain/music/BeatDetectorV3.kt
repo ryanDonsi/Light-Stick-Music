@@ -66,7 +66,7 @@ object BeatDetectorV3 {
     enum class BeatSource { LOW, MID, FULL, LOW_MID, MID_FULL, LOW_FULL }
 
     data class Params(
-        val hopMs: Long = 50L,
+        val hopMs: Long = 10L,
         val minBeatMs: Long = 375L,
         val maxBeatMs: Long = 1000L,
         val minPeakDistanceMs: Long = 120L,
