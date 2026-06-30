@@ -460,6 +460,14 @@ object BeatDetectorV3 {
             doubleTempoRatio = params.doubleTempoRatio
         )
 
+        // ODF 통계
+        val odfMax = globalOdf.maxOrNull() ?: 0f
+        val odfMean = if (globalOdf.isNotEmpty()) globalOdf.average().toFloat() else 0f
+        Log.d(
+            TAG,
+            "V3 ODF_STATS: title=\"$songTitle\" size=${globalOdf.size} max=${String.format("%.6f", odfMax)} mean=${String.format("%.6f", odfMean)}"
+        )
+
         if (bestBpm <= 0f) {
             Log.w(TAG, "V3 BPM탐지 실패! 신호 확인 필요 (ODF 약함)")
         }
@@ -487,13 +495,16 @@ object BeatDetectorV3 {
 
         // DP를 사용한 비트 추적
         val durationMs = minSize * params.hopMs
-        val phaseMs = estimatePhaseFromOdf(globalOdf, bestBpm.toLong(), params.hopMs)
+        val beatMs = if (bestBpm > 0f) (60_000L / bestBpm.toLong()) else 0L
+        val fpb = (beatMs / params.hopMs).toInt()
+
+        val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
         val dpTimes = dpBeatTracker(
-            globalOdf, bestBpm.toLong(), params.hopMs,
+            globalOdf, beatMs, params.hopMs,
             durationMs, anchorMs = phaseMs
         )
 
-        val expectedBeats = maxOf(1, (durationMs / bestBpm.toLong()).toInt())
+        val expectedBeats = maxOf(1, (durationMs / beatMs).toInt())
         val dpOk = dpTimes.size >= maxOf(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
 
         val beats: List<TimedBeat>
@@ -518,7 +529,6 @@ object BeatDetectorV3 {
         }
 
         // 상세 분석 로그
-        val beatMs = if (bestBpm > 0f) (60_000L / bestBpm.toLong()) else 0L
         val beatTimesMs = beats.map { it.timeMs }
         val beatGaps = mutableListOf<Long>()
         for (i in 1 until beatTimesMs.size) {
@@ -530,9 +540,16 @@ object BeatDetectorV3 {
 
         Log.d(
             TAG,
-            "V3 BEAT_ANALYSIS: title=\"$songTitle\" BPM=$bestBpm beatMs=$beatMs " +
+            "V3 BEAT_ANALYSIS: title=\"$songTitle\" BPM=$bestBpm beatMs=$beatMs fpb=$fpb " +
             "beats=${beats.size} gaps=[avg=${avgGap}ms, min=${minGap}ms, max=${maxGap}ms] " +
             "expected=${expectedBeats} dpOk=$dpOk reason=$reason"
+        )
+
+        // DP 디버그: beatMs 전달 확인
+        Log.d(
+            TAG,
+            "V3 DP_DEBUG: title=\"$songTitle\" beatMs=$beatMs (60000/$bestBpm) hopMs=${params.hopMs} " +
+            "fpb=$fpb odfSize=${globalOdf.size} durationMs=$durationMs"
         )
 
         val timeSignature = detectTimeSignature(globalOdf, bestBpm.toLong(), params.hopMs)
