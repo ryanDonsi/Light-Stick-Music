@@ -1076,16 +1076,16 @@ object BeatDetectorV3 {
         // madmom 방식으로 최종 BPM 재계산 (옥타브 에러 보정 포함)
         val madmomBpm = calculateBpmFromBeats(beatTimesMs, referenceBpm = bestBpm.toLong())
 
-        // 90-110 BPM 대역에서는 bestBpm을 신뢰도 높음으로 평가
+        // 불안정한 대역 (65-115 BPM)에서는 bestBpm을 신뢰도 높음으로 평가
         // (이 대역에서 DP 비트 추적이 자주 실패하거나 서브비트를 감지함)
         val finalBpm = if (madmomBpm > 0L) {
             val ratio = madmomBpm.toFloat() / bestBpm.toFloat()
-            // bestBpm이 90-110 BPM 범위 내이고, 계산된 BPM과 큰 차이가 나면 bestBpm 유지
-            if (bestBpm in 90L..110L && (ratio < 0.8f || ratio > 1.25f)) {
+            // bestBpm이 불안정한 대역 내이고, 계산된 BPM과 큰 차이가 나면 bestBpm 유지
+            if (bestBpm in 65L..115L && (ratio < 0.8f || ratio > 1.25f)) {
                 Log.d(
                     TAG,
                     "V3 BPM_RECALC_ADJUSTED: calculated=$madmomBpm rejected (ratio=$ratio), " +
-                            "keeping bestBpm=$bestBpm (in 90-110 band)"
+                            "keeping bestBpm=$bestBpm (in unstable 65-115 band)"
                 )
                 bestBpm.toLong()
             } else {
