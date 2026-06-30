@@ -690,10 +690,10 @@ object BeatDetectorV3 {
             scoreVals[lag] = acVal * prior
         }
 
-        // 상위 피크 분석 (하모닉 감지용)
+        // 상위 피크 분석 (하모닉 감지용) - 개선: 8개 → 20개로 확대
         val peaksByScore = (minLag..maxLag).map { lag ->
             Triple(lag, scoreVals[lag], acVals[lag])
-        }.sortedByDescending { it.second }.take(8)
+        }.sortedByDescending { it.second }.take(20)
 
         val harmonicDiag = StringBuilder("V3 AC_PEAKS_GLOBAL:\n")
         peaksByScore.forEachIndexed { idx, (lag, score, ac) ->
@@ -1153,50 +1153,52 @@ object BeatDetectorV3 {
 
         if (topScore <= 1e-6f) return Pair(topLag, topScore)
 
-        // 상위 피크들 중 harmonic 관계 분석
-        val candidates = mutableListOf<Pair<Int, Float>>()
+        // 개선: Harmonic 클러스터 분석으로 메인 비트 선택
+        val topCandidates = peaksByScore.take(minOf(15, peaksByScore.size))
 
-        for ((lag, score, ac) in peaksByScore) {
-            val ratio = lag.toFloat() / topLag.toFloat()
-            val isHarmonic = checkIfHarmonic(ratio)
+        // 최고 피크 기준 harmonic 클러스터 분류
+        val harmonicClusters = mutableMapOf<String, MutableList<Triple<Int, Float, Float>>>()
 
-            // 메인 비트 후보 조건:
-            // 1) 최고 피크 자체
-            // 2) 최고 피크의 harmonic 관계 (0.5x, 1.5x, 2x)
-            // 3) score가 최고의 50% 이상
-            if (lag == topLag || (isHarmonic && score / topScore >= 0.5f)) {
-                candidates.add(Pair(lag, score))
+        for (peak in topCandidates) {
+            val ratio = peak.first.toFloat() / topLag.toFloat()
+            val clusterKey = when {
+                kotlin.math.abs(ratio - 1.0f) < 0.05f -> "MAIN"
+                kotlin.math.abs(ratio - 0.5f) < 0.12f -> "HALF"  // 절반 BPM
+                kotlin.math.abs(ratio - 0.67f) < 0.12f -> "1.5x"  // 1.5배
+                kotlin.math.abs(ratio - 1.5f) < 0.12f -> "0.67x" // 0.67배
+                kotlin.math.abs(ratio - 2.0f) < 0.12f -> "DOUBLE" // 2배
+                else -> "OTHER"
             }
+            harmonicClusters.getOrPut(clusterKey) { mutableListOf() }.add(peak)
         }
 
-        if (candidates.isEmpty()) return Pair(topLag, topScore)
+        // 클러스터별 가중 스코어 계산
+        val clusterScores = harmonicClusters.map { (clusterKey, peaks) ->
+            val avgLag = peaks.map { it.first.toFloat() }.average().toInt()
+            val totalScore = peaks.sumOf { it.second }
+            val peakCount = peaks.size
+            // 가중치: MAIN(1.5배), 1.5x(1.2배), HALF(1.0배), 기타(0.8배)
+            val weightMultiplier = when (clusterKey) {
+                "MAIN" -> 1.5f
+                "1.5x", "0.67x" -> 1.2f
+                "HALF" -> 1.0f
+                else -> 0.8f
+            }
+            Triple(clusterKey, avgLag, totalScore * weightMultiplier * peakCount)
+        }.sortedByDescending { it.third }
 
-        // 후보 중 메인 비트 선택
-        // 1) Harmonic 관계에서 0.5x (절반 BPM, 즉 실제 2x lag)가 있으면 선택
-        // 2) 아니면 최고 score
-        val halfTempoLag = topLag * 2
-        val halfTempoCandidate = candidates.find { it.first == halfTempoLag }
-        if (halfTempoCandidate != null) {
+        if (clusterScores.isNotEmpty()) {
+            val bestCluster = clusterScores[0]
             Log.d(
                 TAG,
-                "V3 AC_PEAKS_SELECT: Selected half-tempo lag=$halfTempoLag (ratio=0.5x, original=$topLag)"
+                "V3 AC_PEAKS_ENHANCED: clusters=${harmonicClusters.size}, " +
+                        "selected='${bestCluster.first}' lag=${bestCluster.second} score=${String.format("%.2f", bestCluster.third)}"
             )
-            return halfTempoCandidate
+            return Pair(bestCluster.second, bestCluster.third.toFloat())
         }
 
-        // 3) 1.5x 관계 검사 (3:2 비율)
-        val threeHalfTempoLag = (topLag * 1.5f).toInt()
-        val threeHalfCandidate = candidates.find { kotlin.math.abs(it.first - threeHalfTempoLag) <= 1 }
-        if (threeHalfCandidate != null) {
-            Log.d(
-                TAG,
-                "V3 AC_PEAKS_SELECT: Selected 1.5x-tempo lag=${threeHalfCandidate.first} (ratio≈1.5x)"
-            )
-            return threeHalfCandidate
-        }
-
-        // 기본: 최고 score 선택
-        return candidates.maxByOrNull { it.second }
+        // Fallback
+        return Pair(topLag, topScore)
     }
 
     private fun checkIfHarmonic(ratio: Float): Boolean {
