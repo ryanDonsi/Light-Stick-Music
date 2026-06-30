@@ -590,11 +590,13 @@ object BeatDetectorV3 {
 
         val allBeats = mutableListOf<TimedBeat>()
         val sectionLog = StringBuilder()
+        val minSectionDurationMs = 500L  // 최소 섹션 길이: 500ms
 
         // 각 섹션별로 처리
         for (i in 0 until sectionBoundariesMs.size - 1) {
             val sectionStartMs = sectionBoundariesMs[i]
             val sectionEndMs = sectionBoundariesMs[i + 1]
+            val sectionDurationMs = sectionEndMs - sectionStartMs
 
             // 이 섹션의 BPM 찾기
             val sectionBpm = sectionBpms.find { it.first == sectionStartMs }?.second ?: continue
@@ -606,13 +608,15 @@ object BeatDetectorV3 {
             // 섹션의 ODF 슬라이스
             val startFrame = (sectionStartMs / hopMs).toInt()
             val endFrame = (sectionEndMs / hopMs).toInt().coerceAtMost(odf.size)
+            val sectionFrames = endFrame - startFrame
 
-            if (endFrame - startFrame < fpb * 2) {
-                sectionLog.append("section[$sectionStartMs-$sectionEndMs]=${sectionBpm.toInt()}BPM skip(short); ")
+            // 섹션이 너무 짧거나 최소 비트 개수를 충족하지 못하면 스킵
+            if (sectionFrames < fpb * 2 || sectionDurationMs < minSectionDurationMs) {
+                sectionLog.append("section[$sectionStartMs-$sectionEndMs]=${sectionBpm.toInt()}BPM skip(frames=$sectionFrames<${fpb*2}); ")
                 continue
             }
 
-            val sectionOdf = FloatArray(endFrame - startFrame) { idx ->
+            val sectionOdf = FloatArray(sectionFrames) { idx ->
                 if (startFrame + idx < odf.size) odf[startFrame + idx] else 0f
             }
 
@@ -622,7 +626,7 @@ object BeatDetectorV3 {
             // 섹션 내에서 비트 추적
             val sectionDpTimes = dpBeatTracker(
                 sectionOdf, beatMs, hopMs,
-                sectionEndMs - sectionStartMs, anchorMs = phaseMs
+                sectionDurationMs, anchorMs = phaseMs
             )
 
             // 섹션 시작 시간을 기준으로 절대 시간 변환
