@@ -63,7 +63,7 @@ object BeatDetectorV3 {
         val beatsPerBar: Int get() = numerator
     }
 
-    enum class BeatSource { LOW, MID, FULL, LOW_MID, MID_FULL, LOW_FULL }
+    enum class BeatSource { FULL }
 
     data class Params(
         val hopMs: Long = 10L,  // madmom과 동일하게 10ms로 변경
@@ -1060,7 +1060,6 @@ object BeatDetectorV3 {
         )
 
         // madmom 방식으로 최종 BPM 재계산 (옥타브 에러 보정 포함)
-        val beatTimesMs = beats.map { it.timeMs }
         val madmomBpm = calculateBpmFromBeats(beatTimesMs, referenceBpm = bestBpm.toLong())
         val finalBpm = if (madmomBpm > 0L) madmomBpm else bestBpm.toLong()
         val finalBeatMs = if (finalBpm > 0L) (60_000L / finalBpm) else 0L
