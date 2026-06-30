@@ -244,7 +244,7 @@ object BeatDetectorV3 {
     }
 
     /**
-     * Tempogram에서 시간별 BPM 곡선 추출
+     * Tempogram에서 시간별 BPM 곡선 추출 (상세 하모닉 분석 포함)
      *
      * @return FloatArray - 각 시간프레임별 최강 BPM
      */
@@ -261,17 +261,53 @@ object BeatDetectorV3 {
         val numTimeFrames = tempogram[0].size
         val bpmCurve = FloatArray(numTimeFrames)
 
+        // 하모닉 분석용 데이터 수집
+        val harmonicAnalysis = mutableListOf<String>()
+
         for (tIdx in 0 until numTimeFrames) {
-            var maxStrength = 0f
-            var bestLagIdx = 0
+            // 상위 5개 피크 찾기
+            val peaks = mutableListOf<Pair<Int, Float>>() // (lag, strength)
             for (lagIdx in tempogram.indices) {
-                if (tempogram[lagIdx][tIdx] > maxStrength) {
-                    maxStrength = tempogram[lagIdx][tIdx]
-                    bestLagIdx = lagIdx
-                }
+                peaks.add(Pair(lagIdx + minLag, tempogram[lagIdx][tIdx]))
             }
-            val lag = bestLagIdx + minLag
-            bpmCurve[tIdx] = (60_000L / (lag * hopMs)).toFloat()
+            peaks.sortByDescending { it.second }
+            val topPeaks = peaks.take(5)
+
+            // 최고 피크
+            val (bestLag, bestStrength) = topPeaks[0]
+            bpmCurve[tIdx] = (60_000L / (bestLag * hopMs)).toFloat()
+
+            // 매 10프레임마다 상세 로그 기록 (데이터 크기 관리)
+            if (tIdx % 10 == 0) {
+                val timeMs = tIdx * hopMs
+                val peakInfoList = topPeaks.mapIndexed { idx, (lag, strength) ->
+                    val bpm = 60_000L / (lag * hopMs)
+                    val ratio = lag.toFloat() / bestLag.toFloat()
+                    val normStrength = if (bestStrength > 0) (strength / bestStrength * 100).toInt() else 0
+
+                    // 하모닉 관계 판정
+                    val harmonicType = when {
+                        kotlin.math.abs(ratio - 0.5f) < 0.08f -> "2x"    // 절반 배속 (BPM 2배)
+                        kotlin.math.abs(ratio - 0.67f) < 0.08f -> "1.5x"  // 2/3 배속 (BPM 1.5배)
+                        kotlin.math.abs(ratio - 1.0f) < 0.05f -> "PEAK"   // 기본 피크
+                        kotlin.math.abs(ratio - 1.5f) < 0.08f -> "0.67x"  // 3/2 배 (BPM 2/3배)
+                        kotlin.math.abs(ratio - 2.0f) < 0.08f -> "0.5x"   // 2배 (BPM 절반)
+                        else -> "other"
+                    }
+
+                    "[$idx]lag=$lag(${bpm.toInt()}BPM,ratio=${String.format("%.2f", ratio)},$harmonicType,str=$normStrength%)"
+                }
+
+                val peakInfo = peakInfoList.joinToString(" | ")
+                harmonicAnalysis.add("t=$timeMs: $peakInfo")
+            }
+        }
+
+        // 하모닉 분석 결과 로그
+        if (harmonicAnalysis.isNotEmpty()) {
+            val harmonicLog = StringBuilder("V3 HARMONIC_PEAKS:\n")
+            harmonicAnalysis.forEach { harmonicLog.append("  $it\n") }
+            Log.d(TAG, harmonicLog.toString())
         }
 
         // 진단: BPM 곡선 샘플 출력
@@ -470,17 +506,34 @@ object BeatDetectorV3 {
                 }
             }
 
-            // 이 섹션의 모달 피크
-            val bestLagIdx = sectionStrengths.indices.maxByOrNull { sectionStrengths[it] } ?: 0
-            val bestLag = bestLagIdx + minLag
+            // 상위 5개 피크 추출 (하모닉 분석용)
+            val peaks = sectionStrengths.mapIndexed { lagIdx, strength ->
+                Pair(lagIdx + minLag, strength)
+            }.sortedByDescending { it.second }.take(5)
+
+            val bestLag = peaks[0].first
             val sectionBpm = 60_000L / (bestLag * hopMs)
 
-            result.add(Pair(startMs, sectionBpm.toFloat()))
+            // 섹션별 상세 로그
+            val sectionLog = StringBuilder("V3 Section[${startMs}ms-${(endFrame * hopMs)}ms]:\n")
+            peaks.forEachIndexed { idx, (lag, strength) ->
+                val bpm = 60_000L / (lag * hopMs)
+                val ratio = lag.toFloat() / bestLag.toFloat()
+                val harmonicType = when {
+                    kotlin.math.abs(ratio - 0.5f) < 0.08f -> "2x"
+                    kotlin.math.abs(ratio - 0.67f) < 0.08f -> "1.5x"
+                    kotlin.math.abs(ratio - 1.0f) < 0.05f -> "PEAK"
+                    kotlin.math.abs(ratio - 1.5f) < 0.08f -> "0.67x"
+                    kotlin.math.abs(ratio - 2.0f) < 0.08f -> "0.5x"
+                    else -> "other"
+                }
+                val normStrength = (strength * 100).toInt()
+                sectionLog.append("  [$idx] lag=$lag(${bpm.toInt()}BPM,ratio=${String.format("%.2f", ratio)},$harmonicType,str=$normStrength%)\n")
+            }
+            sectionLog.append("  SELECTED: lag=$bestLag(${sectionBpm.toInt()}BPM)")
+            Log.d(TAG, sectionLog.toString())
 
-            Log.d(
-                TAG,
-                "V3 SectionBPM: frame[$startFrame-$endFrame] @ ${startMs}ms = ${sectionBpm} BPM"
-            )
+            result.add(Pair(startMs, sectionBpm.toFloat()))
         }
 
         return result
@@ -529,6 +582,28 @@ object BeatDetectorV3 {
             priorVals[lag] = prior
             scoreVals[lag] = acVal * prior
         }
+
+        // 상위 피크 분석 (하모닉 감지용)
+        val peaksByScore = (minLag..maxLag).map { lag ->
+            Triple(lag, scoreVals[lag], acVals[lag])
+        }.sortedByDescending { it.second }.take(8)
+
+        val harmonicDiag = StringBuilder("V3 AC_PEAKS_GLOBAL:\n")
+        peaksByScore.forEachIndexed { idx, (lag, score, ac) ->
+            val bpm = 60_000L / (lag * hopMs)
+            val ratio = if (peaksByScore[0].first > 0) lag.toFloat() / peaksByScore[0].first.toFloat() else 0f
+            val harmonicType = when {
+                kotlin.math.abs(ratio - 0.5f) < 0.08f -> "2x"
+                kotlin.math.abs(ratio - 0.67f) < 0.08f -> "1.5x"
+                kotlin.math.abs(ratio - 1.0f) < 0.05f -> "PEAK"
+                kotlin.math.abs(ratio - 1.5f) < 0.08f -> "0.67x"
+                kotlin.math.abs(ratio - 2.0f) < 0.08f -> "0.5x"
+                else -> "other"
+            }
+            val normScore = if (peaksByScore[0].second > 0) (score / peaksByScore[0].second * 100).toInt() else 0
+            harmonicDiag.append("  [$idx] lag=$lag(${bpm.toInt()}BPM,ratio=${String.format("%.2f", ratio)},$harmonicType,score=$normScore%,ac=${String.format("%.6f", ac)})\n")
+        }
+        Log.d(TAG, harmonicDiag.toString())
 
         // Tempogram 사용
         if (useTempogram) {
