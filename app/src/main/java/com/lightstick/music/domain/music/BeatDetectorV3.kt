@@ -46,6 +46,11 @@ object BeatDetectorV3 {
     private const val TEMPOGRAM_TIME_FRAMES = 200  // 시간 축 프레임 수
     private const val TEMPOGRAM_MIN_CONFIDENCE = 0.3f  // 신뢰도 최소값
 
+    // IIR 필터 상수 (V1과 동일)
+    private const val LOW_ALPHA = 0.12f
+    private const val MID_LP1_ALPHA = 0.35f
+    private const val MID_LP2_ALPHA = 0.08f
+
     data class TimedBeat(val timeMs: Long, val confidence: Float)
 
     enum class TimeSignatureType { FOUR_FOUR, THREE_FOUR, SIX_EIGHT }
@@ -878,6 +883,76 @@ object BeatDetectorV3 {
             .distinctBy { it.timeMs }
 
         return Pair(finalBeats, sectionLog.toString())
+    }
+
+    /**
+     * PCM 데이터에서 직접 BPM 탐지 (V1 방식)
+     *
+     * @param monoSamples PCM 샘플 배열
+     * @param sampleRate 샘플 레이트 (Hz)
+     * @param params 파라미터
+     * @param songTitle 곡 제목 (로깅용)
+     * @return DetectResultV3
+     */
+    fun detectPcm(
+        monoSamples: FloatArray,
+        sampleRate: Int,
+        params: Params = Params(),
+        songTitle: String? = null
+    ): DetectResultV3 {
+        if (monoSamples.isEmpty() || sampleRate <= 0) {
+            return DetectResultV3(
+                emptyList(), 0L, 0f, null,
+                "empty pcm", 0L, TimeSignature.FOUR_FOUR
+            )
+        }
+
+        // PCM → Envelope 계산 (V1과 동일한 IIR 필터)
+        val hopSamples = kotlin.math.max(1, (sampleRate * params.hopMs / 1000).toInt())
+        val numFrames = monoSamples.size / hopSamples
+        val outLow = ArrayList<Float>(numFrames)
+        val outMid = ArrayList<Float>(numFrames)
+        val outFull = ArrayList<Float>(numFrames)
+
+        var lowZ = 0f
+        var midLP1 = 0f
+        var midLP2 = 0f
+        var lowSumSq = 0f
+        var midSumSq = 0f
+        var fullSumSq = 0f
+        var winPos = 0
+
+        for (sample in monoSamples) {
+            lowZ += LOW_ALPHA * (sample - lowZ)
+            midLP1 += MID_LP1_ALPHA * (sample - midLP1)
+            midLP2 += MID_LP2_ALPHA * (sample - midLP2)
+            val lowVal = kotlin.math.abs(lowZ)
+            val midVal = kotlin.math.abs(midLP1 - midLP2)
+            lowSumSq += lowVal * lowVal
+            midSumSq += midVal * midVal
+            fullSumSq += sample * sample
+            winPos++
+            if (winPos >= hopSamples) {
+                outLow += kotlin.math.sqrt(lowSumSq / winPos)
+                outMid += kotlin.math.sqrt(midSumSq / winPos)
+                outFull += kotlin.math.sqrt(fullSumSq / winPos)
+                lowSumSq = 0f
+                midSumSq = 0f
+                fullSumSq = 0f
+                winPos = 0
+            }
+        }
+
+        // Envelope 정규화
+        fun normalizeEnv(src: List<Float>): List<Float> {
+            val mx = src.maxOrNull() ?: 0f
+            return if (mx > 1e-6f) src.map { (it / mx).coerceIn(0f, 1f) } else src
+        }
+
+        return detect(
+            normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outFull),
+            params, songTitle
+        )
     }
 
     /**
