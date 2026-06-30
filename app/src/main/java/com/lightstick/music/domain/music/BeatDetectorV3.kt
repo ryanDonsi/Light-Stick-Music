@@ -455,6 +455,28 @@ object BeatDetectorV3 {
     }
 
     /**
+     * 동적 섹션 BPM의 중앙값 계산 (Method B용)
+     *
+     * @param sectionBpms List<Pair<sectionStartMs, bpm>>
+     * @return 중앙값 BPM (또는 0f if empty)
+     */
+    private fun calculateMedianBpmFromSections(
+        sectionBpms: List<Pair<Long, Float>>
+    ): Float {
+        if (sectionBpms.isEmpty()) return 0f
+
+        val bpmValues = sectionBpms.map { it.second }.sorted()
+        val median = if (bpmValues.size % 2 == 0) {
+            (bpmValues[bpmValues.size / 2 - 1] + bpmValues[bpmValues.size / 2]) / 2f
+        } else {
+            bpmValues[bpmValues.size / 2]
+        }
+
+        Log.d(TAG, "V3 METHOD_B_MEDIAN: sections=${sectionBpms.size}, bpms=${bpmValues.map { it.toInt() }}, median=${median.toInt()} BPM")
+        return median
+    }
+
+    /**
      * BPM 변화점 감지 (임계값 기반)
      *
      * @param curve BPM 곡선
@@ -930,6 +952,7 @@ object BeatDetectorV3 {
         val beats: List<TimedBeat>
         val reason: String
         var sectionInfo = ""
+        var collectedSectionBpms: List<Pair<Long, Float>> = emptyList()  // Method B용
 
         // 섹션별 BPM 분석 (Tempogram 기반 + 동적 감지)
         if (tempogram != null && params.useTempogram) {
@@ -950,6 +973,9 @@ object BeatDetectorV3 {
                     minBeatMs = params.minBeatMs,
                     sectionBoundariesMs = dynamicSections
                 )
+
+                // Method B용: 섹션 BPM 저장
+                collectedSectionBpms = sectionBpms
 
                 // 3단계: 섹션별 비트 추적
                 if (sectionBpms.isNotEmpty() && sectionBpms.size > 1) {
@@ -1087,32 +1113,48 @@ object BeatDetectorV3 {
             "fpb=$fpb odfSize=${globalOdf.size} durationMs=$durationMs"
         )
 
-        // madmom 방식으로 최종 BPM 재계산 (옥타브 에러 보정 포함)
-        val madmomBpm = calculateBpmFromBeats(beatTimesMs, referenceBpm = bestBpm.toLong())
+        // === Method B: 동적 섹션 BPM의 중앙값 사용 ===
+        val medianSectionBpm = if (collectedSectionBpms.isNotEmpty()) {
+            calculateMedianBpmFromSections(collectedSectionBpms)
+        } else {
+            0f
+        }
 
-        // 불안정한 대역 (65-115 BPM)에서는 bestBpm을 신뢰도 높음으로 평가
-        // (이 대역에서 DP 비트 추적이 자주 실패하거나 서브비트를 감지함)
-        val finalBpm = if (madmomBpm > 0L) {
-            val ratio = madmomBpm.toFloat() / bestBpm.toFloat()
-            // bestBpm이 불안정한 대역 내이고, 계산된 BPM과 큰 차이가 나면 bestBpm 유지
-            if (bestBpm >= 65f && bestBpm <= 115f && (ratio < 0.8f || ratio > 1.25f)) {
-                Log.d(
-                    TAG,
-                    "V3 BPM_RECALC_ADJUSTED: calculated=$madmomBpm rejected (ratio=$ratio), " +
-                            "keeping bestBpm=${bestBpm.toInt()} (in unstable 65-115 band)"
-                )
-                bestBpm.toLong()
-            } else {
-                if (madmomBpm != bestBpm.toLong()) {
+        // 최종 BPM 선택: Method B (섹션 중앙값) > 나머지
+        val finalBpm = if (medianSectionBpm > 0f && collectedSectionBpms.size >= 2) {
+            // Method B: 섹션 기반 중앙값 우선 (위상 정확도 개선)
+            val methodBBpm = medianSectionBpm.toLong()
+            Log.d(
+                TAG,
+                "V3 METHOD_B_SELECTED: medianBpm=$methodBBpm (from ${collectedSectionBpms.size} sections)"
+            )
+            methodBBpm
+        } else {
+            // Fallback: madmom 방식 (옥타브 에러 보정)
+            val madmomBpm = calculateBpmFromBeats(beatTimesMs, referenceBpm = bestBpm.toLong())
+
+            if (madmomBpm > 0L) {
+                val ratio = madmomBpm.toFloat() / bestBpm.toFloat()
+                // bestBpm이 불안정한 대역 내이고, 계산된 BPM과 큰 차이가 나면 bestBpm 유지
+                if (bestBpm >= 65f && bestBpm <= 115f && (ratio < 0.8f || ratio > 1.25f)) {
                     Log.d(
                         TAG,
-                        "V3 BPM_RECALC: original=${bestBpm.toInt()} madmom=$madmomBpm (from ${beatTimesMs.size} beats, ratio=$ratio)"
+                        "V3 BPM_RECALC_ADJUSTED: calculated=$madmomBpm rejected (ratio=$ratio), " +
+                                "keeping bestBpm=${bestBpm.toInt()} (in unstable 65-115 band)"
                     )
+                    bestBpm.toLong()
+                } else {
+                    if (madmomBpm != bestBpm.toLong()) {
+                        Log.d(
+                            TAG,
+                            "V3 BPM_RECALC: original=${bestBpm.toInt()} madmom=$madmomBpm (from ${beatTimesMs.size} beats, ratio=$ratio)"
+                        )
+                    }
+                    madmomBpm
                 }
-                madmomBpm
+            } else {
+                bestBpm.toLong()
             }
-        } else {
-            bestBpm.toLong()
         }
         val finalBeatMs = if (finalBpm > 0L) (60_000L / finalBpm) else 0L
 
