@@ -1094,25 +1094,48 @@ object BeatDetectorV3 {
                         Log.d(TAG, "V3 DynamicSectionBPMs: $sectionBpmInfo")
                         Log.d(TAG, "V3 SectionBeats: $sectionInfo")
                     } else {
-                        // 섹션별 추적 실패 → 전체 BPM으로 폴백
-                        Log.w(TAG, "V3 SectionBeats failed → fallback to global BPM")
-                        val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
+                        // 섹션별 추적 실패 → 섹션 중앙값으로 폴백 시도
+                        Log.w(TAG, "V3 SectionBeats failed → trying median BPM from sections")
+
+                        // 유효한 섹션 BPM만 필터링 (sanity check: 30-200 BPM)
+                        val validSectionBpms = sectionBpms.filter { (_, bpm) ->
+                            bpm >= 30f && bpm <= 200f
+                        }
+
+                        // 섹션 중앙값 계산
+                        val fallbackBpmToTry = if (validSectionBpms.isNotEmpty()) {
+                            val medianSectionBpm = calculateMedianBpmFromSections(validSectionBpms)
+                            Log.d(TAG, "V3 SectionFallback: using median=${medianSectionBpm.toInt()}BPM from ${validSectionBpms.size} valid sections")
+                            medianSectionBpm
+                        } else {
+                            Log.d(TAG, "V3 SectionFallback: no valid sections, using bestBpm=${bestBpm.toInt()}")
+                            bestBpm
+                        }
+
+                        // 폴백 BPM으로 재시도
+                        val fallbackBeatMs = if (fallbackBpmToTry > 0f) {
+                            (60_000L / fallbackBpmToTry.toLong())
+                        } else {
+                            beatMs
+                        }
+
+                        val phaseMs = estimatePhaseFromOdf(globalOdf, fallbackBeatMs, params.hopMs)
                         val dpTimes = dpBeatTracker(
-                            globalOdf, beatMs, params.hopMs,
+                            globalOdf, fallbackBeatMs, params.hopMs,
                             durationMs, anchorMs = phaseMs
                         )
-                        val expectedBeats = maxOf(1, (durationMs / beatMs).toInt())
+                        val expectedBeats = maxOf(1, (durationMs / fallbackBeatMs).toInt())
                         val dpOk = dpTimes.size >= maxOf(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
 
                         beats = if (dpOk) {
                             dpTimes.map { TimedBeat(it, 1f) }
                         } else {
-                            Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → fallback")
+                            Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → final fallback")
                             fallbackSegmentBeats(
-                                low, mid, full, params, bestBpm.toLong(), durationMs
+                                low, mid, full, params, fallbackBpmToTry.toLong(), durationMs
                             ).map { TimedBeat(it.timeMs, it.confidence) }
                         }
-                        reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
+                        reason = if (beats.isNotEmpty()) "dp+section_fallback" else "failed"
                     }
                 } else {
                     // 섹션별 BPM 계산 실패 → 전체 BPM 사용
@@ -1133,7 +1156,7 @@ object BeatDetectorV3 {
                             low, mid, full, params, bestBpm.toLong(), durationMs
                         ).map { TimedBeat(it.timeMs, it.confidence) }
                     }
-                    reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
+                    reason = if (beats.isNotEmpty()) "dp_global_only" else "failed"
                 }
             } else {
                 // 동적 섹션 없음 → 전체 BPM 사용
@@ -1195,11 +1218,18 @@ object BeatDetectorV3 {
         val minGap = beatGaps.minOrNull() ?: 0L
         val maxGap = beatGaps.maxOrNull() ?: 0L
 
+        // 실제 비트 간격으로부터 추정 BPM (검증용)
+        val detectedBpmFromBeats = if (avgGap > 0) {
+            60_000L / avgGap
+        } else {
+            0L
+        }
+
         Log.d(
             TAG,
             "V3 BEAT_ANALYSIS: title=\"$songTitle\" BPM=$bestBpm beatMs=$beatMs fpb=$fpb " +
             "beats=${beats.size} gaps=[avg=${avgGap}ms, min=${minGap}ms, max=${maxGap}ms] " +
-            "reason=$reason"
+            "detectedBpm=$detectedBpmFromBeats reason=$reason"
         )
 
         // V3 비트 타임라인 로그 (F-measure 계산용)
