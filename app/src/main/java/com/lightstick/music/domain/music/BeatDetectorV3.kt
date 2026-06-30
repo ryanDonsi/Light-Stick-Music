@@ -271,7 +271,7 @@ object BeatDetectorV3 {
                 }
             }
             val lag = bestLagIdx + minLag
-            bpmCurve[tIdx] = 60_000L / (lag * hopMs)
+            bpmCurve[tIdx] = (60_000L / (lag * hopMs)).toFloat()
         }
 
         return bpmCurve
@@ -617,7 +617,7 @@ object BeatDetectorV3 {
             }
 
             // 이 섹션에서 위상 추정
-            val phaseMs = estimatePhaseFromOdf(sectionOdf.toList(), beatMs, hopMs)
+            val phaseMs = estimatePhaseFromOdf(sectionOdf, beatMs, hopMs)
 
             // 섹션 내에서 비트 추적
             val sectionDpTimes = dpBeatTracker(
@@ -859,7 +859,7 @@ object BeatDetectorV3 {
             TAG,
             "V3 BEAT_ANALYSIS: title=\"$songTitle\" BPM=$bestBpm beatMs=$beatMs fpb=$fpb " +
             "beats=${beats.size} gaps=[avg=${avgGap}ms, min=${minGap}ms, max=${maxGap}ms] " +
-            "expected=${expectedBeats} dpOk=$dpOk reason=$reason"
+            "reason=$reason"
         )
 
         // DP 디버그: beatMs 전달 확인
