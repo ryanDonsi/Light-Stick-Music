@@ -389,6 +389,7 @@ object BeatDetectorV3 {
     /**
      * madmom 방식 BPM 계산: 비트 간격의 중앙값으로부터 BPM 추정
      * 절반/2배 옥타브 에러도 감지하고 보정
+     * 참고: 90-110 BPM 대역 오류 방지를 위해 강화된 필터링
      *
      * @param beatTimesMs 비트 타임스탐프 (ms)
      * @param referenceBpm 참고 BPM (옥타브 에러 판단용, 0이면 무시)
@@ -408,7 +409,7 @@ object BeatDetectorV3 {
 
         if (intervals.isEmpty()) return 0L
 
-        // 중앙값 계산
+        // 이상치 제거: 중앙값의 50-200% 범위 내만 사용 (90-110 BPM 대역 안정화)
         intervals.sort()
         val median = if (intervals.size % 2 == 0) {
             (intervals[intervals.size / 2 - 1] + intervals[intervals.size / 2]) / 2.0
@@ -416,7 +417,20 @@ object BeatDetectorV3 {
             intervals[intervals.size / 2]
         }
 
-        var bpm = if (median > 0) (60.0 / median).toLong() else return 0L
+        val filtered = intervals.filter { it >= median * 0.5 && it <= median * 2.0 }
+        if (filtered.isEmpty()) return 0L
+
+        // 필터링된 데이터의 중앙값 재계산
+        val filteredMedian = if (filtered.size % 2 == 0) {
+            (filtered[filtered.size / 2 - 1] + filtered[filtered.size / 2]) / 2.0
+        } else {
+            filtered[filtered.size / 2]
+        }
+
+        var bpm = if (filteredMedian > 0) (60.0 / filteredMedian).toLong() else return 0L
+
+        Log.d(TAG, "V3 BPM_FROM_BEATS: intervals=${intervals.size} → filtered=${filtered.size}, " +
+                "median=${String.format("%.3f", median)}s → ${String.format("%.3f", filteredMedian)}s = ${bpm} BPM")
 
         // === 옥타브 에러 보정 (참고 BPM과 비교) ===
         if (referenceBpm > 0L) {
@@ -1061,15 +1075,32 @@ object BeatDetectorV3 {
 
         // madmom 방식으로 최종 BPM 재계산 (옥타브 에러 보정 포함)
         val madmomBpm = calculateBpmFromBeats(beatTimesMs, referenceBpm = bestBpm.toLong())
-        val finalBpm = if (madmomBpm > 0L) madmomBpm else bestBpm.toLong()
-        val finalBeatMs = if (finalBpm > 0L) (60_000L / finalBpm) else 0L
 
-        if (madmomBpm > 0L && madmomBpm != bestBpm.toLong()) {
-            Log.d(
-                TAG,
-                "V3 BPM_RECALC: original=$bestBpm madmom=$madmomBpm (from ${beatTimesMs.size} beats)"
-            )
+        // 90-110 BPM 대역에서는 bestBpm을 신뢰도 높음으로 평가
+        // (이 대역에서 DP 비트 추적이 자주 실패하거나 서브비트를 감지함)
+        val finalBpm = if (madmomBpm > 0L) {
+            val ratio = madmomBpm.toFloat() / bestBpm.toFloat()
+            // bestBpm이 90-110 BPM 범위 내이고, 계산된 BPM과 큰 차이가 나면 bestBpm 유지
+            if (bestBpm in 90L..110L && (ratio < 0.8f || ratio > 1.25f)) {
+                Log.d(
+                    TAG,
+                    "V3 BPM_RECALC_ADJUSTED: calculated=$madmomBpm rejected (ratio=$ratio), " +
+                            "keeping bestBpm=$bestBpm (in 90-110 band)"
+                )
+                bestBpm.toLong()
+            } else {
+                if (madmomBpm != bestBpm.toLong()) {
+                    Log.d(
+                        TAG,
+                        "V3 BPM_RECALC: original=$bestBpm madmom=$madmomBpm (from ${beatTimesMs.size} beats, ratio=$ratio)"
+                    )
+                }
+                madmomBpm
+            }
+        } else {
+            bestBpm.toLong()
         }
+        val finalBeatMs = if (finalBpm > 0L) (60_000L / finalBpm) else 0L
 
         val timeSignature = detectTimeSignature(globalOdf, finalBpm, params.hopMs)
         val downbeatMs = detectDownbeatEnhanced(
