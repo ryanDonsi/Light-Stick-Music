@@ -200,7 +200,7 @@ object BeatDetectorV3 {
     }
 
     /**
-     * 모달 피크 찾기
+     * 모달 피크 찾기 (옥타브 에러 보정 포함)
      *
      * Returns: Pair<BPM, Confidence>
      */
@@ -228,17 +228,56 @@ object BeatDetectorV3 {
         // 최고 강도의 lag 찾기
         val bestLagIdx = bpmStrengths.indices.maxByOrNull { bpmStrengths[it] } ?: 0
         val bestLag = bestLagIdx + minLag
-        val bestBpm = 60_000L / (bestLag * hopMs)
+        var finalLag = bestLag
+        var bestBpm = 60_000L / (bestLag * hopMs)
 
         // 신뢰도: 최고 강도와 2번째 강도의 비율
         val sorted = bpmStrengths.sortedDescending()
-        val confidence = if (sorted.size >= 2 && sorted[1] > 1e-6f) {
+        var confidence = if (sorted.size >= 2 && sorted[1] > 1e-6f) {
             minOf(1.0f, sorted[0] / sorted[1])
         } else {
             sorted.firstOrNull()?.coerceIn(TEMPOGRAM_MIN_CONFIDENCE, 1.0f) ?: 0.5f
         }
 
-        Log.d(TAG, "V3 ModalPeak: BPM=$bestBpm, Confidence=${confidence * 100}%")
+        // === 옥타브 에러 보정 ===
+        // 절반 비트(2배 BPM) 확인: lag/2
+        val halfLag = bestLag / 2
+        val halfStrength = if (halfLag >= minLag && halfLag - minLag < bpmStrengths.size) {
+            bpmStrengths[halfLag - minLag]
+        } else 0f
+        val halfRatio = if (bpmStrengths[bestLagIdx] > 1e-6f) halfStrength / bpmStrengths[bestLagIdx] else 0f
+
+        // 2배 비트(절반 BPM) 확인: lag*2
+        val doubleLag = bestLag * 2
+        val doubleStrength = if (doubleLag - minLag < bpmStrengths.size) {
+            bpmStrengths[doubleLag - minLag]
+        } else 0f
+        val doubleRatio = if (bpmStrengths[bestLagIdx] > 1e-6f) doubleStrength / bpmStrengths[bestLagIdx] else 0f
+
+        // 절반 비트가 강한 경우: 원래 BPM이 2배로 잘못된 것
+        if (halfLag >= minLag && halfRatio >= 0.65f) {
+            Log.d(
+                TAG,
+                "V3 OctaveError2x: halfLag=$halfLag halfRatio=$halfRatio → " +
+                        "BPM ${60_000L / (bestLag * hopMs)} → ${60_000L / (halfLag * hopMs)}"
+            )
+            finalLag = halfLag
+            bestBpm = 60_000L / (halfLag * hopMs)
+            confidence = minOf(1.0f, halfStrength / sorted[0])
+        }
+        // 2배 비트가 강한 경우: 원래 BPM이 절반으로 잘못된 것
+        else if (doubleLag - minLag < bpmStrengths.size && doubleRatio >= 0.65f && doubleStrength > bpmStrengths[bestLagIdx] * 0.9f) {
+            Log.d(
+                TAG,
+                "V3 OctaveError0.5x: doubleLag=$doubleLag doubleRatio=$doubleRatio → " +
+                        "BPM ${60_000L / (bestLag * hopMs)} → ${60_000L / (doubleLag * hopMs)}"
+            )
+            finalLag = doubleLag
+            bestBpm = 60_000L / (doubleLag * hopMs)
+            confidence = minOf(1.0f, doubleStrength / sorted[0])
+        }
+
+        Log.d(TAG, "V3 ModalPeak: BPM=$bestBpm, Confidence=${confidence * 100}% (lag=$finalLag)")
 
         return Pair(bestBpm.toFloat(), confidence)
     }
@@ -349,11 +388,13 @@ object BeatDetectorV3 {
 
     /**
      * madmom 방식 BPM 계산: 비트 간격의 중앙값으로부터 BPM 추정
+     * 절반/2배 옥타브 에러도 감지하고 보정
      *
      * @param beatTimesMs 비트 타임스탐프 (ms)
+     * @param referenceBpm 참고 BPM (옥타브 에러 판단용, 0이면 무시)
      * @return BPM (0 if insufficient beats)
      */
-    private fun calculateBpmFromBeats(beatTimesMs: List<Long>): Long {
+    private fun calculateBpmFromBeats(beatTimesMs: List<Long>, referenceBpm: Long = 0L): Long {
         if (beatTimesMs.size < 2) return 0L
 
         // 비트 간격(초 단위) 계산
@@ -375,8 +416,28 @@ object BeatDetectorV3 {
             intervals[intervals.size / 2]
         }
 
+        var bpm = if (median > 0) (60.0 / median).toLong() else return 0L
+
+        // === 옥타브 에러 보정 (참고 BPM과 비교) ===
+        if (referenceBpm > 0L) {
+            val ratio = bpm.toFloat() / referenceBpm.toFloat()
+
+            // 2배 오류 감지 (bpm ≈ 2 * reference)
+            if (ratio in 1.9f..2.1f) {
+                val halfBpm = bpm / 2
+                Log.d(TAG, "V3 BPM_OCTAVE_2x: $bpm BPM → $halfBpm BPM (ratio=$ratio)")
+                bpm = halfBpm
+            }
+            // 절반 오류 감지 (bpm ≈ 0.5 * reference)
+            else if (ratio in 0.45f..0.55f) {
+                val doubleBpm = bpm * 2
+                Log.d(TAG, "V3 BPM_OCTAVE_0.5x: $bpm BPM → $doubleBpm BPM (ratio=$ratio)")
+                bpm = doubleBpm
+            }
+        }
+
         // BPM = 60 / median_interval_seconds
-        return if (median > 0) (60.0 / median).toLong() else 0L
+        return bpm
     }
 
     /**
@@ -998,9 +1059,9 @@ object BeatDetectorV3 {
             "fpb=$fpb odfSize=${globalOdf.size} durationMs=$durationMs"
         )
 
-        // madmom 방식으로 최종 BPM 재계산
+        // madmom 방식으로 최종 BPM 재계산 (옥타브 에러 보정 포함)
         val beatTimesMs = beats.map { it.timeMs }
-        val madmomBpm = calculateBpmFromBeats(beatTimesMs)
+        val madmomBpm = calculateBpmFromBeats(beatTimesMs, referenceBpm = bestBpm.toLong())
         val finalBpm = if (madmomBpm > 0L) madmomBpm else bestBpm.toLong()
         val finalBeatMs = if (finalBpm > 0L) (60_000L / finalBpm) else 0L
 
