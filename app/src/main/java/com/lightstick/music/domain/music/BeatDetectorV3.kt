@@ -274,6 +274,14 @@ object BeatDetectorV3 {
             bpmCurve[tIdx] = (60_000L / (lag * hopMs)).toFloat()
         }
 
+        // 진단: BPM 곡선 샘플 출력
+        val diag = StringBuilder("V3 BPM_CURVE_SAMPLE: ")
+        for (i in bpmCurve.indices step maxOf(1, bpmCurve.size / 10)) {
+            val timeMs = i * hopMs
+            diag.append("t=${timeMs}ms:${bpmCurve[i].toInt()}BPM;")
+        }
+        Log.d(TAG, diag.toString())
+
         return bpmCurve
     }
 
@@ -633,7 +641,17 @@ object BeatDetectorV3 {
             val sectionBeats = sectionDpTimes.map { it + sectionStartMs }
             allBeats.addAll(sectionBeats.map { TimedBeat(it, 1f) })
 
-            sectionLog.append("section[$sectionStartMs-$sectionEndMs]=${sectionBpm.toInt()}BPM beats=${sectionDpTimes.size}; ")
+            // 섹션별 비트 간격 분석
+            val sectionGaps = mutableListOf<Long>()
+            for (i in 1 until sectionDpTimes.size) {
+                val gap = sectionDpTimes[i] - sectionDpTimes[i - 1]
+                sectionGaps.add(gap)
+            }
+            val avgGap = if (sectionGaps.isNotEmpty()) sectionGaps.average().toLong() else 0L
+            val minGap = sectionGaps.minOrNull() ?: 0L
+            val maxGap = sectionGaps.maxOrNull() ?: 0L
+
+            sectionLog.append("section[$sectionStartMs-$sectionEndMs]=${sectionBpm.toInt()}BPM(beatMs=$beatMs,fpb=${beatMs/hopMs}) beats=${sectionDpTimes.size} gaps=[avg=${avgGap}ms,min=${minGap}ms,max=${maxGap}ms] phase=${phaseMs}ms; ")
         }
 
         // 시간 순으로 정렬 및 중복 제거
