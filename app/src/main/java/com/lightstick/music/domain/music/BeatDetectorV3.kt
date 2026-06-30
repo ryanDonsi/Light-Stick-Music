@@ -739,6 +739,27 @@ object BeatDetectorV3 {
         }
         Log.d(TAG, harmonicDiag.toString())
 
+        // AC_PEAKS 절반/2배 분포 분석
+        val halfPeaks = peaksByScore.filter { (lag, _, _) ->
+            if (peaksByScore[0].first > 0) {
+                val ratio = lag.toFloat() / peaksByScore[0].first.toFloat()
+                kotlin.math.abs(ratio - 0.5f) < 0.12f
+            } else false
+        }
+        val doublePeaks = peaksByScore.filter { (lag, _, _) ->
+            if (peaksByScore[0].first > 0) {
+                val ratio = lag.toFloat() / peaksByScore[0].first.toFloat()
+                kotlin.math.abs(ratio - 2.0f) < 0.12f
+            } else false
+        }
+        if (halfPeaks.isNotEmpty() || doublePeaks.isNotEmpty()) {
+            Log.d(
+                TAG,
+                "V3 AC_OCTAVE_ANALYSIS: halfPeaks=${halfPeaks.size} (score=${halfPeaks.maxOfOrNull { it.second }?.let { String.format("%.2f", it) } ?: "N/A"}) " +
+                        "doublePeaks=${doublePeaks.size} (score=${doublePeaks.maxOfOrNull { it.second }?.let { String.format("%.2f", it) } ?: "N/A"})"
+            )
+        }
+
         // Method A: AC_PEAKS 상위 N개에서 최적 피크 선택
         val selectedPeak = selectBestPeakFromAcPeaks(peaksByScore, hopMs)
         val methodABpm = if (selectedPeak != null && selectedPeak.first > 0) {
@@ -1181,6 +1202,28 @@ object BeatDetectorV3 {
             "reason=$reason"
         )
 
+        // V3 비트 타임라인 로그 (F-measure 계산용)
+        val beatTimestamps = beats.map { it.timeMs }
+        Log.d(
+            TAG,
+            "V3 BEAT_TIMESTAMPS: title=\"$songTitle\" beats=[${beatTimestamps.take(20).joinToString(",")}${if(beatTimestamps.size > 20) ",...(${beatTimestamps.size} total)" else ""}]"
+        )
+
+        // ODF 상세 통계
+        val odfStats = StringBuilder()
+        val odfValues = globalOdf.filter { it > 0f }.toList()
+        if (odfValues.isNotEmpty()) {
+            val odfMean = odfValues.average()
+            val odfStd = kotlin.math.sqrt(odfValues.map { (it - odfMean).pow(2) }.average())
+            val odfMedian = odfValues.sorted()[odfValues.size / 2]
+            odfStats.append("max=${String.format("%.6f", odfValues.maxOrNull() ?: 0f)} ")
+            odfStats.append("mean=${String.format("%.6f", odfMean)} ")
+            odfStats.append("median=${String.format("%.6f", odfMedian)} ")
+            odfStats.append("std=${String.format("%.6f", odfStd)} ")
+            odfStats.append("count=${odfValues.size}")
+        }
+        Log.d(TAG, "V3 ODF_STATS_DETAIL: title=\"$songTitle\" $odfStats")
+
         // DP 디버그: beatMs 전달 확인
         Log.d(
             TAG,
@@ -1199,14 +1242,22 @@ object BeatDetectorV3 {
         val finalBpm = if (medianSectionBpm > 0f && collectedSectionBpms.size >= 2) {
             // Method B: 섹션 기반 중앙값 우선 (위상 정확도 개선)
             val methodBBpm = medianSectionBpm.toLong()
+            val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
             Log.d(
                 TAG,
-                "V3 METHOD_B_SELECTED: medianBpm=$methodBBpm (from ${collectedSectionBpms.size} sections)"
+                "V3 METHOD_B_SELECTED: medianBpm=$methodBBpm (from ${collectedSectionBpms.size} sections, values=$sectionBpmList)"
             )
             methodBBpm
         } else {
             // Fallback: madmom 방식 (옥타브 에러 보정)
             val madmomBpm = calculateBpmFromBeats(beatTimesMs, referenceBpm = bestBpm.toLong())
+
+            Log.d(
+                TAG,
+                "V3 FINAL_BPM_SELECTION: title=\"$songTitle\" " +
+                        "bestBpm=${bestBpm.toInt()} medianSection=${if(medianSectionBpm > 0) medianSectionBpm.toInt() else "N/A"} " +
+                        "madmomBpm=$madmomBpm beatCount=${beatTimesMs.size} sections=${collectedSectionBpms.size}"
+            )
 
             if (madmomBpm > 0L) {
                 val ratio = madmomBpm.toFloat() / bestBpm.toFloat()
@@ -1214,7 +1265,7 @@ object BeatDetectorV3 {
                 if (bestBpm >= 65f && bestBpm <= 115f && (ratio < 0.8f || ratio > 1.25f)) {
                     Log.d(
                         TAG,
-                        "V3 BPM_RECALC_ADJUSTED: calculated=$madmomBpm rejected (ratio=$ratio), " +
+                        "V3 BPM_RECALC_ADJUSTED: calculated=$madmomBpm rejected (ratio=${String.format("%.2f", ratio)}), " +
                                 "keeping bestBpm=${bestBpm.toInt()} (in unstable 65-115 band)"
                     )
                     bestBpm.toLong()
@@ -1222,12 +1273,13 @@ object BeatDetectorV3 {
                     if (madmomBpm != bestBpm.toLong()) {
                         Log.d(
                             TAG,
-                            "V3 BPM_RECALC: original=${bestBpm.toInt()} madmom=$madmomBpm (from ${beatTimesMs.size} beats, ratio=$ratio)"
+                            "V3 BPM_RECALC: original=${bestBpm.toInt()} madmom=$madmomBpm (from ${beatTimesMs.size} beats, ratio=${String.format("%.2f", ratio)})"
                         )
                     }
                     madmomBpm
                 }
             } else {
+                Log.d(TAG, "V3 BPM_FALLBACK: madmomBpm failed, using bestBpm=${bestBpm.toInt()}")
                 bestBpm.toLong()
             }
         }
@@ -1297,6 +1349,7 @@ object BeatDetectorV3 {
             val selectedLag = bestPeak.first
             val selectedScore = bestPeak.second
             val selectedAc = bestPeak.third
+            val selectedBpm = 60_000L / (selectedLag * hopMs)
 
             // 가중치: MAIN(1.5배), 1.5x(1.2배), HALF(1.0배), 기타(0.8배)
             val weightMultiplier = when (clusterKey) {
@@ -1307,12 +1360,24 @@ object BeatDetectorV3 {
             }
             val finalScore = selectedScore * weightMultiplier
 
-            if (clusterKey != "OTHER") {
+            // 클러스터 상세 로그
+            Log.d(
+                TAG,
+                "V3 AC_CLUSTER_DETAIL: $clusterKey → lag=$selectedLag (${selectedBpm}BPM, " +
+                        "ac=${String.format("%.6f", selectedAc)}, score=$selectedScore, " +
+                        "weighted=$finalScore, peaks_in_cluster=${peaks.size})"
+            )
+
+            // 클러스터 내 상위 피크들 기록
+            val topPeaksInCluster = peaks.sortedByDescending { it.third }.take(3)
+            if (topPeaksInCluster.size > 1) {
                 Log.d(
                     TAG,
-                    "V3 AC_CLUSTER_DETAIL: $clusterKey → lag=$selectedLag " +
-                            "(ac=${String.format("%.6f", selectedAc)}, score=$selectedScore, " +
-                            "weighted=$finalScore)"
+                    "V3 AC_CLUSTER_PEAKS_$clusterKey: " +
+                            topPeaksInCluster.mapIndexed { idx, (lag, score, ac) ->
+                                val bpm = 60_000L / (lag * hopMs)
+                                "[$idx]$lag(${bpm}BPM,ac=${String.format("%.6f", ac)})"
+                            }.joinToString(" | ")
                 )
             }
 
