@@ -712,6 +712,20 @@ object BeatDetectorV3 {
         }
         Log.d(TAG, harmonicDiag.toString())
 
+        // Method A: AC_PEAKS 상위 N개에서 최적 피크 선택
+        val selectedPeak = selectBestPeakFromAcPeaks(peaksByScore, hopMs)
+        val methodABpm = if (selectedPeak != null && selectedPeak.first > 0) {
+            60_000L / (selectedPeak.first * hopMs)
+        } else {
+            0L
+        }
+        if (methodABpm > 0L) {
+            Log.d(
+                TAG,
+                "V3 METHOD_A_SELECTION: Selected lag=${selectedPeak?.first}, BPM=$methodABpm"
+            )
+        }
+
         // Tempogram 사용
         if (useTempogram) {
             val tempogram = computeTempogram(odf, hopMs, minBeatMs, maxBeatMs)
@@ -1126,6 +1140,72 @@ object BeatDetectorV3 {
         )
     }
 
+    // ====================== Method A: AC_PEAKS Top-N Selection ======================
+
+    private fun selectBestPeakFromAcPeaks(
+        peaksByScore: List<Triple<Int, Float, Float>>,
+        hopMs: Long
+    ): Pair<Int, Float>? {
+        if (peaksByScore.isEmpty()) return null
+
+        val topLag = peaksByScore[0].first
+        val topScore = peaksByScore[0].second
+
+        if (topScore <= 1e-6f) return Pair(topLag, topScore)
+
+        // 상위 피크들 중 harmonic 관계 분석
+        val candidates = mutableListOf<Pair<Int, Float>>()
+
+        for ((lag, score, ac) in peaksByScore) {
+            val ratio = lag.toFloat() / topLag.toFloat()
+            val isHarmonic = checkIfHarmonic(ratio)
+
+            // 메인 비트 후보 조건:
+            // 1) 최고 피크 자체
+            // 2) 최고 피크의 harmonic 관계 (0.5x, 1.5x, 2x)
+            // 3) score가 최고의 50% 이상
+            if (lag == topLag || (isHarmonic && score / topScore >= 0.5f)) {
+                candidates.add(Pair(lag, score))
+            }
+        }
+
+        if (candidates.isEmpty()) return Pair(topLag, topScore)
+
+        // 후보 중 메인 비트 선택
+        // 1) Harmonic 관계에서 0.5x (절반 BPM, 즉 실제 2x lag)가 있으면 선택
+        // 2) 아니면 최고 score
+        val halfTempoLag = topLag * 2
+        val halfTempoCandidate = candidates.find { it.first == halfTempoLag }
+        if (halfTempoCandidate != null) {
+            Log.d(
+                TAG,
+                "V3 AC_PEAKS_SELECT: Selected half-tempo lag=$halfTempoLag (ratio=0.5x, original=$topLag)"
+            )
+            return halfTempoCandidate
+        }
+
+        // 3) 1.5x 관계 검사 (3:2 비율)
+        val threeHalfTempoLag = (topLag * 1.5f).toInt()
+        val threeHalfCandidate = candidates.find { kotlin.math.abs(it.first - threeHalfTempoLag) <= 1 }
+        if (threeHalfCandidate != null) {
+            Log.d(
+                TAG,
+                "V3 AC_PEAKS_SELECT: Selected 1.5x-tempo lag=${threeHalfCandidate.first} (ratio≈1.5x)"
+            )
+            return threeHalfCandidate
+        }
+
+        // 기본: 최고 score 선택
+        return candidates.maxByOrNull { it.second }
+    }
+
+    private fun checkIfHarmonic(ratio: Float): Boolean {
+        return (kotlin.math.abs(ratio - 0.5f) < 0.10f ||  // 2x octave
+                kotlin.math.abs(ratio - 0.67f) < 0.10f ||  // 1.5x harmonic
+                kotlin.math.abs(ratio - 1.5f) < 0.10f ||  // 0.67x harmonic
+                kotlin.math.abs(ratio - 2.0f) < 0.10f)    // 0.5x octave
+    }
+
     // ====================== V1 호환 헬퍼 메서드들 ======================
 
     private fun computeMultiBandFluxOdf(
@@ -1213,20 +1293,39 @@ object BeatDetectorV3 {
     private fun estimatePhaseFromOdf(odf: FloatArray, beatMs: Long, hopMs: Long): Long {
         val fpb = maxOf(1, (beatMs / hopMs).toInt())
         if (odf.size < fpb * 2) return 0L
+
+        // 개선: 위상 오차 감소를 위해 초기 2초 범위에서만 phase 찾기
+        // 이는 조용한 intro 곡에서 나중의 강한 신호 대신 초기 신호를 위상으로 선택하게 함
+        val initialSearchFrames = minOf(odf.size, (2000L / hopMs).toInt())  // 첫 2초
+        val searchEndFrame = maxOf(fpb * 2, initialSearchFrames)
+
         var bestPhase = 0
         var bestScore = Float.NEGATIVE_INFINITY
+
+        // 초기 부분(첫 2초)에서 각 phase의 강도 계산
         for (ph in 0 until fpb) {
             var score = 0f
+            var count = 0
             var f = ph
-            while (f < odf.size) {
+            while (f < searchEndFrame && f < odf.size) {
                 score += odf[f]
+                count++
                 f += fpb
             }
-            if (score > bestScore) {
-                bestScore = score
+
+            // 초기 부분에 가중치 부여 (더 빨리 나타나는 phase 선호)
+            // count가 적을수록 더 초기에 나타나므로 보너스 부여
+            val countPenalty = if (count > 0) 1.0f else 0f
+            val weightedScore = (score / maxOf(1, count).toFloat()) * countPenalty
+
+            if (weightedScore > bestScore) {
+                bestScore = weightedScore
                 bestPhase = ph
             }
         }
+
+        Log.d(TAG, "V3 PHASE_ESTIMATE: selected phase=$bestPhase (${bestPhase.toLong() * hopMs}ms) from ${searchEndFrame} frames")
+
         return bestPhase.toLong() * hopMs
     }
 
