@@ -373,15 +373,26 @@ object BeatDetectorV3 {
             val tempogram = computeTempogram(odf, hopMs, minBeatMs, maxBeatMs)
             val (bestBpm, confidence) = findModalPeak(tempogram, hopMs, minBeatMs)
 
+            // Half-Tempo 체크 (Tempogram도 반박자 가능)
+            var finalBpm = bestBpm
+            val doubleBpm = bestBpm * 2
+            val halfBpm = bestBpm / 2
+
+            if (doubleBpm <= maxBeatMs.toFloat()) {
+                // Double-tempo 체크: 2배 주파수가 실제 BPM일 수 있음
+                finalBpm = doubleBpm
+                Log.d(TAG, "V3 Half-Tempo detected: $bestBpm → $doubleBpm BPM")
+            }
+
             // 디버그 로그
             val odfMax = odf.maxOrNull() ?: 0f
             val odfAvg = odf.average().toFloat()
             Log.d(
                 TAG,
-                "V3 Tempogram: BPM=$bestBpm, Confidence=$confidence, ODF[max=$odfMax avg=$odfAvg]"
+                "V3 Tempogram: BPM=$finalBpm (from $bestBpm), Confidence=$confidence, ODF[max=$odfMax avg=$odfAvg]"
             )
 
-            return Triple(bestBpm, confidence, tempogram)
+            return Triple(finalBpm, confidence, tempogram)
         } else {
             // V1 방식
             val bestLag = (minLag..maxLag).maxByOrNull { scoreVals[it] } ?: minLag
@@ -534,7 +545,7 @@ object BeatDetectorV3 {
 
         return DetectResultV3(
             beats = beats,
-            beatMs = bestBpm.toLong(),
+            beatMs = if (bestBpm > 0f) (60_000L / bestBpm.toLong()) else 0L,
             confidence = confidence,
             source = BeatSource.FULL,
             reason = reason,

@@ -72,7 +72,7 @@ object BeatDetectorV1 {
     enum class BeatSource { LOW, MID, FULL, LOW_MID, MID_FULL, LOW_FULL }
 
     data class Params(
-        val hopMs: Long             = 50L,
+        val hopMs: Long             = 10L,    // V1/V2/V3 통일: 10ms (AutoTimelineConfig와 동일)
         val minBeatMs: Long         = 375L,   // 160 BPM
         val maxBeatMs: Long         = 1000L,  // 60 BPM
         val minPeakDistanceMs: Long = 120L,
