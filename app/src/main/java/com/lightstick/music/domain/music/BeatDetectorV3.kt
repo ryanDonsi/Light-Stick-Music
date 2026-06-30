@@ -138,7 +138,7 @@ object BeatDetectorV3 {
      * Tempogram 계산
      *
      * ODF의 시간-BPM 2D 표현
-     * Returns: FloatArray[BPM_bins][time_frames]
+     * Returns: FloatArray[BPM_bins][timeFrames]
      */
     fun computeTempogram(
         odf: FloatArray,
@@ -1081,18 +1081,18 @@ object BeatDetectorV3 {
         val finalBpm = if (madmomBpm > 0L) {
             val ratio = madmomBpm.toFloat() / bestBpm.toFloat()
             // bestBpm이 불안정한 대역 내이고, 계산된 BPM과 큰 차이가 나면 bestBpm 유지
-            if (bestBpm in 65L..115L && (ratio < 0.8f || ratio > 1.25f)) {
+            if (bestBpm >= 65f && bestBpm <= 115f && (ratio < 0.8f || ratio > 1.25f)) {
                 Log.d(
                     TAG,
                     "V3 BPM_RECALC_ADJUSTED: calculated=$madmomBpm rejected (ratio=$ratio), " +
-                            "keeping bestBpm=$bestBpm (in unstable 65-115 band)"
+                            "keeping bestBpm=${bestBpm.toInt()} (in unstable 65-115 band)"
                 )
                 bestBpm.toLong()
             } else {
                 if (madmomBpm != bestBpm.toLong()) {
                     Log.d(
                         TAG,
-                        "V3 BPM_RECALC: original=$bestBpm madmom=$madmomBpm (from ${beatTimesMs.size} beats, ratio=$ratio)"
+                        "V3 BPM_RECALC: original=${bestBpm.toInt()} madmom=$madmomBpm (from ${beatTimesMs.size} beats, ratio=$ratio)"
                     )
                 }
                 madmomBpm
