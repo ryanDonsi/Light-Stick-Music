@@ -568,6 +568,79 @@ object BeatDetectorV3 {
     }
 
     /**
+     * 섹션별로 독립적인 비트 추적 실행
+     *
+     * @param odf 전체 ODF
+     * @param sectionBoundariesMs 섹션 경계 (ms)
+     * @param sectionBpms 각 섹션의 BPM (ms → BPM)
+     * @param hopMs 홉 간격
+     * @param durationMs 전체 곡 길이
+     * @return Pair<섹션별 비트 리스트, 상세 로그>
+     */
+    private fun dpBeatTrackerPerSection(
+        odf: FloatArray,
+        sectionBoundariesMs: List<Long>,
+        sectionBpms: List<Pair<Long, Float>>,
+        hopMs: Long,
+        durationMs: Long
+    ): Pair<List<TimedBeat>, String> {
+        if (sectionBoundariesMs.isEmpty() || sectionBpms.isEmpty()) {
+            return Pair(emptyList(), "no sections")
+        }
+
+        val allBeats = mutableListOf<TimedBeat>()
+        val sectionLog = StringBuilder()
+
+        // 각 섹션별로 처리
+        for (i in 0 until sectionBoundariesMs.size - 1) {
+            val sectionStartMs = sectionBoundariesMs[i]
+            val sectionEndMs = sectionBoundariesMs[i + 1]
+
+            // 이 섹션의 BPM 찾기
+            val sectionBpm = sectionBpms.find { it.first == sectionStartMs }?.second ?: continue
+            if (sectionBpm <= 0f) continue
+
+            val beatMs = 60_000L / sectionBpm.toLong()
+            val fpb = (beatMs / hopMs).toInt()
+
+            // 섹션의 ODF 슬라이스
+            val startFrame = (sectionStartMs / hopMs).toInt()
+            val endFrame = (sectionEndMs / hopMs).toInt().coerceAtMost(odf.size)
+
+            if (endFrame - startFrame < fpb * 2) {
+                sectionLog.append("section[$sectionStartMs-$sectionEndMs]=${sectionBpm.toInt()}BPM skip(short); ")
+                continue
+            }
+
+            val sectionOdf = FloatArray(endFrame - startFrame) { idx ->
+                if (startFrame + idx < odf.size) odf[startFrame + idx] else 0f
+            }
+
+            // 이 섹션에서 위상 추정
+            val phaseMs = estimatePhaseFromOdf(sectionOdf.toList(), beatMs, hopMs)
+
+            // 섹션 내에서 비트 추적
+            val sectionDpTimes = dpBeatTracker(
+                sectionOdf, beatMs, hopMs,
+                sectionEndMs - sectionStartMs, anchorMs = phaseMs
+            )
+
+            // 섹션 시작 시간을 기준으로 절대 시간 변환
+            val sectionBeats = sectionDpTimes.map { it + sectionStartMs }
+            allBeats.addAll(sectionBeats.map { TimedBeat(it, 1f) })
+
+            sectionLog.append("section[$sectionStartMs-$sectionEndMs]=${sectionBpm.toInt()}BPM beats=${sectionDpTimes.size}; ")
+        }
+
+        // 시간 순으로 정렬 및 중복 제거
+        val finalBeats = allBeats
+            .sortedBy { it.timeMs }
+            .distinctBy { it.timeMs }
+
+        return Pair(finalBeats, sectionLog.toString())
+    }
+
+    /**
      * V1의 detect()와 호환되는 인터페이스
      * DetectResultV3 반환
      */
@@ -631,8 +704,17 @@ object BeatDetectorV3 {
             "V3 detect: title=\"$songTitle\" BPM=$bestBpm Confidence=${confidence * 100}%"
         )
 
+        // DP를 사용한 비트 추적
+        val durationMs = minSize * params.hopMs
+        val beatMs = if (bestBpm > 0f) (60_000L / bestBpm.toLong()) else 0L
+        val fpb = (beatMs / params.hopMs).toInt()
+
+        val beats: List<TimedBeat>
+        val reason: String
+        var sectionInfo = ""
+
         // 섹션별 BPM 분석 (Tempogram 기반 + 동적 감지)
-        if (tempogram != null) {
+        if (tempogram != null && params.useTempogram) {
             // 1단계: 동적 섹션 경계 생성 (BPM 변화 + 외부 경계)
             val dynamicSections = detectDynamicSections(
                 tempogram,
@@ -643,47 +725,116 @@ object BeatDetectorV3 {
             )
 
             // 2단계: 동적 경계를 기반으로 섹션별 BPM 계산
-            if (dynamicSections.isNotEmpty()) {
+            if (dynamicSections.size > 1) {
                 val sectionBpms = detectSectionBpms(
                     tempogram,
                     hopMs = params.hopMs,
                     minBeatMs = params.minBeatMs,
                     sectionBoundariesMs = dynamicSections
                 )
-                if (sectionBpms.isNotEmpty()) {
-                    val sectionInfo = sectionBpms.joinToString(", ") { (ms, bpm) ->
-                        "${ms}ms: ${bpm.toInt()} BPM"
+
+                // 3단계: 섹션별 비트 추적
+                if (sectionBpms.isNotEmpty() && sectionBpms.size > 1) {
+                    val (sectionBeats, sectionLog) = dpBeatTrackerPerSection(
+                        globalOdf,
+                        dynamicSections,
+                        sectionBpms,
+                        params.hopMs,
+                        durationMs
+                    )
+
+                    if (sectionBeats.isNotEmpty()) {
+                        beats = sectionBeats
+                        reason = "dp_per_section"
+                        sectionInfo = sectionLog
+
+                        val sectionBpmInfo = sectionBpms.joinToString(", ") { (ms, bpm) ->
+                            "${ms}ms: ${bpm.toInt()} BPM"
+                        }
+                        Log.d(TAG, "V3 DynamicSectionBPMs: $sectionBpmInfo")
+                        Log.d(TAG, "V3 SectionBeats: $sectionInfo")
+                    } else {
+                        // 섹션별 추적 실패 → 전체 BPM으로 폴백
+                        Log.w(TAG, "V3 SectionBeats failed → fallback to global BPM")
+                        val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
+                        val dpTimes = dpBeatTracker(
+                            globalOdf, beatMs, params.hopMs,
+                            durationMs, anchorMs = phaseMs
+                        )
+                        val expectedBeats = maxOf(1, (durationMs / beatMs).toInt())
+                        val dpOk = dpTimes.size >= maxOf(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
+
+                        beats = if (dpOk) {
+                            dpTimes.map { TimedBeat(it, 1f) }
+                        } else {
+                            Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → fallback")
+                            fallbackSegmentBeats(
+                                low, mid, full, params, bestBpm.toLong(), durationMs
+                            ).map { TimedBeat(it.timeMs, it.confidence) }
+                        }
+                        reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
                     }
-                    Log.d(TAG, "V3 DynamicSectionBPMs: $sectionInfo")
+                } else {
+                    // 섹션별 BPM 계산 실패 → 전체 BPM 사용
+                    Log.d(TAG, "V3 SectionBPMs insufficient → using global BPM")
+                    val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
+                    val dpTimes = dpBeatTracker(
+                        globalOdf, beatMs, params.hopMs,
+                        durationMs, anchorMs = phaseMs
+                    )
+                    val expectedBeats = maxOf(1, (durationMs / beatMs).toInt())
+                    val dpOk = dpTimes.size >= maxOf(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
+
+                    beats = if (dpOk) {
+                        dpTimes.map { TimedBeat(it, 1f) }
+                    } else {
+                        Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → fallback")
+                        fallbackSegmentBeats(
+                            low, mid, full, params, bestBpm.toLong(), durationMs
+                        ).map { TimedBeat(it.timeMs, it.confidence) }
+                    }
+                    reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
                 }
+            } else {
+                // 동적 섹션 없음 → 전체 BPM 사용
+                val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
+                val dpTimes = dpBeatTracker(
+                    globalOdf, beatMs, params.hopMs,
+                    durationMs, anchorMs = phaseMs
+                )
+                val expectedBeats = maxOf(1, (durationMs / beatMs).toInt())
+                val dpOk = dpTimes.size >= maxOf(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
+
+                beats = if (dpOk) {
+                    dpTimes.map { TimedBeat(it, 1f) }
+                } else {
+                    Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → fallback")
+                    fallbackSegmentBeats(
+                        low, mid, full, params, bestBpm.toLong(), durationMs
+                    ).map { TimedBeat(it.timeMs, it.confidence) }
+                }
+                reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
             }
-        }
-
-        // DP를 사용한 비트 추적
-        val durationMs = minSize * params.hopMs
-        val beatMs = if (bestBpm > 0f) (60_000L / bestBpm.toLong()) else 0L
-        val fpb = (beatMs / params.hopMs).toInt()
-
-        val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
-        val dpTimes = dpBeatTracker(
-            globalOdf, beatMs, params.hopMs,
-            durationMs, anchorMs = phaseMs
-        )
-
-        val expectedBeats = maxOf(1, (durationMs / beatMs).toInt())
-        val dpOk = dpTimes.size >= maxOf(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
-
-        val beats: List<TimedBeat>
-        val reason: String
-        if (dpOk) {
-            beats = dpTimes.map { TimedBeat(it, 1f) }
-            reason = "dp"
         } else {
-            Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → fallback")
-            beats = fallbackSegmentBeats(
-                low, mid, full, params, bestBpm.toLong(), durationMs
-            ).map { TimedBeat(it.timeMs, it.confidence) }
-            reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
+            // Tempogram 미사용 → 기존 전체 BPM 방식
+            val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
+            val dpTimes = dpBeatTracker(
+                globalOdf, beatMs, params.hopMs,
+                durationMs, anchorMs = phaseMs
+            )
+            val expectedBeats = maxOf(1, (durationMs / beatMs).toInt())
+            val dpOk = dpTimes.size >= maxOf(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
+
+            if (dpOk) {
+                beats = dpTimes.map { TimedBeat(it, 1f) }
+                reason = "dp"
+            } else {
+                Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → fallback")
+                beats = fallbackSegmentBeats(
+                    low, mid, full, params, bestBpm.toLong(), durationMs
+                ).map { TimedBeat(it.timeMs, it.confidence) }
+                reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
+            }
         }
 
         if (beats.isEmpty()) {
