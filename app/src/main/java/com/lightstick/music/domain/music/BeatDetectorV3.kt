@@ -1172,11 +1172,15 @@ object BeatDetectorV3 {
             harmonicClusters.getOrPut(clusterKey) { mutableListOf() }.add(peak)
         }
 
-        // 클러스터별 가중 스코어 계산
+        // 클러스터별 최고 피크 선택 (평균 대신 신뢰도 기반)
         val clusterScores = harmonicClusters.map { (clusterKey, peaks) ->
-            val avgLag = peaks.map { it.first.toFloat() }.average().toInt()
-            val totalScore = peaks.sumOf { it.second }
-            val peakCount = peaks.size
+            // 각 클러스터에서 AC value (신뢰도)가 가장 높은 피크 선택
+            // → 평균으로 인한 정수 손실 방지
+            val bestPeak = peaks.maxByOrNull { it.third } ?: peaks[0]
+            val selectedLag = bestPeak.first
+            val selectedScore = bestPeak.second
+            val selectedAc = bestPeak.third
+
             // 가중치: MAIN(1.5배), 1.5x(1.2배), HALF(1.0배), 기타(0.8배)
             val weightMultiplier = when (clusterKey) {
                 "MAIN" -> 1.5f
@@ -1184,7 +1188,18 @@ object BeatDetectorV3 {
                 "HALF" -> 1.0f
                 else -> 0.8f
             }
-            Triple(clusterKey, avgLag, totalScore * weightMultiplier * peakCount)
+            val finalScore = selectedScore * weightMultiplier
+
+            if (clusterKey != "OTHER") {
+                Log.d(
+                    TAG,
+                    "V3 AC_CLUSTER_DETAIL: $clusterKey → lag=$selectedLag " +
+                            "(ac=${String.format("%.6f", selectedAc)}, score=$selectedScore, " +
+                            "weighted=$finalScore)"
+                )
+            }
+
+            Triple(clusterKey, selectedLag, finalScore)
         }.sortedByDescending { it.third }
 
         if (clusterScores.isNotEmpty()) {
