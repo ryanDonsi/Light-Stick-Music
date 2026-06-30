@@ -1294,9 +1294,11 @@ object BeatDetectorV3 {
         val fpb = maxOf(1, (beatMs / hopMs).toInt())
         if (odf.size < fpb * 2) return 0L
 
-        // 개선: 위상 오차 감소를 위해 초기 2초 범위에서만 phase 찾기
-        // 이는 조용한 intro 곡에서 나중의 강한 신호 대신 초기 신호를 위상으로 선택하게 함
-        val initialSearchFrames = minOf(odf.size, (2000L / hopMs).toInt())  // 첫 2초
+        // 개선: 위상 오차 감소를 위해 초기 범위에서 phase 찾기
+        // 조용한 intro 곡에서 나중의 강한 신호 대신 초기 신호를 위상으로 선택
+        // 동적 범위: beatMs * 10 (약 5-10초, BPM에 따라 다름)
+        val initialSearchMs = beatMs * 10  // 약 10비트 범위
+        val initialSearchFrames = minOf(odf.size, (initialSearchMs / hopMs).toInt())
         val searchEndFrame = maxOf(fpb * 2, initialSearchFrames)
 
         var bestPhase = 0
@@ -1324,9 +1326,14 @@ object BeatDetectorV3 {
             }
         }
 
-        Log.d(TAG, "V3 PHASE_ESTIMATE: selected phase=$bestPhase (${bestPhase.toLong() * hopMs}ms) from ${searchEndFrame} frames")
+        val phaseMs = bestPhase.toLong() * hopMs
+        Log.d(
+            TAG,
+            "V3 PHASE_ESTIMATE: selected phase=$bestPhase (${phaseMs}ms, score=$bestScore) " +
+                    "from ${searchEndFrame} frames (${searchEndFrame * hopMs}ms range, beatMs=$beatMs)"
+        )
 
-        return bestPhase.toLong() * hopMs
+        return phaseMs
     }
 
     private fun dpBeatTracker(
