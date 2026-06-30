@@ -66,9 +66,9 @@ object BeatDetectorV3 {
     enum class BeatSource { LOW, MID, FULL, LOW_MID, MID_FULL, LOW_FULL }
 
     data class Params(
-        val hopMs: Long = 50L,
+        val hopMs: Long = 10L,  // madmom과 동일하게 10ms로 변경
         val minBeatMs: Long = 375L,
-        val maxBeatMs: Long = 1000L,
+        val maxBeatMs: Long = 1200L,  // madmom 범위와 일치
         val minPeakDistanceMs: Long = 120L,
         val onsetSmoothWindow: Int = 3,
         val segmentMs: Long = 20_000L,
@@ -345,6 +345,38 @@ object BeatDetectorV3 {
         }
 
         return smoothed
+    }
+
+    /**
+     * madmom 방식 BPM 계산: 비트 간격의 중앙값으로부터 BPM 추정
+     *
+     * @param beatTimesMs 비트 타임스탐프 (ms)
+     * @return BPM (0 if insufficient beats)
+     */
+    private fun calculateBpmFromBeats(beatTimesMs: List<Long>): Long {
+        if (beatTimesMs.size < 2) return 0L
+
+        // 비트 간격(초 단위) 계산
+        val intervals = mutableListOf<Double>()
+        for (i in 0 until beatTimesMs.size - 1) {
+            val intervalMs = beatTimesMs[i + 1] - beatTimesMs[i]
+            if (intervalMs > 0) {
+                intervals.add(intervalMs / 1000.0)  // ms → seconds
+            }
+        }
+
+        if (intervals.isEmpty()) return 0L
+
+        // 중앙값 계산
+        intervals.sort()
+        val median = if (intervals.size % 2 == 0) {
+            (intervals[intervals.size / 2 - 1] + intervals[intervals.size / 2]) / 2.0
+        } else {
+            intervals[intervals.size / 2]
+        }
+
+        // BPM = 60 / median_interval_seconds
+        return if (median > 0) (60.0 / median).toLong() else 0L
     }
 
     /**
@@ -966,21 +998,34 @@ object BeatDetectorV3 {
             "fpb=$fpb odfSize=${globalOdf.size} durationMs=$durationMs"
         )
 
-        val timeSignature = detectTimeSignature(globalOdf, bestBpm.toLong(), params.hopMs)
+        // madmom 방식으로 최종 BPM 재계산
+        val beatTimesMs = beats.map { it.timeMs }
+        val madmomBpm = calculateBpmFromBeats(beatTimesMs)
+        val finalBpm = if (madmomBpm > 0L) madmomBpm else bestBpm.toLong()
+        val finalBeatMs = if (finalBpm > 0L) (60_000L / finalBpm) else 0L
+
+        if (madmomBpm > 0L && madmomBpm != bestBpm.toLong()) {
+            Log.d(
+                TAG,
+                "V3 BPM_RECALC: original=$bestBpm madmom=$madmomBpm (from ${beatTimesMs.size} beats)"
+            )
+        }
+
+        val timeSignature = detectTimeSignature(globalOdf, finalBpm, params.hopMs)
         val downbeatMs = detectDownbeatEnhanced(
-            beats.map { it.timeMs }, low, bestBpm.toLong(),
+            beats.map { it.timeMs }, low, finalBpm,
             timeSignature.beatsPerBar, params.hopMs
         )
         val downbeatOffsetMs = (downbeatMs - (beats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
         Log.d(
             TAG,
-            "V3 OK beats=${beats.size} BPM=$bestBpm Confidence=${confidence * 100}% reason=$reason"
+            "V3 OK beats=${beats.size} BPM=$finalBpm Confidence=${confidence * 100}% reason=$reason"
         )
 
         return DetectResultV3(
             beats = beats,
-            beatMs = if (bestBpm > 0f) (60_000L / bestBpm.toLong()) else 0L,
+            beatMs = finalBeatMs,
             confidence = confidence,
             source = BeatSource.FULL,
             reason = reason,
