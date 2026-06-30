@@ -72,7 +72,7 @@ object BeatDetectorV1 {
     enum class BeatSource { LOW, MID, FULL, LOW_MID, MID_FULL, LOW_FULL }
 
     data class Params(
-        val hopMs: Long             = 50L,
+        val hopMs: Long             = 10L,    // V1/V2/V3 통일: 10ms (AutoTimelineConfig와 동일)
         val minBeatMs: Long         = 375L,   // 160 BPM
         val maxBeatMs: Long         = 1000L,  // 60 BPM
         val minPeakDistanceMs: Long = 120L,
@@ -108,7 +108,8 @@ object BeatDetectorV1 {
     fun detectPcm(
         monoSamples: FloatArray,
         sampleRate: Int,
-        params: Params = Params()
+        params: Params = Params(),
+        songTitle: String? = null
     ): DetectResult {
         if (monoSamples.isEmpty() || sampleRate <= 0) {
             return DetectResult(emptyList(), 0L, null, "empty pcm", 0L, TimeSignature.FOUR_FOUR)
@@ -144,7 +145,7 @@ object BeatDetectorV1 {
             val mx = src.maxOrNull() ?: 0f
             return if (mx > 1e-6f) src.map { (it / mx).coerceIn(0f, 1f) } else src
         }
-        return detect(normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outFull), params)
+        return detect(normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outFull), params, songTitle)
     }
 
     // Public entry point
@@ -153,7 +154,8 @@ object BeatDetectorV1 {
         lowEnv: List<Float>,
         midEnv: List<Float>,
         fullEnv: List<Float>,
-        params: Params = Params()
+        params: Params = Params(),
+        songTitle: String? = null
     ): DetectResult {
         if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
             return DetectResult(emptyList(), 0L, null, "empty env", 0L, TimeSignature.FOUR_FOUR)
@@ -165,9 +167,22 @@ object BeatDetectorV1 {
         val full       = fullEnv.take(minSize)
         val durationMs = minSize * params.hopMs
 
+        // 곡 정보 로깅
+        if (!songTitle.isNullOrEmpty()) {
+            Log.d(TAG, "V1 SONG_DETECT_START: title=\"$songTitle\" durationMs=$durationMs")
+        }
+
         val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)
 
-        val beatMs = estimateBpmDense(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs)
+        // ODF 샘플 데이터 로깅 (그래프 생성용)
+        val odfSampleInterval = max(1, globalOdf.size / 100)
+        val odfSamples = StringBuilder("V1 ODF_DATA: title=\"$songTitle\" ")
+        for (i in globalOdf.indices step odfSampleInterval) {
+            odfSamples.append("t=${(i * params.hopMs)}ms:${String.format("%.4f", globalOdf[i])};")
+        }
+        Log.d(TAG, odfSamples.toString())
+
+        val beatMs = estimateBpmDense(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs, songTitle)
                      ?: 500L
         Log.d(TAG, "V1 beatMs=$beatMs (${60_000L / beatMs} BPM) durationMs=$durationMs")
 
@@ -203,14 +218,23 @@ object BeatDetectorV1 {
             beats.map { it.timeMs }, low, beatMs, timeSignature.beatsPerBar, params.hopMs)
         val downbeatOffsetMs = (downbeatMs - (beats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        // [DIAG] detect() 최종 출력에서 비정상 간격 탐지
+        // 비트 간격 분석
         val beatTimes = beats.map { it.timeMs }
+        val beatGaps = mutableListOf<Long>()
         for (i in 1 until beatTimes.size) {
             val gap = beatTimes[i] - beatTimes[i - 1]
+            beatGaps.add(gap)
             if (gap < beatMs * 3L / 4L) {
-                Log.w(TAG, "V1 detect() short-gap FINAL: ${beatTimes[i-1]}ms→${beatTimes[i]}ms gap=${gap}ms (beatMs=$beatMs) idx=$i reason=$reason")
+                Log.w(TAG, "V1 detect() short-gap: ${beatTimes[i-1]}ms→${beatTimes[i]}ms gap=${gap}ms (beatMs=$beatMs) idx=$i")
             }
         }
+        val avgGap = if (beatGaps.isNotEmpty()) beatGaps.average().toLong() else 0L
+        val minGap = beatGaps.minOrNull() ?: 0L
+        val maxGap = beatGaps.maxOrNull() ?: 0L
+
+        Log.d(TAG, "V1 BEAT_ANALYSIS: title=\"$songTitle\" BPM=${60_000L / beatMs} beatMs=$beatMs " +
+            "beats=${beats.size} gaps=[avg=${avgGap}ms, min=${minGap}ms, max=${maxGap}ms] " +
+            "expected=${expectedBeats} dpOk=$dpOk reason=$reason")
 
         Log.d(TAG, "V1 OK beats=${beats.size} beatMs=$beatMs " +
             "timeSig=${timeSignature.type} reason=$reason first=${beatTimes.firstOrNull()} last=${beatTimes.lastOrNull()}")
@@ -229,15 +253,24 @@ object BeatDetectorV1 {
         odf: List<Float>,
         hopMs: Long,
         minBeatMs: Long,
-        maxBeatMs: Long
+        maxBeatMs: Long,
+        songTitle: String? = null
     ): Long? {
         val minLag = max(1, (minBeatMs / hopMs).toInt())
         val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
         if (odf.size <= maxLag + 2) return null
 
         val acVals    = FloatArray(maxLag + 1)
+        val priorVals = FloatArray(maxLag + 1)
+        val scoreVals = FloatArray(maxLag + 1)
         var bestScore = Float.NEGATIVE_INFINITY
         var bestLag   = -1
+
+        // ODF 통계
+        val odfMax = odf.maxOrNull() ?: 0f
+        val odfMean = if (odf.isNotEmpty()) odf.sum() / odf.size else 0f
+        val songInfo = if (!songTitle.isNullOrEmpty()) " title=\"$songTitle\"" else ""
+        Log.d(TAG, "V1 ODF_STATS:$songInfo size=${odf.size} max=${String.format("%.6f", odfMax)} mean=${String.format("%.6f", odfMean)}")
 
         for (lag in minLag..maxLag) {
             var sum = 0f; var count = 0
@@ -252,10 +285,24 @@ object BeatDetectorV1 {
             val prior    = exp(-0.5f * (logRatio / PRIOR_STD_OCTAVE) * (logRatio / PRIOR_STD_OCTAVE))
 
             val score = acVal * prior
+            priorVals[lag] = prior
+            scoreVals[lag] = score
             if (score > bestScore) { bestScore = score; bestLag = lag }
         }
 
+        // 진단 로그: AC, Prior, Score 곡선 (5ms 간격)
+        val diag = StringBuilder("V1 AUTOCORR_ANALYSIS:$songInfo ")
+        for (lag in minLag..maxLag step max(1, (maxLag - minLag) / 15)) {
+            val bpm = 60_000L / (lag * hopMs)
+            diag.append("lag=$lag(${bpm}BPM) ac=${String.format("%.4f", acVals[lag])} prior=${String.format("%.4f", priorVals[lag])} score=${String.format("%.4f", scoreVals[lag])};")
+        }
+        Log.d(TAG, diag.toString())
+
         if (bestLag <= 0) return null
+
+        val bestMs = bestLag * hopMs
+        val bestBpm = 60_000L / bestMs
+        val bestAc = acVals[bestLag]
 
         // prior 가 낮은 BPM(긴 주기)을 선호하는 경향이 있어 140+ BPM 곡에서 반박자 오류 발생
         // ex) TOMBOY GT=147.7 BPM (406ms) → prior 편향으로 75 BPM (800ms) 선택됨
@@ -263,18 +310,38 @@ object BeatDetectorV1 {
         val halfLag = bestLag / 2
         if (halfLag >= minLag) {
             val halfAc = acVals[halfLag]
-            val bestAc = acVals[bestLag]
-            if (bestAc > 0f && halfAc / bestAc >= HALF_TEMPO_RATIO) {
+            val halfRatio = if (bestAc > 0f) halfAc / bestAc else 0f
+            if (bestAc > 0f && halfRatio >= HALF_TEMPO_RATIO) {
                 val halfMs = halfLag * hopMs
-                Log.d(TAG, "V1 halfTempoCheck: ${bestLag*hopMs}ms(${60_000L/(bestLag*hopMs)}BPM)" +
-                    " → ${halfMs}ms(${60_000L/halfMs}BPM)  ratio=${halfAc/bestAc}")
+                val halfBpm = 60_000L / halfMs
+                Log.d(TAG, "V1 halfTempoFix FIRED:$songInfo ${bestMs}ms(${bestBpm}BPM)" +
+                    " → ${halfMs}ms(${halfBpm}BPM)" +
+                    " halfRatio=${String.format("%.4f", halfRatio)}" +
+                    " bestAc=${String.format("%.6f", bestAc)} halfAc=${String.format("%.6f", halfAc)}")
                 return halfMs
             }
         }
 
-        val resultMs = bestLag * hopMs
-        Log.d(TAG, "V1 estimateBpmDense: ${resultMs}ms (${60_000L / resultMs} BPM)")
-        return resultMs
+        // 2배 속도 검사 (doubleTempoFix와 동일한 로직)
+        // 현재 검출이 절반 배속일 가능성 체크
+        val doubleLag = bestLag * 2
+        if (doubleLag <= maxLag) {
+            val doubleAc = acVals[doubleLag]
+            val doubleRatio = if (bestAc > 0f) doubleAc / bestAc else 0f
+
+            // 에러율 계산 (BeatDetectorV2와 동일)
+            val doubleMs = doubleLag * hopMs
+            val errorRate = kotlin.math.abs(doubleMs.toFloat() / bestMs.toFloat() - 1.0f) * 100
+
+            // 상세 로그: 모든 메트릭 기록 + 곡 정보
+            Log.d(TAG, "V1 BPM_METRICS:$songInfo bestLag=$bestLag bestMs=$bestMs bestBpm=$bestBpm bestAc=${String.format("%.6f", bestAc)} " +
+                "halfLag=$halfLag halfRatio=${if(halfLag >= minLag) String.format("%.4f", if(bestAc > 0f) acVals[halfLag]/bestAc else 0f) else "N/A"} " +
+                "doubleLag=$doubleLag doubleMs=$doubleMs doubleBpm=${60_000L/doubleMs} doubleAc=${String.format("%.6f", doubleAc)} doubleRatio=${String.format("%.4f", doubleRatio)} " +
+                "subBeatRatio=N/A errorRate=${String.format("%.1f", errorRate)}%")
+        }
+
+        Log.d(TAG, "V1 RESULT:$songInfo ${bestMs}ms (${bestBpm}BPM)")
+        return bestMs
     }
 
     private fun estimatePhaseFromOdf(odf: List<Float>, beatMs: Long, hopMs: Long): Long {

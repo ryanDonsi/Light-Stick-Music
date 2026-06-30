@@ -78,6 +78,7 @@ object BeatDetectorRouter {
     ): BeatInfo = when (version) {
         1    -> detectV1(filePath, hopMs, minBeatMs, maxBeatMs)
         2    -> detectV2(filePath, hopMs, minBeatMs, maxBeatMs)
+        3    -> detectV3(filePath, hopMs, minBeatMs, maxBeatMs)
         else -> detectV0(filePath, hopMs, minBeatMs, maxBeatMs)
     }
 
@@ -89,13 +90,15 @@ object BeatDetectorRouter {
     private fun detectV1(filePath: String, hopMs: Long, minBeatMs: Long, maxBeatMs: Long): BeatInfo {
         val decoded = decodeWithEnvelopes(filePath, hopMs, collectPcm = true)
         if (decoded.full.isEmpty()) return emptyBeatInfo()
+        val songTitle = java.io.File(filePath).nameWithoutExtension
         val r = BeatDetectorV1.detectPcm(
             decoded.pcm, decoded.sampleRate,
             BeatDetectorV1.Params(
                 hopMs     = hopMs,
                 minBeatMs = minBeatMs.coerceAtLeast(375L),
                 maxBeatMs = maxBeatMs.coerceAtMost(1000L)
-            )
+            ),
+            songTitle
         )
         return BeatInfo(
             beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
@@ -116,6 +119,30 @@ object BeatDetectorRouter {
             )
         )
         val decoded = decodeWithEnvelopes(filePath, hopMs, collectPcm = false)
+        return BeatInfo(
+            beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
+            beatMs      = r.beatMs,
+            beatsPerBar = r.timeSignature.beatsPerBar,
+            downbeatMs  = (r.beats.firstOrNull()?.timeMs ?: 0L) + r.downbeatOffsetMs,
+            envelopes   = decoded.toAudioEnvelopes(hopMs)
+        )
+    }
+
+    /** V3: Tempogram 기반 BPM 탐지 → BeatDetectorV3.detect */
+    private fun detectV3(filePath: String, hopMs: Long, minBeatMs: Long, maxBeatMs: Long): BeatInfo {
+        val decoded = decodeWithEnvelopes(filePath, hopMs, collectPcm = false)
+        if (decoded.full.isEmpty()) return emptyBeatInfo()
+        val songTitle = java.io.File(filePath).nameWithoutExtension
+        val r = BeatDetectorV3.detect(
+            decoded.low, decoded.mid, decoded.full,
+            BeatDetectorV3.Params(
+                hopMs     = hopMs,
+                minBeatMs = minBeatMs.coerceAtLeast(375L),
+                maxBeatMs = maxBeatMs.coerceAtMost(1000L),
+                useTempogram = true
+            ),
+            songTitle
+        )
         return BeatInfo(
             beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
             beatMs      = r.beatMs,
