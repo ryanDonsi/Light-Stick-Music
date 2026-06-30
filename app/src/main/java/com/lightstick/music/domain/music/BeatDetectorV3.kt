@@ -244,6 +244,160 @@ object BeatDetectorV3 {
     }
 
     /**
+     * Tempogram에서 시간별 BPM 곡선 추출
+     *
+     * @return FloatArray - 각 시간프레임별 최강 BPM
+     */
+    private fun extractBpmCurve(
+        tempogram: Array<FloatArray>,
+        hopMs: Long,
+        minBeatMs: Long
+    ): FloatArray {
+        if (tempogram.isEmpty() || tempogram[0].isEmpty()) {
+            return FloatArray(0)
+        }
+
+        val minLag = maxOf(1, (minBeatMs / hopMs).toInt())
+        val numTimeFrames = tempogram[0].size
+        val bpmCurve = FloatArray(numTimeFrames)
+
+        for (tIdx in 0 until numTimeFrames) {
+            var maxStrength = 0f
+            var bestLagIdx = 0
+            for (lagIdx in tempogram.indices) {
+                if (tempogram[lagIdx][tIdx] > maxStrength) {
+                    maxStrength = tempogram[lagIdx][tIdx]
+                    bestLagIdx = lagIdx
+                }
+            }
+            val lag = bestLagIdx + minLag
+            bpmCurve[tIdx] = 60_000L / (lag * hopMs)
+        }
+
+        return bpmCurve
+    }
+
+    /**
+     * BPM 곡선 평활화 (이동 평균)
+     *
+     * @param curve BPM 곡선
+     * @param windowSize 평활화 윈도우 크기 (프레임 수)
+     * @return 평활화된 BPM 곡선
+     */
+    private fun smoothBpmCurve(curve: FloatArray, windowSize: Int = 5): FloatArray {
+        if (curve.size <= windowSize) return curve.copyOf()
+
+        val smoothed = FloatArray(curve.size)
+        val halfWindow = windowSize / 2
+
+        for (i in curve.indices) {
+            val start = maxOf(0, i - halfWindow)
+            val end = minOf(curve.size, i + halfWindow + 1)
+            var sum = 0f
+            for (j in start until end) {
+                sum += curve[j]
+            }
+            smoothed[i] = sum / (end - start)
+        }
+
+        return smoothed
+    }
+
+    /**
+     * BPM 변화점 감지 (임계값 기반)
+     *
+     * @param curve BPM 곡선
+     * @param changeThresholdPercent 변화 임계값 (%)
+     * @param minDurationFrames 최소 지속 프레임 수
+     * @return List<프레임 인덱스> - 변화점의 프레임 위치
+     */
+    private fun detectBpmChangePoints(
+        curve: FloatArray,
+        changeThresholdPercent: Float = 10f,
+        minDurationFrames: Int = 10
+    ): List<Int> {
+        if (curve.size < minDurationFrames * 2) return emptyList()
+
+        val changePoints = mutableListOf<Int>()
+
+        for (i in minDurationFrames until curve.size - minDurationFrames) {
+            val prevBpmAvg = curve.slice((i - minDurationFrames) until i).average().toFloat()
+            val nextBpmAvg = curve.slice(i until (i + minDurationFrames)).average().toFloat()
+
+            if (prevBpmAvg > 0f) {
+                val changePercent = kotlin.math.abs(nextBpmAvg - prevBpmAvg) / prevBpmAvg * 100f
+                if (changePercent >= changeThresholdPercent) {
+                    changePoints.add(i)
+                }
+            }
+        }
+
+        // 인접한 변화점 제거 (가장 큰 변화만 선택)
+        val filtered = mutableListOf<Int>()
+        for (point in changePoints) {
+            if (filtered.isEmpty() || point - filtered.last() >= minDurationFrames) {
+                filtered.add(point)
+            }
+        }
+
+        return filtered
+    }
+
+    /**
+     * Tempogram 기반 자동 섹션 경계 생성
+     *
+     * @param tempogram 전체 곡의 Tempogram
+     * @param hopMs ODF 홉 간격
+     * @param minBeatMs 최소 비트 간격
+     * @param externalSectionBoundariesMs 외부 섹션 경계 (SectionDetector 등)
+     * @param changeThresholdPercent BPM 변화 감지 임계값 (%)
+     * @return List<시작시간Ms> - 자동 감지된 섹션 경계
+     */
+    fun detectDynamicSections(
+        tempogram: Array<FloatArray>,
+        hopMs: Long,
+        minBeatMs: Long,
+        externalSectionBoundariesMs: List<Long> = emptyList(),
+        changeThresholdPercent: Float = 10f
+    ): List<Long> {
+        if (tempogram.isEmpty() || tempogram[0].isEmpty()) {
+            return externalSectionBoundariesMs
+        }
+
+        // 1단계: BPM 곡선 추출 및 평활화
+        val bpmCurve = extractBpmCurve(tempogram, hopMs, minBeatMs)
+        val smoothedBpm = smoothBpmCurve(bpmCurve, windowSize = 5)
+
+        // 2단계: BPM 변화점 감지
+        val changePoints = detectBpmChangePoints(smoothedBpm, changeThresholdPercent, minDurationFrames = 10)
+
+        // 3단계: 변화점을 ms로 변환
+        val dynamicBoundaries = changePoints.map { it * hopMs }.toMutableList()
+
+        // 4단계: 외부 경계 추가
+        for (externalBound in externalSectionBoundariesMs) {
+            if (!dynamicBoundaries.contains(externalBound)) {
+                dynamicBoundaries.add(externalBound)
+            }
+        }
+
+        // 5단계: 정렬 및 중복 제거
+        dynamicBoundaries.sort()
+        val finalBoundaries = dynamicBoundaries.distinct()
+
+        // 로그
+        if (changePoints.isNotEmpty()) {
+            Log.d(
+                TAG,
+                "V3 DynamicSections: detected=${changePoints.size} changes at " +
+                        changePoints.take(5).joinToString(", ") { "${it * hopMs}ms" }
+            )
+        }
+
+        return finalBoundaries
+    }
+
+    /**
      * 구간별 BPM 탐지 (섹션 경계 기반)
      *
      * Tempogram을 시간 구간별로 분석하여 각 섹션의 BPM을 따로 계산
@@ -477,19 +631,31 @@ object BeatDetectorV3 {
             "V3 detect: title=\"$songTitle\" BPM=$bestBpm Confidence=${confidence * 100}%"
         )
 
-        // 섹션별 BPM 분석 (구간별 다른 비트 감지)
-        if (sectionBoundariesMs.isNotEmpty() && tempogram != null) {
-            val sectionBpms = detectSectionBpms(
+        // 섹션별 BPM 분석 (Tempogram 기반 + 동적 감지)
+        if (tempogram != null) {
+            // 1단계: 동적 섹션 경계 생성 (BPM 변화 + 외부 경계)
+            val dynamicSections = detectDynamicSections(
                 tempogram,
                 hopMs = params.hopMs,
                 minBeatMs = params.minBeatMs,
-                sectionBoundariesMs = sectionBoundariesMs
+                externalSectionBoundariesMs = sectionBoundariesMs,
+                changeThresholdPercent = 10f
             )
-            if (sectionBpms.isNotEmpty()) {
-                val sectionInfo = sectionBpms.joinToString(", ") { (ms, bpm) ->
-                    "${ms}ms: ${bpm.toInt()} BPM"
+
+            // 2단계: 동적 경계를 기반으로 섹션별 BPM 계산
+            if (dynamicSections.isNotEmpty()) {
+                val sectionBpms = detectSectionBpms(
+                    tempogram,
+                    hopMs = params.hopMs,
+                    minBeatMs = params.minBeatMs,
+                    sectionBoundariesMs = dynamicSections
+                )
+                if (sectionBpms.isNotEmpty()) {
+                    val sectionInfo = sectionBpms.joinToString(", ") { (ms, bpm) ->
+                        "${ms}ms: ${bpm.toInt()} BPM"
+                    }
+                    Log.d(TAG, "V3 DynamicSectionBPMs: $sectionInfo")
                 }
-                Log.d(TAG, "V3 Sections: $sectionInfo")
             }
         }
 
