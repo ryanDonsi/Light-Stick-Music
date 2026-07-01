@@ -1172,9 +1172,6 @@ object BeatDetectorV3 {
         val reason: String
         var sectionInfo = ""
         var collectedSectionBpms: List<Pair<Long, Float>> = emptyList()  // Method B용
-        val acPeaksList = mutableListOf<Map<String, Any>>()  // AC peaks 저장용
-        val sectionDetailsList = mutableListOf<Map<String, Any>>()  // Section 상세정보 저장용
-        var dpTrackingResults = mapOf<String, Any>()  // DP tracking 결과
 
         // 섹션별 BPM 분석 (Tempogram 기반 + 동적 감지)
         if (tempogram != null && params.useTempogram) {
@@ -1499,61 +1496,60 @@ object BeatDetectorV3 {
         if (context != null && songTitle != null) {
             try {
                 val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
+                val odfMaxStr = odfStats["max"]?.toString() ?: "0"
+                val odfMeanStr = odfStats["mean"]?.toString() ?: "0"
+                val odfStdStr = odfStats["std"]?.toString() ?: "0"
+                val odfSizeVal = odfStats["size"]?.toString() ?: "0"
+
+                // AC Peaks JSON 배열 생성
+                val acPeaksJson = if (acPeaksList.isNotEmpty()) {
+                    acPeaksList.mapIndexed { idx, peak ->
+                        val bpmVal = peak["bpm"]?.toString() ?: "0"
+                        val acVal = peak["ac"]?.toString() ?: "0"
+                        val ratioVal = peak["ratio"]?.toString() ?: "0"
+                        "{\"index\":$idx,\"bpm\":$bpmVal,\"ac\":\"$acVal\",\"ratio\":\"$ratioVal\"}"
+                    }.joinToString(",")
+                } else ""
+
+                // Section Details JSON 배열 생성
+                val sectionDetailsJson = if (sectionDetailsList.isNotEmpty()) {
+                    sectionDetailsList.map { section ->
+                        val idx = section["index"]?.toString() ?: "0"
+                        val start = section["startMs"]?.toString() ?: "0"
+                        val end = section["endMs"]?.toString() ?: "0"
+                        val bpm = section["bpm"]?.toString() ?: "0"
+                        val beats = section["expectedBeats"]?.toString() ?: "0"
+                        "{\"index\":$idx,\"startMs\":$start,\"endMs\":$end,\"bpm\":$bpm,\"expectedBeats\":$beats}"
+                    }.joinToString(",")
+                } else ""
 
                 // JSON 구조: 모든 분석 데이터 포함
-                val analysisJson = buildString {
-                    append("{")
-                    append("\"title\":\"$songTitle\",")
-
-                    // 1. BPM 결과
-                    append("\"bpmResults\":{")
-                    append("\"finalBpm\":$finalBpm,")
-                    append("\"methodABpm\":$methodABpm,")
-                    append("\"methodBBpm\":$methodBBpm,")
-                    append("\"confidence\":${String.format("%.1f", confidence * 100)}")
-                    append("},")
-
-                    // 2. ODF 통계
-                    append("\"odfStats\":{")
-                    append("\"size\":").append(odfStats["size"]).append(",")
-                    append("\"max\":\"").append(odfStats["max"]).append("\",")
-                    append("\"mean\":\"").append(odfStats["mean"]).append("\",")
-                    append("\"std\":\"").append(odfStats["std"]).append("\"")
-                    append("},")
-
-                    // 3. AC Peaks (top 10)
-                    append("\"acPeaks\":[")
-                    if (acPeaksList.isNotEmpty()) {
-                        append(acPeaksList.mapIndexed { idx, peak ->
-                            "{\"index\":$idx,\"bpm\":${peak["bpm"]},\"ac\":\"${peak["ac"]}\",\"ratio\":\"${peak["ratio"]}\"}"
-                        }.joinToString(","))
-                    }
-                    append("],")
-
-                    // 4. Section 상세정보
-                    append("\"sectionDetails\":[")
-                    if (sectionDetailsList.isNotEmpty()) {
-                        append(sectionDetailsList.map { section ->
-                            "{\"index\":${section["index"]},\"startMs\":${section["startMs"]},\"endMs\":${section["endMs"]},\"bpm\":${section["bpm"]},\"expectedBeats\":${section["expectedBeats"]}}"
-                        }.joinToString(","))
-                    }
-                    append("],")
-
-                    // 5. DP Tracking 결과
-                    append("\"dpTracking\":{")
-                    append("\"beatCount\":${dpTrackingResults["beatCount"]},")
-                    append("\"reason\":\"${dpTrackingResults["reason"]}\",")
-                    append("\"methodUsed\":\"${dpTrackingResults["methodUsed"]}\"")
-                    append("},")
-
-                    // 6. 기타 정보
-                    append("\"metadata\":{")
-                    append("\"sectionCount\":${collectedSectionBpms.size},")
-                    append("\"sectionBpms\":[").append(sectionBpmList.joinToString(",")).append("]")
-                    append("}")
-
-                    append("}")
-                }
+                val analysisJson = "{" +
+                        "\"title\":\"$songTitle\"," +
+                        "\"bpmResults\":{" +
+                        "\"finalBpm\":$finalBpm," +
+                        "\"methodABpm\":$methodABpm," +
+                        "\"methodBBpm\":$methodBBpm," +
+                        "\"confidence\":${String.format("%.1f", confidence * 100)}" +
+                        "}," +
+                        "\"odfStats\":{" +
+                        "\"size\":$odfSizeVal," +
+                        "\"max\":\"$odfMaxStr\"," +
+                        "\"mean\":\"$odfMeanStr\"," +
+                        "\"std\":\"$odfStdStr\"" +
+                        "}," +
+                        "\"acPeaks\":[$acPeaksJson]," +
+                        "\"sectionDetails\":[$sectionDetailsJson]," +
+                        "\"dpTracking\":{" +
+                        "\"beatCount\":${dpTrackingResults["beatCount"]?.toString() ?: "0"}," +
+                        "\"reason\":\"${dpTrackingResults["reason"]?.toString() ?: ""}\"," +
+                        "\"methodUsed\":\"${dpTrackingResults["methodUsed"]?.toString() ?: ""}\"" +
+                        "}," +
+                        "\"metadata\":{" +
+                        "\"sectionCount\":${collectedSectionBpms.size}," +
+                        "\"sectionBpms\":[${sectionBpmList.joinToString(",")}]" +
+                        "}" +
+                        "}"
 
                 val filesDir = context.filesDir
                 val analysisDir = java.io.File(filesDir, "v3_analysis")
