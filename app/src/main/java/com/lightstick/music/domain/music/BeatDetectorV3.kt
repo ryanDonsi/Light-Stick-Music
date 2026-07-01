@@ -97,9 +97,11 @@ object BeatDetectorV3 {
         val methodABpm: Float = 0f,
         val methodBBpm: Float = 0f,
         val methodAScore: Float = 0f,
-        val acPeaks: List<Map<String, Any>> = emptyList(),  // AC_PEAKS 정보
+        val acPeaks: List<Map<String, Any>> = emptyList(),  // AC_PEAKS top 10
         val tempogramStats: Map<String, Any> = emptyMap(),   // Tempogram 통계
-        val sectionBpms: List<Float> = emptyList(),          // 섹션별 BPM
+        val sectionDetails: List<Map<String, Any>> = emptyList(),  // Section 상세정보
+        val odfStats: Map<String, Any> = emptyMap(),         // ODF 통계
+        val dpResults: Map<String, Any> = emptyMap(),         // DP tracking 결과
         val selectionReason: String = ""                     // 최종 선택 이유
     )
 
@@ -1098,12 +1100,22 @@ object BeatDetectorV3 {
             doubleTempoRatio = params.doubleTempoRatio
         )
 
-        // ODF 통계
+        // ODF 통계 (분석용)
         val odfMax = globalOdf.maxOrNull() ?: 0f
         val odfMean = if (globalOdf.isNotEmpty()) globalOdf.average().toFloat() else 0f
+        val odfStd = if (globalOdf.isNotEmpty()) {
+            val variance = globalOdf.map { (it - odfMean) * (it - odfMean) }.average()
+            kotlin.math.sqrt(variance.toDouble()).toFloat()
+        } else 0f
+        val odfStats = mapOf(
+            "size" to globalOdf.size,
+            "max" to String.format("%.6f", odfMax),
+            "mean" to String.format("%.6f", odfMean),
+            "std" to String.format("%.6f", odfStd)
+        )
         Log.d(
             TAG,
-            "V3 ODF_STATS: title=\"$songTitle\" size=${globalOdf.size} max=${String.format("%.6f", odfMax)} mean=${String.format("%.6f", odfMean)}"
+            "V3 ODF_STATS: title=\"$songTitle\" size=${globalOdf.size} max=${String.format("%.6f", odfMax)} mean=${String.format("%.6f", odfMean)} std=${String.format("%.6f", odfStd)}"
         )
 
         if (bestBpm <= 0f) {
@@ -1112,6 +1124,35 @@ object BeatDetectorV3 {
 
         // JSON 저장용: Method A BPM (tempogram 또는 AC peaks에서 선택)
         methodABpm = bestBpm.toLong()
+
+        // AC peaks 계산 (분석용)
+        val minLag = maxOf(1, (params.minBeatMs / params.hopMs).toInt())
+        val maxLag = maxOf(minLag + 1, (params.maxBeatMs / params.hopMs).toInt())
+        if (globalOdf.size > maxLag + 2) {
+            val acVals = FloatArray(maxLag + 1)
+            for (lag in minLag..maxLag) {
+                var acSum = 0f
+                for (i in 0 until globalOdf.size - lag) {
+                    acSum += globalOdf[i] * globalOdf[i + lag]
+                }
+                acVals[lag] = acSum / (globalOdf.size - lag)
+            }
+
+            // Top 10 peaks 추출
+            val peaksByScore = (minLag..maxLag)
+                .map { lag -> Triple(lag, acVals[lag], 60_000L / (lag * params.hopMs)) }
+                .sortedByDescending { it.second }
+                .take(10)
+
+            for ((lag, acVal, bpm) in peaksByScore) {
+                acPeaksList.add(mapOf(
+                    "lag" to lag,
+                    "bpm" to bpm.toInt(),
+                    "ac" to String.format("%.6f", acVal),
+                    "ratio" to String.format("%.2f", bpm.toFloat() / bestBpm)
+                ))
+            }
+        }
 
         Log.d(
             TAG,
@@ -1129,6 +1170,9 @@ object BeatDetectorV3 {
         var collectedSectionBpms: List<Pair<Long, Float>> = emptyList()  // Method B용
         var methodBBpm = 0L  // JSON 저장용
         var methodABpm = 0L  // JSON 저장용
+        val acPeaksList = mutableListOf<Map<String, Any>>()  // AC peaks 저장용
+        val sectionDetailsList = mutableListOf<Map<String, Any>>()  // Section 상세정보 저장용
+        var dpTrackingResults = mapOf<String, Any>()  // DP tracking 결과
 
         // 섹션별 BPM 분석 (Tempogram 기반 + 동적 감지)
         if (tempogram != null && params.useTempogram) {
@@ -1152,6 +1196,23 @@ object BeatDetectorV3 {
 
                 // Method B용: 섹션 BPM 저장
                 collectedSectionBpms = sectionBpms
+
+                // 섹션 상세 정보 저장 (분석용)
+                for (i in 0 until dynamicSections.size - 1) {
+                    val sectionStart = dynamicSections[i]
+                    val sectionEnd = dynamicSections[i + 1]
+                    val sectionBpm = sectionBpms.find { it.first == sectionStart }?.second ?: 0f
+                    val expectedBeats = ((sectionEnd - sectionStart) / (60_000L / sectionBpm.toLong())).toInt()
+
+                    sectionDetailsList.add(mapOf(
+                        "index" to i,
+                        "startMs" to sectionStart,
+                        "endMs" to sectionEnd,
+                        "durationMs" to (sectionEnd - sectionStart),
+                        "bpm" to sectionBpm.toInt(),
+                        "expectedBeats" to expectedBeats
+                    ))
+                }
 
                 // 3단계: 섹션별 비트 추적
                 if (sectionBpms.isNotEmpty() && sectionBpms.size > 1) {
@@ -1425,23 +1486,69 @@ object BeatDetectorV3 {
             "V3 OK beats=${beats.size} BPM=$finalBpm Confidence=${confidence * 100}% reason=$reason"
         )
 
-        // JSON으로 분석 결과 저장 (종합 분석용)
-        if (context != null && songTitle != null) {
-            val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
-            val analysisJson = buildString {
-                append("{\"title\":\"$songTitle\",")
-                append("\"finalBpm\":$finalBpm,")
-                append("\"methodABpm\":$methodABpm,")
-                append("\"methodBBpm\":$methodBBpm,")
-                append("\"confidence\":${String.format("%.1f", confidence * 100)},")
-                append("\"beatCount\":${beats.size},")
-                append("\"reason\":\"$reason\",")
-                append("\"sectionCount\":${collectedSectionBpms.size},")
-                append("\"sectionBpms\":$sectionBpmList")
-                append("}")
-            }
+        // DP tracking 결과 저장
+        dpTrackingResults = mapOf(
+            "beatCount" to beats.size,
+            "reason" to reason,
+            "methodUsed" to (if (reason.contains("section")) "section_based" else "global")
+        )
 
+        // JSON으로 종합 분석 데이터 저장
+        if (context != null && songTitle != null) {
             try {
+                val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
+
+                // JSON 구조: 모든 분석 데이터 포함
+                val analysisJson = buildString {
+                    append("{")
+                    append("\"title\":\"$songTitle\",")
+
+                    // 1. BPM 결과
+                    append("\"bpmResults\":{")
+                    append("\"finalBpm\":$finalBpm,")
+                    append("\"methodABpm\":$methodABpm,")
+                    append("\"methodBBpm\":$methodBBpm,")
+                    append("\"confidence\":${String.format("%.1f", confidence * 100)}")
+                    append("},")
+
+                    // 2. ODF 통계
+                    append("\"odfStats\":{")
+                    append("\"size\":${odfStats["size"]},")
+                    append("\"max\":${odfStats["max"]},")
+                    append("\"mean\":${odfStats["mean"]},")
+                    append("\"std\":${odfStats["std"]}")
+                    append("},")
+
+                    // 3. AC Peaks (top 10)
+                    append("\"acPeaks\":[")
+                    append(acPeaksList.mapIndexed { idx, peak ->
+                        "{\"index\":$idx,\"bpm\":${peak["bpm"]},\"ac\":${peak["ac"]},\"ratio\":${peak["ratio"]}}"
+                    }.joinToString(","))
+                    append("],")
+
+                    // 4. Section 상세정보
+                    append("\"sectionDetails\":[")
+                    append(sectionDetailsList.map { section ->
+                        "{\"index\":${section["index"]},\"startMs\":${section["startMs"]},\"endMs\":${section["endMs"]},\"bpm\":${section["bpm"]},\"expectedBeats\":${section["expectedBeats"]}}"
+                    }.joinToString(","))
+                    append("],")
+
+                    // 5. DP Tracking 결과
+                    append("\"dpTracking\":{")
+                    append("\"beatCount\":${dpTrackingResults["beatCount"]},")
+                    append("\"reason\":\"${dpTrackingResults["reason"]}\",")
+                    append("\"methodUsed\":\"${dpTrackingResults["methodUsed"]}\"")
+                    append("},")
+
+                    // 6. 기타 정보
+                    append("\"metadata\":{")
+                    append("\"sectionCount\":${collectedSectionBpms.size},")
+                    append("\"sectionBpms\":$sectionBpmList")
+                    append("}")
+
+                    append("}")
+                }
+
                 val filesDir = context.filesDir
                 val analysisDir = java.io.File(filesDir, "v3_analysis")
                 if (!analysisDir.exists()) {
