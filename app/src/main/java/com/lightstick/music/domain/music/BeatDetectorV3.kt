@@ -1380,19 +1380,19 @@ object BeatDetectorV3 {
         )
 
         // ODF 상세 통계
-        val odfStats = StringBuilder()
+        val odfStatsDetail = StringBuilder()
         val odfValues = globalOdf.filter { it > 0f }.toList()
         if (odfValues.isNotEmpty()) {
             val odfMean = odfValues.average()
             val odfStd = kotlin.math.sqrt(odfValues.map { (it - odfMean).pow(2) }.average())
             val odfMedian = odfValues.sorted()[odfValues.size / 2]
-            odfStats.append("max=${String.format("%.6f", odfValues.maxOrNull() ?: 0f)} ")
-            odfStats.append("mean=${String.format("%.6f", odfMean)} ")
-            odfStats.append("median=${String.format("%.6f", odfMedian)} ")
-            odfStats.append("std=${String.format("%.6f", odfStd)} ")
-            odfStats.append("count=${odfValues.size}")
+            odfStatsDetail.append("max=${String.format("%.6f", odfValues.maxOrNull() ?: 0f)} ")
+            odfStatsDetail.append("mean=${String.format("%.6f", odfMean)} ")
+            odfStatsDetail.append("median=${String.format("%.6f", odfMedian)} ")
+            odfStatsDetail.append("std=${String.format("%.6f", odfStd)} ")
+            odfStatsDetail.append("count=${odfValues.size}")
         }
-        Log.d(TAG, "V3 ODF_STATS_DETAIL: title=\"$songTitle\" $odfStats")
+        Log.d(TAG, "V3 ODF_STATS_DETAIL: title=\"$songTitle\" $odfStatsDetail")
 
         // DP 디버그: beatMs 전달 확인
         Log.d(
@@ -1496,10 +1496,10 @@ object BeatDetectorV3 {
         if (context != null && songTitle != null) {
             try {
                 val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
+                val odfSizeVal = (odfStats["size"] as? Int) ?: 0
                 val odfMaxStr = odfStats["max"]?.toString() ?: "0"
                 val odfMeanStr = odfStats["mean"]?.toString() ?: "0"
                 val odfStdStr = odfStats["std"]?.toString() ?: "0"
-                val odfSizeVal = odfStats["size"]?.toString() ?: "0"
 
                 // AC Peaks JSON 배열 생성
                 val acPeaksJson = if (acPeaksList.isNotEmpty()) {
@@ -2002,39 +2002,4 @@ object BeatDetectorV3 {
         return beatTimesMs.getOrElse(bestPhase) { beatTimesMs.first() }
     }
 
-    /**
-     * 분석 메타데이터를 JSON으로 변환
-     */
-    fun analysisMetadataToJson(songTitle: String, metadata: AnalysisMetadata, finalBpm: Long): String {
-        return buildString {
-            append("{")
-            append("\"title\":\"$songTitle\",")
-            append("\"finalBpm\":$finalBpm,")
-            append("\"methodABpm\":${metadata.methodABpm.toInt()},")
-            append("\"methodAScore\":${String.format("%.2f", metadata.methodAScore)},")
-            append("\"methodBBpm\":${metadata.methodBBpm.toInt()},")
-            append("\"sectionBpms\":[${metadata.sectionBpms.joinToString(",") { it.toInt().toString() }}],")
-            append("\"acPeaks\":${metadata.acPeaks.let { peaks ->
-                "[${peaks.take(5).joinToString(",") { peak ->
-                    "{\"lag\":${peak["lag"]},\"bpm\":${peak["bpm"]},\"ac\":${String.format("%.6f", peak["ac"] as? Float ?: 0f)},\"score\":${String.format("%.1f", peak["score"] as? Float ?: 0f)}}"
-                }}]"
-            }},")
-            append("\"selectionReason\":\"${metadata.selectionReason}\"")
-            append("}")
-        }
-    }
-
-    /**
-     * 분석 결과를 파일로 저장 (JSON Lines 포맷: 곡별로 한 줄씩)
-     */
-    fun saveAnalysisResults(resultsJson: String, outputPath: String) {
-        try {
-            val file = java.io.File(outputPath)
-            file.parentFile?.mkdirs()
-            file.appendText(resultsJson + "\n")
-            Log.d(TAG, "V3 SAVED_ANALYSIS: $outputPath")
-        } catch (e: Exception) {
-            Log.e(TAG, "V3 SAVE_FAILED: ${e.message}")
-        }
-    }
 }
