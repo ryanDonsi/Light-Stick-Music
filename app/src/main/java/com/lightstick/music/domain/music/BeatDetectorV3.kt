@@ -526,6 +526,20 @@ object BeatDetectorV3 {
             bpmValues[bpmValues.size / 2]
         }
 
+        // [FIX #3] 섹션 BPM 이상값 필터링 (중앙값 ±20 범위)
+        val initialMedian = median
+        val filteredBpms = bpmValues.filter { kotlin.math.abs(it - initialMedian) <= 20f }.sorted()
+
+        val finalMedian = if (filteredBpms.isNotEmpty()) {
+            if (filteredBpms.size % 2 == 0) {
+                (filteredBpms[filteredBpms.size / 2 - 1] + filteredBpms[filteredBpms.size / 2]) / 2f
+            } else {
+                filteredBpms[filteredBpms.size / 2]
+            }
+        } else {
+            median
+        }
+
         // 상세 로깅: 섹션별 BPM, 통계
         val minBpm = bpmValues.minOrNull() ?: 0f
         val maxBpm = bpmValues.maxOrNull() ?: 0f
@@ -534,14 +548,21 @@ object BeatDetectorV3 {
             kotlin.math.sqrt(bpmValues.map { (it - avgBpm) * (it - avgBpm) }.average()).toFloat()
         } else 0f
 
+        val filterInfo = if (filteredBpms.size < bpmValues.size) {
+            " [FILTERED: ${bpmValues.size} → ${filteredBpms.size} sections, median ${initialMedian.toInt()} → ${finalMedian.toInt()}]"
+        } else {
+            ""
+        }
+
         Log.d(
             TAG,
             "V3 METHOD_B_MEDIAN: sections=${sectionBpms.size}, " +
                     "bpms=${bpmValues.map { it.toInt() }}, " +
-                    "median=${median.toInt()} BPM, " +
-                    "min=$minBpm, max=$maxBpm, avg=${"%.1f".format(avgBpm)}, stdDev=${"%.1f".format(stdDev)}"
+                    "median=${finalMedian.toInt()} BPM, " +
+                    "min=$minBpm, max=$maxBpm, avg=${"%.1f".format(avgBpm)}, stdDev=${"%.1f".format(stdDev)}" +
+                    filterInfo
         )
-        return median
+        return finalMedian
     }
 
     /**
@@ -1474,6 +1495,24 @@ object BeatDetectorV3 {
         }
         val finalBeatMs = if (finalBpm > 0L) (60_000L / finalBpm) else 0L
 
+        // [FIX #4] 신뢰도 재계산 (고조파 필터링 후)
+        val adjustedConfidence = if (methodABpm != methodBBpm && methodBBpm > 0L) {
+            // Method A와 B가 다른 경우 (옥타브 오류 감지)
+            // finalBpm이 methodBBpm과 같으면 신뢰도를 100%로 상향 (고조파 필터링 성공)
+            if (finalBpm == methodBBpm) {
+                Log.d(TAG, "V3 CONFIDENCE_BOOST: methodA=$methodABpm (harmonic) → methodB=$methodBBpm (selected), confidence 100%")
+                1.0f
+            } else {
+                // finalBpm이 다른 경우는 confidence 유지
+                confidence
+            }
+        } else if (methodABpm == methodBBpm) {
+            // Method A와 B가 일치하면 신뢰도 100%
+            1.0f
+        } else {
+            confidence
+        }
+
         val timeSignature = detectTimeSignature(globalOdf, finalBpm, params.hopMs)
         val downbeatMs = detectDownbeatEnhanced(
             beats.map { it.timeMs }, low, finalBpm,
@@ -1483,7 +1522,7 @@ object BeatDetectorV3 {
 
         Log.d(
             TAG,
-            "V3 OK beats=${beats.size} BPM=$finalBpm Confidence=${confidence * 100}% reason=$reason"
+            "V3 OK beats=${beats.size} BPM=$finalBpm Confidence=${adjustedConfidence * 100}% reason=$reason"
         )
 
         // DP tracking 결과 저장
@@ -1531,7 +1570,7 @@ object BeatDetectorV3 {
                         "\"finalBpm\":$finalBpm," +
                         "\"methodABpm\":$methodABpm," +
                         "\"methodBBpm\":$methodBBpm," +
-                        "\"confidence\":${String.format("%.1f", confidence * 100)}" +
+                        "\"confidence\":${String.format("%.1f", adjustedConfidence * 100)}" +
                         "}," +
                         "\"odfStats\":{" +
                         "\"size\":$odfSizeVal," +
@@ -1568,7 +1607,7 @@ object BeatDetectorV3 {
         return DetectResultV3(
             beats = beats,
             beatMs = finalBeatMs,
-            confidence = confidence,
+            confidence = adjustedConfidence,
             source = BeatSource.FULL,
             reason = reason,
             downbeatOffsetMs = downbeatOffsetMs,
@@ -1590,7 +1629,7 @@ object BeatDetectorV3 {
 
         if (topScore <= 1e-6f) return Pair(topLag, topScore)
 
-        // 개선: Harmonic 클러스터 분석으로 메인 비트 선택
+        // 개선: Harmonic 클러스터 분석으로 메인 비트 선택 (데이터 기반)
         val topCandidates = peaksByScore.take(minOf(15, peaksByScore.size))
 
         // 최고 피크 기준 harmonic 클러스터 분류
@@ -1600,40 +1639,57 @@ object BeatDetectorV3 {
             val ratio = peak.first.toFloat() / topLag.toFloat()
             val clusterKey = when {
                 kotlin.math.abs(ratio - 1.0f) < 0.05f -> "MAIN"
-                kotlin.math.abs(ratio - 0.5f) < 0.12f -> "HALF"  // 절반 BPM
+                kotlin.math.abs(ratio - 0.5f) < 0.12f -> "HALF"  // 절반 BPM (고조파)
                 kotlin.math.abs(ratio - 0.67f) < 0.12f -> "1.5x"  // 1.5배
                 kotlin.math.abs(ratio - 1.5f) < 0.12f -> "0.67x" // 0.67배
-                kotlin.math.abs(ratio - 2.0f) < 0.12f -> "DOUBLE" // 2배
+                kotlin.math.abs(ratio - 2.0f) < 0.12f -> "DOUBLE" // 2배 (고조파)
                 else -> "OTHER"
             }
             harmonicClusters.getOrPut(clusterKey) { mutableListOf() }.add(peak)
         }
 
+        // [FIX #1] AC Ratio 기반 고조파 필터링
+        val harmonicStrength = (harmonicClusters["HALF"]?.maxOfOrNull { it.third } ?: 0f) +
+                               (harmonicClusters["DOUBLE"]?.maxOfOrNull { it.third } ?: 0f)
+        val mainStrength = harmonicClusters["MAIN"]?.maxOfOrNull { it.third } ?: 0f
+
+        // 고조파와 기본음의 AC 값이 유사하면 (ratio >= 0.85) 고조파 의심
+        val isHarmonicAmbiguous = harmonicStrength > 0f && mainStrength > 0f &&
+                (harmonicStrength / mainStrength) >= 0.85f
+
+        if (isHarmonicAmbiguous) {
+            Log.d(
+                TAG,
+                "V3 HARMONIC_DETECTED: mainStrength=${"%.6f".format(mainStrength)}, " +
+                        "harmonicStrength=${"%.6f".format(harmonicStrength)}, " +
+                        "ratio=${"%.2f".format(harmonicStrength / mainStrength)} >= 0.85"
+            )
+        }
+
         // 클러스터별 최고 피크 선택 (평균 대신 신뢰도 기반)
         val clusterScores = harmonicClusters.map { (clusterKey, peaks) ->
-            // 각 클러스터에서 AC value (신뢰도)가 가장 높은 피크 선택
-            // → 평균으로 인한 정수 손실 방지
             val bestPeak = peaks.maxByOrNull { it.third } ?: peaks[0]
             val selectedLag = bestPeak.first
             val selectedScore = bestPeak.second
             val selectedAc = bestPeak.third
             val selectedBpm = 60_000L / (selectedLag * hopMs)
 
-            // 가중치: MAIN(1.5배), 1.5x(1.2배), HALF(1.0배), 기타(0.8배)
-            val weightMultiplier = when (clusterKey) {
-                "MAIN" -> 1.5f
+            // [FIX #1] 가중치 재조정: 고조파 감지 시 MAIN/OTHER 선호도 상향
+            val baseWeight = when (clusterKey) {
+                "MAIN" -> 2.0f  // 1.5 → 2.0 (고조파 가중성 높을 때)
                 "1.5x", "0.67x" -> 1.2f
-                "HALF" -> 1.0f
+                "HALF" -> if (isHarmonicAmbiguous) 0.3f else 1.0f  // 고조파 의심 시 가중치 대폭 감소
+                "DOUBLE" -> if (isHarmonicAmbiguous) 0.3f else 0.8f
                 else -> 0.8f
             }
-            val finalScore = selectedScore * weightMultiplier
+            val finalScore = selectedScore * baseWeight
 
             // 클러스터 상세 로그
             Log.d(
                 TAG,
                 "V3 AC_CLUSTER_DETAIL: $clusterKey → lag=$selectedLag (${selectedBpm}BPM, " +
                         "ac=${String.format("%.6f", selectedAc)}, score=$selectedScore, " +
-                        "weighted=$finalScore, peaks_in_cluster=${peaks.size})"
+                        "weight=$baseWeight, weighted=$finalScore, peaks_in_cluster=${peaks.size})"
             )
 
             // 클러스터 내 상위 피크들 기록
@@ -1664,7 +1720,7 @@ object BeatDetectorV3 {
 
             Log.d(
                 TAG,
-                "V3 AC_PEAKS_ENHANCED: clusters=${harmonicClusters.size}, " +
+                "V3 AC_PEAKS_ENHANCED: clusters=${harmonicClusters.size}, harmonic_ambiguous=$isHarmonicAmbiguous, " +
                         "selected='${bestCluster.first}' lag=${bestCluster.second} score=${String.format("%.2f", bestCluster.third)}"
             )
             return Pair(bestCluster.second, bestCluster.third.toFloat())
