@@ -1865,15 +1865,154 @@ object BeatDetectorV3 {
         val lowFlux = computeOdf(low.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
         val midFlux = computeOdf(mid.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
         val fullFlux = computeOdf(full.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
+
+        // 적응적 대역 가중치 계산 (곡의 주파수 특성에 따라 동적 조정)
+        val (lowWeight, midWeight, fullWeight) = calculateAdaptiveBandWeights(
+            lowFlux.toFloatArray(),
+            midFlux.toFloatArray(),
+            fullFlux.toFloatArray()
+        )
+
         val combined = ArrayList<Float>(n)
         for (i in 0 until n) {
-            combined += lowFlux[i] * 1.0f + midFlux[i] * 1.8f + fullFlux[i] * 0.8f
+            combined += lowFlux[i] * lowWeight + midFlux[i] * midWeight + fullFlux[i] * fullWeight
         }
+
+        // 로깅: 적응적 가중치 정보
+        Log.d(
+            TAG,
+            "V3 ODF_BAND_WEIGHTS: low=${"%.2f".format(lowWeight)} mid=${"%.2f".format(midWeight)} full=${"%.2f".format(fullWeight)}"
+        )
+
         return localNormalizeMean(combined, GLOBAL_NORM_WINDOW).toFloatArray()
     }
 
-    private fun computeOdf(env: List<Float>, smoothWindow: Int, normWindow: Int): List<Float> =
-        localNormalizeMax(positiveDiff(movingAverage(env, smoothWindow)), normWindow)
+    /**
+     * 곡의 주파수 특성에 따른 적응적 대역 가중치 계산
+     *
+     * 원리:
+     * - 각 대역의 에너지와 peak 강도를 분석
+     * - 드럼이 강한 곡: mid/high 가중치 증가
+     * - 베이스가 강한 곡: low 가중치 증가
+     * - 동적 범위가 큰 곡: full 가중치 조정
+     *
+     * @return Triple(lowWeight, midWeight, fullWeight)
+     */
+    private fun calculateAdaptiveBandWeights(
+        lowFlux: FloatArray,
+        midFlux: FloatArray,
+        fullFlux: FloatArray
+    ): Triple<Float, Float, Float> {
+        // 기본 가중치
+        var lowWeight = 1.0f
+        var midWeight = 1.8f
+        var fullWeight = 0.8f
+
+        if (lowFlux.isEmpty() || midFlux.isEmpty() || fullFlux.isEmpty()) {
+            return Triple(lowWeight, midWeight, fullWeight)
+        }
+
+        // 각 대역의 특성 분석
+        val lowEnergy = lowFlux.average().toFloat()
+        val midEnergy = midFlux.average().toFloat()
+        val fullEnergy = fullFlux.average().toFloat()
+
+        val lowMax = lowFlux.maxOrNull() ?: 0f
+        val midMax = midFlux.maxOrNull() ?: 0f
+        val fullMax = fullFlux.maxOrNull() ?: 0f
+
+        // 상대 에너지 비율
+        val totalEnergy = lowEnergy + midEnergy + fullEnergy
+        if (totalEnergy < 1e-6f) {
+            return Triple(lowWeight, midWeight, fullWeight)
+        }
+
+        val lowEnergyRatio = lowEnergy / totalEnergy
+        val midEnergyRatio = midEnergy / totalEnergy
+        val fullEnergyRatio = fullEnergy / totalEnergy
+
+        // 피크 강도 비율
+        val totalPeak = lowMax + midMax + fullMax
+        val lowPeakRatio = if (totalPeak > 0) lowMax / totalPeak else 0f
+        val midPeakRatio = if (totalPeak > 0) midMax / totalPeak else 0f
+        val fullPeakRatio = if (totalPeak > 0) fullMax / totalPeak else 0f
+
+        // 적응적 가중치 조정
+        // 에너지와 피크 강도를 모두 고려하여 가중치 계산
+        lowWeight = 0.8f + lowEnergyRatio * 1.2f + lowPeakRatio * 0.5f
+        midWeight = 1.2f + midEnergyRatio * 1.2f + midPeakRatio * 0.8f
+        fullWeight = 0.6f + fullEnergyRatio * 0.8f + fullPeakRatio * 0.3f
+
+        // 정규화: 가중치 합이 3.0이 되도록 (원래 합: 1.0 + 1.8 + 0.8 = 3.6)
+        val weightSum = lowWeight + midWeight + fullWeight
+        lowWeight = lowWeight * 3.0f / weightSum
+        midWeight = midWeight * 3.0f / weightSum
+        fullWeight = fullWeight * 3.0f / weightSum
+
+        // 절반 박자 필터링: Low 대역의 피크가 Mid보다 크면 감소
+        // 이는 저음에서의 절반 박자 선호 현상을 완화
+        if (lowPeakRatio > midPeakRatio * 1.2f) {
+            // Low가 비정상적으로 강함 → 절반 박자일 가능성
+            lowWeight = lowWeight * 0.75f
+            midWeight = midWeight * 1.1f
+
+            // 정규화 재적용
+            val newWeightSum = lowWeight + midWeight + fullWeight
+            lowWeight = lowWeight * 3.0f / newWeightSum
+            midWeight = midWeight * 3.0f / newWeightSum
+            fullWeight = fullWeight * 3.0f / newWeightSum
+        }
+
+        return Triple(lowWeight, midWeight, fullWeight)
+    }
+
+    private fun computeOdf(env: List<Float>, smoothWindow: Int, normWindow: Int): List<Float> {
+        // 단계 1: 이동 평균으로 노이즈 필터링
+        val smoothed = movingAverage(env, smoothWindow)
+
+        // 단계 2: 고주파 강조 (onset 감지 강화)
+        // onset은 신호의 급격한 변화로 나타나므로 고주파가 더 명확함
+        val highPassEnhanced = enhanceHighFrequency(smoothed)
+
+        // 단계 3: 양의 변화만 추출 (onset 감지)
+        val diff = positiveDiff(highPassEnhanced)
+
+        // 단계 4: 로컬 정규화
+        return localNormalizeMax(diff, normWindow)
+    }
+
+    /**
+     * 고주파 강조를 통한 onset 감지 개선
+     *
+     * Onset은 신호의 급격한 변화(고주파 성분)로 나타나므로,
+     * 고주파를 부스트하면 onset 감지가 더 명확해집니다.
+     */
+    private fun enhanceHighFrequency(signal: List<Float>): List<Float> {
+        if (signal.size < 3) return signal.toList()
+
+        val enhanced = ArrayList<Float>(signal.size)
+
+        for (i in signal.indices) {
+            val current = signal[i]
+
+            // 고주파 성분 추정: 현재값 - 이웃값의 평균
+            // 이는 미분(derivative) 근사로 고주파 성분을 강조
+            val left = if (i > 0) signal[i - 1] else current
+            val right = if (i < signal.lastIndex) signal[i + 1] else current
+            val neighbor = (left + right) / 2.0f
+
+            // High-pass filter: original - low-pass
+            val highPass = current - neighbor
+
+            // 원래 신호에 고주파 성분 추가 (부스트)
+            // 강도는 신호의 동적 범위에 따라 조정
+            val boosted = current + highPass * 0.5f
+
+            enhanced.add(maxOf(0f, boosted))  // 음수 값은 0으로 (onset은 양수)
+        }
+
+        return enhanced
+    }
 
     private fun movingAverage(src: List<Float>, window: Int): List<Float> {
         if (src.isEmpty() || window <= 1) return src.toList()
