@@ -406,6 +406,123 @@ object BeatDetectorV3 {
     }
 
     /**
+     * Tempogram AC 개선: 스펙트럼 농도 기반 가중치 적용
+     *
+     * 원리: 각 lag에서 ODF 신호의 주기성 강도를 추정하여,
+     * 진정한 박자 주파수의 AC값에는 가중치를 높이고,
+     * 하모닉 주파수의 AC값에는 가중치를 낮춤.
+     *
+     * @param globalOdf 글로벌 ODF 신호
+     * @param acVals 각 lag별 AC값 배열
+     * @param minLag 최소 lag
+     * @param hopMs hop 시간(ms)
+     * @return 가중치 적용된 AC값
+     */
+    private fun improveAcValuesWithSpectralWeighting(
+        globalOdf: FloatArray,
+        acVals: FloatArray,
+        minLag: Int,
+        hopMs: Long
+    ): FloatArray {
+        val improved = acVals.copyOf()
+
+        if (globalOdf.size < minLag + 10) {
+            return improved
+        }
+
+        // 1단계: 각 lag별 스펙트럼 농도 계산 (주기성의 일관성)
+        val spectralConcentration = FloatArray(acVals.size)
+        for (idx in improved.indices) {
+            val lag = idx + minLag
+            if (lag >= globalOdf.size) break
+
+            // 스펙트럼 농도 = 인접 값들의 분산 역수
+            // 주기가 일관되면 인접 값들의 분산이 작음
+            val variance = mutableListOf<Float>()
+            for (i in 1 until minOf(lag, globalOdf.size - lag)) {
+                val val1 = globalOdf[i * lag]
+                val val2 = globalOdf[i * lag + minOf(1, globalOdf.size - (i * lag) - 1)]
+                variance.add((val1 - val2) * (val1 - val2))
+            }
+
+            spectralConcentration[idx] = if (variance.isNotEmpty()) {
+                1.0f / (1.0f + variance.average().toFloat())
+            } else {
+                0.5f
+            }
+        }
+
+        // 2단계: 하모닉 관계 분석 및 필터링
+        for (idx in improved.indices) {
+            val lag = idx + minLag
+            val acVal = improved[idx]
+
+            if (acVal < 1e-6f) continue
+
+            // 2배 lag (절반 박자) 확인
+            val doubleLagIdx = lag * 2 - minLag
+            if (doubleLagIdx in improved.indices) {
+                val doubleAc = improved[doubleLagIdx]
+                val doubleConcentration = spectralConcentration[doubleLagIdx]
+
+                // 절반 박자와 강도 비율
+                if (doubleAc > 1e-6f) {
+                    val strengthRatio = doubleAc / acVal
+                    val concentrationRatio = doubleConcentration / (spectralConcentration[idx] + 1e-6f)
+
+                    // 절반 박자가 훨씬 강하고 농도도 높으면, 현재 lag는 하모닉
+                    if (strengthRatio >= 0.7f && concentrationRatio >= 0.8f) {
+                        improved[idx] = acVal * 0.25f  // 더 공격적으로 필터링
+                        Log.d(
+                            TAG,
+                            "V3 AC_HARMONIC_FILTER: lag=$lag(2x하모닉) strengthRatio=${"%.2f".format(strengthRatio)} concentrationRatio=${"%.2f".format(concentrationRatio)}"
+                        )
+                        continue
+                    }
+                }
+            }
+
+            // 절반 lag (2배 박자) 확인
+            if (lag > 1) {
+                val halfLagIdx = lag / 2 - minLag
+                if (halfLagIdx >= 0 && halfLagIdx in improved.indices) {
+                    val halfAc = improved[halfLagIdx]
+                    val halfConcentration = spectralConcentration[halfLagIdx]
+
+                    if (halfAc > 1e-6f) {
+                        val strengthRatio = halfAc / acVal
+                        val concentrationRatio = halfConcentration / (spectralConcentration[idx] + 1e-6f)
+
+                        // 절반 lag이 훨씬 강하고 농도도 높으면, 현재 lag는 하모닉
+                        if (strengthRatio >= 0.7f && concentrationRatio >= 0.8f) {
+                            improved[idx] = acVal * 0.25f
+                            Log.d(
+                                TAG,
+                                "V3 AC_HARMONIC_FILTER: lag=$lag(0.5x하모닉) strengthRatio=${"%.2f".format(strengthRatio)} concentrationRatio=${"%.2f".format(concentrationRatio)}"
+                            )
+                            continue
+                        }
+                    }
+                }
+            }
+
+            // 3단계: 스펙트럼 농도가 높으면 가중치 증가
+            // 농도 높음 = 주기성 일관됨 = 진정한 박자 가능성 높음
+            val concentrationWeight = 0.7f + spectralConcentration[idx] * 0.3f
+            improved[idx] = acVal * concentrationWeight
+
+            if (spectralConcentration[idx] > 0.7f) {
+                Log.d(
+                    TAG,
+                    "V3 AC_BOOST: lag=$lag concentration=${"%.3f".format(spectralConcentration[idx])} acBefore=${"%.6f".format(acVal)} acAfter=${"%.6f".format(improved[idx])}"
+                )
+            }
+        }
+
+        return improved
+    }
+
+    /**
      * Tempogram에서 시간별 BPM 곡선 추출 (상세 하모닉 분석 포함)
      *
      * @return FloatArray - 각 시간프레임별 최강 BPM
@@ -1224,6 +1341,7 @@ object BeatDetectorV3 {
         val minLag = maxOf(1, (params.minBeatMs / params.hopMs).toInt())
         val maxLag = maxOf(minLag + 1, (params.maxBeatMs / params.hopMs).toInt())
         if (globalOdf.size > maxLag + 2) {
+            // 1단계: 원시 AC값 계산
             val acVals = FloatArray(maxLag + 1)
             for (lag in minLag..maxLag) {
                 var acSum = 0f
@@ -1233,9 +1351,36 @@ object BeatDetectorV3 {
                 acVals[lag] = acSum / (globalOdf.size - lag)
             }
 
-            // Top 10 peaks 추출
+            // 2단계: Tempogram AC 개선 (스펙트럼 농도 기반 가중치 + 하모닉 필터링)
+            val improvedAcVals = improveAcValuesWithSpectralWeighting(
+                globalOdf,
+                acVals,
+                minLag,
+                params.hopMs
+            )
+
+            // 로깅: AC 개선 효과 분석
+            val topBefore = acVals.withIndex()
+                .filter { it.index >= minLag && it.index <= maxLag }
+                .maxByOrNull { it.value }
+            val topAfter = improvedAcVals.withIndex()
+                .filter { it.index >= minLag && it.index <= maxLag }
+                .maxByOrNull { it.value }
+
+            if (topBefore != null && topAfter != null) {
+                val topBpmBefore = 60_000L / (topBefore.index * params.hopMs)
+                val topBpmAfter = 60_000L / (topAfter.index * params.hopMs)
+                if (topBpmBefore != topBpmAfter) {
+                    Log.d(
+                        TAG,
+                        "V3 AC_IMPROVED: top AC before=${topBefore.index}lag(${topBpmBefore}BPM) after=${topAfter.index}lag(${topBpmAfter}BPM)"
+                    )
+                }
+            }
+
+            // 3단계: Top 10 peaks 추출 (개선된 AC값 기반)
             val peaksByScore = (minLag..maxLag)
-                .map { lag -> Triple(lag, acVals[lag], 60_000L / (lag * params.hopMs)) }
+                .map { lag -> Triple(lag, improvedAcVals[lag], 60_000L / (lag * params.hopMs)) }
                 .sortedByDescending { it.second }
                 .take(10)
 
@@ -1243,7 +1388,8 @@ object BeatDetectorV3 {
                 acPeaksList.add(mapOf(
                     "lag" to lag,
                     "bpm" to bpm.toInt(),
-                    "ac" to String.format("%.6f", acVal),
+                    "ac" to String.format("%.6f", improvedAcVals[lag]),
+                    "ac_raw" to String.format("%.6f", acVals[lag]),
                     "ratio" to String.format("%.2f", bpm.toFloat() / bestBpm)
                 ))
             }
