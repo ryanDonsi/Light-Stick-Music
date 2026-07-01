@@ -244,6 +244,10 @@ object BeatDetectorV3 {
             }
         }
 
+        // === Harmonic Peak Filtering (부음 필터링) ===
+        // 절반 박자(하모닉)를 감지하고 필터링
+        val harmonicFiltered = filterHarmonicPeaks(bpmStrengths, minLag)
+
         // 시간대별 BPM 분포 로깅
         val timeDistribution = mutableListOf<String>()
         for (tIdx in 0 until minOf(5, tempogram[0].size)) {
@@ -268,8 +272,8 @@ object BeatDetectorV3 {
             Log.d(TAG, "V3 TEMPOGRAM_TIME_DIST: ${timeDistribution.joinToString(" | ")}")
         }
 
-        // 상위 BPM 후보 로깅
-        val topBpms = bpmStrengths.withIndex()
+        // 상위 BPM 후보 로깅 (필터링 전후)
+        val topBpmsBefore = bpmStrengths.withIndex()
             .sortedByDescending { it.value }
             .take(5)
             .map { (idx, strength) ->
@@ -277,36 +281,47 @@ object BeatDetectorV3 {
                 val bpm = 60_000L / (lag * hopMs)
                 "lag=$lag BPM=$bpm str=${"%.3f".format(strength)}"
             }.joinToString(" | ")
-        Log.d(TAG, "V3 TOP5_BPMS: $topBpms")
 
-        // 최고 강도의 lag 찾기
-        val bestLagIdx = bpmStrengths.indices.maxByOrNull { bpmStrengths[it] } ?: 0
+        val topBpmsAfter = harmonicFiltered.withIndex()
+            .sortedByDescending { it.value }
+            .take(5)
+            .map { (idx, strength) ->
+                val lag = idx + minLag
+                val bpm = 60_000L / (lag * hopMs)
+                "lag=$lag BPM=$bpm str=${"%.3f".format(strength)}"
+            }.joinToString(" | ")
+
+        Log.d(TAG, "V3 TOP5_BPMS_BEFORE: $topBpmsBefore")
+        Log.d(TAG, "V3 TOP5_BPMS_AFTER_HARMONIC_FILTER: $topBpmsAfter")
+
+        // 최고 강도의 lag 찾기 (필터링된 값 사용)
+        val bestLagIdx = harmonicFiltered.indices.maxByOrNull { harmonicFiltered[it] } ?: 0
         val bestLag = bestLagIdx + minLag
         var finalLag = bestLag
         var bestBpm = 60_000L / (bestLag * hopMs)
 
-        // 신뢰도: 최고 강도와 2번째 강도의 비율
-        val sorted = bpmStrengths.sortedDescending()
+        // 신뢰도: 필터링된 값 기준
+        val sorted = harmonicFiltered.sortedDescending()
         var confidence = if (sorted.size >= 2 && sorted[1] > 1e-6f) {
             minOf(1.0f, sorted[0] / sorted[1])
         } else {
             sorted.firstOrNull()?.coerceIn(TEMPOGRAM_MIN_CONFIDENCE, 1.0f) ?: 0.5f
         }
 
-        // === 옥타브 에러 보정 ===
+        // === 옥타브 에러 보정 (필터링 후 재확인) ===
         // 절반 비트(2배 BPM) 확인: lag/2
         val halfLag = bestLag / 2
-        val halfStrength = if (halfLag >= minLag && halfLag - minLag < bpmStrengths.size) {
-            bpmStrengths[halfLag - minLag]
+        val halfStrength = if (halfLag >= minLag && halfLag - minLag < harmonicFiltered.size) {
+            harmonicFiltered[halfLag - minLag]
         } else 0f
-        val halfRatio = if (bpmStrengths[bestLagIdx] > 1e-6f) halfStrength / bpmStrengths[bestLagIdx] else 0f
+        val halfRatio = if (harmonicFiltered[bestLagIdx] > 1e-6f) halfStrength / harmonicFiltered[bestLagIdx] else 0f
 
         // 2배 비트(절반 BPM) 확인: lag*2
         val doubleLag = bestLag * 2
-        val doubleStrength = if (doubleLag - minLag < bpmStrengths.size) {
-            bpmStrengths[doubleLag - minLag]
+        val doubleStrength = if (doubleLag - minLag < harmonicFiltered.size) {
+            harmonicFiltered[doubleLag - minLag]
         } else 0f
-        val doubleRatio = if (bpmStrengths[bestLagIdx] > 1e-6f) doubleStrength / bpmStrengths[bestLagIdx] else 0f
+        val doubleRatio = if (harmonicFiltered[bestLagIdx] > 1e-6f) doubleStrength / harmonicFiltered[bestLagIdx] else 0f
 
         // 절반 비트가 강한 경우: 원래 BPM이 2배로 잘못된 것
         if (halfLag >= minLag && halfRatio >= 0.65f) {
@@ -320,7 +335,7 @@ object BeatDetectorV3 {
             confidence = minOf(1.0f, halfStrength / sorted[0])
         }
         // 2배 비트가 강한 경우: 원래 BPM이 절반으로 잘못된 것
-        else if (doubleLag - minLag < bpmStrengths.size && doubleRatio >= 0.65f && doubleStrength > bpmStrengths[bestLagIdx] * 0.9f) {
+        else if (doubleLag - minLag < harmonicFiltered.size && doubleRatio >= 0.65f && doubleStrength > harmonicFiltered[bestLagIdx] * 0.9f) {
             Log.d(
                 TAG,
                 "V3 OctaveError0.5x: doubleLag=$doubleLag doubleRatio=$doubleRatio → " +
@@ -334,6 +349,60 @@ object BeatDetectorV3 {
         Log.d(TAG, "V3 ModalPeak: BPM=$bestBpm, Confidence=${confidence * 100}% (lag=$finalLag)")
 
         return Pair(bestBpm.toFloat(), confidence)
+    }
+
+    /**
+     * 부음(하모닉) 필터링: 절반 박자를 감지하고 강도를 감소시킴
+     *
+     * 인접한 피크들의 관계를 분석하여 다음을 감지:
+     * - 2x 하모닉: lag*2가 존재하고 강할 경우, 현재 lag는 절반 박자(half-tempo)
+     * - 0.5x 하모닉: lag/2가 존재하고 강할 경우, 현재 lag는 두배 박자(double-tempo)
+     *
+     * @param bpmStrengths 각 lag별 강도 배열 (인덱스 0 = lag minLag에 해당)
+     * @param minLag 최소 lag 값
+     * @return 하모닉 필터링 후 강도 배열
+     */
+    private fun filterHarmonicPeaks(bpmStrengths: FloatArray, minLag: Int): FloatArray {
+        val filtered = bpmStrengths.copyOf()
+
+        for (idx in filtered.indices) {
+            val lag = idx + minLag
+            val strength = filtered[idx]
+
+            if (strength < 1e-6f) continue  // 무시할 정도로 작은 강도
+
+            // 2x 하모닉 확인: lag*2가 존재하고 강한지 확인
+            val doubleLagIdx = lag * 2 - minLag
+            if (doubleLagIdx in filtered.indices) {
+                val doubleStrength = filtered[doubleLagIdx]
+                val ratio = doubleStrength / strength
+                // 2배 lag이 현재 lag와 비슷하거나 강하면, 현재 lag는 절반 박자(하모닉)
+                if (ratio >= 0.65f) {
+                    // 절반 박자로 판정되었으므로 강도 감소 (0.3배)
+                    filtered[idx] = strength * 0.3f
+                    Log.d(TAG, "V3 HARMONIC_FILTER: lag=$lag(2x하모닉) → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
+                    continue
+                }
+            }
+
+            // 0.5x 하모닉 확인: lag/2가 존재하고 강한지 확인
+            if (lag > 1) {
+                val halfLagIdx = lag / 2 - minLag
+                if (halfLagIdx >= 0 && halfLagIdx in filtered.indices) {
+                    val halfStrength = filtered[halfLagIdx]
+                    val ratio = halfStrength / strength
+                    // 절반 lag이 현재 lag와 비슷하거나 강하면, 현재 lag는 두배 박자(하모닉)
+                    if (ratio >= 0.65f) {
+                        // 두배 박자로 판정되었으므로 강도 감소 (0.3배)
+                        filtered[idx] = strength * 0.3f
+                        Log.d(TAG, "V3 HARMONIC_FILTER: lag=$lag(0.5x하모닉) → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
+                        continue
+                    }
+                }
+            }
+        }
+
+        return filtered
     }
 
     /**
