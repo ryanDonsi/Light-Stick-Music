@@ -995,7 +995,8 @@ object BeatDetectorV3 {
         monoSamples: FloatArray,
         sampleRate: Int,
         params: Params = Params(),
-        songTitle: String? = null
+        songTitle: String? = null,
+        context: android.content.Context? = null
     ): DetectResultV3 {
         if (monoSamples.isEmpty() || sampleRate <= 0) {
             return DetectResultV3(
@@ -1048,7 +1049,7 @@ object BeatDetectorV3 {
 
         return detect(
             normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outFull),
-            params, songTitle
+            params, songTitle, emptyList(), context
         )
     }
 

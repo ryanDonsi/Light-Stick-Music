@@ -211,12 +211,22 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
 
         // 비트 감지
         val t0Beat = System.currentTimeMillis()
+        // V3 analysis data save를 위해 application context 획득
+        val appContext = try {
+            android.app.ActivityManager::class.java.classLoader?.let {
+                Class.forName("android.app.ActivityThread").getMethod("currentApplication").invoke(null) as? android.app.Application
+            }
+        } catch (e: Exception) {
+            null
+        }
+
         val beatInfo = BeatDetectorRouter.detect(
             filePath = musicPath,
             version = detectorVer,
             hopMs = effectiveHopMs,
             minBeatMs = MIN_BEAT_MS,
-            maxBeatMs = MAX_BEAT_MS
+            maxBeatMs = MAX_BEAT_MS,
+            context = appContext
         )
         val tBeat = System.currentTimeMillis() - t0Beat
 
