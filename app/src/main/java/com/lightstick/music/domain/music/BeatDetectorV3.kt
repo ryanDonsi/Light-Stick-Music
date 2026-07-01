@@ -92,6 +92,17 @@ object BeatDetectorV3 {
     /**
      * V3 DetectResult: 신뢰도 추가
      */
+    // 분석 데이터 저장 클래스
+    data class AnalysisMetadata(
+        val methodABpm: Float = 0f,
+        val methodBBpm: Float = 0f,
+        val methodAScore: Float = 0f,
+        val acPeaks: List<Map<String, Any>> = emptyList(),  // AC_PEAKS 정보
+        val tempogramStats: Map<String, Any> = emptyMap(),   // Tempogram 통계
+        val sectionBpms: List<Float> = emptyList(),          // 섹션별 BPM
+        val selectionReason: String = ""                     // 최종 선택 이유
+    )
+
     data class DetectResultV3(
         val beats: List<TimedBeat>,
         val beatMs: Long,
@@ -101,7 +112,8 @@ object BeatDetectorV3 {
         val downbeatOffsetMs: Long,
         val timeSignature: TimeSignature,
         val tempogram: Array<FloatArray>? = null,  // ✨ 새로운!
-        val debugSegments: List<Any> = emptyList()
+        val debugSegments: List<Any> = emptyList(),
+        val analysisMetadata: AnalysisMetadata = AnalysisMetadata()  // ✨ 새로운!
     ) {
         val beatTimesMs: List<Long> get() = beats.map { it.timeMs }
 
@@ -229,6 +241,41 @@ object BeatDetectorV3 {
                 bpmStrengths[i] = bpmStrengths[i] / maxStrength
             }
         }
+
+        // 시간대별 BPM 분포 로깅
+        val timeDistribution = mutableListOf<String>()
+        for (tIdx in 0 until minOf(5, tempogram[0].size)) {
+            val timeStep = tempogram[0].size / 4 // 0%, 25%, 50%, 75%, 100%
+            val t = tIdx * timeStep
+            if (t >= tempogram[0].size) continue
+
+            var peakLag = 0
+            var peakStrength = 0f
+            for (i in bpmStrengths.indices) {
+                if (t < tempogram[i].size && tempogram[i][t] > peakStrength) {
+                    peakStrength = tempogram[i][t]
+                    peakLag = i + minLag
+                }
+            }
+            if (peakLag > 0) {
+                val peakBpm = 60_000L / (peakLag * hopMs)
+                timeDistribution.add("t=${t*10}ms: lag=$peakLag BPM=$peakBpm strength=${"%.3f".format(peakStrength)}")
+            }
+        }
+        if (timeDistribution.isNotEmpty()) {
+            Log.d(TAG, "V3 TEMPOGRAM_TIME_DIST: ${timeDistribution.joinToString(" | ")}")
+        }
+
+        // 상위 BPM 후보 로깅
+        val topBpms = bpmStrengths.withIndex()
+            .sortedByDescending { it.value }
+            .take(5)
+            .map { (idx, strength) ->
+                val lag = idx + minLag
+                val bpm = 60_000L / (lag * hopMs)
+                "lag=$lag BPM=$bpm str=${"%.3f".format(strength)}"
+            }.joinToString(" | ")
+        Log.d(TAG, "V3 TOP5_BPMS: $topBpms")
 
         // 최고 강도의 lag 찾기
         val bestLagIdx = bpmStrengths.indices.maxByOrNull { bpmStrengths[it] } ?: 0
@@ -477,7 +524,21 @@ object BeatDetectorV3 {
             bpmValues[bpmValues.size / 2]
         }
 
-        Log.d(TAG, "V3 METHOD_B_MEDIAN: sections=${sectionBpms.size}, bpms=${bpmValues.map { it.toInt() }}, median=${median.toInt()} BPM")
+        // 상세 로깅: 섹션별 BPM, 통계
+        val minBpm = bpmValues.minOrNull() ?: 0f
+        val maxBpm = bpmValues.maxOrNull() ?: 0f
+        val avgBpm = bpmValues.average().toFloat()
+        val stdDev = if (bpmValues.size > 1) {
+            kotlin.math.sqrt(bpmValues.map { (it - avgBpm) * (it - avgBpm) }.average()).toFloat()
+        } else 0f
+
+        Log.d(
+            TAG,
+            "V3 METHOD_B_MEDIAN: sections=${sectionBpms.size}, " +
+                    "bpms=${bpmValues.map { it.toInt() }}, " +
+                    "median=${median.toInt()} BPM, " +
+                    "min=$minBpm, max=$maxBpm, avg=${"%.1f".format(avgBpm)}, stdDev=${"%.1f".format(stdDev)}"
+        )
         return median
     }
 
@@ -768,9 +829,17 @@ object BeatDetectorV3 {
             0L
         }
         if (methodABpm > 0L) {
+            // AC_PEAKS 상세 정보 로깅
+            val peaksInfo = peaksByScore.take(10).mapIndexed { idx, (lag, score) ->
+                val bpm = 60_000L / (lag * hopMs)
+                val ac = acVals[lag]
+                "[$idx] lag=$lag BPM=$bpm AC=${"%.6f".format(ac)} score=${"%.2f".format(score)}"
+            }.joinToString(" | ")
+            Log.d(TAG, "V3 AC_PEAKS_TOP10: $peaksInfo")
+
             Log.d(
                 TAG,
-                "V3 METHOD_A_SELECTION: Selected lag=${selectedPeak?.first}, BPM=$methodABpm"
+                "V3 METHOD_A_SELECTION: Selected lag=${selectedPeak?.first}, BPM=$methodABpm, Score=${"%.2f".format(peaksByScore.firstOrNull()?.second ?: 0f)}"
             )
         }
 
@@ -896,6 +965,11 @@ object BeatDetectorV3 {
             val maxGap = sectionGaps.maxOrNull() ?: 0L
 
             sectionLog.append("section[$sectionStartMs-$sectionEndMs]=${sectionBpm.toInt()}BPM(beatMs=$beatMs,fpb=${beatMs/hopMs}) beats=${sectionDpTimes.size} gaps=[avg=${avgGap}ms,min=${minGap}ms,max=${maxGap}ms] phase=${phaseMs}ms; ")
+        }
+
+        // 섹션별 분석 로그 출력
+        if (sectionLog.isNotEmpty()) {
+            Log.d(TAG, "V3 SECTION_ANALYSIS: $sectionLog")
         }
 
         // 시간 순으로 정렬 및 중복 제거
@@ -1273,10 +1347,28 @@ object BeatDetectorV3 {
             // Method B: 섹션 기반 중앙값 우선 (위상 정확도 개선)
             val methodBBpm = medianSectionBpm.toLong()
             val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
+
+            // 극단값 분석
+            val sortedBpms = sectionBpmList.sorted()
+            val minBpm = sortedBpms.firstOrNull() ?: 0
+            val maxBpm = sortedBpms.lastOrNull() ?: 0
+            val range = maxBpm - minBpm
+
             Log.d(
                 TAG,
-                "V3 METHOD_B_SELECTED: medianBpm=$methodBBpm (from ${collectedSectionBpms.size} sections, values=$sectionBpmList)"
+                "V3 METHOD_B_SELECTED: medianBpm=$methodBBpm (from ${collectedSectionBpms.size} sections, values=$sectionBpmList, " +
+                "min=$minBpm max=$maxBpm range=$range)"
             )
+
+            // 극단값이 심한 경우 경고
+            if (range > 60) {
+                Log.d(
+                    TAG,
+                    "V3 METHOD_B_WARNING: high_bpm_variance! range=$range, " +
+                    "expected_bpm=${"%.1f".format(bestBpm)} tempogram_bpm=${"%.1f".format(bestBpm)}"
+                )
+            }
+
             methodBBpm
         } else {
             // Fallback: madmom 방식 (옥타브 에러 보정)
@@ -1416,6 +1508,14 @@ object BeatDetectorV3 {
 
         if (clusterScores.isNotEmpty()) {
             val bestCluster = clusterScores[0]
+
+            // 모든 클러스터 스코어 로깅
+            val allClustersInfo = clusterScores.take(5).mapIndexed { idx, (key, lag, score) ->
+                val bpm = 60_000L / (lag * hopMs)
+                "[$idx]$key BPM=$bpm lag=$lag score=${"%.2f".format(score)}"
+            }.joinToString(" | ")
+            Log.d(TAG, "V3 AC_CLUSTERS_RANKED: $allClustersInfo")
+
             Log.d(
                 TAG,
                 "V3 AC_PEAKS_ENHANCED: clusters=${harmonicClusters.size}, " +
@@ -1755,5 +1855,41 @@ object BeatDetectorV3 {
         } ?: 0
 
         return beatTimesMs.getOrElse(bestPhase) { beatTimesMs.first() }
+    }
+
+    /**
+     * 분석 메타데이터를 JSON으로 변환
+     */
+    fun analysisMetadataToJson(songTitle: String, metadata: AnalysisMetadata, finalBpm: Long): String {
+        return buildString {
+            append("{")
+            append("\"title\":\"$songTitle\",")
+            append("\"finalBpm\":$finalBpm,")
+            append("\"methodABpm\":${metadata.methodABpm.toInt()},")
+            append("\"methodAScore\":${String.format("%.2f", metadata.methodAScore)},")
+            append("\"methodBBpm\":${metadata.methodBBpm.toInt()},")
+            append("\"sectionBpms\":[${metadata.sectionBpms.joinToString(",") { it.toInt().toString() }}],")
+            append("\"acPeaks\":${metadata.acPeaks.let { peaks ->
+                "[${peaks.take(5).joinToString(",") { peak ->
+                    "{\"lag\":${peak["lag"]},\"bpm\":${peak["bpm"]},\"ac\":${String.format("%.6f", peak["ac"] as? Float ?: 0f)},\"score\":${String.format("%.1f", peak["score"] as? Float ?: 0f)}}"
+                }}]"
+            }},")
+            append("\"selectionReason\":\"${metadata.selectionReason}\"")
+            append("}")
+        }
+    }
+
+    /**
+     * 분석 결과를 파일로 저장 (JSON Lines 포맷: 곡별로 한 줄씩)
+     */
+    fun saveAnalysisResults(resultsJson: String, outputPath: String) {
+        try {
+            val file = java.io.File(outputPath)
+            file.parentFile?.mkdirs()
+            file.appendText(resultsJson + "\n")
+            Log.d(TAG, "V3 SAVED_ANALYSIS: $outputPath")
+        } catch (e: Exception) {
+            Log.e(TAG, "V3 SAVE_FAILED: ${e.message}")
+        }
     }
 }
