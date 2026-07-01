@@ -1430,8 +1430,53 @@ object BeatDetectorV3 {
             0f
         }
 
-        // 최종 BPM 선택: Method B (섹션 중앙값) > 나머지
-        val finalBpm = if (medianSectionBpm > 0f && collectedSectionBpms.size >= 2) {
+        // === Phase 1: 옥타브 에러 검출 (Method A vs Method B 비율 분석) ===
+        // methodABpm이 아직 bestBpm일 때, AC peaks 기반 BPM과 섹션 기반 BPM의 비율을 확인
+        var octaveErrorDetected = false
+        var octaveErrorReason = ""
+
+        // methodABpm을 AC peaks에서 다시 계산 (정확한 Method A 값 확보)
+        // 이전 acPeaksList에서 가장 신뢰도 높은 피크를 methodA로 사용
+        val methodABpmFromPeaks = if (acPeaksList.isNotEmpty()) {
+            (acPeaksList[0]["bpm"] as? Number)?.toLong() ?: methodABpm
+        } else {
+            methodABpm
+        }
+
+        if (medianSectionBpm > 0f && collectedSectionBpms.size >= 2 && methodABpmFromPeaks > 0L) {
+            val ratio = methodABpmFromPeaks.toFloat() / medianSectionBpm
+            val ratioMod1 = kotlin.math.abs(ratio - 1.0f)
+            val ratioMod2 = kotlin.math.abs(ratio - 2.0f)
+            val ratioMod05 = kotlin.math.abs(ratio - 0.5f)
+
+            // 2x 옥타브 에러 검출 (비율 ≈ 2.0 ± 0.15)
+            if (ratioMod2 < 0.15f) {
+                octaveErrorDetected = true
+                octaveErrorReason = "2x_octave"
+                Log.d(
+                    TAG,
+                    "V3 OCTAVE_DETECTED: 2x ratio=${String.format("%.3f", ratio)} " +
+                    "methodA=${methodABpmFromPeaks} methodB=${medianSectionBpm.toLong()} → using methodA"
+                )
+            }
+            // 0.5x 옥타브 에러 검출 (비율 ≈ 0.5 ± 0.15)
+            else if (ratioMod05 < 0.15f) {
+                octaveErrorDetected = true
+                octaveErrorReason = "05x_octave"
+                Log.d(
+                    TAG,
+                    "V3 OCTAVE_DETECTED: 0.5x ratio=${String.format("%.3f", ratio)} " +
+                    "methodA=${methodABpmFromPeaks} methodB=${medianSectionBpm.toLong()} → using methodA"
+                )
+            }
+        }
+
+        // 최종 BPM 선택: 옥타브 에러 검출 시 Method A 우선, 정상 시 Method B 우선
+        val finalBpm = if (octaveErrorDetected) {
+            // Phase 1 Fix: 옥타브 에러 발생 시 Method A 사용
+            methodBBpm = medianSectionBpm.toLong()  // logging용 기록
+            methodABpmFromPeaks
+        } else if (medianSectionBpm > 0f && collectedSectionBpms.size >= 2) {
             // Method B: 섹션 기반 중앙값 우선 (위상 정확도 개선)
             methodBBpm = medianSectionBpm.toLong()
             val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
@@ -1494,6 +1539,11 @@ object BeatDetectorV3 {
             }
         }
         val finalBeatMs = if (finalBpm > 0L) (60_000L / finalBpm) else 0L
+
+        // Update reason if octave error was detected
+        if (octaveErrorDetected) {
+            reason = "octave_correction_${octaveErrorReason}"
+        }
 
         // [FIX #4] 신뢰도 재계산 (고조파 필터링 후)
         val adjustedConfidence = if (methodABpm != methodBBpm && methodBBpm > 0L) {
