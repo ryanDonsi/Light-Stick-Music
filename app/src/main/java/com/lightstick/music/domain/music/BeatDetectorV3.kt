@@ -1260,7 +1260,7 @@ object BeatDetectorV3 {
         val fpb = (beatMs / params.hopMs).toInt()
 
         val beats: List<TimedBeat>
-        val reason: String
+        var reason: String
         var sectionInfo = ""
         var collectedSectionBpms: List<Pair<Long, Float>> = emptyList()  // Method B용
 
