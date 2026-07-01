@@ -1122,8 +1122,12 @@ object BeatDetectorV3 {
             Log.w(TAG, "V3 BPM탐지 실패! 신호 확인 필요 (ODF 약함)")
         }
 
-        // JSON 저장용: Method A BPM (tempogram 또는 AC peaks에서 선택)
-        methodABpm = bestBpm.toLong()
+        // 분석 데이터 수집용 변수 초기화
+        var methodABpm = bestBpm.toLong()
+        var methodBBpm = 0L
+        val acPeaksList = mutableListOf<Map<String, Any>>()
+        val sectionDetailsList = mutableListOf<Map<String, Any>>()
+        var dpTrackingResults = mapOf<String, Any>()
 
         // AC peaks 계산 (분석용)
         val minLag = maxOf(1, (params.minBeatMs / params.hopMs).toInt())
@@ -1168,8 +1172,6 @@ object BeatDetectorV3 {
         val reason: String
         var sectionInfo = ""
         var collectedSectionBpms: List<Pair<Long, Float>> = emptyList()  // Method B용
-        var methodBBpm = 0L  // JSON 저장용
-        var methodABpm = 0L  // JSON 저장용
         val acPeaksList = mutableListOf<Map<String, Any>>()  // AC peaks 저장용
         val sectionDetailsList = mutableListOf<Map<String, Any>>()  // Section 상세정보 저장용
         var dpTrackingResults = mapOf<String, Any>()  // DP tracking 결과
@@ -1513,24 +1515,28 @@ object BeatDetectorV3 {
 
                     // 2. ODF 통계
                     append("\"odfStats\":{")
-                    append("\"size\":${odfStats["size"]},")
-                    append("\"max\":${odfStats["max"]},")
-                    append("\"mean\":${odfStats["mean"]},")
-                    append("\"std\":${odfStats["std"]}")
+                    append("\"size\":").append(odfStats["size"]).append(",")
+                    append("\"max\":\"").append(odfStats["max"]).append("\",")
+                    append("\"mean\":\"").append(odfStats["mean"]).append("\",")
+                    append("\"std\":\"").append(odfStats["std"]).append("\"")
                     append("},")
 
                     // 3. AC Peaks (top 10)
                     append("\"acPeaks\":[")
-                    append(acPeaksList.mapIndexed { idx, peak ->
-                        "{\"index\":$idx,\"bpm\":${peak["bpm"]},\"ac\":${peak["ac"]},\"ratio\":${peak["ratio"]}}"
-                    }.joinToString(","))
+                    if (acPeaksList.isNotEmpty()) {
+                        append(acPeaksList.mapIndexed { idx, peak ->
+                            "{\"index\":$idx,\"bpm\":${peak["bpm"]},\"ac\":\"${peak["ac"]}\",\"ratio\":\"${peak["ratio"]}\"}"
+                        }.joinToString(","))
+                    }
                     append("],")
 
                     // 4. Section 상세정보
                     append("\"sectionDetails\":[")
-                    append(sectionDetailsList.map { section ->
-                        "{\"index\":${section["index"]},\"startMs\":${section["startMs"]},\"endMs\":${section["endMs"]},\"bpm\":${section["bpm"]},\"expectedBeats\":${section["expectedBeats"]}}"
-                    }.joinToString(","))
+                    if (sectionDetailsList.isNotEmpty()) {
+                        append(sectionDetailsList.map { section ->
+                            "{\"index\":${section["index"]},\"startMs\":${section["startMs"]},\"endMs\":${section["endMs"]},\"bpm\":${section["bpm"]},\"expectedBeats\":${section["expectedBeats"]}}"
+                        }.joinToString(","))
+                    }
                     append("],")
 
                     // 5. DP Tracking 결과
@@ -1543,7 +1549,7 @@ object BeatDetectorV3 {
                     // 6. 기타 정보
                     append("\"metadata\":{")
                     append("\"sectionCount\":${collectedSectionBpms.size},")
-                    append("\"sectionBpms\":$sectionBpmList")
+                    append("\"sectionBpms\":[").append(sectionBpmList.joinToString(",")).append("]")
                     append("}")
 
                     append("}")
