@@ -1060,7 +1060,8 @@ object BeatDetectorV3 {
         fullEnv: List<Float>,
         params: Params = Params(),
         songTitle: String? = null,
-        sectionBoundariesMs: List<Long> = emptyList()
+        sectionBoundariesMs: List<Long> = emptyList(),
+        context: android.content.Context? = null
     ): DetectResultV3 {
         if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
             return DetectResultV3(
@@ -1109,6 +1110,9 @@ object BeatDetectorV3 {
             Log.w(TAG, "V3 BPM탐지 실패! 신호 확인 필요 (ODF 약함)")
         }
 
+        // JSON 저장용: Method A BPM (tempogram 또는 AC peaks에서 선택)
+        methodABpm = bestBpm.toLong()
+
         Log.d(
             TAG,
             "V3 detect: title=\"$songTitle\" BPM=$bestBpm Confidence=${confidence * 100}%"
@@ -1123,6 +1127,8 @@ object BeatDetectorV3 {
         val reason: String
         var sectionInfo = ""
         var collectedSectionBpms: List<Pair<Long, Float>> = emptyList()  // Method B용
+        var methodBBpm = 0L  // JSON 저장용
+        var methodABpm = 0L  // JSON 저장용
 
         // 섹션별 BPM 분석 (Tempogram 기반 + 동적 감지)
         if (tempogram != null && params.useTempogram) {
@@ -1345,7 +1351,7 @@ object BeatDetectorV3 {
         // 최종 BPM 선택: Method B (섹션 중앙값) > 나머지
         val finalBpm = if (medianSectionBpm > 0f && collectedSectionBpms.size >= 2) {
             // Method B: 섹션 기반 중앙값 우선 (위상 정확도 개선)
-            val methodBBpm = medianSectionBpm.toLong()
+            methodBBpm = medianSectionBpm.toLong()
             val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
 
             // 극단값 분석
@@ -1356,7 +1362,7 @@ object BeatDetectorV3 {
 
             Log.d(
                 TAG,
-                "V3 METHOD_B_SELECTED: medianBpm=$methodBBpm (from ${collectedSectionBpms.size} sections, values=$sectionBpmList, " +
+                "V3 METHOD_B_SELECTED: medianBpm=${methodBBpm} (from ${collectedSectionBpms.size} sections, values=$sectionBpmList, " +
                 "min=$minBpm max=$maxBpm range=$range)"
             )
 
@@ -1418,6 +1424,36 @@ object BeatDetectorV3 {
             TAG,
             "V3 OK beats=${beats.size} BPM=$finalBpm Confidence=${confidence * 100}% reason=$reason"
         )
+
+        // JSON으로 분석 결과 저장 (종합 분석용)
+        if (context != null && songTitle != null) {
+            val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
+            val analysisJson = buildString {
+                append("{\"title\":\"$songTitle\",")
+                append("\"finalBpm\":$finalBpm,")
+                append("\"methodABpm\":$methodABpm,")
+                append("\"methodBBpm\":$methodBBpm,")
+                append("\"confidence\":${String.format("%.1f", confidence * 100)},")
+                append("\"beatCount\":${beats.size},")
+                append("\"reason\":\"$reason\",")
+                append("\"sectionCount\":${collectedSectionBpms.size},")
+                append("\"sectionBpms\":$sectionBpmList")
+                append("}")
+            }
+
+            try {
+                val filesDir = context.filesDir
+                val analysisDir = java.io.File(filesDir, "v3_analysis")
+                if (!analysisDir.exists()) {
+                    analysisDir.mkdirs()
+                }
+                val file = java.io.File(analysisDir, "bpm_results.jsonl")
+                file.appendText(analysisJson + "\n")
+                Log.d(TAG, "V3 ANALYSIS_SAVED: ${file.absolutePath}")
+            } catch (e: Exception) {
+                Log.e(TAG, "V3 SAVE_FAILED: ${e.message}")
+            }
+        }
 
         return DetectResultV3(
             beats = beats,
