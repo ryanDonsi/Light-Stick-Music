@@ -294,11 +294,41 @@ object BeatDetectorV3 {
         Log.d(TAG, "V3 TOP5_BPMS_BEFORE: $topBpmsBefore")
         Log.d(TAG, "V3 TOP5_BPMS_AFTER_HARMONIC_FILTER: $topBpmsAfter")
 
-        // 최고 강도의 lag 찾기 (필터링된 값 사용)
-        val bestLagIdx = harmonicFiltered.indices.maxByOrNull { harmonicFiltered[it] } ?: 0
-        val bestLag = bestLagIdx + minLag
+        // === Log-Normal Prior 적용으로 최고 BPM 선택 ===
+        // AC 값 × Log-Normal Prior(음악 BPM 확률 분포)로 최종 점수 계산
+        data class LagCandidate(val lag: Int, val ac: Float, val prior: Float, val score: Float)
+
+        val lagCandidates = harmonicFiltered.indices
+            .map { idx ->
+                val lag = idx + minLag
+                val bpm = 60_000L / (lag * hopMs)
+                val ac = harmonicFiltered[idx]
+                val prior = calculateLogNormalPrior(bpm)
+                val score = ac * prior  // AC × Prior
+                LagCandidate(lag, ac, prior, score)
+            }
+
+        val bestCandidate = lagCandidates.maxByOrNull { it.score } ?: lagCandidates.getOrNull(0)
+                ?: LagCandidate(minLag, 1f, 1f, 1f)
+
+        val bestLagIdx = bestCandidate.lag - minLag
+        val bestLag = bestCandidate.lag
         var finalLag = bestLag
         var bestBpm = 60_000L / (bestLag * hopMs)
+
+        // Log-Normal Prior 적용 로깅
+        val acOnlyBestIdx = harmonicFiltered.indices.maxByOrNull { harmonicFiltered[it] } ?: 0
+        val acOnlyBestLag = acOnlyBestIdx + minLag
+        val acOnlyBestBpm = 60_000L / (acOnlyBestLag * hopMs)
+        if (acOnlyBestBpm != bestBpm) {
+            Log.d(
+                TAG,
+                "V3 PRIOR_APPLIED: AC-only=${acOnlyBestBpm}BPM (prior=%.3f) → final=${bestBpm}BPM (prior=%.3f)".format(
+                    calculateLogNormalPrior(acOnlyBestBpm),
+                    bestCandidate.prior
+                )
+            )
+        }
 
         // 신뢰도: 필터링된 값 기준
         val sorted = harmonicFiltered.sortedDescending()
@@ -403,6 +433,34 @@ object BeatDetectorV3 {
         }
 
         return filtered
+    }
+
+    /**
+     * Log-Normal Prior: 음악 BPM 확률 분포 (V1 방식)
+     *
+     * 실제 음악은 특정 BPM 범위(60~180)에 편중됨.
+     * 절반 박자(30~90)나 2배 박자(120~360)는 확률이 낮음.
+     * 로그정규분포로 이를 모델링하여 AC값에 가중치 적용.
+     *
+     * @param bpm BPM 값
+     * @return 확률 가중치 (0~1)
+     */
+    private fun calculateLogNormalPrior(bpm: Long): Float {
+        if (bpm < 30 || bpm > 360) return 0.01f
+
+        // 로그정규분포 파라미터
+        val muLn = ln(110.0)  // 평균 110 BPM의 로그값
+        val sigma = 0.35f      // 표준편차 (분산 제어)
+
+        val lnBpm = ln(bpm.toDouble())
+        val exponent = -((lnBpm - muLn) * (lnBpm - muLn)) / (2 * sigma * sigma)
+
+        // 정규분포 확률밀도함수 (로그 스케일)
+        val density = (1.0 / (bpm * sigma * sqrt(2 * PI))).toFloat() *
+                      exp(exponent).toFloat()
+
+        // 0~1로 정규화 (최대값 약 0.011 at BPM=110)
+        return (density / 0.011f).coerceIn(0.01f, 1.0f)
     }
 
     /**
@@ -1386,20 +1444,46 @@ object BeatDetectorV3 {
                 }
             }
 
-            // 3단계: Top 10 peaks 추출 (개선된 AC값 기반)
-            val peaksByScore = (minLag..maxLag)
-                .map { lag -> Triple(lag, improvedAcVals[lag], 60_000L / (lag * params.hopMs)) }
-                .sortedByDescending { it.second }
-                .take(10)
+            // 3단계: Top 10 peaks 추출 (AC + Log-Normal Prior)
+            data class PeakCandidate(val lag: Int, val bpm: Long, val ac: Float, val prior: Float, val score: Float)
 
-            for ((lag, acVal, bpm) in peaksByScore) {
+            val peakCandidates = (minLag..maxLag)
+                .map { lag ->
+                    val bpm = 60_000L / (lag * params.hopMs)
+                    val acVal = improvedAcVals[lag]
+                    val prior = calculateLogNormalPrior(bpm)
+                    val score = acVal * prior  // AC × Prior = 최종 점수
+                    PeakCandidate(lag, bpm, acVal, prior, score)
+                }
+                .sortedByDescending { it.score }
+
+            val peaksByScore = peakCandidates.take(10)
+
+            for (peak in peaksByScore) {
                 acPeaksList.add(mapOf(
-                    "lag" to lag,
-                    "bpm" to bpm.toInt(),
-                    "ac" to String.format("%.6f", improvedAcVals[lag]),
-                    "ac_raw" to String.format("%.6f", acVals[lag]),
-                    "ratio" to String.format("%.2f", bpm.toFloat() / bestBpm)
+                    "lag" to peak.lag,
+                    "bpm" to peak.bpm.toInt(),
+                    "ac" to String.format("%.6f", peak.ac),
+                    "ac_raw" to String.format("%.6f", acVals[peak.lag]),
+                    "ratio" to String.format("%.2f", peak.bpm.toFloat() / bestBpm)
                 ))
+            }
+
+            // Log-Normal Prior 적용 결과
+            if (peakCandidates.isNotEmpty()) {
+                val topWithoutPrior = (minLag..maxLag)
+                    .maxByOrNull { improvedAcVals[it] }
+                if (topWithoutPrior != null) {
+                    val topBpmWithoutPrior = 60_000L / (topWithoutPrior * params.hopMs)
+                    val topWithPrior = peakCandidates[0]
+
+                    if (topBpmWithoutPrior != topWithPrior.bpm) {
+                        Log.d(
+                            TAG,
+                            "V3 PRIOR_APPLIED: AC only=${topBpmWithoutPrior}BPM prior=${topWithPrior.bpm}BPM (prior weight=%.3f)".format(topWithPrior.prior)
+                        )
+                    }
+                }
             }
         }
 
