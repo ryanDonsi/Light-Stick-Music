@@ -2114,8 +2114,9 @@ object BeatDetectorV3 {
 
         // [V3 개선] Mid 대역 신뢰도 강화
         // Ed Sheeran 같은 곡에서 드럼/보컬(mid 대역)의 주기성을 더 강하게 반영
-        val enhancedMidWeight = midWeight * 1.15f  // Mid 대역 15% 추가 강화
-        val adjustedLowWeight = lowWeight * 0.85f   // Low 대역 15% 감소
+        // 스펙트럼 분석 결과: Mid 대역이 가장 강하고 신뢰도 높음
+        val enhancedMidWeight = midWeight * 1.25f  // Mid 대역 25% 추가 강화 (15% → 25%)
+        val adjustedLowWeight = lowWeight * 0.70f   // Low 대역 30% 감소 (15% → 30%)
 
         // 가중치 정규화
         val totalWeight = adjustedLowWeight + enhancedMidWeight + fullWeight
