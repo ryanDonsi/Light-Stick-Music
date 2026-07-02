@@ -51,12 +51,6 @@ object BeatDetectorV3 {
     private const val MID_LP1_ALPHA = 0.35f
     private const val MID_LP2_ALPHA = 0.08f
 
-    // V3.1: 5-band 주파수 분해를 위한 추가 필터 상수
-    private const val VERYLOW_ALPHA = 0.08f  // 20-100 Hz (deep bass)
-    private const val LOWMID_ALPHA = 0.20f   // 100-400 Hz (bass + kick)
-    private const val HIGH_LP1_ALPHA = 0.50f // High filter LP1
-    private const val HIGH_LP2_ALPHA = 0.15f // High filter LP2
-
     data class TimedBeat(val timeMs: Long, val confidence: Float)
 
     enum class TimeSignatureType { FOUR_FOUR, THREE_FOUR, SIX_EIGHT }
@@ -75,16 +69,6 @@ object BeatDetectorV3 {
     }
 
     enum class BeatSource { FULL }
-
-    // V3.1: 6-tuple helper class
-    data class Hextuple<A, B, C, D, E, F>(val first: A, val second: B, val third: C, val fourth: D, val fifth: E, val sixth: F) {
-        operator fun component1() = first
-        operator fun component2() = second
-        operator fun component3() = third
-        operator fun component4() = fourth
-        operator fun component5() = fifth
-        operator fun component6() = sixth
-    }
 
     data class Params(
         val hopMs: Long = 10L,  // madmom과 동일하게 10ms로 변경
@@ -1294,66 +1278,38 @@ object BeatDetectorV3 {
             )
         }
 
-        // PCM → Envelope 계산 (V3.1: 5-band 주파수 분해)
+        // PCM → Envelope 계산 (V1과 동일한 IIR 필터)
         val hopSamples = kotlin.math.max(1, (sampleRate * params.hopMs / 1000).toInt())
         val numFrames = monoSamples.size / hopSamples
         val outLow = ArrayList<Float>(numFrames)
         val outMid = ArrayList<Float>(numFrames)
         val outFull = ArrayList<Float>(numFrames)
-        val outVeryLow = ArrayList<Float>(numFrames)
-        val outLowMid = ArrayList<Float>(numFrames)
-        val outHigh = ArrayList<Float>(numFrames)
 
         var lowZ = 0f
         var midLP1 = 0f
         var midLP2 = 0f
-        var veryLowZ = 0f
-        var lowMidZ = 0f
-        var highLP1 = 0f
-        var highLP2 = 0f
         var lowSumSq = 0f
         var midSumSq = 0f
         var fullSumSq = 0f
-        var veryLowSumSq = 0f
-        var lowMidSumSq = 0f
-        var highSumSq = 0f
         var winPos = 0
 
         for (sample in monoSamples) {
             lowZ += LOW_ALPHA * (sample - lowZ)
             midLP1 += MID_LP1_ALPHA * (sample - midLP1)
             midLP2 += MID_LP2_ALPHA * (sample - midLP2)
-            veryLowZ += VERYLOW_ALPHA * (sample - veryLowZ)
-            lowMidZ += LOWMID_ALPHA * (sample - lowMidZ)
-            highLP1 += HIGH_LP1_ALPHA * (sample - highLP1)
-            highLP2 += HIGH_LP2_ALPHA * (sample - highLP2)
-
             val lowVal = kotlin.math.abs(lowZ)
             val midVal = kotlin.math.abs(midLP1 - midLP2)
-            val veryLowVal = kotlin.math.abs(veryLowZ)
-            val lowMidVal = kotlin.math.abs(lowMidZ)
-            val highVal = kotlin.math.abs(highLP1 - highLP2)
-
             lowSumSq += lowVal * lowVal
             midSumSq += midVal * midVal
             fullSumSq += sample * sample
-            veryLowSumSq += veryLowVal * veryLowVal
-            lowMidSumSq += lowMidVal * lowMidVal
-            highSumSq += highVal * highVal
             winPos++
             if (winPos >= hopSamples) {
                 outLow += kotlin.math.sqrt(lowSumSq / winPos)
                 outMid += kotlin.math.sqrt(midSumSq / winPos)
                 outFull += kotlin.math.sqrt(fullSumSq / winPos)
-                outVeryLow += kotlin.math.sqrt(veryLowSumSq / winPos)
-                outLowMid += kotlin.math.sqrt(lowMidSumSq / winPos)
-                outHigh += kotlin.math.sqrt(highSumSq / winPos)
                 lowSumSq = 0f
                 midSumSq = 0f
                 fullSumSq = 0f
-                veryLowSumSq = 0f
-                lowMidSumSq = 0f
-                highSumSq = 0f
                 winPos = 0
             }
         }
@@ -1364,47 +1320,33 @@ object BeatDetectorV3 {
             return if (mx > 1e-6f) src.map { (it / mx).coerceIn(0f, 1f) } else src
         }
 
-        return detectMultiBand(
-            normalizeEnv(outVeryLow), normalizeEnv(outLowMid), normalizeEnv(outLow),
-            normalizeEnv(outMid), normalizeEnv(outHigh), normalizeEnv(outFull),
+        return detect(
+            normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outFull),
             params, songTitle, emptyList(), context
         )
     }
 
     /**
-     * V3.1: 5-band 다중 주파수 분석을 위한 새로운 detect 함수
-     * (V1과의 호환성을 위해 기존 detect() 함수도 유지)
+     * V1의 detect()와 호환되는 인터페이스
+     * DetectResultV3 반환
      */
-    fun detectMultiBand(
-        veryLowEnv: List<Float>,
-        lowMidEnv: List<Float>,
+    fun detect(
         lowEnv: List<Float>,
         midEnv: List<Float>,
-        highEnv: List<Float>,
         fullEnv: List<Float>,
         params: Params = Params(),
         songTitle: String? = null,
         sectionBoundariesMs: List<Long> = emptyList(),
         context: android.content.Context? = null
     ): DetectResultV3 {
-        if (veryLowEnv.isEmpty() || lowMidEnv.isEmpty() || lowEnv.isEmpty() ||
-            midEnv.isEmpty() || highEnv.isEmpty() || fullEnv.isEmpty()) {
+        if (lowEnv.isEmpty() || midEnv.isEmpty() || fullEnv.isEmpty()) {
             return DetectResultV3(
                 emptyList(), 0L, 0f, null,
                 "empty env", 0L, TimeSignature.FOUR_FOUR
             )
         }
 
-        val minSize = minOf(veryLowEnv.size, lowMidEnv.size, lowEnv.size,
-                            midEnv.size, highEnv.size, fullEnv.size)
-        val veryLow: FloatArray = when (veryLowEnv) {
-            is FloatArray -> veryLowEnv.copyOf(minSize)
-            else -> veryLowEnv.take(minSize).toFloatArray()
-        }
-        val lowMid: FloatArray = when (lowMidEnv) {
-            is FloatArray -> lowMidEnv.copyOf(minSize)
-            else -> lowMidEnv.take(minSize).toFloatArray()
-        }
+        val minSize = minOf(lowEnv.size, midEnv.size, fullEnv.size)
         val low: FloatArray = when (lowEnv) {
             is FloatArray -> lowEnv.copyOf(minSize)
             else -> lowEnv.take(minSize).toFloatArray()
@@ -1413,17 +1355,13 @@ object BeatDetectorV3 {
             is FloatArray -> midEnv.copyOf(minSize)
             else -> midEnv.take(minSize).toFloatArray()
         }
-        val high: FloatArray = when (highEnv) {
-            is FloatArray -> highEnv.copyOf(minSize)
-            else -> highEnv.take(minSize).toFloatArray()
-        }
         val full: FloatArray = when (fullEnv) {
             is FloatArray -> fullEnv.copyOf(minSize)
             else -> fullEnv.take(minSize).toFloatArray()
         }
 
-        // V3.1: 5-band ODF 계산
-        val globalOdf = computeFiveBandFluxOdf(veryLow, lowMid, low, mid, high, full, params)
+        // ODF 계산 (V1과 동일)
+        val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)
 
         // V3 BPM 탐지
         val (bestBpm, confidence, tempogram) = estimateBpmV3(
@@ -2159,61 +2097,6 @@ object BeatDetectorV3 {
 
     // ====================== V1 호환 헬퍼 메서드들 ======================
 
-    /**
-     * V3.1: 5-band 주파수 분해를 이용한 ODF 계산
-     * 더 정밀한 주파수 분석으로 특정 BPM을 놓치는 문제 해결
-     */
-    private fun computeFiveBandFluxOdf(
-        veryLow: FloatArray, lowMid: FloatArray, low: FloatArray,
-        mid: FloatArray, high: FloatArray, full: FloatArray,
-        params: Params
-    ): FloatArray {
-        val n = minOf(veryLow.size, lowMid.size, low.size, mid.size, high.size, full.size)
-
-        // 각 대역의 ODF 계산
-        val veryLowFlux = computeOdf(veryLow.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val lowMidFlux = computeOdf(lowMid.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val lowFlux = computeOdf(low.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val midFlux = computeOdf(mid.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val highFlux = computeOdf(high.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-        val fullFlux = computeOdf(full.toList().take(n), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
-
-        // 5대역 적응적 가중치 계산
-        val (veryLowWeight, lowMidWeight, lowWeight, midWeight, highWeight, fullWeight) =
-            calculateAdaptiveFiveBandWeights(
-                veryLowFlux.toFloatArray(), lowMidFlux.toFloatArray(),
-                lowFlux.toFloatArray(), midFlux.toFloatArray(),
-                highFlux.toFloatArray(), fullFlux.toFloatArray()
-            )
-
-        // 가중치 정규화
-        val totalWeight = veryLowWeight + lowMidWeight + lowWeight + midWeight + highWeight + fullWeight
-        val normVeryLowWeight = veryLowWeight / totalWeight
-        val normLowMidWeight = lowMidWeight / totalWeight
-        val normLowWeight = lowWeight / totalWeight
-        val normMidWeight = midWeight / totalWeight
-        val normHighWeight = highWeight / totalWeight
-        val normFullWeight = fullWeight / totalWeight
-
-        val combined = ArrayList<Float>(n)
-        for (i in 0 until n) {
-            combined += veryLowFlux[i] * normVeryLowWeight +
-                       lowMidFlux[i] * normLowMidWeight +
-                       lowFlux[i] * normLowWeight +
-                       midFlux[i] * normMidWeight +
-                       highFlux[i] * normHighWeight +
-                       fullFlux[i] * normFullWeight
-        }
-
-        Log.d(
-            TAG,
-            "V3.1 ODF_5BAND_WEIGHTS: veryLow=${"%.2f".format(normVeryLowWeight)} lowMid=${"%.2f".format(normLowMidWeight)} " +
-            "low=${"%.2f".format(normLowWeight)} mid=${"%.2f".format(normMidWeight)} high=${"%.2f".format(normHighWeight)} full=${"%.2f".format(normFullWeight)}"
-        )
-
-        return localNormalizeMean(combined, GLOBAL_NORM_WINDOW).toFloatArray()
-    }
-
     private fun computeMultiBandFluxOdf(
         low: FloatArray, mid: FloatArray, full: FloatArray, params: Params
     ): FloatArray {
@@ -2260,88 +2143,6 @@ object BeatDetectorV3 {
 
     // [V3 개선] 대역별 ODF 저장소
     private var bandOdfs: Triple<FloatArray, FloatArray, FloatArray>? = null
-
-    /**
-     * V3.1: 5대역을 위한 적응적 가중치 계산
-     * 더 정밀한 주파수 분석으로 특정 BPM 주기를 더 잘 포착
-     */
-    private fun calculateAdaptiveFiveBandWeights(
-        veryLowFlux: FloatArray,
-        lowMidFlux: FloatArray,
-        lowFlux: FloatArray,
-        midFlux: FloatArray,
-        highFlux: FloatArray,
-        fullFlux: FloatArray
-    ): Hextuple<Float, Float, Float, Float, Float, Float> {
-        // 기본 가중치 (각 대역의 상대적 중요도)
-        var veryLowWeight = 0.7f  // 깊은 저음 (20-100Hz) - kick drums의 기본음
-        var lowMidWeight = 1.2f   // 저음~저중음 (100-400Hz) - kick/bass harmonics
-        var lowWeight = 1.0f      // 저음 (원래 low band)
-        var midWeight = 1.8f      // 중음 (vocals, drums) - 가장 신뢰도 높음
-        var highWeight = 0.6f     // 고음 (cymbals, brightness)
-        var fullWeight = 0.8f     // 전체
-
-        if (veryLowFlux.isEmpty() || lowMidFlux.isEmpty() || lowFlux.isEmpty() ||
-            midFlux.isEmpty() || highFlux.isEmpty() || fullFlux.isEmpty()) {
-            return Hextuple(veryLowWeight, lowMidWeight, lowWeight, midWeight, highWeight, fullWeight)
-        }
-
-        // 각 대역의 에너지 분석
-        val veryLowEnergy = veryLowFlux.average().toFloat()
-        val lowMidEnergy = lowMidFlux.average().toFloat()
-        val lowEnergy = lowFlux.average().toFloat()
-        val midEnergy = midFlux.average().toFloat()
-        val highEnergy = highFlux.average().toFloat()
-        val fullEnergy = fullFlux.average().toFloat()
-
-        val veryLowMax = veryLowFlux.maxOrNull() ?: 0f
-        val lowMidMax = lowMidFlux.maxOrNull() ?: 0f
-        val lowMax = lowFlux.maxOrNull() ?: 0f
-        val midMax = midFlux.maxOrNull() ?: 0f
-        val highMax = highFlux.maxOrNull() ?: 0f
-        val fullMax = fullFlux.maxOrNull() ?: 0f
-
-        // 상대 에너지 비율
-        val totalEnergy = veryLowEnergy + lowMidEnergy + lowEnergy + midEnergy + highEnergy + fullEnergy
-        if (totalEnergy < 1e-6f) {
-            return Hextuple(veryLowWeight, lowMidWeight, lowWeight, midWeight, highWeight, fullWeight)
-        }
-
-        val veryLowEnergyRatio = veryLowEnergy / totalEnergy
-        val lowMidEnergyRatio = lowMidEnergy / totalEnergy
-        val lowEnergyRatio = lowEnergy / totalEnergy
-        val midEnergyRatio = midEnergy / totalEnergy
-        val highEnergyRatio = highEnergy / totalEnergy
-        val fullEnergyRatio = fullEnergy / totalEnergy
-
-        // 피크 강도 비율
-        val totalPeak = veryLowMax + lowMidMax + lowMax + midMax + highMax + fullMax
-        val veryLowPeakRatio = if (totalPeak > 0) veryLowMax / totalPeak else 0f
-        val lowMidPeakRatio = if (totalPeak > 0) lowMidMax / totalPeak else 0f
-        val lowPeakRatio = if (totalPeak > 0) lowMax / totalPeak else 0f
-        val midPeakRatio = if (totalPeak > 0) midMax / totalPeak else 0f
-        val highPeakRatio = if (totalPeak > 0) highMax / totalPeak else 0f
-        val fullPeakRatio = if (totalPeak > 0) fullMax / totalPeak else 0f
-
-        // 적응적 가중치 조정
-        veryLowWeight = 0.5f + veryLowEnergyRatio * 0.8f + veryLowPeakRatio * 0.4f
-        lowMidWeight = 0.8f + lowMidEnergyRatio * 1.0f + lowMidPeakRatio * 0.6f
-        lowWeight = 0.8f + lowEnergyRatio * 1.2f + lowPeakRatio * 0.5f
-        midWeight = 1.2f + midEnergyRatio * 1.2f + midPeakRatio * 0.8f  // Mid는 여전히 높은 가중치
-        highWeight = 0.4f + highEnergyRatio * 0.8f + highPeakRatio * 0.3f
-        fullWeight = 0.6f + fullEnergyRatio * 0.8f + fullPeakRatio * 0.3f
-
-        // 정규화: 가중치 합이 6.0이 되도록
-        val weightSum = veryLowWeight + lowMidWeight + lowWeight + midWeight + highWeight + fullWeight
-        veryLowWeight = veryLowWeight * 6.0f / weightSum
-        lowMidWeight = lowMidWeight * 6.0f / weightSum
-        lowWeight = lowWeight * 6.0f / weightSum
-        midWeight = midWeight * 6.0f / weightSum
-        highWeight = highWeight * 6.0f / weightSum
-        fullWeight = fullWeight * 6.0f / weightSum
-
-        return Hextuple(veryLowWeight, lowMidWeight, lowWeight, midWeight, highWeight, fullWeight)
-    }
 
     /**
      * 곡의 주파수 특성에 따른 적응적 대역 가중치 계산
