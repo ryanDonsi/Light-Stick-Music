@@ -41,9 +41,9 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         private const val TEST_FORCE_REGENERATE = false
 
         /**
-         * 동시 처리할 파일 수. IndexOutOfBoundsException 방지 및 리소스 누수 해결을 위해 1로 변경 (순차 처리)
+         * 동시 처리할 파일 수. V3는 메모리 집약적이므로 2로 제한 (병렬성 유지 + 안정성)
          */
-        private const val PARALLEL_COUNT = 1
+        private const val PARALLEL_COUNT = 2
     }
 
     /**
@@ -131,6 +131,9 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                         } catch (t: Throwable) {
                             failed.incrementAndGet()
                             Log.e(TAG, "failed v$version file=${file.name} err=${t.message}")
+                        } finally {
+                            // 각 파일 처리 완료 후 즉시 GC: V3의 메모리 누수 방지
+                            Runtime.getRuntime().gc()
                         }
                     }
                 }
