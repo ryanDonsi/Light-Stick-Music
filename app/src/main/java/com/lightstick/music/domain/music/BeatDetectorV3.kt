@@ -1387,10 +1387,9 @@ object BeatDetectorV3 {
 
         val integratedLow = ArrayList<Float>(veryLowEnv.size)
         for (i in veryLowEnv.indices) {
-            val integrated = (veryLowEnv[i] * 0.35f +
-                            (lowMidEnv.getOrNull(i)?.let { it * 0.25f } ?: 0f) +
-                            (lowEnv.getOrNull(i)?.let { it * 0.15f } ?: 0f) +
-                            (highEnv.getOrNull(i)?.let { it * 0.25f } ?: 0f))
+            val integrated = (veryLowEnv[i] * 0.5f +
+                            (lowMidEnv.getOrNull(i)?.let { it * 0.3f } ?: 0f) +
+                            (lowEnv.getOrNull(i)?.let { it * 0.2f } ?: 0f))
             integratedLow.add(integrated)
         }
 
