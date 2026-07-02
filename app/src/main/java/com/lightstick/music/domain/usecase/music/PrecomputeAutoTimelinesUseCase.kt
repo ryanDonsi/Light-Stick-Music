@@ -41,9 +41,9 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         private const val TEST_FORCE_REGENERATE = false
 
         /**
-         * 동시 처리할 파일 수. V3는 메모리 집약적이므로 2로 제한 (병렬성 유지 + 안정성)
+         * 동시 처리할 파일 수. V3는 메모리 집약적이지만 배열 범위 오류 해결 후 원복
          */
-        private const val PARALLEL_COUNT = 2
+        private const val PARALLEL_COUNT = 3
     }
 
     /**
