@@ -2112,19 +2112,36 @@ object BeatDetectorV3 {
             fullFlux.toFloatArray()
         )
 
+        // [V3 개선] Mid 대역 신뢰도 강화
+        // Ed Sheeran 같은 곡에서 드럼/보컬(mid 대역)의 주기성을 더 강하게 반영
+        val enhancedMidWeight = midWeight * 1.15f  // Mid 대역 15% 추가 강화
+        val adjustedLowWeight = lowWeight * 0.85f   // Low 대역 15% 감소
+
+        // 가중치 정규화
+        val totalWeight = adjustedLowWeight + enhancedMidWeight + fullWeight
+        val normLowWeight = adjustedLowWeight / totalWeight
+        val normMidWeight = enhancedMidWeight / totalWeight
+        val normFullWeight = fullWeight / totalWeight
+
         val combined = ArrayList<Float>(n)
         for (i in 0 until n) {
-            combined += lowFlux[i] * lowWeight + midFlux[i] * midWeight + fullFlux[i] * fullWeight
+            combined += lowFlux[i] * normLowWeight + midFlux[i] * normMidWeight + fullFlux[i] * normFullWeight
         }
 
         // 로깅: 적응적 가중치 정보
         Log.d(
             TAG,
-            "V3 ODF_BAND_WEIGHTS: low=${"%.2f".format(lowWeight)} mid=${"%.2f".format(midWeight)} full=${"%.2f".format(fullWeight)}"
+            "V3 ODF_BAND_WEIGHTS: low=${"%.2f".format(normLowWeight)} mid=${"%.2f".format(normMidWeight)} full=${"%.2f".format(normFullWeight)} (mid_enhanced)"
         )
+
+        // [V3 개선] 대역별 ODF 저장 (나중에 AC 계산에 활용)
+        bandOdfs = Triple(lowFlux.toFloatArray(), midFlux.toFloatArray(), fullFlux.toFloatArray())
 
         return localNormalizeMean(combined, GLOBAL_NORM_WINDOW).toFloatArray()
     }
+
+    // [V3 개선] 대역별 ODF 저장소
+    private var bandOdfs: Triple<FloatArray, FloatArray, FloatArray>? = null
 
     /**
      * 곡의 주파수 특성에 따른 적응적 대역 가중치 계산
