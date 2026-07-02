@@ -41,9 +41,9 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         private const val TEST_FORCE_REGENERATE = false
 
         /**
-         * 동시 처리할 파일 수. MediaCodec 인스턴스 수와 CPU 부하를 고려해 3으로 고정.
+         * 동시 처리할 파일 수. IndexOutOfBoundsException 방지 및 리소스 누수 해결을 위해 1로 변경 (순차 처리)
          */
-        private const val PARALLEL_COUNT = 3
+        private const val PARALLEL_COUNT = 1
     }
 
     /**
