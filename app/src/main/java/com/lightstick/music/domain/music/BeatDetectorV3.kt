@@ -439,10 +439,18 @@ object BeatDetectorV3 {
             // 스펙트럼 농도 = 인접 값들의 분산 역수
             // 주기가 일관되면 인접 값들의 분산이 작음
             val variance = mutableListOf<Float>()
-            for (i in 1 until minOf(lag, globalOdf.size - lag)) {
-                val val1 = globalOdf[i * lag]
-                val val2 = globalOdf[i * lag + minOf(1, globalOdf.size - (i * lag) - 1)]
-                variance.add((val1 - val2) * (val1 - val2))
+
+            // i * lag이 배열 범위를 벗어나지 않도록 상한 계산
+            val maxI = globalOdf.size / lag
+            for (i in 1..minOf(3, maxI - 1)) {  // 최대 3개 구간만 검사 (효율성)
+                val idx1 = i * lag
+                val idx2 = idx1 + 1
+
+                if (idx1 < globalOdf.size && idx2 < globalOdf.size) {
+                    val val1 = globalOdf[idx1]
+                    val val2 = globalOdf[idx2]
+                    variance.add((val1 - val2) * (val1 - val2))
+                }
             }
 
             spectralConcentration[idx] = if (variance.isNotEmpty()) {
@@ -1352,8 +1360,12 @@ object BeatDetectorV3 {
             }
 
             // 2단계: Tempogram AC 개선 (스펙트럼 농도 기반 가중치 + 하모닉 필터링)
-            // TODO: AC 개선으로 인한 배열 범위 오류 임시 해결
-            val improvedAcVals = acVals  // 임시: AC 개선 비활성화, 원본 값 사용
+            val improvedAcVals = improveAcValuesWithSpectralWeighting(
+                globalOdf,
+                acVals,
+                minLag,
+                params.hopMs
+            )
 
             // 로깅: AC 개선 효과 분석
             val topBefore = acVals.withIndex()
