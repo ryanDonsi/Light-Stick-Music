@@ -2405,18 +2405,44 @@ object BeatDetectorV3 {
         midWeight = midWeight * 3.0f / weightSum
         fullWeight = fullWeight * 3.0f / weightSum
 
-        // 절반 박자 필터링: Low 대역의 피크가 Mid보다 크면 감소
-        // 이는 저음에서의 절반 박자 선호 현상을 완화
+        // [V3.2] 강화된 절반 박자 필터링
+        // 분석: V3에서 29.7%가 0.5x 에러 (절반 박자)로 감지
+        // 원인: Low 대역이 절반 주기를 강하게 포착하는 경향
+        // 해결: Low 대역의 가중치를 더 공격적으로 감소
+
+        // 절반 박자 신호 감지: Low peak가 Mid peak의 1.2배 이상
         if (lowPeakRatio > midPeakRatio * 1.2f) {
-            // Low가 비정상적으로 강함 → 절반 박자일 가능성
-            lowWeight = lowWeight * 0.75f
-            midWeight = midWeight * 1.1f
+            // 절반 박자 가능성이 높음
+            // Low를 원래 3분의 1 이하로 감소
+            lowWeight = lowWeight * 0.33f  // 기존 0.75 → 0.33 (더 강한 감소)
+            midWeight = midWeight * 1.25f  // Mid 강화 (기존 1.1 → 1.25)
 
             // 정규화 재적용
             val newWeightSum = lowWeight + midWeight + fullWeight
             lowWeight = lowWeight * 3.0f / newWeightSum
             midWeight = midWeight * 3.0f / newWeightSum
             fullWeight = fullWeight * 3.0f / newWeightSum
+
+            Log.d(
+                TAG,
+                "V3.2 HALF_TEMPO_PENALTY: lowPeakRatio=${"%.2f".format(lowPeakRatio)} vs midPeakRatio=${"%.2f".format(midPeakRatio)} → aggressive low reduction"
+            )
+        }
+        // 추가: Mid가 Low의 1.3배 이상 강하면 Mid를 더 신뢰
+        else if (midPeakRatio > lowPeakRatio * 1.3f) {
+            midWeight = midWeight * 1.15f
+            lowWeight = lowWeight * 0.85f
+
+            // 정규화
+            val newWeightSum = lowWeight + midWeight + fullWeight
+            lowWeight = lowWeight * 3.0f / newWeightSum
+            midWeight = midWeight * 3.0f / newWeightSum
+            fullWeight = fullWeight * 3.0f / newWeightSum
+
+            Log.d(
+                TAG,
+                "V3.2 MID_PREFERENCE: midPeakRatio=${"%.2f".format(midPeakRatio)} > lowPeakRatio → mid boost"
+            )
         }
 
         return Triple(lowWeight, midWeight, fullWeight)
