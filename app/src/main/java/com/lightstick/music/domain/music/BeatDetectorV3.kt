@@ -1811,8 +1811,9 @@ object BeatDetectorV3 {
                     acPeaksList.mapIndexed { idx, peak ->
                         val bpmVal = peak["bpm"]?.toString() ?: "0"
                         val acVal = peak["ac"]?.toString() ?: "0"
+                        val acRawVal = peak["ac_raw"]?.toString() ?: "0"
                         val ratioVal = peak["ratio"]?.toString() ?: "0"
-                        "{\"index\":$idx,\"bpm\":$bpmVal,\"ac\":\"$acVal\",\"ratio\":\"$ratioVal\"}"
+                        "{\"index\":$idx,\"bpm\":$bpmVal,\"ac\":\"$acVal\",\"ac_raw\":\"$acRawVal\",\"ratio\":\"$ratioVal\"}"
                     }.joinToString(",")
                 } else ""
 
