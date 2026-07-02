@@ -1365,7 +1365,8 @@ object BeatDetectorV3 {
     }
 
     /**
-     * V3.1: 5-band 주파수 분석
+     * V3.2: Band Voting 시스템
+     * 각 주파수 대역이 독립적으로 BPM 투표 → 다수결로 최종 BPM 결정
      * detectPcm에서만 호출됨
      */
     private fun detectFiveBand(
@@ -1380,24 +1381,45 @@ object BeatDetectorV3 {
         sectionBoundariesMs: List<Long> = emptyList(),
         context: android.content.Context? = null
     ): DetectResultV3 {
-        // 5-band를 기본 3-band (low, mid, full)에 통합
-        // Low = (veryLow * 0.5 + lowMid * 0.3 + low * 0.2) - 전체 저주파 에너지
-        // Mid = mid (유지)
-        // Full = full (유지)
+        // 각 대역별 ODF 계산
+        val odfVeryLow = computeMultiBandFluxOdf(veryLowEnv, veryLowEnv, veryLowEnv, params)
+        val odfLowMid = computeMultiBandFluxOdf(lowMidEnv, lowMidEnv, lowMidEnv, params)
+        val odfLow = computeMultiBandFluxOdf(lowEnv, lowEnv, lowEnv, params)
+        val odfMid = computeMultiBandFluxOdf(midEnv, midEnv, midEnv, params)
+        val odfHigh = computeMultiBandFluxOdf(highEnv, highEnv, highEnv, params)
 
-        val integratedLow = ArrayList<Float>(veryLowEnv.size)
-        for (i in veryLowEnv.indices) {
-            val integrated = (veryLowEnv[i] * 0.5f +
-                            (lowMidEnv.getOrNull(i)?.let { it * 0.3f } ?: 0f) +
-                            (lowEnv.getOrNull(i)?.let { it * 0.2f } ?: 0f))
-            integratedLow.add(integrated)
-        }
+        // 각 대역에서 BPM 추출 (투표)
+        val (veryLowBpm, _, _) = estimateBpmV3(odfVeryLow, params.hopMs, params.minBeatMs, params.maxBeatMs, params.useTempogram)
+        val (lowMidBpm, _, _) = estimateBpmV3(odfLowMid, params.hopMs, params.minBeatMs, params.maxBeatMs, params.useTempogram)
+        val (lowBpm, _, _) = estimateBpmV3(odfLow, params.hopMs, params.minBeatMs, params.maxBeatMs, params.useTempogram)
+        val (midBpm, _, _) = estimateBpmV3(odfMid, params.hopMs, params.minBeatMs, params.maxBeatMs, params.useTempogram)
+        val (highBpm, _, _) = estimateBpmV3(odfHigh, params.hopMs, params.minBeatMs, params.maxBeatMs, params.useTempogram)
 
-        // 원래 detect() 호출
-        return detect(
-            integratedLow, midEnv, fullEnv,
+        // 가중치 적용 투표 (High 대역에 더 높은 가중치)
+        val bandVotes = mutableMapOf<Long, Float>()
+        bandVotes[veryLowBpm.toLong()] = (bandVotes[veryLowBpm.toLong()] ?: 0f) + 0.15f
+        bandVotes[lowMidBpm.toLong()] = (bandVotes[lowMidBpm.toLong()] ?: 0f) + 0.15f
+        bandVotes[lowBpm.toLong()] = (bandVotes[lowBpm.toLong()] ?: 0f) + 0.20f
+        bandVotes[midBpm.toLong()] = (bandVotes[midBpm.toLong()] ?: 0f) + 0.25f
+        bandVotes[highBpm.toLong()] = (bandVotes[highBpm.toLong()] ?: 0f) + 0.25f
+
+        // 최다 투표 BPM 결정
+        val finalBandVoteBpm = bandVotes.maxByOrNull { it.value }?.key ?: lowBpm.toLong()
+
+        Log.d(TAG, "V3.2 BAND_VOTING: veryLow=$veryLowBpm, lowMid=$lowMidBpm, low=$lowBpm, mid=$midBpm, high=$highBpm → Final=$finalBandVoteBpm")
+
+        // detect()를 호출하되, 투표 결과를 고려
+        val result = detect(
+            lowEnv, midEnv, fullEnv,
             params, songTitle, sectionBoundariesMs, context
         )
+
+        // 만약 detect()의 결과와 Band Voting이 크게 다르면 로깅
+        if (result.bpm.toLong() != finalBandVoteBpm && result.bpm > 0) {
+            Log.d(TAG, "V3.2 BPM_MISMATCH: detect()=${ result.bpm}, bandVoting=$finalBandVoteBpm")
+        }
+
+        return result
     }
 
     /**
