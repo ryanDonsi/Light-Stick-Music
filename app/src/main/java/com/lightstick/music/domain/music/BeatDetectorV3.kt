@@ -1352,12 +1352,8 @@ object BeatDetectorV3 {
             }
 
             // 2단계: Tempogram AC 개선 (스펙트럼 농도 기반 가중치 + 하모닉 필터링)
-            val improvedAcVals = improveAcValuesWithSpectralWeighting(
-                globalOdf,
-                acVals,
-                minLag,
-                params.hopMs
-            )
+            // TODO: AC 개선으로 인한 배열 범위 오류 임시 해결
+            val improvedAcVals = acVals  // 임시: AC 개선 비활성화, 원본 값 사용
 
             // 로깅: AC 개선 효과 분석
             val topBefore = acVals.withIndex()
