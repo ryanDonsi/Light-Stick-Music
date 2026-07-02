@@ -51,6 +51,12 @@ object BeatDetectorV3 {
     private const val MID_LP1_ALPHA = 0.35f
     private const val MID_LP2_ALPHA = 0.08f
 
+    // V3.1: 5-band 추가 필터 상수
+    private const val VERYLOW_ALPHA = 0.08f   // 20-100Hz
+    private const val LOWMID_ALPHA = 0.20f    // 100-400Hz
+    private const val HIGH_LP1_ALPHA = 0.50f  // High band LP1
+    private const val HIGH_LP2_ALPHA = 0.15f  // High band LP2
+
     data class TimedBeat(val timeMs: Long, val confidence: Float)
 
     enum class TimeSignatureType { FOUR_FOUR, THREE_FOUR, SIX_EIGHT }
@@ -1278,37 +1284,66 @@ object BeatDetectorV3 {
             )
         }
 
-        // PCM → Envelope 계산 (V1과 동일한 IIR 필터)
+        // PCM → Envelope 계산 (V3.1: 5-band 주파수 분해)
         val hopSamples = kotlin.math.max(1, (sampleRate * params.hopMs / 1000).toInt())
         val numFrames = monoSamples.size / hopSamples
+        val outVeryLow = ArrayList<Float>(numFrames)
+        val outLowMid = ArrayList<Float>(numFrames)
         val outLow = ArrayList<Float>(numFrames)
         val outMid = ArrayList<Float>(numFrames)
+        val outHigh = ArrayList<Float>(numFrames)
         val outFull = ArrayList<Float>(numFrames)
 
+        var veryLowZ = 0f
+        var lowMidZ = 0f
         var lowZ = 0f
         var midLP1 = 0f
         var midLP2 = 0f
+        var highLP1 = 0f
+        var highLP2 = 0f
+        var veryLowSumSq = 0f
+        var lowMidSumSq = 0f
         var lowSumSq = 0f
         var midSumSq = 0f
+        var highSumSq = 0f
         var fullSumSq = 0f
         var winPos = 0
 
         for (sample in monoSamples) {
+            veryLowZ += VERYLOW_ALPHA * (sample - veryLowZ)
+            lowMidZ += LOWMID_ALPHA * (sample - lowMidZ)
             lowZ += LOW_ALPHA * (sample - lowZ)
             midLP1 += MID_LP1_ALPHA * (sample - midLP1)
             midLP2 += MID_LP2_ALPHA * (sample - midLP2)
+            highLP1 += HIGH_LP1_ALPHA * (sample - highLP1)
+            highLP2 += HIGH_LP2_ALPHA * (sample - highLP2)
+
+            val veryLowVal = kotlin.math.abs(veryLowZ)
+            val lowMidVal = kotlin.math.abs(lowMidZ)
             val lowVal = kotlin.math.abs(lowZ)
             val midVal = kotlin.math.abs(midLP1 - midLP2)
+            val highVal = kotlin.math.abs(highLP1 - highLP2)
+
+            veryLowSumSq += veryLowVal * veryLowVal
+            lowMidSumSq += lowMidVal * lowMidVal
             lowSumSq += lowVal * lowVal
             midSumSq += midVal * midVal
+            highSumSq += highVal * highVal
             fullSumSq += sample * sample
             winPos++
+
             if (winPos >= hopSamples) {
+                outVeryLow += kotlin.math.sqrt(veryLowSumSq / winPos)
+                outLowMid += kotlin.math.sqrt(lowMidSumSq / winPos)
                 outLow += kotlin.math.sqrt(lowSumSq / winPos)
                 outMid += kotlin.math.sqrt(midSumSq / winPos)
+                outHigh += kotlin.math.sqrt(highSumSq / winPos)
                 outFull += kotlin.math.sqrt(fullSumSq / winPos)
+                veryLowSumSq = 0f
+                lowMidSumSq = 0f
                 lowSumSq = 0f
                 midSumSq = 0f
+                highSumSq = 0f
                 fullSumSq = 0f
                 winPos = 0
             }
@@ -1320,9 +1355,48 @@ object BeatDetectorV3 {
             return if (mx > 1e-6f) src.map { (it / mx).coerceIn(0f, 1f) } else src
         }
 
-        return detect(
-            normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outFull),
+        // V3.1: 5-band 주파수 분석 사용
+        return detectFiveBand(
+            normalizeEnv(outVeryLow), normalizeEnv(outLowMid),
+            normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outHigh),
+            normalizeEnv(outFull),
             params, songTitle, emptyList(), context
+        )
+    }
+
+    /**
+     * V3.1: 5-band 주파수 분석
+     * detectPcm에서만 호출됨
+     */
+    private fun detectFiveBand(
+        veryLowEnv: List<Float>,
+        lowMidEnv: List<Float>,
+        lowEnv: List<Float>,
+        midEnv: List<Float>,
+        highEnv: List<Float>,
+        fullEnv: List<Float>,
+        params: Params = Params(),
+        songTitle: String? = null,
+        sectionBoundariesMs: List<Long> = emptyList(),
+        context: android.content.Context? = null
+    ): DetectResultV3 {
+        // 5-band를 기본 3-band (low, mid, full)에 통합
+        // Low = (veryLow * 0.5 + lowMid * 0.3 + low * 0.2) - 전체 저주파 에너지
+        // Mid = mid (유지)
+        // Full = full (유지)
+
+        val integratedLow = ArrayList<Float>(veryLowEnv.size)
+        for (i in veryLowEnv.indices) {
+            val integrated = (veryLowEnv[i] * 0.5f +
+                            lowMidEnv.getOrNull(i)?.let { it * 0.3f } ?: 0f +
+                            lowEnv.getOrNull(i)?.let { it * 0.2f } ?: 0f)
+            integratedLow.add(integrated)
+        }
+
+        // 원래 detect() 호출
+        return detect(
+            integratedLow, midEnv, fullEnv,
+            params, songTitle, sectionBoundariesMs, context
         )
     }
 
