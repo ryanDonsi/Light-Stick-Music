@@ -399,7 +399,6 @@ object BeatDetectorV3 {
                         "BPM ${bestBpm.toInt()} → ${halfBpm.toInt()}"
             )
             finalLag = halfLag
-            bestBeatMs = halfBeatMs
             bestBpm = halfBpm
             confidence = minOf(1.0f, halfStrength / sorted[0])
         }
@@ -414,14 +413,13 @@ object BeatDetectorV3 {
                         "BPM ${bestBpm.toInt()} → ${doubleBpm.toInt()}"
             )
             finalLag = doubleLag
-            bestBeatMs = doubleBeatMs
             bestBpm = doubleBpm
             confidence = minOf(1.0f, doubleStrength / sorted[0])
         }
 
         Log.d(TAG, "V3 ModalPeak: BPM=${bestBpm.toInt()}, Confidence=${(confidence * 100).toInt()}% (lag=$finalLag)")
 
-        return Pair(bestBpm.toFloat(), confidence)
+        return Pair(bestBpm, confidence)
     }
 
     /**
@@ -490,7 +488,7 @@ object BeatDetectorV3 {
      * @param bpm BPM 값
      * @return 확률 가중치 (0~1)
      */
-    private fun calculateLogNormalPrior(bpm: Long): Float {
+    private fun calculateLogNormalPrior(bpm: Float): Float {
         if (bpm < 30 || bpm > 360) return 0.01f
 
         // 로그정규분포 파라미터
