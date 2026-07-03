@@ -862,43 +862,49 @@ object BeatDetectorV3 {
     /**
      * V3.7: 절반/2배 속도 오류 감지 및 보정
      *
-     * 섹션 중앙값 기반으로 절반/2배 오류 감지.
-     * 많은 음악 곡이 60-180 BPM 범위에 있다는 원칙 사용.
+     * 섹션 BPM들의 전체 분포를 분석하여 절반/2배 오류 감지.
+     * 대부분의 섹션이 낮은 범위(50-100)에 집중되면, 절반 속도로 판정.
      *
      * @param medianBpm 섹션 분석으로 계산한 중앙값 BPM
+     * @param sectionBpms 섹션별 (timeMs, BPM) 쌍 리스트
      * @return 보정된 BPM 값
      */
-    private fun adjustBpmByRealMusicRange(medianBpm: Float): Float {
-        if (medianBpm <= 0f) return medianBpm
+    private fun detectAndCorrectOctaveError(medianBpm: Float, sectionBpms: List<Pair<Long, Float>>): Float {
+        if (medianBpm <= 0f || sectionBpms.isEmpty()) return medianBpm
 
-        val IDEAL_MIN = 60f   // 음악 BPM 최소값
-        val IDEAL_MAX = 180f  // 음악 BPM 최대값
+        val bpmValues = sectionBpms.map { it.second }.sorted()
+        if (bpmValues.isEmpty()) return medianBpm
 
-        // Case 1: BPM이 이미 합리적인 범위에 있음
-        if (medianBpm >= IDEAL_MIN && medianBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.7 BPM_RANGE_OK: ${"%.1f".format(medianBpm)} BPM is in ideal range [$IDEAL_MIN-$IDEAL_MAX]")
-            return medianBpm
-        }
+        val minBpm = bpmValues.minOrNull() ?: medianBpm
+        val maxBpm = bpmValues.maxOrNull() ?: medianBpm
+        val bpmRange = maxBpm - minBpm
 
-        // Case 2: BPM이 너무 낮음 (절반 속도 의심)
-        // 예: 68 BPM (detected) → 136 BPM (true)
-        // doubleMedian이 이상적인 범위에 들어가면 그것이 true BPM
+        // 섹션 BPM들이 대부분 특정 범위에 집중되어 있는지 확인
+        val lowRangeCount = bpmValues.count { it < 100f }
+        val highRangeCount = bpmValues.count { it >= 100f }
+        val totalSections = bpmValues.size
+
+        Log.d(TAG, "V3.7 DistributionAnalysis: min=${"%.1f".format(minBpm)}, max=${"%.1f".format(maxBpm)}, range=${"%.1f".format(bpmRange)}, " +
+                "low(<100)=$lowRangeCount, high(≥100)=$highRangeCount, median=${"%.1f".format(medianBpm)}")
+
         val doubledBpm = medianBpm * 2
-        if (doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.7 HALF_TEMPO_DETECTED: ${"%.1f".format(medianBpm)} × 2 = ${"%.1f".format(doubledBpm)} BPM (in ideal range)")
+        val halvedBpm = medianBpm / 2
+
+        // 절반 속도 감지: 섹션 BPM이 모두 낮은 범위(50-100)에 집중
+        // 그리고 2배하면 합리적인 음악 BPM 범위(80-180)가 됨
+        if (lowRangeCount >= totalSections * 0.7f && doubledBpm >= 80f && doubledBpm <= 180f) {
+            Log.d(TAG, "V3.7 HALF_TEMPO_DETECTED: 70% of sections <100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}")
             return doubledBpm
         }
 
-        // Case 3: BPM이 너무 높음 (2배 속도 의심)
-        // 예: 240 BPM (detected) → 120 BPM (true)
-        val halvedBpm = medianBpm / 2
-        if (halvedBpm >= IDEAL_MIN && halvedBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.7 DOUBLE_TEMPO_DETECTED: ${"%.1f".format(medianBpm)} ÷ 2 = ${"%.1f".format(halvedBpm)} BPM (in ideal range)")
+        // 2배 속도 감지: 섹션 BPM이 모두 높은 범위(100+)에 집중
+        // 그리고 절반하면 합리적인 음악 BPM 범위(80-180)가 됨
+        if (highRangeCount >= totalSections * 0.7f && halvedBpm >= 80f && halvedBpm <= 180f) {
+            Log.d(TAG, "V3.7 DOUBLE_TEMPO_DETECTED: 70% of sections ≥100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}")
             return halvedBpm
         }
 
-        // Case 4: 보정할 수 없음
-        Log.d(TAG, "V3.7 BPM_NO_CORRECTION: ${"%.1f".format(medianBpm)} BPM (no valid adjustment to [$IDEAL_MIN-$IDEAL_MAX])")
+        Log.d(TAG, "V3.7 KEEP_ORIGINAL: median=${"%.1f".format(medianBpm)} BPM (balanced distribution or unclear octave)")
         return medianBpm
     }
 
@@ -1676,8 +1682,8 @@ object BeatDetectorV3 {
             // Step 1: 기본 중앙값 계산
             val baseMedianBpm = calculateMedianBpmFromSections(collectedSectionBpms)
 
-            // Step 2: V3.7 - 합리적인 음악 BPM 범위에 기반한 절반/2배 오류 보정
-            methodBBpm = adjustBpmByRealMusicRange(baseMedianBpm)
+            // Step 2: V3.7 - 섹션 분포에서 절반/2배 오류 감지 및 보정
+            methodBBpm = detectAndCorrectOctaveError(baseMedianBpm, collectedSectionBpms)
 
             finalBeatMs = if (methodBBpm > 0f) {
                 beatMsFromBpm(methodBBpm)
