@@ -1516,15 +1516,71 @@ object BeatDetectorV3 {
             beatMs
         }
 
+        // V3.5 FIX: Generate actual beat positions using dpBeatTracker
+        val durationMs = integratedOdf.size.toLong() * params.hopMs
+        val phaseMs = if (finalBpm > 0L) estimatePhaseFromOdf(integratedOdf, finalBpm, params.hopMs) else 0L
+
+        val beats: List<TimedBeat> = if (finalBpm > 0L && integratedOdf.isNotEmpty()) {
+            val dpTimes = dpBeatTracker(integratedOdf, finalBpm, params.hopMs, durationMs, anchorMs = phaseMs)
+            Log.d(TAG, "V3 Beat tracking: dpTimes=${dpTimes.size} frames from finalBpm=$finalBpm ms")
+
+            if (dpTimes.isNotEmpty()) {
+                dpTimes.map { TimedBeat(it, 0.8f) }
+            } else {
+                Log.w(TAG, "V3 dpBeatTracker returned empty, trying fallback segment beats")
+                // Fallback: generate segment-based beats if DP tracking fails
+                val segFrames = maxOf(1, (params.segmentMs / params.hopMs).toInt())
+                val segmentBeats = ArrayList<TimedBeat>()
+
+                for (segIdx in 0 until (integratedOdf.size + segFrames - 1) / segFrames) {
+                    val s = segIdx * segFrames
+                    val e = minOf(integratedOdf.size, s + segFrames)
+                    if (e - s < 8) continue
+
+                    val segOdf = integratedOdf.sliceArray(s until e)
+                    val segPhase = estimatePhaseFromOdf(segOdf, finalBpm, params.hopMs)
+                    val segTimes = dpBeatTracker(segOdf, finalBpm, params.hopMs, (e - s).toLong() * params.hopMs, anchorMs = segPhase)
+                    val offset = s.toLong() * params.hopMs
+                    segTimes.forEach { segmentBeats.add(TimedBeat(offset + it, 0.5f)) }
+                }
+                segmentBeats.sortedBy { it.timeMs }
+            }
+        } else {
+            emptyList()
+        }
+
+        // 시간 서명 감지
+        val timeSignature = if (beats.isNotEmpty() && integratedOdf.isNotEmpty()) {
+            detectTimeSignature(integratedOdf, finalBpm, params.hopMs)
+        } else {
+            TimeSignature.FOUR_FOUR
+        }
+
+        // Downbeat 감지
+        val downbeatMs = if (beats.isNotEmpty() && finalBpm > 0L) {
+            val beatTimesMs = beats.map { it.timeMs }
+            detectDownbeatEnhanced(beatTimesMs, integratedOdf, finalBpm, timeSignature.beatsPerBar, params.hopMs)
+        } else {
+            0L
+        }
+
+        val downbeatOffsetMs = if (beats.isNotEmpty()) {
+            (downbeatMs - (beats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+
+        Log.d(TAG, "V3.5 RESULT: beats=${beats.size} beatMs=$finalBpm timeSig=${timeSignature.type} downbeatMs=$downbeatMs")
+
         // 결과 생성
         val result = DetectResultV3(
-            beats = emptyList(),  // 실제로는 Beat tracking으로 생성해야 함
+            beats = beats,
             beatMs = finalBpm,
             confidence = confidence,
             source = null,
-            reason = "V3.2: 5-band ODF weighted",
-            downbeatOffsetMs = 0L,
-            timeSignature = TimeSignature.FOUR_FOUR,
+            reason = "V3.5: 5-band ODF + beat tracking",
+            downbeatOffsetMs = downbeatOffsetMs,
+            timeSignature = timeSignature,
             tempogram = tempogram
         )
 
