@@ -860,7 +860,10 @@ object BeatDetectorV3 {
     }
 
     /**
-     * V3.7: 섹션 중앙값 기반 간단한 BPM 보정
+     * V3.7: 절반/2배 속도 오류 감지 및 보정
+     *
+     * 섹션 중앙값 기반으로 절반/2배 오류 감지.
+     * 많은 음악 곡이 60-180 BPM 범위에 있다는 원칙 사용.
      *
      * @param medianBpm 섹션 분석으로 계산한 중앙값 BPM
      * @return 보정된 BPM 값
@@ -870,34 +873,32 @@ object BeatDetectorV3 {
 
         val IDEAL_MIN = 60f   // 음악 BPM 최소값
         val IDEAL_MAX = 180f  // 음악 BPM 최대값
-        val HALF_MIN = 30f    // 절반 속도 최소값
-        val HALF_MAX = 90f    // 절반 속도 최대값
 
-        // 현재 값이 합리적인 음악 BPM 범위에 있으면 변경 없음
+        // Case 1: BPM이 이미 합리적인 범위에 있음
         if (medianBpm >= IDEAL_MIN && medianBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.7 BPM_RANGE_OK: ${"%.1f".format(medianBpm)} BPM is in ideal range")
+            Log.d(TAG, "V3.7 BPM_RANGE_OK: ${"%.1f".format(medianBpm)} BPM is in ideal range [$IDEAL_MIN-$IDEAL_MAX]")
             return medianBpm
         }
 
-        // 절반 속도 범위에 있으면 2배 보정 시도
-        if (medianBpm >= HALF_MIN && medianBpm < IDEAL_MIN) {
-            val doubledBpm = medianBpm * 2
-            if (doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
-                Log.d(TAG, "V3.7 HALF_TEMPO_CORRECTION: ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)} BPM (in half-tempo range)")
-                return doubledBpm
-            }
+        // Case 2: BPM이 너무 낮음 (절반 속도 의심)
+        // 예: 68 BPM (detected) → 136 BPM (true)
+        // doubleMedian이 이상적인 범위에 들어가면 그것이 true BPM
+        val doubledBpm = medianBpm * 2
+        if (doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
+            Log.d(TAG, "V3.7 HALF_TEMPO_DETECTED: ${"%.1f".format(medianBpm)} × 2 = ${"%.1f".format(doubledBpm)} BPM (in ideal range)")
+            return doubledBpm
         }
 
-        // 2배 속도 범위에 있으면 절반 보정 시도
-        if (medianBpm > IDEAL_MAX && medianBpm <= 360f) {
-            val halvedBpm = medianBpm / 2
-            if (halvedBpm >= IDEAL_MIN && halvedBpm <= IDEAL_MAX) {
-                Log.d(TAG, "V3.7 DOUBLE_TEMPO_CORRECTION: ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)} BPM (in double-tempo range)")
-                return halvedBpm
-            }
+        // Case 3: BPM이 너무 높음 (2배 속도 의심)
+        // 예: 240 BPM (detected) → 120 BPM (true)
+        val halvedBpm = medianBpm / 2
+        if (halvedBpm >= IDEAL_MIN && halvedBpm <= IDEAL_MAX) {
+            Log.d(TAG, "V3.7 DOUBLE_TEMPO_DETECTED: ${"%.1f".format(medianBpm)} ÷ 2 = ${"%.1f".format(halvedBpm)} BPM (in ideal range)")
+            return halvedBpm
         }
 
-        Log.d(TAG, "V3.7 BPM_NO_CORRECTION: ${"%.1f".format(medianBpm)} BPM (outside any range)")
+        // Case 4: 보정할 수 없음
+        Log.d(TAG, "V3.7 BPM_NO_CORRECTION: ${"%.1f".format(medianBpm)} BPM (no valid adjustment to [$IDEAL_MIN-$IDEAL_MAX])")
         return medianBpm
     }
 
