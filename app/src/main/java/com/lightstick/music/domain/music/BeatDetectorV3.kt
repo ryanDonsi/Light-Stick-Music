@@ -1417,11 +1417,11 @@ object BeatDetectorV3 {
         val odfHigh = computeMultiBandFluxOdf(highArr, highArr, highArr, params)
 
         // 각 대역에서 BPM 추출 (투표)
-        val (veryLowBpm, _, _) = estimateBpmV3(odfVeryLow, params.hopMs, params.minBeatMs, params.maxBeatMs, params.useTempogram)
-        val (lowMidBpm, _, _) = estimateBpmV3(odfLowMid, params.hopMs, params.minBeatMs, params.maxBeatMs, params.useTempogram)
-        val (lowBpm, _, _) = estimateBpmV3(odfLow, params.hopMs, params.minBeatMs, params.maxBeatMs, params.useTempogram)
-        val (midBpm, _, _) = estimateBpmV3(odfMid, params.hopMs, params.minBeatMs, params.maxBeatMs, params.useTempogram)
-        val (highBpm, _, _) = estimateBpmV3(odfHigh, params.hopMs, params.minBeatMs, params.maxBeatMs, params.useTempogram)
+        val (veryLowBpm, _, _) = estimateBpmV3(odfVeryLow, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
+        val (lowMidBpm, _, _) = estimateBpmV3(odfLowMid, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
+        val (lowBpm, _, _) = estimateBpmV3(odfLow, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
+        val (midBpm, _, _) = estimateBpmV3(odfMid, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
+        val (highBpm, _, _) = estimateBpmV3(odfHigh, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
 
         // 가중치 적용 투표 (High 대역에 더 높은 가중치)
         val bandVotes = mutableMapOf<Long, Float>()
@@ -1443,8 +1443,11 @@ object BeatDetectorV3 {
         )
 
         // 만약 detect()의 결과와 Band Voting이 크게 다르면 로깅
-        if (result.bpm.toLong() != finalBandVoteBpm && result.bpm > 0) {
-            Log.d(TAG, "V3.2 BPM_MISMATCH: detect()=${ result.bpm}, bandVoting=$finalBandVoteBpm")
+        if (result.beatMs > 0) {
+            val detectBpm = 60_000L / result.beatMs
+            if (detectBpm != finalBandVoteBpm) {
+                Log.d(TAG, "V3.2 BPM_MISMATCH: detect()=$detectBpm, bandVoting=$finalBandVoteBpm")
+            }
         }
 
         return result
