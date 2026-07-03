@@ -602,7 +602,8 @@ object BeatDetectorV3 {
     private fun extractBpmCurve(
         tempogram: Array<FloatArray>,
         hopMs: Long,
-        minBeatMs: Long
+        minBeatMs: Long,
+        step: Int
     ): FloatArray {
         if (tempogram.isEmpty() || tempogram[0].isEmpty()) {
             return FloatArray(0)
@@ -630,7 +631,7 @@ object BeatDetectorV3 {
 
             // 매 10프레임마다 상세 로그 기록 (데이터 크기 관리)
             if (tIdx % 10 == 0) {
-                val timeMs = tIdx * hopMs
+                val timeMs = tIdx * step * hopMs
                 val peakInfoList = topPeaks.mapIndexed { idx, (lag, strength) ->
                     val bpm = 60_000L / (lag * hopMs)
                     val ratio = lag.toFloat() / bestLag.toFloat()
@@ -877,6 +878,7 @@ object BeatDetectorV3 {
         tempogram: Array<FloatArray>,
         hopMs: Long,
         minBeatMs: Long,
+        odfSize: Int,
         externalSectionBoundariesMs: List<Long> = emptyList(),
         changeThresholdPercent: Float = 10f
     ): List<Long> {
@@ -884,15 +886,19 @@ object BeatDetectorV3 {
             return externalSectionBoundariesMs
         }
 
+        // Step 계산: 각 tempogram 프레임이 대표하는 ODF 프레임 수
+        val timeFrames = tempogram[0].size
+        val step = maxOf(1, odfSize / (timeFrames / 2))
+
         // 1단계: BPM 곡선 추출 및 평활화
-        val bpmCurve = extractBpmCurve(tempogram, hopMs, minBeatMs)
+        val bpmCurve = extractBpmCurve(tempogram, hopMs, minBeatMs, step)
         val smoothedBpm = smoothBpmCurve(bpmCurve, windowSize = 5)
 
         // 2단계: BPM 변화점 감지
         val changePoints = detectBpmChangePoints(smoothedBpm, changeThresholdPercent, minDurationFrames = 10)
 
-        // 3단계: 변화점을 ms로 변환
-        val dynamicBoundaries = changePoints.map { it * hopMs }.toMutableList()
+        // 3단계: 변화점을 ms로 변환 (step 반영)
+        val dynamicBoundaries = changePoints.map { (it * step * hopMs) }.toMutableList()
 
         // 4단계: 외부 경계 추가
         for (externalBound in externalSectionBoundariesMs) {
@@ -933,6 +939,7 @@ object BeatDetectorV3 {
         tempogram: Array<FloatArray>,
         hopMs: Long,
         minBeatMs: Long,
+        odfSize: Int,
         sectionBoundariesMs: List<Long> = emptyList()
     ): List<Pair<Long, Float>> {
         if (tempogram.isEmpty() || tempogram[0].isEmpty()) {
@@ -941,12 +948,13 @@ object BeatDetectorV3 {
 
         val minLag = maxOf(1, (minBeatMs / hopMs).toInt())
         val totalTimeFrames = tempogram[0].size
-        val totalDurationMs = totalTimeFrames * hopMs
+        val step = maxOf(1, odfSize / (totalTimeFrames / 2))
+        val totalDurationMs = totalTimeFrames * step * hopMs
 
-        // 경계 프레임 계산
+        // 경계 프레임 계산 (ms를 tempogram 프레임으로 변환)
         val boundaryFrames = mutableListOf(0)  // 항상 처음부터 시작
         for (boundaryMs in sectionBoundariesMs) {
-            val frame = (boundaryMs / hopMs).toInt().coerceIn(1, totalTimeFrames - 1)
+            val frame = (boundaryMs / (step * hopMs)).toInt().coerceIn(1, totalTimeFrames - 1)
             if (!boundaryFrames.contains(frame)) {
                 boundaryFrames.add(frame)
             }
@@ -960,7 +968,8 @@ object BeatDetectorV3 {
         for (i in 0 until boundaryFrames.size - 1) {
             val startFrame = boundaryFrames[i]
             val endFrame = boundaryFrames[i + 1]
-            val startMs = startFrame * hopMs
+            val startMs = startFrame * step * hopMs
+            val endMs = endFrame * step * hopMs
 
             if (endFrame - startFrame < 2) continue  // 너무 짧은 섹션 무시
 
@@ -991,7 +1000,7 @@ object BeatDetectorV3 {
             val sectionBpm = 60_000L / (bestLag * hopMs)
 
             // 섹션별 상세 로그
-            val sectionLog = StringBuilder("V3 Section[${startMs}ms-${(endFrame * hopMs)}ms]:\n")
+            val sectionLog = StringBuilder("V3 Section[${startMs}ms-${endMs}ms]:\n")
             peaks.forEachIndexed { idx, (lag, strength) ->
                 val bpm = 60_000L / (lag * hopMs)
                 val ratio = lag.toFloat() / bestLag.toFloat()
@@ -1636,6 +1645,7 @@ object BeatDetectorV3 {
                 tempogram,
                 hopMs = params.hopMs,
                 minBeatMs = params.minBeatMs,
+                odfSize = globalOdf.size,
                 externalSectionBoundariesMs = sectionBoundariesMs,
                 changeThresholdPercent = 10f
             )
@@ -1646,6 +1656,7 @@ object BeatDetectorV3 {
                     tempogram,
                     hopMs = params.hopMs,
                     minBeatMs = params.minBeatMs,
+                    odfSize = globalOdf.size,
                     sectionBoundariesMs = dynamicSections
                 )
 
