@@ -860,6 +860,54 @@ object BeatDetectorV3 {
     }
 
     /**
+     * V3.7 Step 3: Method A (Global AC) vs Method B (Section Median) 선택
+     *
+     * 미스매치 곡들에서 Global BPM이 정확할 수 있으므로,
+     * methodBBpm이 극단적이거나 신뢰도가 낮으면 methodABeatMs (Global AC) 사용.
+     *
+     * @param globalBpm Method A에서 계산한 Global AC 피크 BPM
+     * @param methodBBpm Method B에서 계산한 보정된 Section Median BPM
+     * @param methodABeatMs Global AC에서 계산한 beatMs
+     * @return 최종 선택된 beatMs
+     */
+    private fun selectBetweenMethodsAandB(globalBpm: Float, methodBBpm: Float, methodABeatMs: Long): Long {
+        if (methodBBpm <= 0f) {
+            // methodBBpm이 없으면 Global AC 사용
+            return methodABeatMs
+        }
+
+        val IDEAL_MIN = 80f
+        val IDEAL_MAX = 180f
+        val tolerance = 5f
+
+        val diff = kotlin.math.abs(methodBBpm - globalBpm)
+
+        // Case 1: 두 값이 일치하면 평균 사용 (둘 다 신뢰)
+        if (diff <= tolerance) {
+            val avgBpm = (methodBBpm + globalBpm) / 2f
+            Log.d(TAG, "V3.7 SELECT_AVG: methodB=${"%.1f".format(methodBBpm)} ≈ methodA=${"%.1f".format(globalBpm)} → avg=${"%.1f".format(avgBpm)}")
+            return beatMsFromBpm(avgBpm)
+        }
+
+        // Case 2: methodBBpm이 비합리적인 범위면 Global BPM 사용
+        if (methodBBpm < IDEAL_MIN || methodBBpm > IDEAL_MAX) {
+            Log.d(TAG, "V3.7 SELECT_GLOBAL: methodB=${"%.1f".format(methodBBpm)} out of range [$IDEAL_MIN-$IDEAL_MAX] → use Global ${"%.1f".format(globalBpm)}")
+            return methodABeatMs
+        }
+
+        // Case 3: Global BPM이 비합리적인 범위면 methodBBpm 사용
+        if (globalBpm < IDEAL_MIN || globalBpm > IDEAL_MAX) {
+            Log.d(TAG, "V3.7 SELECT_METHOD_B: Global=${"%.1f".format(globalBpm)} out of range → use methodB ${"%.1f".format(methodBBpm)}")
+            return beatMsFromBpm(methodBBpm)
+        }
+
+        // Case 4: 둘 다 합리적이지만 차이가 크면
+        // 섹션이 다양한 경우이므로 Global AC (더 안정적)를 선호
+        Log.d(TAG, "V3.7 SELECT_GLOBAL_DIVERSE: methodB=${"%.1f".format(methodBBpm)} vs Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(diff)}) → use Global")
+        return methodABeatMs
+    }
+
+    /**
      * V3.7: 절반/2배 속도 오류 감지 및 보정
      *
      * 섹션 BPM들의 전체 분포를 분석하여 절반/2배 오류 감지.
@@ -1685,11 +1733,9 @@ object BeatDetectorV3 {
             // Step 2: V3.7 - 섹션 분포에서 절반/2배 오류 감지 및 보정
             methodBBpm = detectAndCorrectOctaveError(baseMedianBpm, collectedSectionBpms)
 
-            finalBeatMs = if (methodBBpm > 0f) {
-                beatMsFromBpm(methodBBpm)
-            } else {
-                methodABeatMs
-            }
+            // Step 3: Method A (Global AC, bestBpm) vs Method B (Section Median, methodBBpm) 선택
+            // 미스매치 곡들의 경우 Global BPM이 정확할 수 있으므로 비교 후 결정
+            finalBeatMs = selectBetweenMethodsAandB(bestBpm, methodBBpm, methodABeatMs)
         } else {
             methodBBpm = 0f
             finalBeatMs = methodABeatMs
