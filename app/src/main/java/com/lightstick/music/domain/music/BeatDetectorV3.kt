@@ -890,26 +890,35 @@ object BeatDetectorV3 {
         val timeFrames = tempogram[0].size
         val step = maxOf(1, odfSize / (timeFrames / 2))
 
-        // 1단계: BPM 곡선 추출 및 평활화
+        // 1단계: 고정 간격 섹션 생성 (5초마다)
+        val fixedSectionInterval = 5000L  // 5초 간격
+        val totalDurationMs = tempogram[0].size.toLong() * step * hopMs
+        val fixedBoundaries = mutableListOf<Long>()
+        var currentMs = 0L
+        while (currentMs < totalDurationMs) {
+            fixedBoundaries.add(currentMs)
+            currentMs += fixedSectionInterval
+        }
+        fixedBoundaries.add(totalDurationMs)  // 끝점 추가
+
+        // 2단계: BPM 곡선 추출 및 평활화 (선택사항: 동적 감지용)
         val bpmCurve = extractBpmCurve(tempogram, hopMs, minBeatMs, step)
         val smoothedBpm = smoothBpmCurve(bpmCurve, windowSize = 5)
 
-        // 2단계: BPM 변화점 감지
+        // 3단계: BPM 변화점 감지
         val changePoints = detectBpmChangePoints(smoothedBpm, changeThresholdPercent, minDurationFrames = 10)
 
-        // 3단계: 변화점을 ms로 변환 (step 반영)
-        val dynamicBoundaries = changePoints.map { (it * step * hopMs) }.toMutableList()
+        // 4단계: BPM 변화점을 ms로 변환 (step 반영)
+        val dynamicChangePoints = changePoints.map { (it * step * hopMs) }.toMutableList()
 
-        // 4단계: 외부 경계 추가
-        for (externalBound in externalSectionBoundariesMs) {
-            if (!dynamicBoundaries.contains(externalBound)) {
-                dynamicBoundaries.add(externalBound)
-            }
-        }
+        // 5단계: 모든 경계 통합 (고정 + 동적 + 외부)
+        val allBoundaries = mutableSetOf<Long>()
+        allBoundaries.addAll(fixedBoundaries)  // 고정 간격
+        allBoundaries.addAll(dynamicChangePoints)  // BPM 변화점
+        allBoundaries.addAll(externalSectionBoundariesMs)  // 외부 경계
 
-        // 5단계: 정렬 및 중복 제거
-        dynamicBoundaries.sort()
-        val finalBoundaries = dynamicBoundaries.distinct()
+        // 6단계: 정렬 및 최종 경계 생성
+        val finalBoundaries = allBoundaries.sorted()
 
         // 로그
         if (changePoints.isNotEmpty()) {
@@ -1374,8 +1383,8 @@ object BeatDetectorV3 {
     }
 
     /**
-     * V3.2: Band Voting 시스템
-     * 각 주파수 대역이 독립적으로 BPM 투표 → 다수결로 최종 BPM 결정
+     * V3.2: 3-band Band Voting 시스템
+     * Low, Mid, Full 대역이 독립적으로 BPM 투표 → 다수결로 최종 BPM 결정
      * detectPcm에서만 호출됨
      */
     private fun detectFiveBand(
@@ -1391,16 +1400,8 @@ object BeatDetectorV3 {
         context: android.content.Context? = null
     ): DetectResultV3 {
         // List<Float> → FloatArray 변환
-        val minSize = minOf(veryLowEnv.size, lowMidEnv.size, lowEnv.size, midEnv.size, highEnv.size, fullEnv.size)
+        val minSize = minOf(lowEnv.size, midEnv.size, fullEnv.size)
 
-        val veryLowArr: FloatArray = when (veryLowEnv) {
-            is FloatArray -> veryLowEnv.copyOf(minSize)
-            else -> veryLowEnv.take(minSize).toFloatArray()
-        }
-        val lowMidArr: FloatArray = when (lowMidEnv) {
-            is FloatArray -> lowMidEnv.copyOf(minSize)
-            else -> lowMidEnv.take(minSize).toFloatArray()
-        }
         val lowArr: FloatArray = when (lowEnv) {
             is FloatArray -> lowEnv.copyOf(minSize)
             else -> lowEnv.take(minSize).toFloatArray()
@@ -1409,49 +1410,39 @@ object BeatDetectorV3 {
             is FloatArray -> midEnv.copyOf(minSize)
             else -> midEnv.take(minSize).toFloatArray()
         }
-        val highArr: FloatArray = when (highEnv) {
-            is FloatArray -> highEnv.copyOf(minSize)
-            else -> highEnv.take(minSize).toFloatArray()
-        }
         val fullArr: FloatArray = when (fullEnv) {
             is FloatArray -> fullEnv.copyOf(minSize)
             else -> fullEnv.take(minSize).toFloatArray()
         }
 
-        // 각 대역별 ODF 계산
-        val odfVeryLow = computeMultiBandFluxOdf(veryLowArr, veryLowArr, veryLowArr, params)
-        val odfLowMid = computeMultiBandFluxOdf(lowMidArr, lowMidArr, lowMidArr, params)
+        // 각 대역별 ODF 계산 (3-band)
         val odfLow = computeMultiBandFluxOdf(lowArr, lowArr, lowArr, params)
         val odfMid = computeMultiBandFluxOdf(midArr, midArr, midArr, params)
-        val odfHigh = computeMultiBandFluxOdf(highArr, highArr, highArr, params)
+        val odfFull = computeMultiBandFluxOdf(fullArr, fullArr, fullArr, params)
 
         // 각 대역에서 BPM 추출 (투표)
-        val (veryLowBpm, _, _) = estimateBpmV3(odfVeryLow, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
-        val (lowMidBpm, _, _) = estimateBpmV3(odfLowMid, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
         val (lowBpm, _, _) = estimateBpmV3(odfLow, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
         val (midBpm, _, _) = estimateBpmV3(odfMid, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
-        val (highBpm, _, _) = estimateBpmV3(odfHigh, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
+        val (fullBpm, _, _) = estimateBpmV3(odfFull, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
 
-        // 가중치 적용 투표 (High 대역에 더 높은 가중치)
+        // 가중치 적용 투표 (3-band)
         val bandVotes = mutableMapOf<Long, Float>()
-        bandVotes[veryLowBpm.toLong()] = (bandVotes[veryLowBpm.toLong()] ?: 0f) + 0.15f
-        bandVotes[lowMidBpm.toLong()] = (bandVotes[lowMidBpm.toLong()] ?: 0f) + 0.15f
-        bandVotes[lowBpm.toLong()] = (bandVotes[lowBpm.toLong()] ?: 0f) + 0.20f
-        bandVotes[midBpm.toLong()] = (bandVotes[midBpm.toLong()] ?: 0f) + 0.25f
-        bandVotes[highBpm.toLong()] = (bandVotes[highBpm.toLong()] ?: 0f) + 0.25f
+        bandVotes[lowBpm.toLong()] = (bandVotes[lowBpm.toLong()] ?: 0f) + 0.30f
+        bandVotes[midBpm.toLong()] = (bandVotes[midBpm.toLong()] ?: 0f) + 0.35f
+        bandVotes[fullBpm.toLong()] = (bandVotes[fullBpm.toLong()] ?: 0f) + 0.35f
 
         // 최다 투표 BPM 결정
-        val finalBandVoteBpm = bandVotes.maxByOrNull { it.value }?.key ?: lowBpm.toLong()
+        val finalBandVoteBpm = bandVotes.maxByOrNull { it.value }?.key ?: fullBpm.toLong()
 
-        Log.d(TAG, "V3.2 BAND_VOTING: veryLow=$veryLowBpm, lowMid=$lowMidBpm, low=$lowBpm, mid=$midBpm, high=$highBpm → Final=$finalBandVoteBpm")
+        Log.d(TAG, "V3.2 BAND_VOTING: low=$lowBpm, mid=$midBpm, full=$fullBpm → Final=$finalBandVoteBpm")
 
-        // detect()를 호출하되, 투표 결과를 고려
+        // 3-band ODF로 detect() 호출
         val result = detect(
             lowEnv, midEnv, fullEnv,
             params, songTitle, sectionBoundariesMs, context
         )
 
-        // 만약 detect()의 결과와 Band Voting이 크게 다르면 로깅
+        // Band Voting 결과 로깅
         if (result.beatMs > 0) {
             val detectBpm = 60_000L / result.beatMs
             if (detectBpm != finalBandVoteBpm) {
