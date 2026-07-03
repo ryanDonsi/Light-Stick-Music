@@ -860,60 +860,45 @@ object BeatDetectorV3 {
     }
 
     /**
-     * V3.7: 절반/2배 속도 감지 및 보정
+     * V3.7: 섹션 중앙값 기반 간단한 BPM 보정
      *
-     * 섹션 BPM 분포에서 절반/2배 속도를 감지하고 보정
      * @param medianBpm 섹션 분석으로 계산한 중앙값 BPM
-     * @param sectionBpms 섹션별 (timeMs, BPM) 쌍 리스트
      * @return 보정된 BPM 값
      */
-    private fun detectAndCorrectOctaveError(medianBpm: Float, sectionBpms: List<Pair<Long, Float>>): Float {
-        if (medianBpm <= 0f || sectionBpms.isEmpty()) return medianBpm
+    private fun adjustBpmByRealMusicRange(medianBpm: Float): Float {
+        if (medianBpm <= 0f) return medianBpm
 
-        val bpmValues = sectionBpms.map { it.second }.sorted()
+        val IDEAL_MIN = 60f   // 음악 BPM 최소값
+        val IDEAL_MAX = 180f  // 음악 BPM 최대값
+        val HALF_MIN = 30f    // 절반 속도 최소값
+        val HALF_MAX = 90f    // 절반 속도 최대값
 
-        // 절반/2배 후보 검사
-        val doubledBpm = medianBpm * 2
-        val halvedBpm = medianBpm / 2
+        // 현재 값이 합리적인 음악 BPM 범위에 있으면 변경 없음
+        if (medianBpm >= IDEAL_MIN && medianBpm <= IDEAL_MAX) {
+            Log.d(TAG, "V3.7 BPM_RANGE_OK: ${"%.1f".format(medianBpm)} BPM is in ideal range")
+            return medianBpm
+        }
 
-        // 섹션 BPM들이 어느 후보에 더 가까운지 확인
-        var matchCount = 0
-        var doubleMatchCount = 0
-        var halveMatchCount = 0
-
-        val tolerance = 5f  // 5 BPM tolerance
-
-        for (bpm in bpmValues) {
-            if (kotlin.math.abs(bpm - medianBpm) <= tolerance) {
-                matchCount++
-            }
-            if (kotlin.math.abs(bpm - doubledBpm) <= tolerance) {
-                doubleMatchCount++
-            }
-            if (kotlin.math.abs(bpm - halvedBpm) <= tolerance) {
-                halveMatchCount++
+        // 절반 속도 범위에 있으면 2배 보정 시도
+        if (medianBpm >= HALF_MIN && medianBpm < IDEAL_MIN) {
+            val doubledBpm = medianBpm * 2
+            if (doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
+                Log.d(TAG, "V3.7 HALF_TEMPO_CORRECTION: ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)} BPM (in half-tempo range)")
+                return doubledBpm
             }
         }
 
-        Log.d(TAG, "V3.7 OctaveDetect: median=${"%.1f".format(medianBpm)} | " +
-                "original=$matchCount, doubled=$doubleMatchCount (${doubledBpm.toInt()}), halved=$halveMatchCount (${halvedBpm.toInt()})")
-
-        return when {
-            doubleMatchCount > matchCount && doubleMatchCount > halveMatchCount -> {
-                // 절반 속도 감지 (섹션들이 2배된 값과 더 가깝다)
-                Log.d(TAG, "V3.7 OCTAVE_CORRECTION: half-tempo detected, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}")
-                doubledBpm
-            }
-            halveMatchCount > matchCount && halveMatchCount > doubleMatchCount -> {
-                // 2배 속도 감지 (섹션들이 절반 값과 더 가깝다)
-                Log.d(TAG, "V3.7 OCTAVE_CORRECTION: double-tempo detected, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}")
-                halvedBpm
-            }
-            else -> {
-                Log.d(TAG, "V3.7 OCTAVE_NOCHANGE: median=${"%.1f".format(medianBpm)} (original closest)")
-                medianBpm
+        // 2배 속도 범위에 있으면 절반 보정 시도
+        if (medianBpm > IDEAL_MAX && medianBpm <= 360f) {
+            val halvedBpm = medianBpm / 2
+            if (halvedBpm >= IDEAL_MIN && halvedBpm <= IDEAL_MAX) {
+                Log.d(TAG, "V3.7 DOUBLE_TEMPO_CORRECTION: ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)} BPM (in double-tempo range)")
+                return halvedBpm
             }
         }
+
+        Log.d(TAG, "V3.7 BPM_NO_CORRECTION: ${"%.1f".format(medianBpm)} BPM (outside any range)")
+        return medianBpm
     }
 
 
@@ -1682,7 +1667,7 @@ object BeatDetectorV3 {
         // Beat 추정 (Method A: Tempogram 기반)
         val methodABeatMs = beatMsFromBpm(bestBpm)
 
-        // Method B: 섹션 중앙값 기반 절반/2배 보정 (V3.7)
+        // Method B: 섹션 중앙값 기반 BPM 보정 (V3.7)
         val methodBBpm: Float
         val finalBeatMs: Long
 
@@ -1690,8 +1675,8 @@ object BeatDetectorV3 {
             // Step 1: 기본 중앙값 계산
             val baseMedianBpm = calculateMedianBpmFromSections(collectedSectionBpms)
 
-            // Step 2: V3.7 - 섹션 BPM 분포에서 절반/2배 오류 감지 및 보정
-            methodBBpm = detectAndCorrectOctaveError(baseMedianBpm, collectedSectionBpms)
+            // Step 2: V3.7 - 합리적인 음악 BPM 범위에 기반한 절반/2배 오류 보정
+            methodBBpm = adjustBpmByRealMusicRange(baseMedianBpm)
 
             finalBeatMs = if (methodBBpm > 0f) {
                 beatMsFromBpm(methodBBpm)
