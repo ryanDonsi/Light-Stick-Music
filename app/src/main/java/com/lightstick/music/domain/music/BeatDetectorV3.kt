@@ -522,8 +522,7 @@ object BeatDetectorV3 {
     private fun improveAcValuesWithSpectralWeighting(
         globalOdf: FloatArray,
         acVals: FloatArray,
-        minLag: Int,
-        hopMs: Long
+        minLag: Int
     ): FloatArray {
         val improved = acVals.copyOf()
 
@@ -2063,8 +2062,7 @@ object BeatDetectorV3 {
             val improvedAcVals = improveAcValuesWithSpectralWeighting(
                 globalOdf,
                 acVals,
-                minLag,
-                params.hopMs
+                minLag
             )
 
             // 로깅: AC 개선 효과 분석
