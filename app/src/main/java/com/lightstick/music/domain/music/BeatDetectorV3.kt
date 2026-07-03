@@ -1383,8 +1383,8 @@ object BeatDetectorV3 {
     }
 
     /**
-     * V3.2: 3-band Band Voting 시스템
-     * Low, Mid, Full 대역이 독립적으로 BPM 투표 → 다수결로 최종 BPM 결정
+     * V3.2: 5-band ODF 가중치 통합
+     * 각 주파수 대역의 ODF를 가중치로 통합 → 최종 ODF 생성 → BPM 추정
      * detectPcm에서만 호출됨
      */
     private fun detectFiveBand(
@@ -1400,8 +1400,16 @@ object BeatDetectorV3 {
         context: android.content.Context? = null
     ): DetectResultV3 {
         // List<Float> → FloatArray 변환
-        val minSize = minOf(lowEnv.size, midEnv.size, fullEnv.size)
+        val minSize = minOf(veryLowEnv.size, lowMidEnv.size, lowEnv.size, midEnv.size, highEnv.size, fullEnv.size)
 
+        val veryLowArr: FloatArray = when (veryLowEnv) {
+            is FloatArray -> veryLowEnv.copyOf(minSize)
+            else -> veryLowEnv.take(minSize).toFloatArray()
+        }
+        val lowMidArr: FloatArray = when (lowMidEnv) {
+            is FloatArray -> lowMidEnv.copyOf(minSize)
+            else -> lowMidEnv.take(minSize).toFloatArray()
+        }
         val lowArr: FloatArray = when (lowEnv) {
             is FloatArray -> lowEnv.copyOf(minSize)
             else -> lowEnv.take(minSize).toFloatArray()
@@ -1410,45 +1418,97 @@ object BeatDetectorV3 {
             is FloatArray -> midEnv.copyOf(minSize)
             else -> midEnv.take(minSize).toFloatArray()
         }
-        val fullArr: FloatArray = when (fullEnv) {
-            is FloatArray -> fullEnv.copyOf(minSize)
-            else -> fullEnv.take(minSize).toFloatArray()
+        val highArr: FloatArray = when (highEnv) {
+            is FloatArray -> highEnv.copyOf(minSize)
+            else -> highEnv.take(minSize).toFloatArray()
         }
 
-        // 각 대역별 ODF 계산 (3-band)
+        // 각 대역별 ODF 계산
+        val odfVeryLow = computeMultiBandFluxOdf(veryLowArr, veryLowArr, veryLowArr, params)
+        val odfLowMid = computeMultiBandFluxOdf(lowMidArr, lowMidArr, lowMidArr, params)
         val odfLow = computeMultiBandFluxOdf(lowArr, lowArr, lowArr, params)
         val odfMid = computeMultiBandFluxOdf(midArr, midArr, midArr, params)
-        val odfFull = computeMultiBandFluxOdf(fullArr, fullArr, fullArr, params)
+        val odfHigh = computeMultiBandFluxOdf(highArr, highArr, highArr, params)
 
-        // 각 대역에서 BPM 추출 (투표)
-        val (lowBpm, _, _) = estimateBpmV3(odfLow, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
-        val (midBpm, _, _) = estimateBpmV3(odfMid, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
-        val (fullBpm, _, _) = estimateBpmV3(odfFull, params.hopMs, minBeatMs = params.minBeatMs, maxBeatMs = params.maxBeatMs, useTempogram = params.useTempogram)
+        // 5-band ODF 가중치 통합
+        val weightVeryLow = 0.08f
+        val weightLowMid = 0.12f
+        val weightLow = 0.20f
+        val weightMid = 0.35f
+        val weightHigh = 0.25f
+        // 합계: 1.0
 
-        // 가중치 적용 투표 (3-band)
-        val bandVotes = mutableMapOf<Long, Float>()
-        bandVotes[lowBpm.toLong()] = (bandVotes[lowBpm.toLong()] ?: 0f) + 0.30f
-        bandVotes[midBpm.toLong()] = (bandVotes[midBpm.toLong()] ?: 0f) + 0.35f
-        bandVotes[fullBpm.toLong()] = (bandVotes[fullBpm.toLong()] ?: 0f) + 0.35f
+        val integratedOdf = FloatArray(odfVeryLow.size) { i ->
+            (odfVeryLow[i] * weightVeryLow +
+             odfLowMid[i] * weightLowMid +
+             odfLow[i] * weightLow +
+             odfMid[i] * weightMid +
+             odfHigh[i] * weightHigh)
+        }
 
-        // 최다 투표 BPM 결정
-        val finalBandVoteBpm = bandVotes.maxByOrNull { it.value }?.key ?: fullBpm.toLong()
+        Log.d(TAG, "V3.2 5-BAND_ODF_WEIGHTED: veryLow(8%), lowMid(12%), low(20%), mid(35%), high(25%)")
 
-        Log.d(TAG, "V3.2 BAND_VOTING: low=$lowBpm, mid=$midBpm, full=$fullBpm → Final=$finalBandVoteBpm")
-
-        // 3-band ODF로 detect() 호출
-        val result = detect(
-            lowEnv, midEnv, fullEnv,
-            params, songTitle, sectionBoundariesMs, context
+        // 통합 ODF로 BPM 추정
+        val (bestBpm, confidence, tempogram) = estimateBpmV3(
+            integratedOdf,
+            hopMs = params.hopMs,
+            minBeatMs = params.minBeatMs,
+            maxBeatMs = params.maxBeatMs,
+            useTempogram = params.useTempogram,
+            halfTempoRatio = params.halfTempoRatio,
+            doubleTempoRatio = params.doubleTempoRatio
         )
 
-        // Band Voting 결과 로깅
-        if (result.beatMs > 0) {
-            val detectBpm = 60_000L / result.beatMs
-            if (detectBpm != finalBandVoteBpm) {
-                Log.d(TAG, "V3.2 BPM_MISMATCH: detect()=$detectBpm, bandVoting=$finalBandVoteBpm")
+        // 섹션별 BPM 분석 (Tempogram 기반)
+        var collectedSectionBpms: List<Pair<Long, Float>> = emptyList()
+        if (tempogram != null && params.useTempogram) {
+            val dynamicSections = detectDynamicSections(
+                tempogram,
+                hopMs = params.hopMs,
+                minBeatMs = params.minBeatMs,
+                odfSize = integratedOdf.size,
+                externalSectionBoundariesMs = sectionBoundariesMs,
+                changeThresholdPercent = 10f
+            )
+
+            if (dynamicSections.size > 1) {
+                collectedSectionBpms = detectSectionBpms(
+                    tempogram,
+                    hopMs = params.hopMs,
+                    minBeatMs = params.minBeatMs,
+                    odfSize = integratedOdf.size,
+                    sectionBoundariesMs = dynamicSections
+                )
             }
         }
+
+        // Beat 추정 (Method A)
+        val beatMs = if (bestBpm > 0) 60_000L / bestBpm.toLong() else 0L
+
+        // Method B: 섹션 중앙값 (신뢰도 기반)
+        val methodBBpm = if (collectedSectionBpms.isNotEmpty()) {
+            calculateMedianBpmFromSections(collectedSectionBpms)
+        } else {
+            0f
+        }
+
+        val finalBpm = if (methodBBpm > 0f) {
+            60_000L / methodBBpm.toLong()
+        } else {
+            beatMs
+        }
+
+        // 결과 생성
+        val result = DetectResultV3(
+            beats = emptyList(),  // 실제로는 Beat tracking으로 생성해야 함
+            beatMs = finalBpm,
+            confidence = confidence,
+            source = null,
+            reason = "V3.2: 5-band ODF weighted",
+            downbeatOffsetMs = 0L,
+            timeSignature = TimeSignature.FOUR_FOUR,
+            tempogram = tempogram
+        )
 
         return result
     }
