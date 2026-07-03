@@ -345,6 +345,7 @@ object BeatDetectorV3 {
         }
 
         // === 옥타브 에러 보정 (필터링 후 재확인) ===
+        // V3.3: 강화된 octave error correction
         // 절반 비트(2배 BPM) 확인: lag/2
         val halfLag = bestLag / 2
         val halfStrength = if (halfLag >= minLag && halfLag - minLag < harmonicFiltered.size) {
@@ -359,11 +360,12 @@ object BeatDetectorV3 {
         } else 0f
         val doubleRatio = if (harmonicFiltered[bestLagIdx] > 1e-6f) doubleStrength / harmonicFiltered[bestLagIdx] else 0f
 
+        // V3.3: Stricter octave error detection (0.65 → 0.55)
         // 절반 비트가 강한 경우: 원래 BPM이 2배로 잘못된 것
-        if (halfLag >= minLag && halfRatio >= 0.65f) {
+        if (halfLag >= minLag && halfRatio >= 0.55f) {
             Log.d(
                 TAG,
-                "V3 OctaveError2x: halfLag=$halfLag halfRatio=$halfRatio → " +
+                "V3.3 OctaveError2x: halfLag=$halfLag halfRatio=${"%.2f".format(halfRatio)} → " +
                         "BPM ${60_000L / (bestLag * hopMs)} → ${60_000L / (halfLag * hopMs)}"
             )
             finalLag = halfLag
@@ -371,10 +373,11 @@ object BeatDetectorV3 {
             confidence = minOf(1.0f, halfStrength / sorted[0])
         }
         // 2배 비트가 강한 경우: 원래 BPM이 절반으로 잘못된 것
-        else if (doubleLag - minLag < harmonicFiltered.size && doubleRatio >= 0.65f && doubleStrength > harmonicFiltered[bestLagIdx] * 0.9f) {
+        // V3.3: 더 엄격한 기준 (0.65 → 0.55, 0.9 → 0.8)
+        else if (doubleLag - minLag < harmonicFiltered.size && doubleRatio >= 0.55f && doubleStrength > harmonicFiltered[bestLagIdx] * 0.8f) {
             Log.d(
                 TAG,
-                "V3 OctaveError0.5x: doubleLag=$doubleLag doubleRatio=$doubleRatio → " +
+                "V3.3 OctaveError0.5x: doubleLag=$doubleLag doubleRatio=${"%.2f".format(doubleRatio)} → " +
                         "BPM ${60_000L / (bestLag * hopMs)} → ${60_000L / (doubleLag * hopMs)}"
             )
             finalLag = doubleLag
@@ -413,10 +416,11 @@ object BeatDetectorV3 {
                 val doubleStrength = filtered[doubleLagIdx]
                 val ratio = doubleStrength / strength
                 // 2배 lag이 현재 lag와 비슷하거나 강하면, 현재 lag는 절반 박자(하모닉)
-                if (ratio >= 0.65f) {
-                    // 절반 박자로 판정되었으므로 강도 감소 (0.3배)
-                    filtered[idx] = strength * 0.3f
-                    Log.d(TAG, "V3 HARMONIC_FILTER: lag=$lag(2x하모닉) → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
+                // V3.3: 강화된 필터링 (0.65 → 0.50, 0.3 → 0.1)
+                if (ratio >= 0.50f) {
+                    // 절반 박자로 판정되었으므로 강도 감소 (0.3배 → 0.1배)
+                    filtered[idx] = strength * 0.1f
+                    Log.d(TAG, "V3.3 HARMONIC_FILTER: lag=$lag(2x하모닉) ratio=${"%.2f".format(ratio)} → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
                     continue
                 }
             }
@@ -428,10 +432,11 @@ object BeatDetectorV3 {
                     val halfStrength = filtered[halfLagIdx]
                     val ratio = halfStrength / strength
                     // 절반 lag이 현재 lag와 비슷하거나 강하면, 현재 lag는 두배 박자(하모닉)
-                    if (ratio >= 0.65f) {
-                        // 두배 박자로 판정되었으므로 강도 감소 (0.3배)
-                        filtered[idx] = strength * 0.3f
-                        Log.d(TAG, "V3 HARMONIC_FILTER: lag=$lag(0.5x하모닉) → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
+                    // V3.3: 강화된 필터링 (0.65 → 0.50, 0.3 → 0.1)
+                    if (ratio >= 0.50f) {
+                        // 두배 박자로 판정되었으므로 강도 감소 (0.3배 → 0.1배)
+                        filtered[idx] = strength * 0.1f
+                        Log.d(TAG, "V3.3 HARMONIC_FILTER: lag=$lag(0.5x하모닉) ratio=${"%.2f".format(ratio)} → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
                         continue
                     }
                 }
@@ -2221,13 +2226,13 @@ object BeatDetectorV3 {
             val selectedAc = bestPeak.third
             val selectedBpm = 60_000L / (selectedLag * hopMs)
 
-            // [FIX #1] 가중치 재조정: 고조파 감지 시 MAIN/OTHER 선호도 상향
+            // [FIX #1] V3.3: 강화된 고조파 가중치 재조정
             val baseWeight = when (clusterKey) {
-                "MAIN" -> 2.0f  // 1.5 → 2.0 (고조파 가중성 높을 때)
+                "MAIN" -> 2.5f  // 2.0 → 2.5 (메인 피크 선호도 상향)
                 "1.5x", "0.67x" -> 1.2f
-                "HALF" -> if (isHarmonicAmbiguous) 0.3f else 1.0f  // 고조파 의심 시 가중치 대폭 감소
-                "DOUBLE" -> if (isHarmonicAmbiguous) 0.3f else 0.8f
-                else -> 0.8f
+                "HALF" -> if (isHarmonicAmbiguous) 0.1f else 0.3f  // 고조파 의심 시 0.3f → 0.1f
+                "DOUBLE" -> if (isHarmonicAmbiguous) 0.1f else 0.2f  // 0.8f → 0.2f (더 공격적)
+                else -> 0.5f  // 0.8f → 0.5f
             }
             val finalScore = selectedScore * baseWeight
 
