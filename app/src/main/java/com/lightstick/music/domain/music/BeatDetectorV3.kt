@@ -346,7 +346,7 @@ object BeatDetectorV3 {
         val bestLagIdx = bestCandidate.lag - minLag
         val bestLag = bestCandidate.lag
         var finalLag = bestLag
-        var bestBeatMs = bestLag * hopMs
+        val bestBeatMs = bestLag * hopMs
         var bestBpm = bpmFromBeatMs(bestBeatMs)
 
         // Log-Normal Prior 적용 로깅
@@ -516,7 +516,6 @@ object BeatDetectorV3 {
      * @param globalOdf 글로벌 ODF 신호
      * @param acVals 각 lag별 AC값 배열
      * @param minLag 최소 lag
-     * @param hopMs hop 시간(ms)
      * @return 가중치 적용된 AC값
      */
     private fun improveAcValuesWithSpectralWeighting(
@@ -2089,11 +2088,12 @@ object BeatDetectorV3 {
 
             val peakCandidates = (minLag..maxLag)
                 .map { lag ->
-                    val bpm = 60_000L / (lag * params.hopMs)
+                    val bpmLong = 60_000L / (lag * params.hopMs)
+                    val bpm = bpmLong.toFloat()
                     val acVal = improvedAcVals[lag]
                     val prior = calculateLogNormalPrior(bpm)
                     val score = acVal * prior  // AC × Prior = 최종 점수
-                    PeakCandidate(lag, bpm, acVal, prior, score)
+                    PeakCandidate(lag, bpmLong, acVal, prior, score)
                 }
                 .sortedByDescending { it.score }
 
