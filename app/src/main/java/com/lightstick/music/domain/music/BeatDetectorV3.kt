@@ -245,6 +245,12 @@ object BeatDetectorV3 {
      *
      * Returns: Pair<BPM, Confidence>
      */
+    /**
+     * Tempogram에서 모달 피크(주요 BPM)를 찾음
+     * @return Pair<Float, Float>
+     *         - First: BPM 값 (beats per minute, 예: 92.0)
+     *         - Second: 신뢰도 (0-1 범위)
+     */
     fun findModalPeak(
         tempogram: Array<FloatArray>,
         hopMs: Long,
@@ -1115,7 +1121,9 @@ object BeatDetectorV3 {
      * @param hopMs ODF 홉 간격
      * @param minBeatMs 최소 비트 간격 (lag 계산용)
      * @param sectionBoundariesMs 섹션 경계 시간 (ms)
-     * @return List<Pair<시작시간Ms, BPM>>
+     * @return List<Pair<Long, Float>>
+     *         각 쌍은 (섹션시작시간Ms, 섹션BPM값)
+     *         예: [(0L, 92.0f), (20000L, 94.5f), ...]
      */
     fun detectSectionBpms(
         tempogram: Array<FloatArray>,
