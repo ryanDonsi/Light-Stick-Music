@@ -1381,12 +1381,40 @@ object BeatDetectorV3 {
         sectionBoundariesMs: List<Long> = emptyList(),
         context: android.content.Context? = null
     ): DetectResultV3 {
+        // List<Float> → FloatArray 변환
+        val minSize = minOf(veryLowEnv.size, lowMidEnv.size, lowEnv.size, midEnv.size, highEnv.size, fullEnv.size)
+
+        val veryLowArr: FloatArray = when (veryLowEnv) {
+            is FloatArray -> veryLowEnv.copyOf(minSize)
+            else -> veryLowEnv.take(minSize).toFloatArray()
+        }
+        val lowMidArr: FloatArray = when (lowMidEnv) {
+            is FloatArray -> lowMidEnv.copyOf(minSize)
+            else -> lowMidEnv.take(minSize).toFloatArray()
+        }
+        val lowArr: FloatArray = when (lowEnv) {
+            is FloatArray -> lowEnv.copyOf(minSize)
+            else -> lowEnv.take(minSize).toFloatArray()
+        }
+        val midArr: FloatArray = when (midEnv) {
+            is FloatArray -> midEnv.copyOf(minSize)
+            else -> midEnv.take(minSize).toFloatArray()
+        }
+        val highArr: FloatArray = when (highEnv) {
+            is FloatArray -> highEnv.copyOf(minSize)
+            else -> highEnv.take(minSize).toFloatArray()
+        }
+        val fullArr: FloatArray = when (fullEnv) {
+            is FloatArray -> fullEnv.copyOf(minSize)
+            else -> fullEnv.take(minSize).toFloatArray()
+        }
+
         // 각 대역별 ODF 계산
-        val odfVeryLow = computeMultiBandFluxOdf(veryLowEnv, veryLowEnv, veryLowEnv, params)
-        val odfLowMid = computeMultiBandFluxOdf(lowMidEnv, lowMidEnv, lowMidEnv, params)
-        val odfLow = computeMultiBandFluxOdf(lowEnv, lowEnv, lowEnv, params)
-        val odfMid = computeMultiBandFluxOdf(midEnv, midEnv, midEnv, params)
-        val odfHigh = computeMultiBandFluxOdf(highEnv, highEnv, highEnv, params)
+        val odfVeryLow = computeMultiBandFluxOdf(veryLowArr, veryLowArr, veryLowArr, params)
+        val odfLowMid = computeMultiBandFluxOdf(lowMidArr, lowMidArr, lowMidArr, params)
+        val odfLow = computeMultiBandFluxOdf(lowArr, lowArr, lowArr, params)
+        val odfMid = computeMultiBandFluxOdf(midArr, midArr, midArr, params)
+        val odfHigh = computeMultiBandFluxOdf(highArr, highArr, highArr, params)
 
         // 각 대역에서 BPM 추출 (투표)
         val (veryLowBpm, _, _) = estimateBpmV3(odfVeryLow, params.hopMs, params.minBeatMs, params.maxBeatMs, params.useTempogram)
