@@ -1901,7 +1901,8 @@ object BeatDetectorV3 {
             0L
         }
 
-        Log.d(TAG, "V3.5 RESULT: beats=${beats.size} beatMs=$finalBeatMs timeSig=${timeSignature.type} downbeatMs=$downbeatMs")
+        val finalBpmForLog = bpmFromBeatMs(finalBeatMs)
+        Log.d(TAG, "V3.5 RESULT: beats=${beats.size} beatMs=$finalBeatMs BPM=${finalBpmForLog.toInt()} timeSig=${timeSignature.type} downbeatMs=$downbeatMs")
 
         // V3.5 섹션별 BPM 분석 데이터 저장 (JSON)
         if (context != null && songTitle != null) {
@@ -1922,6 +1923,7 @@ object BeatDetectorV3 {
                         "\"beatGenerationMethod\":\"dpBeatTracker\"," +
                         "\"beatsGenerated\":${beats.size}," +
                         "\"finalBeatMs\":$finalBeatMs," +
+                        "\"finalBpm\":${String.format("%.1f", finalBpmForLog)}," +
                         "\"confidence\":${String.format("%.1f", confidence * 100)}," +
                         "\"timeSignature\":\"${timeSignature.type}\"," +
                         "\"downbeatMs\":$downbeatMs" +
