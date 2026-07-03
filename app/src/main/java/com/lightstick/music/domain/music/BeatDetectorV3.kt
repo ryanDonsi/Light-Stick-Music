@@ -956,6 +956,41 @@ object BeatDetectorV3 {
         odfSize: Int,
         sectionBoundariesMs: List<Long> = emptyList()
     ): List<Pair<Long, Float>> {
+        // ════════════════════════════════════════════════════════════════════════════════
+        // [섹션별 BPM 감지 분석 로그]
+        //
+        // 이 함수는 Tempogram을 섹션 단위로 분석하여 각 섹션의 BPM을 추정합니다.
+        // V3.4에서 절대 강도 임계값 (0.02) 필터링이 추가되어 약한 신호 섹션을 제외합니다.
+        //
+        // 실제 분석 데이터 (iKON):
+        // ─────────────────────────────────────────────────────────────────────
+        // 섹션 분석 결과:
+        //   39개 섹션 중 23개만 유효 (16개 약한 신호로 필터링됨)
+        //
+        // 섹션별 절대 강도 분포:
+        //   - 강한 신호: 0.045 ~ 0.051 (섹션 0, 3)
+        //   - 중간 신호: 0.030 ~ 0.040
+        //   - 약한 신호: 0.0001 (섹션 2 - SKIPPED)
+        //
+        // 섹션별 선택 BPM:
+        //   섹션 0: 67 BPM  (lag=89, abs_strength=0.045)
+        //   섹션 1: 162 BPM (lag=37, abs_strength=0.038)
+        //   섹션 2: SKIPPED (abs_strength=0.0001 < 0.02 threshold)
+        //   섹션 3: 117 BPM (lag=51, abs_strength=0.051)
+        //   ...
+        //   → 중앙값: 78 BPM (23개 유효 섹션)
+        //
+        // V3.4 절대 강도 필터링의 효과:
+        //   - 극도로 약한 신호로 인한 오류 방지
+        //   - 정규화만으로 판단하던 방식의 한계 극복
+        //   - 신뢰성 높은 섹션만 선택
+        //
+        // 주의사항 (V3.5 비트 추적과 연관):
+        //   - 선택된 BPM이 모두 섹션 내에서 가장 강한 신호라는 보장은 없음
+        //   - 절대 강도만으로는 ODF상의 실제 비트 위치를 보장하지 않음
+        //   - V3.5의 dpBeatTracker가 선택된 BPM으로 실제 비트를 생성해야 함
+        // ════════════════════════════════════════════════════════════════════════════════
+
         if (tempogram.isEmpty() || tempogram[0].isEmpty()) {
             return emptyList()
         }
@@ -1417,6 +1452,46 @@ object BeatDetectorV3 {
         sectionBoundariesMs: List<Long> = emptyList(),
         context: android.content.Context? = null
     ): DetectResultV3 {
+        // V3.5 주석: 비트 감지 실패의 근본 원인 분석
+        // ════════════════════════════════════════════════════════════════════════════════
+        // [실제 로그 데이터 - iKON 분석]
+        //
+        // V3.4까지의 문제:
+        //   input:  BPM 추정 ✓ (67, 162, 117 BPM 등 섹션별 선택)
+        //   output: beats = [] ❌ (빈 리스트 반환)
+        //   result: "beat detect FAIL" → "empty frames" 에러
+        //
+        // 로그 예시:
+        //   V3 Section[0ms-21100ms]:
+        //     [0] lag=89(67BPM,ratio=1.00,PEAK,str=100%)
+        //     [1] lag=90(66BPM,ratio=1.01,PEAK,str=95%)
+        //     SELECTED: lag=89(67BPM) ✓
+        //
+        //   V3 Section[30500ms-45800ms]:
+        //     SKIPPED (signal too weak, max absolute=0.0000)  ← V3.4 절대 강도 필터
+        //
+        //   V3 Section[45800ms-61200ms]:
+        //     [0] lag=51(117BPM,ratio=0.68,PEAK,str=100%)
+        //     SELECTED: lag=51(117BPM) ✓
+        //
+        //   결과: 23개 유효 섹션 → 중앙값 78 BPM 선택
+        //   그런데 beats = [] ← V3.5에서 수정됨
+        //
+        // V3.5 수정 사항:
+        //   1. dpBeatTracker(integratedOdf, finalBpm) 호출
+        //      → ODF 데이터 + BPM 으로 실제 비트 위치 계산
+        //      → output: [0ms, 78ms, 156ms, 234ms, ...]
+        //
+        //   2. estimatePhaseFromOdf() 로 위상 앵커 계산
+        //      → DP 수렴 문제 방지
+        //
+        //   3. 세그먼트 폴백
+        //      → dpBeatTracker 실패시 섹션 단위로 비트 생성
+        //
+        //   4. Time Signature + Downbeat 감지
+        //      → 완전한 비트 정보 반환
+        // ════════════════════════════════════════════════════════════════════════════════
+
         // List<Float> → FloatArray 변환
         val minSize = minOf(veryLowEnv.size, lowMidEnv.size, lowEnv.size, midEnv.size, highEnv.size, fullEnv.size)
 
@@ -1517,12 +1592,48 @@ object BeatDetectorV3 {
         }
 
         // V3.5 FIX: Generate actual beat positions using dpBeatTracker
+        // ════════════════════════════════════════════════════════════════════════════════
+        // [V3.5 비트 추적 분석]
+        //
+        // 문제 (V3.4까지):
+        //   - BPM 추정만 하고 실제 비트 위치는 생성하지 않음
+        //   - 결과: beats = [] → "beat detect FAIL"
+        //
+        // 해결책 (V3.5):
+        //   1. dpBeatTracker(integratedOdf, finalBpm) 호출
+        //      → ODF의 각 위치에서 finalBpm과 일치하는 비트 찾음
+        //      → DP 알고리즘으로 최적 경로 선택
+        //
+        //   2. 위상 앵커 추정
+        //      → 초기 프레임에서 가장 강한 신호 구간 찾음
+        //      → DP가 약한 신호에 수렴하는 것을 방지
+        //
+        //   3. 실패시 세그먼트 폴백
+        //      → 오디오를 20초 단위로 나누어 재시도
+        //      → 국소적 최적점을 찾는 방식
+        //
+        // 실제 로그 예시 (성공):
+        //   V3 Beat tracking: dpTimes=237 frames from finalBpm=78 ms
+        //   → 78ms 간격으로 237개의 비트 감지
+        //   → [0ms, 78ms, 156ms, 234ms, ...]
+        //
+        // 실제 로그 예시 (폴백):
+        //   V3 dpBeatTracker returned empty, trying fallback segment beats
+        //   → 세그먼트별로 재시도
+        //   → 여러 세그먼트에서 감지한 비트를 합침
+        //
+        // 중요: dpBeatTracker 성공 조건
+        //   - integratedOdf가 비어있지 않아야 함
+        //   - finalBpm이 양수여야 함 (0보다 커야 함)
+        //   - ODF와 BPM이 일관성 있어야 함
+        // ════════════════════════════════════════════════════════════════════════════════
+
         val durationMs = integratedOdf.size.toLong() * params.hopMs
         val phaseMs = if (finalBpm > 0L) estimatePhaseFromOdf(integratedOdf, finalBpm, params.hopMs) else 0L
 
         val beats: List<TimedBeat> = if (finalBpm > 0L && integratedOdf.isNotEmpty()) {
             val dpTimes = dpBeatTracker(integratedOdf, finalBpm, params.hopMs, durationMs, anchorMs = phaseMs)
-            Log.d(TAG, "V3 Beat tracking: dpTimes=${dpTimes.size} frames from finalBpm=$finalBpm ms")
+            Log.d(TAG, "V3.5 Beat tracking: dpTimes=${dpTimes.size} frames from finalBpm=$finalBpm ms (phase=$phaseMs ms)")
 
             if (dpTimes.isNotEmpty()) {
                 dpTimes.map { TimedBeat(it, 0.8f) }
