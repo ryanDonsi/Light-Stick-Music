@@ -1867,7 +1867,12 @@ object BeatDetectorV3 {
                     "{\"timeMs\":$ms,\"bpm\":${bpm.toInt()}}"
                 }
 
-                val globalBpmVal = if (bestBpm > 0) 60_000L / bestBpm.toLong() else 0L
+                // V3.6 DEBUG: bestBpm은 BPM 단위, 따라서:
+                // - globalBpmMs = 비트 간격 (ms) = 60_000 / bestBpm
+                // - globalBpm = BPM 값 = bestBpm
+                val globalBpmMs = if (bestBpm > 0) 60_000L / bestBpm.toLong() else 0L
+                val globalBpmValue = bestBpm  // BPM 값 그자체
+
                 val analysisJson = "{" +
                         "\"title\":\"$songTitle\"," +
                         "\"v3_5_analysis\":{" +
@@ -1879,8 +1884,8 @@ object BeatDetectorV3 {
                         "\"downbeatMs\":$downbeatMs" +
                         "}," +
                         "\"v3_6_debug\":{" +
-                        "\"globalBpmMs\":$globalBpmVal," +
-                        "\"globalBpm\":${if (bestBpm > 0) String.format("%.1f", 60000.0 / bestBpm) else "0.0"}," +
+                        "\"globalBpmMs\":$globalBpmMs," +
+                        "\"globalBpm\":${String.format("%.1f", globalBpmValue)}," +
                         "\"methodBBpm\":${if (methodBBpm > 0) String.format("%.1f", methodBBpm) else "0.0"}," +
                         "\"medianBpmBeforeAdjust\":${if (collectedSectionBpms.isNotEmpty()) String.format("%.1f", calculateMedianBpmFromSections(collectedSectionBpms)) else "0.0"}" +
                         "}," +
