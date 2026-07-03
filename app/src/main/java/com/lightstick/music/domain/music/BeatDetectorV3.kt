@@ -292,8 +292,9 @@ object BeatDetectorV3 {
                 }
             }
             if (peakLag > 0) {
-                val peakBpm = 60_000L / (peakLag * hopMs)
-                timeDistribution.add("t=${t*10}ms: lag=$peakLag BPM=$peakBpm strength=${"%.3f".format(peakStrength)}")
+                val peakBeatMs = peakLag * hopMs
+                val peakBpm = bpmFromBeatMs(peakBeatMs)
+                timeDistribution.add("t=${t*10}ms: lag=$peakLag BPM=${peakBpm.toInt()} strength=${"%.3f".format(peakStrength)}")
             }
         }
         if (timeDistribution.isNotEmpty()) {
@@ -306,8 +307,9 @@ object BeatDetectorV3 {
             .take(5)
             .map { (idx, strength) ->
                 val lag = idx + minLag
-                val bpm = 60_000L / (lag * hopMs)
-                "lag=$lag BPM=$bpm str=${"%.3f".format(strength)}"
+                val beatMs = lag * hopMs
+                val bpm = bpmFromBeatMs(beatMs)
+                "lag=$lag BPM=${bpm.toInt()} str=${"%.3f".format(strength)}"
             }.joinToString(" | ")
 
         val topBpmsAfter = harmonicFiltered.withIndex()
@@ -315,8 +317,9 @@ object BeatDetectorV3 {
             .take(5)
             .map { (idx, strength) ->
                 val lag = idx + minLag
-                val bpm = 60_000L / (lag * hopMs)
-                "lag=$lag BPM=$bpm str=${"%.3f".format(strength)}"
+                val beatMs = lag * hopMs
+                val bpm = bpmFromBeatMs(beatMs)
+                "lag=$lag BPM=${bpm.toInt()} str=${"%.3f".format(strength)}"
             }.joinToString(" | ")
 
         Log.d(TAG, "V3 TOP5_BPMS_BEFORE: $topBpmsBefore")
@@ -329,7 +332,8 @@ object BeatDetectorV3 {
         val lagCandidates = harmonicFiltered.indices
             .map { idx ->
                 val lag = idx + minLag
-                val bpm = 60_000L / (lag * hopMs)
+                val beatMs = lag * hopMs
+                val bpm = bpmFromBeatMs(beatMs)
                 val ac = harmonicFiltered[idx]
                 val prior = calculateLogNormalPrior(bpm)
                 val score = ac * prior  // AC × Prior
@@ -342,16 +346,18 @@ object BeatDetectorV3 {
         val bestLagIdx = bestCandidate.lag - minLag
         val bestLag = bestCandidate.lag
         var finalLag = bestLag
-        var bestBpm = 60_000L / (bestLag * hopMs)
+        var bestBeatMs = bestLag * hopMs
+        var bestBpm = bpmFromBeatMs(bestBeatMs)
 
         // Log-Normal Prior 적용 로깅
         val acOnlyBestIdx = harmonicFiltered.indices.maxByOrNull { harmonicFiltered[it] } ?: 0
         val acOnlyBestLag = acOnlyBestIdx + minLag
-        val acOnlyBestBpm = 60_000L / (acOnlyBestLag * hopMs)
+        val acOnlyBestBeatMs = acOnlyBestLag * hopMs
+        val acOnlyBestBpm = bpmFromBeatMs(acOnlyBestBeatMs)
         if (acOnlyBestBpm != bestBpm) {
             Log.d(
                 TAG,
-                "V3 PRIOR_APPLIED: AC-only=${acOnlyBestBpm}BPM (prior=%.3f) → final=${bestBpm}BPM (prior=%.3f)".format(
+                "V3 PRIOR_APPLIED: AC-only=${acOnlyBestBpm.toInt()}BPM (prior=%.3f) → final=${bestBpm.toInt()}BPM (prior=%.3f)".format(
                     calculateLogNormalPrior(acOnlyBestBpm),
                     bestCandidate.prior
                 )
@@ -385,29 +391,35 @@ object BeatDetectorV3 {
         // V3.3: Stricter octave error detection (0.65 → 0.55)
         // 절반 비트가 강한 경우: 원래 BPM이 2배로 잘못된 것
         if (halfLag >= minLag && halfRatio >= 0.55f) {
+            val halfBeatMs = halfLag * hopMs
+            val halfBpm = bpmFromBeatMs(halfBeatMs)
             Log.d(
                 TAG,
                 "V3.3 OctaveError2x: halfLag=$halfLag halfRatio=${"%.2f".format(halfRatio)} → " +
-                        "BPM ${60_000L / (bestLag * hopMs)} → ${60_000L / (halfLag * hopMs)}"
+                        "BPM ${bestBpm.toInt()} → ${halfBpm.toInt()}"
             )
             finalLag = halfLag
-            bestBpm = 60_000L / (halfLag * hopMs)
+            bestBeatMs = halfBeatMs
+            bestBpm = halfBpm
             confidence = minOf(1.0f, halfStrength / sorted[0])
         }
         // 2배 비트가 강한 경우: 원래 BPM이 절반으로 잘못된 것
         // V3.3: 더 엄격한 기준 (0.65 → 0.55, 0.9 → 0.8)
         else if (doubleLag - minLag < harmonicFiltered.size && doubleRatio >= 0.55f && doubleStrength > harmonicFiltered[bestLagIdx] * 0.8f) {
+            val doubleBeatMs = doubleLag * hopMs
+            val doubleBpm = bpmFromBeatMs(doubleBeatMs)
             Log.d(
                 TAG,
                 "V3.3 OctaveError0.5x: doubleLag=$doubleLag doubleRatio=${"%.2f".format(doubleRatio)} → " +
-                        "BPM ${60_000L / (bestLag * hopMs)} → ${60_000L / (doubleLag * hopMs)}"
+                        "BPM ${bestBpm.toInt()} → ${doubleBpm.toInt()}"
             )
             finalLag = doubleLag
-            bestBpm = 60_000L / (doubleLag * hopMs)
+            bestBeatMs = doubleBeatMs
+            bestBpm = doubleBpm
             confidence = minOf(1.0f, doubleStrength / sorted[0])
         }
 
-        Log.d(TAG, "V3 ModalPeak: BPM=$bestBpm, Confidence=${confidence * 100}% (lag=$finalLag)")
+        Log.d(TAG, "V3 ModalPeak: BPM=${bestBpm.toInt()}, Confidence=${(confidence * 100).toInt()}% (lag=$finalLag)")
 
         return Pair(bestBpm.toFloat(), confidence)
     }
@@ -1326,7 +1338,8 @@ object BeatDetectorV3 {
 
         val harmonicDiag = StringBuilder("V3 AC_PEAKS_GLOBAL:\n")
         peaksByScore.forEachIndexed { idx, (lag, score, ac) ->
-            val bpm = 60_000L / (lag * hopMs)
+            val beatMs = lag * hopMs
+            val bpm = bpmFromBeatMs(beatMs)
             val ratio = if (peaksByScore[0].first > 0) lag.toFloat() / peaksByScore[0].first.toFloat() else 0f
             val harmonicType = when {
                 kotlin.math.abs(ratio - 0.5f) < 0.08f -> "2x"
@@ -2661,7 +2674,8 @@ object BeatDetectorV3 {
             val selectedLag = bestPeak.first
             val selectedScore = bestPeak.second
             val selectedAc = bestPeak.third
-            val selectedBpm = 60_000L / (selectedLag * hopMs)
+            val selectedBeatMs = selectedLag * hopMs
+            val selectedBpm = bpmFromBeatMs(selectedBeatMs)
 
             // [FIX #1] V3.3: 강화된 고조파 가중치 재조정
             val baseWeight = when (clusterKey) {
@@ -2676,7 +2690,7 @@ object BeatDetectorV3 {
             // 클러스터 상세 로그
             Log.d(
                 TAG,
-                "V3 AC_CLUSTER_DETAIL: $clusterKey → lag=$selectedLag (${selectedBpm}BPM, " +
+                "V3 AC_CLUSTER_DETAIL: $clusterKey → lag=$selectedLag (${selectedBpm.toInt()}BPM, " +
                         "ac=${String.format("%.6f", selectedAc)}, score=$selectedScore, " +
                         "weight=$baseWeight, weighted=$finalScore, peaks_in_cluster=${peaks.size})"
             )
@@ -2688,8 +2702,9 @@ object BeatDetectorV3 {
                     TAG,
                     "V3 AC_CLUSTER_PEAKS_$clusterKey: " +
                             topPeaksInCluster.mapIndexed { idx, (lag, score, ac) ->
-                                val bpm = 60_000L / (lag * hopMs)
-                                "[$idx]$lag(${bpm}BPM,ac=${String.format("%.6f", ac)})"
+                                val beatMs = lag * hopMs
+                                val bpm = bpmFromBeatMs(beatMs)
+                                "[$idx]$lag(${bpm.toInt()}BPM,ac=${String.format("%.6f", ac)})"
                             }.joinToString(" | ")
                 )
             }
@@ -2702,8 +2717,9 @@ object BeatDetectorV3 {
 
             // 모든 클러스터 스코어 로깅
             val allClustersInfo = clusterScores.take(5).mapIndexed { idx, (key, lag, score) ->
-                val bpm = 60_000L / (lag * hopMs)
-                "[$idx]$key BPM=$bpm lag=$lag score=${"%.2f".format(score)}"
+                val beatMs = lag * hopMs
+                val bpm = bpmFromBeatMs(beatMs)
+                "[$idx]$key BPM=${bpm.toInt()} lag=$lag score=${"%.2f".format(score)}"
             }.joinToString(" | ")
             Log.d(TAG, "V3 AC_CLUSTERS_RANKED: $allClustersInfo")
 
