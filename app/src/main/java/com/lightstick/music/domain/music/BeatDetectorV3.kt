@@ -26,6 +26,22 @@ object BeatDetectorV3 {
 
     private const val TAG = "AutoTimeline_BeatDetectorV3"
 
+    // ════════════════════════════════════════════════════════════════════
+    // 단위 변환 함수 - 모든 코드에서 일관된 단위 사용을 강제
+    // beatMs: Long = milliseconds between beats = 60_000 / BPM
+    // bpm: Float = beats per minute
+    // ════════════════════════════════════════════════════════════════════
+
+    /** BPM 값 → 비트 간격(밀리초) 변환 */
+    private fun beatMsFromBpm(bpm: Float): Long {
+        return if (bpm > 0f) (60_000 / bpm).toLong() else 0L
+    }
+
+    /** 비트 간격(밀리초) → BPM 값 변환 */
+    private fun bpmFromBeatMs(beatMs: Long): Float {
+        return if (beatMs > 0) 60_000f / beatMs else 0f
+    }
+
     // V1 상수들
     private const val FILL_CONFIDENCE = 0.20f
     private const val LOCAL_NORM_WINDOW = 60
@@ -833,32 +849,32 @@ object BeatDetectorV3 {
      * V3.6 방법 1: Global AC 피크 기반 절반/2배 BPM 보정
      *
      * 절반/2배 BPM 문제 해결을 위해 Global AC 피크와 비교
-     * @param medianBpm 섹션 분석으로 계산한 중앙값 BPM
-     * @param globalBpm 전역 AC 피크로 계산한 BPM
-     * @return 보정된 BPM
+     * @param medianBpm 섹션 분석으로 계산한 중앙값 BPM (항상 BPM, ms 아님)
+     * @param globalBpm 전역 AC 피크로 계산한 BPM (항상 BPM, ms 아님)
+     * @return 보정된 BPM 값
      */
     private fun adjustBpmByGlobalPeak(medianBpm: Float, globalBpm: Float): Float {
         if (medianBpm <= 0f || globalBpm <= 0f) return medianBpm
 
         val tolerance = maxOf(5f, globalBpm * 0.05f)  // 5 BPM 또는 5% 이상
 
-        // 3가지 후보와의 거리 계산
+        // 3가지 후보와의 거리 계산 (모두 BPM 단위)
         val distToOriginal = kotlin.math.abs(medianBpm - globalBpm)
-        val distToHalf = kotlin.math.abs(medianBpm * 2 - globalBpm)
-        val distToDouble = kotlin.math.abs(medianBpm / 2 - globalBpm)
+        val distToHalf = kotlin.math.abs(medianBpm * 2 - globalBpm)  // 절반 속도 보정 후 비교
+        val distToDouble = kotlin.math.abs(medianBpm / 2 - globalBpm)  // 2배 속도 보정 후 비교
 
         val result = when {
             distToHalf < distToOriginal && distToHalf < distToDouble -> {
                 // 절반 속도 보정 (medianBpm * 2가 globalBpm과 더 가까움)
-                val adjusted = medianBpm * 2
-                Log.d(TAG, "V3.6 METHOD1_ADJUST: ${"%.1f".format(medianBpm)} BPM → ${"%.1f".format(adjusted)} BPM (half-tempo correction, dist=${"%.1f".format(distToHalf)})")
-                adjusted
+                val adjustedBpm = medianBpm * 2
+                Log.d(TAG, "V3.6 METHOD1_ADJUST: ${"%.1f".format(medianBpm)} BPM → ${"%.1f".format(adjustedBpm)} BPM (half-tempo correction, dist=${"%.1f".format(distToHalf)})")
+                adjustedBpm
             }
             distToDouble < distToOriginal && distToDouble < distToHalf -> {
                 // 2배 속도 보정 (medianBpm / 2가 globalBpm과 더 가까움)
-                val adjusted = medianBpm / 2
-                Log.d(TAG, "V3.6 METHOD1_ADJUST: ${"%.1f".format(medianBpm)} BPM → ${"%.1f".format(adjusted)} BPM (double-tempo correction, dist=${"%.1f".format(distToDouble)})")
-                adjusted
+                val adjustedBpm = medianBpm / 2
+                Log.d(TAG, "V3.6 METHOD1_ADJUST: ${"%.1f".format(medianBpm)} BPM → ${"%.1f".format(adjustedBpm)} BPM (double-tempo correction, dist=${"%.1f".format(distToDouble)})")
+                adjustedBpm
             }
             else -> {
                 // 보정 불필요
@@ -1218,12 +1234,14 @@ object BeatDetectorV3 {
             }.sortedByDescending { it.second }.take(5)
 
             val bestLag = peaks[0].first
-            val sectionBpm = 60_000L / (bestLag * hopMs)
+            val bestBeatMs = bestLag * hopMs
+            val sectionBpm = bpmFromBeatMs(bestBeatMs)
 
             // 섹션별 상세 로그
             val sectionLog = StringBuilder("V3 Section[${startMs}ms-${endMs}ms]:\n")
             peaks.forEachIndexed { idx, (lag, strength) ->
-                val bpm = 60_000L / (lag * hopMs)
+                val beatMs = lag * hopMs
+                val bpm = bpmFromBeatMs(beatMs)
                 val ratio = lag.toFloat() / bestLag.toFloat()
                 val harmonicType = when {
                     kotlin.math.abs(ratio - 0.5f) < 0.08f -> "2x"
@@ -1239,7 +1257,7 @@ object BeatDetectorV3 {
             sectionLog.append("  SELECTED: lag=$bestLag(${sectionBpm.toInt()}BPM)")
             Log.d(TAG, sectionLog.toString())
 
-            result.add(Pair(startMs, sectionBpm.toFloat()))
+            result.add(Pair(startMs, sectionBpm))
         }
 
         return result
@@ -1247,6 +1265,10 @@ object BeatDetectorV3 {
 
     /**
      * V3 BPM 탐지
+     * @return Triple<Float, Float, Array<FloatArray>?>
+     *         - 첫 번째 Float: BPM 값 (beats per minute, 예: 92.0, 0이면 실패)
+     *         - 두 번째 Float: confidence (0-1 범위)
+     *         - Array: tempogram 또는 null
      */
     fun estimateBpmV3(
         odf: FloatArray,
@@ -1735,11 +1757,11 @@ object BeatDetectorV3 {
         }
 
         // Beat 추정 (Method A)
-        val beatMs = if (bestBpm > 0) 60_000L / bestBpm.toLong() else 0L
+        val methodABeatMs = beatMsFromBpm(bestBpm)
 
         // Method B: 섹션 중앙값 (신뢰도 기반) + V3.6 절반/2배 보정
         val methodBBpm: Float
-        val finalBpm: Long
+        val finalBeatMs: Long
 
         if (collectedSectionBpms.isNotEmpty()) {
             // Step 1: 기본 중앙값 계산
@@ -1758,14 +1780,14 @@ object BeatDetectorV3 {
             // Step 4: 두 방법의 결과를 비교하여 최종 BPM 선택
             methodBBpm = selectFinalBpmWithHybrid(bpmAdjustedByGlobal, bpmAdjustedByDistrib, collectedSectionBpms)
 
-            finalBpm = if (methodBBpm > 0f) {
-                60_000L / methodBBpm.toLong()
+            finalBeatMs = if (methodBBpm > 0f) {
+                beatMsFromBpm(methodBBpm)
             } else {
-                beatMs
+                methodABeatMs
             }
         } else {
             methodBBpm = 0f
-            finalBpm = beatMs
+            finalBeatMs = methodABeatMs
         }
 
         // V3.5 FIX: Generate actual beat positions using dpBeatTracker
@@ -1801,16 +1823,16 @@ object BeatDetectorV3 {
         //
         // 중요: dpBeatTracker 성공 조건
         //   - integratedOdf가 비어있지 않아야 함
-        //   - finalBpm이 양수여야 함 (0보다 커야 함)
-        //   - ODF와 BPM이 일관성 있어야 함
+        //   - finalBeatMs이 양수여야 함 (0보다 커야 함)
+        //   - ODF와 BeatMs이 일관성 있어야 함
         // ════════════════════════════════════════════════════════════════════════════════
 
         val durationMs = integratedOdf.size.toLong() * params.hopMs
-        val phaseMs = if (finalBpm > 0L) estimatePhaseFromOdf(integratedOdf, finalBpm, params.hopMs) else 0L
+        val phaseMs = if (finalBeatMs > 0L) estimatePhaseFromOdf(integratedOdf, finalBeatMs, params.hopMs) else 0L
 
-        val beats: List<TimedBeat> = if (finalBpm > 0L && integratedOdf.isNotEmpty()) {
-            val dpTimes = dpBeatTracker(integratedOdf, finalBpm, params.hopMs, durationMs, anchorMs = phaseMs)
-            Log.d(TAG, "V3.5 Beat tracking: dpTimes=${dpTimes.size} frames from finalBpm=$finalBpm ms (phase=$phaseMs ms)")
+        val beats: List<TimedBeat> = if (finalBeatMs > 0L && integratedOdf.isNotEmpty()) {
+            val dpTimes = dpBeatTracker(integratedOdf, finalBeatMs, params.hopMs, durationMs, anchorMs = phaseMs)
+            Log.d(TAG, "V3.5 Beat tracking: dpTimes=${dpTimes.size} frames from finalBeatMs=$finalBeatMs ms (phase=$phaseMs ms)")
 
             if (dpTimes.isNotEmpty()) {
                 dpTimes.map { TimedBeat(it, 0.8f) }
@@ -1826,8 +1848,8 @@ object BeatDetectorV3 {
                     if (e - s < 8) continue
 
                     val segOdf = integratedOdf.sliceArray(s until e)
-                    val segPhase = estimatePhaseFromOdf(segOdf, finalBpm, params.hopMs)
-                    val segTimes = dpBeatTracker(segOdf, finalBpm, params.hopMs, (e - s).toLong() * params.hopMs, anchorMs = segPhase)
+                    val segPhase = estimatePhaseFromOdf(segOdf, finalBeatMs, params.hopMs)
+                    val segTimes = dpBeatTracker(segOdf, finalBeatMs, params.hopMs, (e - s).toLong() * params.hopMs, anchorMs = segPhase)
                     val offset = s.toLong() * params.hopMs
                     segTimes.forEach { segmentBeats.add(TimedBeat(offset + it, 0.5f)) }
                 }
@@ -1839,15 +1861,15 @@ object BeatDetectorV3 {
 
         // 시간 서명 감지
         val timeSignature = if (beats.isNotEmpty() && integratedOdf.isNotEmpty()) {
-            detectTimeSignature(integratedOdf, finalBpm, params.hopMs)
+            detectTimeSignature(integratedOdf, finalBeatMs, params.hopMs)
         } else {
             TimeSignature.FOUR_FOUR
         }
 
         // Downbeat 감지
-        val downbeatMs = if (beats.isNotEmpty() && finalBpm > 0L) {
+        val downbeatMs = if (beats.isNotEmpty() && finalBeatMs > 0L) {
             val beatTimesMs = beats.map { it.timeMs }
-            detectDownbeatEnhanced(beatTimesMs, integratedOdf, finalBpm, timeSignature.beatsPerBar, params.hopMs)
+            detectDownbeatEnhanced(beatTimesMs, integratedOdf, finalBeatMs, timeSignature.beatsPerBar, params.hopMs)
         } else {
             0L
         }
@@ -1858,7 +1880,7 @@ object BeatDetectorV3 {
             0L
         }
 
-        Log.d(TAG, "V3.5 RESULT: beats=${beats.size} beatMs=$finalBpm timeSig=${timeSignature.type} downbeatMs=$downbeatMs")
+        Log.d(TAG, "V3.5 RESULT: beats=${beats.size} beatMs=$finalBeatMs timeSig=${timeSignature.type} downbeatMs=$downbeatMs")
 
         // V3.5 섹션별 BPM 분석 데이터 저장 (JSON)
         if (context != null && songTitle != null) {
@@ -1868,9 +1890,9 @@ object BeatDetectorV3 {
                 }
 
                 // V3.6 DEBUG: bestBpm은 BPM 단위, 따라서:
-                // - globalBpmMs = 비트 간격 (ms) = 60_000 / bestBpm
-                // - globalBpm = BPM 값 = bestBpm
-                val globalBpmMs = if (bestBpm > 0) 60_000L / bestBpm.toLong() else 0L
+                // - methodABeatMs = 비트 간격 (ms) = beatMsFromBpm(bestBpm)
+                // - bestBpm = BPM 값 (그대로)
+                val globalBpmMs = methodABeatMs
                 val globalBpmValue = bestBpm  // BPM 값 그자체
 
                 val analysisJson = "{" +
@@ -1878,7 +1900,7 @@ object BeatDetectorV3 {
                         "\"v3_5_analysis\":{" +
                         "\"beatGenerationMethod\":\"dpBeatTracker\"," +
                         "\"beatsGenerated\":${beats.size}," +
-                        "\"finalBpmMs\":$finalBpm," +
+                        "\"finalBeatMs\":$finalBeatMs," +
                         "\"confidence\":${String.format("%.1f", confidence * 100)}," +
                         "\"timeSignature\":\"${timeSignature.type}\"," +
                         "\"downbeatMs\":$downbeatMs" +
@@ -1913,7 +1935,7 @@ object BeatDetectorV3 {
         // 결과 생성
         val result = DetectResultV3(
             beats = beats,
-            beatMs = finalBpm,
+            beatMs = finalBeatMs,
             confidence = confidence,
             source = null,
             reason = "V3.5: 5-band ODF + beat tracking",
