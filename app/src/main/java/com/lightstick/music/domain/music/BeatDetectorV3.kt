@@ -1113,6 +1113,7 @@ object BeatDetectorV3 {
         //
         // 이 함수는 Tempogram을 섹션 단위로 분석하여 각 섹션의 BPM을 추정합니다.
         // V3.4에서 절대 강도 임계값 (0.02) 필터링이 추가되어 약한 신호 섹션을 제외합니다.
+        // V3.6 FIX: odfSize 기반으로 실제 곡 길이 범위를 벗어나는 섹션 필터링
         //
         // 실제 분석 데이터 (iKON):
         // ─────────────────────────────────────────────────────────────────────
@@ -1152,15 +1153,21 @@ object BeatDetectorV3 {
         val step = maxOf(1, odfSize / (totalTimeFrames / 2))
         val totalDurationMs = totalTimeFrames * step * hopMs
 
+        // V3.6 FIX: odfSize를 기반으로 실제 곡 길이 범위 제한
+        // Tempogram의 각 프레임은 ODF의 step개씩을 대표함
+        // 실제 ODF가 odfSize까지만 존재하므로, 그 이상으로 초과하는 tempogram 섹션 제외
+        val maxActualFrame = minOf(totalTimeFrames, maxOf(1, odfSize / step))
+        val actualDurationMs = maxActualFrame * step * hopMs
+
         // 경계 프레임 계산 (ms를 tempogram 프레임으로 변환)
         val boundaryFrames = mutableListOf(0)  // 항상 처음부터 시작
         for (boundaryMs in sectionBoundariesMs) {
-            val frame = (boundaryMs / (step * hopMs)).toInt().coerceIn(1, totalTimeFrames - 1)
+            val frame = (boundaryMs / (step * hopMs)).toInt().coerceIn(1, maxActualFrame - 1)
             if (!boundaryFrames.contains(frame)) {
                 boundaryFrames.add(frame)
             }
         }
-        boundaryFrames.add(totalTimeFrames)  // 끝점 추가
+        boundaryFrames.add(maxActualFrame)  // V3.6: 실제 곡 길이 범위까지만
         boundaryFrames.sort()
 
         val result = mutableListOf<Pair<Long, Float>>()
