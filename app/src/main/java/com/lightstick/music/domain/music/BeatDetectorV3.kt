@@ -1867,6 +1867,7 @@ object BeatDetectorV3 {
                     "{\"timeMs\":$ms,\"bpm\":${bpm.toInt()}}"
                 }
 
+                val globalBpmVal = if (bestBpm > 0) 60_000L / bestBpm.toLong() else 0L
                 val analysisJson = "{" +
                         "\"title\":\"$songTitle\"," +
                         "\"v3_5_analysis\":{" +
@@ -1876,6 +1877,12 @@ object BeatDetectorV3 {
                         "\"confidence\":${String.format("%.1f", confidence * 100)}," +
                         "\"timeSignature\":\"${timeSignature.type}\"," +
                         "\"downbeatMs\":$downbeatMs" +
+                        "}," +
+                        "\"v3_6_debug\":{" +
+                        "\"globalBpmMs\":$globalBpmVal," +
+                        "\"globalBpm\":${if (bestBpm > 0) String.format("%.1f", 60000.0 / bestBpm) else "0.0"}," +
+                        "\"methodBBpm\":${if (methodBBpm > 0) String.format("%.1f", methodBBpm) else "0.0"}," +
+                        "\"medianBpmBeforeAdjust\":${if (collectedSectionBpms.isNotEmpty()) String.format("%.1f", calculateMedianBpmFromSections(collectedSectionBpms)) else "0.0"}" +
                         "}," +
                         "\"sectionAnalysis\":{" +
                         "\"totalSections\":${collectedSectionBpms.size}," +
