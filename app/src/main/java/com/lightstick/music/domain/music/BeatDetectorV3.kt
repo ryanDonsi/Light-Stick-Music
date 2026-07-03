@@ -860,156 +860,62 @@ object BeatDetectorV3 {
     }
 
     /**
-     * V3.6 방법 1: Global AC 피크 기반 절반/2배 BPM 보정
+     * V3.7: 절반/2배 속도 감지 및 보정
      *
-     * 절반/2배 BPM 문제 해결을 위해 Global AC 피크와 비교
-     * @param medianBpm 섹션 분석으로 계산한 중앙값 BPM (항상 BPM, ms 아님)
-     * @param globalBpm 전역 AC 피크로 계산한 BPM (항상 BPM, ms 아님)
+     * 섹션 BPM 분포에서 절반/2배 속도를 감지하고 보정
+     * @param medianBpm 섹션 분석으로 계산한 중앙값 BPM
+     * @param sectionBpms 섹션별 (timeMs, BPM) 쌍 리스트
      * @return 보정된 BPM 값
      */
-    private fun adjustBpmByGlobalPeak(medianBpm: Float, globalBpm: Float): Float {
-        if (medianBpm <= 0f || globalBpm <= 0f) return medianBpm
+    private fun detectAndCorrectOctaveError(medianBpm: Float, sectionBpms: List<Pair<Long, Float>>): Float {
+        if (medianBpm <= 0f || sectionBpms.isEmpty()) return medianBpm
 
-        val tolerance = maxOf(5f, globalBpm * 0.05f)  // 5 BPM 또는 5% 이상
+        val bpmValues = sectionBpms.map { it.second }.sorted()
 
-        // 3가지 후보와의 거리 계산 (모두 BPM 단위)
-        val distToOriginal = kotlin.math.abs(medianBpm - globalBpm)
-        val distToHalf = kotlin.math.abs(medianBpm * 2 - globalBpm)  // 절반 속도 보정 후 비교
-        val distToDouble = kotlin.math.abs(medianBpm / 2 - globalBpm)  // 2배 속도 보정 후 비교
+        // 절반/2배 후보 검사
+        val doubledBpm = medianBpm * 2
+        val halvedBpm = medianBpm / 2
 
-        val result = when {
-            distToHalf < distToOriginal && distToHalf < distToDouble -> {
-                // 절반 속도 보정 (medianBpm * 2가 globalBpm과 더 가까움)
-                val adjustedBpm = medianBpm * 2
-                Log.d(TAG, "V3.6 METHOD1_ADJUST: ${"%.1f".format(medianBpm)} BPM → ${"%.1f".format(adjustedBpm)} BPM (half-tempo correction, dist=${"%.1f".format(distToHalf)})")
-                adjustedBpm
+        // 섹션 BPM들이 어느 후보에 더 가까운지 확인
+        var matchCount = 0
+        var doubleMatchCount = 0
+        var halveMatchCount = 0
+
+        val tolerance = 5f  // 5 BPM tolerance
+
+        for (bpm in bpmValues) {
+            if (kotlin.math.abs(bpm - medianBpm) <= tolerance) {
+                matchCount++
             }
-            distToDouble < distToOriginal && distToDouble < distToHalf -> {
-                // 2배 속도 보정 (medianBpm / 2가 globalBpm과 더 가까움)
-                val adjustedBpm = medianBpm / 2
-                Log.d(TAG, "V3.6 METHOD1_ADJUST: ${"%.1f".format(medianBpm)} BPM → ${"%.1f".format(adjustedBpm)} BPM (double-tempo correction, dist=${"%.1f".format(distToDouble)})")
-                adjustedBpm
+            if (kotlin.math.abs(bpm - doubledBpm) <= tolerance) {
+                doubleMatchCount++
+            }
+            if (kotlin.math.abs(bpm - halvedBpm) <= tolerance) {
+                halveMatchCount++
+            }
+        }
+
+        Log.d(TAG, "V3.7 OctaveDetect: median=${"%.1f".format(medianBpm)} | " +
+                "original=$matchCount, doubled=$doubleMatchCount (${doubledBpm.toInt()}), halved=$halveMatchCount (${halvedBpm.toInt()})")
+
+        return when {
+            doubleMatchCount > matchCount && doubleMatchCount > halveMatchCount -> {
+                // 절반 속도 감지 (섹션들이 2배된 값과 더 가깝다)
+                Log.d(TAG, "V3.7 OCTAVE_CORRECTION: half-tempo detected, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}")
+                doubledBpm
+            }
+            halveMatchCount > matchCount && halveMatchCount > doubleMatchCount -> {
+                // 2배 속도 감지 (섹션들이 절반 값과 더 가깝다)
+                Log.d(TAG, "V3.7 OCTAVE_CORRECTION: double-tempo detected, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}")
+                halvedBpm
             }
             else -> {
-                // 보정 불필요
-                Log.d(TAG, "V3.6 METHOD1_NOCHANGE: ${"%.1f".format(medianBpm)} BPM (original closest to global ${"%.1f".format(globalBpm)} BPM, dist=${"%.1f".format(distToOriginal)})")
+                Log.d(TAG, "V3.7 OCTAVE_NOCHANGE: median=${"%.1f".format(medianBpm)} (original closest)")
                 medianBpm
             }
         }
-
-        return result
     }
 
-    /**
-     * V3.6 방법 2: Section BPM 분포 분석으로 이상치 필터링
-     *
-     * 섹션 BPM들을 binning하여 가장 빈번한 BPM 계열 선택
-     * @param sectionBpms 섹션별 (timeMs, BPM) 쌍 리스트
-     * @return 분포 기반으로 선택된 BPM
-     */
-    private fun adjustBpmByDistribution(sectionBpms: List<Pair<Long, Float>>): Float {
-        if (sectionBpms.isEmpty()) return 0f
-
-        val bpmValues = sectionBpms.map { it.second }.sorted()
-        if (bpmValues.isEmpty()) return 0f
-
-        // binning: 20 BPM 단위로 그룹화
-        val binSize = 20f
-        val bins = mutableMapOf<Int, MutableList<Float>>()
-
-        for (bpm in bpmValues) {
-            val binIdx = (bpm / binSize).toInt()
-            bins.getOrPut(binIdx) { mutableListOf() }.add(bpm)
-        }
-
-        // 가장 많은 BPM이 속한 bin 찾기
-        val largestBin = bins.maxByOrNull { it.value.size }?.value ?: let {
-            // 폴백: bpmValues의 중앙값
-            return if (bpmValues.size % 2 == 0) {
-                (bpmValues[bpmValues.size / 2 - 1] + bpmValues[bpmValues.size / 2]) / 2f
-            } else {
-                bpmValues[bpmValues.size / 2]
-            }
-        }
-
-        val binMedian = if (largestBin.size % 2 == 0) {
-            (largestBin[largestBin.size / 2 - 1] + largestBin[largestBin.size / 2]) / 2f
-        } else {
-            largestBin[largestBin.size / 2]
-        }
-
-        // 로깅: 분포 분석 결과
-        val stats = bins.entries.sortedByDescending { it.value.size }.take(3)
-        val statsStr = stats.mapIndexed { idx, (binIdx, bpms) ->
-            "${"%.0f".format(binIdx * binSize)}-${"%.0f".format((binIdx + 1) * binSize)} BPM (${bpms.size}개)"
-        }.joinToString(" | ")
-
-        Log.d(
-            TAG,
-            "V3.6 METHOD2_DISTRIB: bins=${"%.0f".format(largestBin.size.toFloat())} | " +
-                    "largest=${"%.0f".format(largestBin.minOrNull() ?: 0f)}-${"%.0f".format(largestBin.maxOrNull() ?: 0f)} BPM | " +
-                    "median=${"%.1f".format(binMedian)} | top=$statsStr"
-        )
-
-        return binMedian
-    }
-
-    /**
-     * V3.6: 두 방법의 결과를 비교하여 최종 BPM 선택
-     *
-     * @param bpmFromGlobal 방법 1 (Global AC 피크 기반)
-     * @param bpmFromDistrib 방법 2 (분포 분석 기반)
-     * @param sectionBpms 원본 섹션 BPM 리스트 (신뢰도 판단용)
-     * @return 최종 선택된 BPM
-     */
-    private fun selectFinalBpmWithHybrid(
-        bpmFromGlobal: Float,
-        bpmFromDistrib: Float,
-        sectionBpms: List<Pair<Long, Float>>
-    ): Float {
-        if (bpmFromGlobal <= 0f && bpmFromDistrib <= 0f) return 0f
-        if (bpmFromGlobal <= 0f) return bpmFromDistrib
-        if (bpmFromDistrib <= 0f) return bpmFromGlobal
-
-        val tolerance = 5f  // ±5 BPM 차이는 동의
-        val diff = kotlin.math.abs(bpmFromGlobal - bpmFromDistrib)
-
-        return when {
-            diff <= tolerance -> {
-                // 둘 다 동의 → 평균값 사용
-                val avgBpm = (bpmFromGlobal + bpmFromDistrib) / 2f
-                Log.d(
-                    TAG,
-                    "V3.6 FINAL_AGREE: method1=${"%.1f".format(bpmFromGlobal)} vs method2=${"%.1f".format(bpmFromDistrib)} → ${"%.1f".format(avgBpm)} BPM (diff=${"%.1f".format(diff)})"
-                )
-                avgBpm
-            }
-            kotlin.math.abs((bpmFromGlobal * 2) - bpmFromDistrib) <= tolerance -> {
-                // 2배 관계 감지 → global 기반 선택
-                Log.d(TAG, "V3.6 FINAL_2X: method1=${"%.1f".format(bpmFromGlobal)} is 2x of method2=${"%.1f".format(bpmFromDistrib)} → select ${"%.1f".format(bpmFromGlobal)}")
-                bpmFromGlobal
-            }
-            else -> {
-                // 의견 불일치 → 분포가 명확하면 method2, 아니면 method1
-                val bpmValues = sectionBpms.map { it.second }.sorted()
-                val variance = if (bpmValues.size > 1) {
-                    val avg = bpmValues.average()
-                    kotlin.math.sqrt(bpmValues.map { (it - avg) * (it - avg) }.average()).toFloat()
-                } else 0f
-
-                val choice = if (variance < 15f) {
-                    // 분포가 명확 (분산 작음) → method2 선택
-                    Log.d(TAG, "V3.6 FINAL_DISTRIB: variance=${"%.1f".format(variance)} (clear) → select method2=${"%.1f".format(bpmFromDistrib)}")
-                    bpmFromDistrib
-                } else {
-                    // 분포가 산발적 (분산 큼) → method1 선택 (global이 더 신뢰성 높음)
-                    Log.d(TAG, "V3.6 FINAL_GLOBAL: variance=${"%.1f".format(variance)} (scattered) → select method1=${"%.1f".format(bpmFromGlobal)}")
-                    bpmFromGlobal
-                }
-                choice
-            }
-        }
-    }
 
     /**
      * BPM 변화점 감지 (임계값 기반)
@@ -1773,10 +1679,10 @@ object BeatDetectorV3 {
             }
         }
 
-        // Beat 추정 (Method A)
+        // Beat 추정 (Method A: Tempogram 기반)
         val methodABeatMs = beatMsFromBpm(bestBpm)
 
-        // Method B: 섹션 중앙값 (신뢰도 기반) + V3.6 절반/2배 보정
+        // Method B: 섹션 중앙값 기반 절반/2배 보정 (V3.7)
         val methodBBpm: Float
         val finalBeatMs: Long
 
@@ -1784,18 +1690,8 @@ object BeatDetectorV3 {
             // Step 1: 기본 중앙값 계산
             val baseMedianBpm = calculateMedianBpmFromSections(collectedSectionBpms)
 
-            // Step 2: V3.6 방법 1 - Global AC 피크와 비교하여 절반/2배 보정
-            val bpmAdjustedByGlobal = if (bestBpm > 0) {
-                adjustBpmByGlobalPeak(baseMedianBpm, bestBpm.toFloat())
-            } else {
-                baseMedianBpm
-            }
-
-            // Step 3: V3.6 방법 2 - Section 분포 분석으로 이상치 필터링
-            val bpmAdjustedByDistrib = adjustBpmByDistribution(collectedSectionBpms)
-
-            // Step 4: 두 방법의 결과를 비교하여 최종 BPM 선택
-            methodBBpm = selectFinalBpmWithHybrid(bpmAdjustedByGlobal, bpmAdjustedByDistrib, collectedSectionBpms)
+            // Step 2: V3.7 - 섹션 BPM 분포에서 절반/2배 오류 감지 및 보정
+            methodBBpm = detectAndCorrectOctaveError(baseMedianBpm, collectedSectionBpms)
 
             finalBeatMs = if (methodBBpm > 0f) {
                 beatMsFromBpm(methodBBpm)
