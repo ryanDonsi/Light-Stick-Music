@@ -1683,6 +1683,44 @@ object BeatDetectorV3 {
 
         Log.d(TAG, "V3.5 RESULT: beats=${beats.size} beatMs=$finalBpm timeSig=${timeSignature.type} downbeatMs=$downbeatMs")
 
+        // V3.5 섹션별 BPM 분석 데이터 저장 (JSON)
+        if (context != null && songTitle != null) {
+            try {
+                val sectionBpmList = collectedSectionBpms.joinToString(",") { (ms, bpm) ->
+                    "{\"timeMs\":$ms,\"bpm\":${bpm.toInt()}}"
+                }
+
+                val analysisJson = "{" +
+                        "\"title\":\"$songTitle\"," +
+                        "\"v3_5_analysis\":{" +
+                        "\"beatGenerationMethod\":\"dpBeatTracker\"," +
+                        "\"beatsGenerated\":${beats.size}," +
+                        "\"finalBpmMs\":$finalBpm," +
+                        "\"confidence\":${String.format("%.1f", confidence * 100)}," +
+                        "\"timeSignature\":\"${timeSignature.type}\"," +
+                        "\"downbeatMs\":$downbeatMs" +
+                        "}," +
+                        "\"sectionAnalysis\":{" +
+                        "\"totalSections\":${collectedSectionBpms.size}," +
+                        "\"medianBpm\":${if (collectedSectionBpms.isNotEmpty()) calculateMedianBpmFromSections(collectedSectionBpms).toInt() else 0}," +
+                        "\"sectionBpms\":[$sectionBpmList]" +
+                        "}," +
+                        "\"durationMs\":${durationMs}" +
+                        "}"
+
+                val filesDir = context.filesDir
+                val analysisDir = java.io.File(filesDir, "v3_analysis")
+                if (!analysisDir.exists()) {
+                    analysisDir.mkdirs()
+                }
+                val file = java.io.File(analysisDir, "bpm_results.jsonl")
+                file.appendText(analysisJson + "\n")
+                Log.d(TAG, "V3.5 SECTION_BPM_SAVED: ${file.absolutePath}")
+            } catch (e: Exception) {
+                Log.e(TAG, "V3.5 SAVE_FAILED: ${e.message}")
+            }
+        }
+
         // 결과 생성
         val result = DetectResultV3(
             beats = beats,
