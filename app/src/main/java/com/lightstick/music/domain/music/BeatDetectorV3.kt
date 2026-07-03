@@ -997,6 +997,14 @@ object BeatDetectorV3 {
                 sectionStrengths[lagIdx] = sum / (endFrame - startFrame)
             }
 
+            // V3.4 FIX: 절대 강도 기반 신호 신뢰성 확인
+            // 정규화 전 절대 강도 확인: 절대값 < 0.02는 신호가 극도로 약함
+            val maxAbsoluteStrength = sectionStrengths.maxOrNull() ?: 0f
+            if (maxAbsoluteStrength < 0.02f) {
+                Log.d(TAG, "V3 Section[${startMs}ms-${endMs}ms]: SKIPPED (signal too weak, max absolute=${"%.4f".format(maxAbsoluteStrength)})")
+                continue
+            }
+
             // V3.4 FIX: 하모닉 필터링 적용 (약한 신호 보호)
             // 섹션의 정규화 전에 하모닉 필터링을 적용하여
             // 절반 박자나 두배 박자 하모닉이 약한 신호에서 "상대 최대"가 되는 것을 방지
@@ -1014,14 +1022,6 @@ object BeatDetectorV3 {
             val peaks = filteredStrengths.mapIndexed { lagIdx, strength ->
                 Pair(lagIdx + minLag, strength)
             }.sortedByDescending { it.second }.take(5)
-
-            // V3.4 FIX: 최소 강도 임계값 확인 (strength=0% 방지)
-            // 선택된 피크의 강도가 매우 약한 경우 (< 5%), 섹션 분석 건너뛰기
-            val bestStrength = if (peaks.isNotEmpty()) peaks[0].second else 0f
-            if (bestStrength < 0.05f) {
-                Log.d(TAG, "V3 Section[${startMs}ms-${endMs}ms]: SKIPPED (weak signal, best strength=${"%.1f".format(bestStrength * 100)}%)")
-                continue
-            }
 
             val bestLag = peaks[0].first
             val sectionBpm = 60_000L / (bestLag * hopMs)
