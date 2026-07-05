@@ -929,11 +929,15 @@ object BeatDetectorV3 {
     }
 
     /**
-     * V3.7.4: 절반/2배 속도 오류 감지 및 보정 (Global AC와 비교)
+     * V3.7.5: 절반/2배 속도 오류 감지 및 보정 (Global AC와 비교)
      *
      * 섹션 BPM들의 전체 분포를 분석하여 절반/2배 오류 감지.
-     * 핵심: Global AC와 section median이 가까우면 (차이 ≤15 BPM) 보정하지 않음.
-     * 이는 정상 곡이 Global과 median 둘 다 정답인 경우, 과도한 보정을 방지.
+     *
+     * 핵심 로직:
+     * 1. Global AC와 section median이 가깝고(차이 ≤15) 둘 다 정상 범위(80-180)면:
+     *    → 과도한 보정 방지 (두 방법이 일치)
+     * 2. 둘이 가깝지만 둘 다 비정상 범위(<80 또는 >180)면:
+     *    → section 분포로 보정 (둘 다 절반/2배 속도를 선택했을 가능성)
      *
      * @param medianBpm 섹션 분석으로 계산한 중앙값 BPM
      * @param globalBpm 전역 AC 피크 BPM (Method A, bestBpm)
@@ -963,11 +967,13 @@ object BeatDetectorV3 {
         val doubledBpm = medianBpm * 2
         val halvedBpm = medianBpm / 2
 
-        // 핵심 체크: Global AC와 section median이 가까우면 보정하지 않음
-        // 정상 곡은 Global AC와 section median이 근접 (±15 BPM)
+        // 핵심 체크: Global AC와 section median이 가까우면서 둘 다 정상 범위(80-180)면 보정하지 않음
+        // (둘 다 비정상 범위면 section 분포 기반으로 보정해야 함)
         val globalMedianDiff = kotlin.math.abs(globalBpm - medianBpm)
-        if (globalMedianDiff <= 15f) {
-            Log.d(TAG, "V3.7.4 KEEP_ORIGINAL: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} (diff=${"%.1f".format(globalMedianDiff)}, both reliable)")
+        if (globalMedianDiff <= 15f &&
+            globalBpm >= IDEAL_MIN && globalBpm <= IDEAL_MAX &&
+            medianBpm >= IDEAL_MIN && medianBpm <= IDEAL_MAX) {
+            Log.d(TAG, "V3.7.5 KEEP_ORIGINAL: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} (both in normal range, diff=${"%.1f".format(globalMedianDiff)})")
             return medianBpm
         }
 
