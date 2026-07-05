@@ -901,9 +901,30 @@ object BeatDetectorV3 {
             return beatMsFromBpm(methodBBpm)
         }
 
-        // Case 4: 둘 다 합리적이지만 차이가 크면
-        // 섹션이 다양한 경우이므로 Global AC (더 안정적)를 선호
-        Log.d(TAG, "V3.7 SELECT_GLOBAL_DIVERSE: methodB=${"%.1f".format(methodBBpm)} vs Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(diff)}) → use Global")
+        // Case 4: 둘 다 합리적이지만 차이가 크면 → 2x 관계 확인
+        // 절반/2배 속도 오류일 가능성을 체크
+        val doubleRelationDiff = kotlin.math.abs((methodBBpm * 2) - globalBpm)
+        if (doubleRelationDiff <= 10f) {
+            // methodBBpm * 2 ≈ globalBpm → methodBBpm이 절반 속도
+            Log.d(TAG, "V3.7 SELECT_DOUBLE: methodB=${"%.1f".format(methodBBpm)} × 2 ≈ Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(doubleRelationDiff)}) → use doubled methodB=${"%.1f".format(methodBBpm * 2)}")
+            return beatMsFromBpm(methodBBpm * 2)
+        }
+
+        val halfRelationDiff = kotlin.math.abs((methodBBpm / 2) - globalBpm)
+        if (halfRelationDiff <= 10f) {
+            // methodBBpm / 2 ≈ globalBpm → methodBBpm이 2배 속도
+            Log.d(TAG, "V3.7 SELECT_HALF: methodB=${"%.1f".format(methodBBpm)} / 2 ≈ Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(halfRelationDiff)}) → use halved methodB=${"%.1f".format(methodBBpm / 2)}")
+            return beatMsFromBpm(methodBBpm / 2)
+        }
+
+        // 2x 관계 없음 → methodBBpm이 합리적이면 사용, 아니면 Global 사용
+        if (methodBBpm >= IDEAL_MIN && methodBBpm <= IDEAL_MAX) {
+            Log.d(TAG, "V3.7 SELECT_METHOD_B_FINAL: no 2x relation, methodB=${"%.1f".format(methodBBpm)} preferred over Global=${"%.1f".format(globalBpm)}")
+            return beatMsFromBpm(methodBBpm)
+        }
+
+        // 최후의 수단: Global AC 사용
+        Log.d(TAG, "V3.7 SELECT_GLOBAL_FINAL: methodB=${"%.1f".format(methodBBpm)} vs Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(diff)}) → use Global as fallback")
         return methodABeatMs
     }
 
