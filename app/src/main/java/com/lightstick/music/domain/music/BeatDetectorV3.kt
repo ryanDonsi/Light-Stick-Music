@@ -929,15 +929,19 @@ object BeatDetectorV3 {
     }
 
     /**
-     * V3.7.5: 절반/2배 속도 오류 감지 및 보정 (Global AC와 비교)
+     * V3.7.8: 절반/2배 속도 오류 감지 및 보정 (섹션 BPM 범위 분석)
      *
-     * 섹션 BPM들의 전체 분포를 분석하여 절반/2배 오류 감지.
+     * 섹션 BPM들의 분포 범위를 분석하여 절반/2배 오류를 더 정확히 감지.
      *
      * 핵심 로직:
-     * 1. Global AC와 section median이 가깝고(차이 ≤15) 둘 다 정상 범위(80-180)면:
-     *    → 과도한 보정 방지 (두 방법이 일치)
-     * 2. 둘이 가깝지만 둘 다 비정상 범위(<80 또는 >180)면:
-     *    → section 분포로 보정 (둘 다 절반/2배 속도를 선택했을 가능성)
+     * 1. Global과 Median이 가깝고(≤5) 섹션 BPM 범위가 좁으면(≤50):
+     *    → 정상 범위이므로 보정하지 않음 (정상 곡: 74.1 BPM, 섹션 범위 28-47)
+     *
+     * 2. Global과 Median이 가깝지만 섹션 BPM 범위가 넓으면(>50):
+     *    → 절반/2배 속도 가능성이 높으므로 섹션 분포로 판단 후 보정
+     *
+     * 3. Global과 Median이 차이가 크면:
+     *    → 섹션 분포로 판단 후 보정
      *
      * @param medianBpm 섹션 분석으로 계산한 중앙값 BPM
      * @param globalBpm 전역 AC 피크 BPM (Method A, bestBpm)
@@ -955,43 +959,52 @@ object BeatDetectorV3 {
 
         val minBpm = bpmValues.minOrNull() ?: medianBpm
         val maxBpm = bpmValues.maxOrNull() ?: medianBpm
+        val bpmRange = maxBpm - minBpm  // 섹션 BPM의 범위
 
         // 섹션 BPM들이 대부분 특정 범위에 집중되어 있는지 확인
         val lowRangeCount = bpmValues.count { it < 100f }
         val highRangeCount = bpmValues.count { it >= 100f }
         val totalSections = bpmValues.size
 
-        Log.d(TAG, "V3.7.4 DistributionAnalysis: median=${"%.1f".format(medianBpm)}, global=${"%.1f".format(globalBpm)}, " +
-                "low(<100)=$lowRangeCount, high(≥100)=$highRangeCount / $totalSections")
+        Log.d(TAG, "V3.7.8 DistributionAnalysis: median=${"%.1f".format(medianBpm)}, global=${"%.1f".format(globalBpm)}, " +
+                "range=${"%.0f".format(bpmRange)}, low(<100)=$lowRangeCount, high(≥100)=$highRangeCount / $totalSections")
 
         val doubledBpm = medianBpm * 2
         val halvedBpm = medianBpm / 2
 
-        // 핵심 체크: Global AC와 section median이 가까우면서 둘 다 정상 범위(80-180)면 보정하지 않음
-        // (둘 다 비정상 범위면 section 분포 기반으로 보정해야 함)
+        // V3.7.8: Global과 Median이 일치(≤5)하고 섹션 범위가 좁으면(≤50) 보정 안 함
+        // → 정상 곡: TOMBOY, 진미령 등 (범위 28-47)
         val globalMedianDiff = kotlin.math.abs(globalBpm - medianBpm)
+        if (globalMedianDiff <= 5f && bpmRange <= 50f) {
+            Log.d(TAG, "V3.7.8 TRUST_BOTH_METHODS: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} " +
+                    "(perfect match, narrow range=${"%.0f".format(bpmRange)})")
+            return medianBpm
+        }
+
+        // V3.7.5: Global과 Median이 가깝고 둘 다 정상 범위면 보정 방지
         if (globalMedianDiff <= 15f &&
             globalBpm >= IDEAL_MIN && globalBpm <= IDEAL_MAX &&
             medianBpm >= IDEAL_MIN && medianBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.7.5 KEEP_ORIGINAL: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} (both in normal range, diff=${"%.1f".format(globalMedianDiff)})")
+            Log.d(TAG, "V3.7.8 KEEP_ORIGINAL: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} " +
+                    "(both in normal range, diff=${"%.1f".format(globalMedianDiff)})")
             return medianBpm
         }
 
         // 절반 속도 감지: 섹션 BPM이 모두 낮은 범위(50-100)에 집중
         // 그리고 2배하면 합리적인 음악 BPM 범위(80-180)가 됨
         if (lowRangeCount >= totalSections * 0.7f && doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.7.4 HALF_TEMPO_DETECTED: 70% of sections <100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}")
+            Log.d(TAG, "V3.7.8 HALF_TEMPO_DETECTED: 70% of sections <100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}")
             return doubledBpm
         }
 
         // 2배 속도 감지: 섹션 BPM이 모두 높은 범위(100+)에 집중
         // 그리고 절반하면 합리적인 음악 BPM 범위(80-180)가 됨
         if (highRangeCount >= totalSections * 0.7f && halvedBpm >= IDEAL_MIN && halvedBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.7.4 DOUBLE_TEMPO_DETECTED: 70% of sections ≥100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}")
+            Log.d(TAG, "V3.7.8 DOUBLE_TEMPO_DETECTED: 70% of sections ≥100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}")
             return halvedBpm
         }
 
-        Log.d(TAG, "V3.7.4 KEEP_ORIGINAL: median=${"%.1f".format(medianBpm)} BPM (no clear octave pattern)")
+        Log.d(TAG, "V3.7.8 KEEP_ORIGINAL: median=${"%.1f".format(medianBpm)} BPM (no clear octave pattern)")
         return medianBpm
     }
 
