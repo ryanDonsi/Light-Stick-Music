@@ -929,51 +929,63 @@ object BeatDetectorV3 {
     }
 
     /**
-     * V3.7: 절반/2배 속도 오류 감지 및 보정
+     * V3.7.4: 절반/2배 속도 오류 감지 및 보정 (Global AC와 비교)
      *
      * 섹션 BPM들의 전체 분포를 분석하여 절반/2배 오류 감지.
-     * 대부분의 섹션이 낮은 범위(50-100)에 집중되면, 절반 속도로 판정.
+     * 핵심: Global AC와 section median이 가까우면 (차이 ≤15 BPM) 보정하지 않음.
+     * 이는 정상 곡이 Global과 median 둘 다 정답인 경우, 과도한 보정을 방지.
      *
      * @param medianBpm 섹션 분석으로 계산한 중앙값 BPM
+     * @param globalBpm 전역 AC 피크 BPM (Method A, bestBpm)
      * @param sectionBpms 섹션별 (timeMs, BPM) 쌍 리스트
      * @return 보정된 BPM 값
      */
-    private fun detectAndCorrectOctaveError(medianBpm: Float, sectionBpms: List<Pair<Long, Float>>): Float {
+    private fun detectAndCorrectOctaveError(medianBpm: Float, globalBpm: Float, sectionBpms: List<Pair<Long, Float>>): Float {
         if (medianBpm <= 0f || sectionBpms.isEmpty()) return medianBpm
+
+        val IDEAL_MIN = 80f
+        val IDEAL_MAX = 180f
 
         val bpmValues = sectionBpms.map { it.second }.sorted()
         if (bpmValues.isEmpty()) return medianBpm
 
         val minBpm = bpmValues.minOrNull() ?: medianBpm
         val maxBpm = bpmValues.maxOrNull() ?: medianBpm
-        val bpmRange = maxBpm - minBpm
 
         // 섹션 BPM들이 대부분 특정 범위에 집중되어 있는지 확인
         val lowRangeCount = bpmValues.count { it < 100f }
         val highRangeCount = bpmValues.count { it >= 100f }
         val totalSections = bpmValues.size
 
-        Log.d(TAG, "V3.7 DistributionAnalysis: min=${"%.1f".format(minBpm)}, max=${"%.1f".format(maxBpm)}, range=${"%.1f".format(bpmRange)}, " +
-                "low(<100)=$lowRangeCount, high(≥100)=$highRangeCount, median=${"%.1f".format(medianBpm)}")
+        Log.d(TAG, "V3.7.4 DistributionAnalysis: median=${"%.1f".format(medianBpm)}, global=${"%.1f".format(globalBpm)}, " +
+                "low(<100)=$lowRangeCount, high(≥100)=$highRangeCount / $totalSections")
 
         val doubledBpm = medianBpm * 2
         val halvedBpm = medianBpm / 2
 
+        // 핵심 체크: Global AC와 section median이 가까우면 보정하지 않음
+        // 정상 곡은 Global AC와 section median이 근접 (±15 BPM)
+        val globalMedianDiff = kotlin.math.abs(globalBpm - medianBpm)
+        if (globalMedianDiff <= 15f) {
+            Log.d(TAG, "V3.7.4 KEEP_ORIGINAL: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} (diff=${"%.1f".format(globalMedianDiff)}, both reliable)")
+            return medianBpm
+        }
+
         // 절반 속도 감지: 섹션 BPM이 모두 낮은 범위(50-100)에 집중
         // 그리고 2배하면 합리적인 음악 BPM 범위(80-180)가 됨
-        if (lowRangeCount >= totalSections * 0.7f && doubledBpm >= 80f && doubledBpm <= 180f) {
-            Log.d(TAG, "V3.7 HALF_TEMPO_DETECTED: 70% of sections <100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}")
+        if (lowRangeCount >= totalSections * 0.7f && doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
+            Log.d(TAG, "V3.7.4 HALF_TEMPO_DETECTED: 70% of sections <100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}")
             return doubledBpm
         }
 
         // 2배 속도 감지: 섹션 BPM이 모두 높은 범위(100+)에 집중
         // 그리고 절반하면 합리적인 음악 BPM 범위(80-180)가 됨
-        if (highRangeCount >= totalSections * 0.7f && halvedBpm >= 80f && halvedBpm <= 180f) {
-            Log.d(TAG, "V3.7 DOUBLE_TEMPO_DETECTED: 70% of sections ≥100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}")
+        if (highRangeCount >= totalSections * 0.7f && halvedBpm >= IDEAL_MIN && halvedBpm <= IDEAL_MAX) {
+            Log.d(TAG, "V3.7.4 DOUBLE_TEMPO_DETECTED: 70% of sections ≥100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}")
             return halvedBpm
         }
 
-        Log.d(TAG, "V3.7 KEEP_ORIGINAL: median=${"%.1f".format(medianBpm)} BPM (balanced distribution or unclear octave)")
+        Log.d(TAG, "V3.7.4 KEEP_ORIGINAL: median=${"%.1f".format(medianBpm)} BPM (no clear octave pattern)")
         return medianBpm
     }
 
@@ -1751,8 +1763,9 @@ object BeatDetectorV3 {
             // Step 1: 기본 중앙값 계산
             val baseMedianBpm = calculateMedianBpmFromSections(collectedSectionBpms)
 
-            // Step 2: V3.7 - 섹션 분포에서 절반/2배 오류 감지 및 보정
-            methodBBpm = detectAndCorrectOctaveError(baseMedianBpm, collectedSectionBpms)
+            // Step 2: V3.7.4 - Global AC와 비교하여 과도한 보정 방지
+            // Global AC가 이미 합리적인 범위(80-180)면 보정하지 않음
+            methodBBpm = detectAndCorrectOctaveError(baseMedianBpm, bestBpm, collectedSectionBpms)
 
             // Step 3: Method A (Global AC, bestBpm) vs Method B (Section Median, methodBBpm) 선택
             // 미스매치 곡들의 경우 Global BPM이 정확할 수 있으므로 비교 후 결정
