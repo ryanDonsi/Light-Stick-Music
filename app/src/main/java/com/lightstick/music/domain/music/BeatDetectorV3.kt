@@ -387,8 +387,8 @@ object BeatDetectorV3 {
 
             // 평균과 표준편차 계산
             val mean = strengths.average().toFloat()
-            val variance = strengths.map { (it - mean) * (it - mean) }.average()
-            val stdDev = sqrt(variance).coerceAtLeast(1e-6f)
+            val variance = strengths.map { (it - mean) * (it - mean) }.average().toFloat()
+            val stdDev = sqrt(variance.toDouble()).toFloat().coerceAtLeast(1e-6f)
 
             // CV (Coefficient of Variation): stdDev / mean
             // CV가 낮을수록 일관성이 높음 (score 높음)
@@ -396,6 +396,38 @@ object BeatDetectorV3 {
             val consistency = (1f / (1f + cv)).coerceIn(0f, 1f)  // CV=0 → score=1, CV=1 → score=0.5
 
             return consistency
+        }
+
+        // V4.0: 옥타브 보정 검증 (calculateTemporalConsistency 이후에 정의)
+        fun shouldApplyOctaveCorrection(
+            originalBpm: Float,
+            candidateBpm: Float,
+            candidateStrength: Float,
+            originalStrength: Float,
+            ratio: Float
+        ): Boolean {
+            // 기본 강도 비율 요건
+            if (ratio < 0.45f) return false
+
+            // 후보 BPM의 시간 일관성 확인
+            val candidateLag = beatMsFromBpm(candidateBpm) / hopMs
+            if (candidateLag < 1L || candidateLag > harmonicFiltered.size) return false
+
+            val candidateConsistency = calculateTemporalConsistency(candidateLag.toInt() - minLag)
+            val originalConsistency = calculateTemporalConsistency(bestLagIdx)
+
+            // V4.0: 시간 일관성이 충분히 개선되어야만 보정 적용
+            // 최소 0.10 포인트 이상의 개선이 필요
+            if (candidateConsistency - originalConsistency < 0.10f) {
+                return false
+            }
+
+            // 원래 BPM이 이미 좋은 일관성을 가지면 보정하지 않음 (회귀 방지)
+            if (originalConsistency >= 0.65f) {
+                return false
+            }
+
+            return true
         }
 
         // 각 후보 피크 평가
@@ -460,37 +492,7 @@ object BeatDetectorV3 {
         // 옥타브 보정은 신중하게 수행:
         // - 보정된 BPM의 시간 일관성 확인
         // - 보정으로 인한 손실이 충분히 큰지 확인
-
-        fun shouldApplyOctaveCorrection(
-            originalBpm: Float,
-            candidateBpm: Float,
-            candidateStrength: Float,
-            originalStrength: Float,
-            ratio: Float
-        ): Boolean {
-            // 기본 강도 비율 요건
-            if (ratio < 0.45f) return false
-
-            // 후보 BPM의 시간 일관성 확인
-            val candidateLag = beatMsFromBpm(candidateBpm) / hopMs
-            if (candidateLag !in 1..harmonicFiltered.size) return false
-
-            val candidateConsistency = calculateTemporalConsistency(candidateLag.toInt() - minLag)
-            val originalConsistency = calculateTemporalConsistency(bestLagIdx)
-
-            // V4.0: 시간 일관성이 충분히 개선되어야만 보정 적용
-            // 최소 0.10 포인트 이상의 개선이 필요
-            if (candidateConsistency - originalConsistency < 0.10f) {
-                return false
-            }
-
-            // 원래 BPM이 이미 좋은 일관성을 가지면 보정하지 않음 (회귀 방지)
-            if (originalConsistency >= 0.65f) {
-                return false
-            }
-
-            return true
-        }
+        // (shouldApplyOctaveCorrection 함수는 위에서 정의됨)
 
         // 절반 비트(2배 BPM) 확인: lag/2
         val halfLag = bestLag / 2
