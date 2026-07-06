@@ -97,6 +97,24 @@ object BeatDetectorV3 {
         val secondaryPeakRatio: Float  // 2nd peak / 1st peak
     )
 
+    /** V4.0: findModalPeak의 다중 피크 평가 후보 하나에 대한 디버그 정보 (JSON 저장용) */
+    data class PeakCandidateDebugInfo(
+        val bpm: Float,
+        val acStrength: Float,
+        val prior: Float,
+        val temporalConsistency: Float,
+        val compositeScore: Float,
+        val selected: Boolean
+    )
+
+    /** V4.0: findModalPeak의 전체 평가 결과 (선택된 BPM + 후보 목록 + 옥타브 보정 여부) */
+    data class ModalPeakResult(
+        val bpm: Float,
+        val confidence: Float,
+        val candidates: List<PeakCandidateDebugInfo>,
+        val octaveCorrected: Boolean
+    )
+
     enum class TimeSignatureType { FOUR_FOUR, THREE_FOUR, SIX_EIGHT }
 
     data class TimeSignature(
@@ -269,15 +287,13 @@ object BeatDetectorV3 {
      */
     /**
      * Tempogram에서 모달 피크(주요 BPM)를 찾음
-     * @return Pair<Float, Float>
-     *         - First: BPM 값 (beats per minute, 예: 92.0)
-     *         - Second: 신뢰도 (0-1 범위)
+     * @return ModalPeakResult - BPM, 신뢰도, V4.0 다중 피크 평가 후보 목록, 옥타브 보정 적용 여부
      */
     fun findModalPeak(
         tempogram: Array<FloatArray>,
         hopMs: Long,
         minBeatMs: Long
-    ): Pair<Float, Float> {
+    ): ModalPeakResult {
         val minLag = maxOf(1, (minBeatMs / hopMs).toInt())
 
         // 각 BPM별로 시간을 통합
@@ -432,11 +448,24 @@ object BeatDetectorV3 {
             "Temporal=${"%.3f".format(cand.temporalConsistency)} Composite=${"%.3f".format(cand.compositeScore)}"
         }.joinToString(" | ")}")
 
+        // V4.0: JSON 저장용 후보 디버그 목록 (선택된 후보 표시)
+        val candidateDebugList = candidateScores.map { cand ->
+            PeakCandidateDebugInfo(
+                bpm = cand.bpm,
+                acStrength = cand.acStrength,
+                prior = cand.prior,
+                temporalConsistency = cand.temporalConsistency,
+                compositeScore = cand.compositeScore,
+                selected = (cand.lag == bestCandidate.lag)
+            )
+        }
+
         val bestLagIdx = bestCandidate.lag - minLag
         val bestLag = bestCandidate.lag
         var finalLag = bestLag
         val bestBeatMs = bestLag * hopMs
         var bestBpm = bestCandidate.bpm
+        var octaveCorrected = false
 
         // 최종 선택 이유 로깅
         if (candidateScores.size > 1) {
@@ -512,6 +541,7 @@ object BeatDetectorV3 {
             finalLag = halfLag
             bestBpm = halfBpm
             confidence = minOf(1.0f, halfStrength / sorted[0])
+            octaveCorrected = true
         }
         // V4.0: 2배 비트 보정 (절반 오류 수정)
         else if (doubleLag - minLag < harmonicFiltered.size && doubleRatio >= 0.45f &&
@@ -527,11 +557,12 @@ object BeatDetectorV3 {
             finalLag = doubleLag
             bestBpm = doubleBpm
             confidence = minOf(1.0f, doubleStrength / sorted[0])
+            octaveCorrected = true
         }
 
         Log.d(TAG, "V3 ModalPeak: BPM=${bestBpm.toInt()}, Confidence=${(confidence * 100).toInt()}% (lag=$finalLag)")
 
-        return Pair(bestBpm, confidence)
+        return ModalPeakResult(bestBpm, confidence, candidateDebugList, octaveCorrected)
     }
 
     /**
@@ -1523,12 +1554,17 @@ object BeatDetectorV3 {
         return result
     }
 
+    /** V3 BPM 탐지 결과: BPM, confidence, tempogram, V4.0 다중 피크 평가 후보 목록 */
+    data class BpmV3Result(
+        val bpm: Float,
+        val confidence: Float,
+        val tempogram: Array<FloatArray>?,
+        val peakCandidates: List<PeakCandidateDebugInfo> = emptyList()
+    )
+
     /**
      * V3 BPM 탐지
-     * @return Triple<Float, Float, Array<FloatArray>?>
-     *         - 첫 번째 Float: BPM 값 (beats per minute, 예: 92.0, 0이면 실패)
-     *         - 두 번째 Float: confidence (0-1 범위)
-     *         - Array: tempogram 또는 null
+     * @return BpmV3Result - BPM, confidence, tempogram, V4.0 피크 평가 후보 목록
      */
     fun estimateBpmV3(
         odf: FloatArray,
@@ -1540,12 +1576,12 @@ object BeatDetectorV3 {
         useTempogram: Boolean = true,
         halfTempoRatio: Float = HALF_TEMPO_RATIO,
         doubleTempoRatio: Float = 0.55f
-    ): Triple<Float, Float, Array<FloatArray>?> {
+    ): BpmV3Result {
         val minLag = maxOf(1, (minBeatMs / hopMs).toInt())
         val maxLag = maxOf(minLag + 1, (maxBeatMs / hopMs).toInt())
 
         if (odf.size <= maxLag + 2) {
-            return Triple(0f, 0f, null)
+            return BpmV3Result(0f, 0f, null)
         }
 
         val acVals = FloatArray(maxLag + 1)
@@ -1640,14 +1676,16 @@ object BeatDetectorV3 {
         // Tempogram 사용
         if (useTempogram) {
             val tempogram = computeTempogram(odf, hopMs, minBeatMs, maxBeatMs)
-            val (bestBpm, confidence) = findModalPeak(tempogram, hopMs, minBeatMs)
+            val modalPeakResult = findModalPeak(tempogram, hopMs, minBeatMs)
+            val bestBpm = modalPeakResult.bpm
+            val confidence = modalPeakResult.confidence
 
             Log.d(
                 TAG,
                 "V3 Tempogram: BPM=$bestBpm, Confidence=$confidence"
             )
 
-            return Triple(bestBpm, confidence, tempogram)
+            return BpmV3Result(bestBpm, confidence, tempogram, modalPeakResult.candidates)
         } else {
             // V1 방식
             val bestLag = (minLag..maxLag).maxByOrNull { scoreVals[it] } ?: minLag
@@ -1678,7 +1716,7 @@ object BeatDetectorV3 {
                 "V3 V1-Mode: BPM=$bestBpm, Confidence=$confidence"
             )
 
-            return Triple(bestBpm.toFloat(), confidence, null)
+            return BpmV3Result(bestBpm.toFloat(), confidence, null)
         }
     }
 
@@ -1984,7 +2022,7 @@ object BeatDetectorV3 {
         Log.d(TAG, "V3.2 5-BAND_ODF_WEIGHTED: veryLow(8%), lowMid(12%), low(20%), mid(35%), high(25%)")
 
         // 통합 ODF로 BPM 추정
-        val (bestBpm, confidence, tempogram) = estimateBpmV3(
+        val (bestBpm, confidence, tempogram, peakCandidates) = estimateBpmV3(
             integratedOdf,
             hopMs = params.hopMs,
             minBeatMs = params.minBeatMs,
@@ -2167,6 +2205,24 @@ object BeatDetectorV3 {
                     ""
                 }
 
+                // V4.0: 다중 피크 평가 후보 목록 JSON (Stray Kids/TOMBOY 등 진단용)
+                val peakEvaluationJson = if (peakCandidates.isNotEmpty()) {
+                    try {
+                        ",\"v4_peak_evaluation\":[${peakCandidates.joinToString(",") { cand ->
+                            "{\"bpm\":${String.format("%.1f", cand.bpm)}," +
+                            "\"acStrength\":${String.format("%.3f", cand.acStrength)}," +
+                            "\"prior\":${String.format("%.3f", cand.prior)}," +
+                            "\"temporalConsistency\":${String.format("%.3f", cand.temporalConsistency)}," +
+                            "\"compositeScore\":${String.format("%.3f", cand.compositeScore)}," +
+                            "\"selected\":${cand.selected}}"
+                        }}]"
+                    } catch (e: Exception) {
+                        ""
+                    }
+                } else {
+                    ""
+                }
+
                 val analysisJson = "{" +
                         "\"title\":\"$songTitle\"," +
                         "\"v3_5_analysis\":{" +
@@ -2191,6 +2247,7 @@ object BeatDetectorV3 {
                         "}," +
                         "\"durationMs\":${durationMs}" +
                         tempogramInsightsJson +
+                        peakEvaluationJson +
                         "}"
 
                 val filesDir = context.filesDir
