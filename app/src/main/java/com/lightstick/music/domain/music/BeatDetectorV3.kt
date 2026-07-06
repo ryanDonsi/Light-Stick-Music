@@ -2107,12 +2107,6 @@ object BeatDetectorV3 {
         // Beat 추정 (Method A: Tempogram 기반)
         val methodABeatMs = beatMsFromBpm(bestBpm)
 
-        // V4.1: Method A(Global) 후보 자체의 임시 박자 판정 (Entrance 같은 6/8곡 보호용)
-        // detectTimeSignature는 finalBeatMs 확정 후 다시 정식으로 호출되므로 순환 의존이 아님 —
-        // 여기서는 Method A/B 선택에만 쓰는 사전 판단용으로 별도 계산.
-        val provisionalTimeSig = detectTimeSignature(integratedOdf, methodABeatMs, params.hopMs)
-        val isCompoundMeterCandidate = provisionalTimeSig == TimeSignature.SIX_EIGHT
-
         // Method B: 섹션 중앙값 기반 BPM 보정 (V3.7)
         val methodBBpm: Float
         val finalBeatMs: Long
@@ -2128,6 +2122,16 @@ object BeatDetectorV3 {
             val octaveResult = detectAndCorrectOctaveError(baseMedianBpm, bestBpm, collectedSectionBpms)
             methodBBpm = octaveResult.bpm
             octaveCorrectionReason = octaveResult.reason
+
+            // V4.3: methodB 후보 자체의 임시 박자 판정 (Entrance 같은 6/8곡 보호용)
+            // V4.1 시도: Global(Method A) 주기로 판정 → 실패. Entrance는 Global(105.3ms) 기준으론
+            // SIX_EIGHT가 안 나오고, 오히려 methodB(131.9, 틀린 값) 기준으로 봤을 때만 6/8 패턴이
+            // 나타남 — methodB가 실제로는 "곡의 3연음/복합박 서브비트"를 메인 비트로 착각한 것으로
+            // 추정. 그래서 methodB의 주기로 판정해서, 6/8로 보이면 methodB를 불신하고 Global 유지.
+            // detectTimeSignature는 finalBeatMs 확정 후 다시 정식으로 호출되므로 순환 의존 아님.
+            val methodBBeatMsForSigCheck = beatMsFromBpm(methodBBpm)
+            val provisionalTimeSig = detectTimeSignature(integratedOdf, methodBBeatMsForSigCheck, params.hopMs)
+            val isCompoundMeterCandidate = provisionalTimeSig == TimeSignature.SIX_EIGHT
 
             // Step 3: Method A (Global AC, bestBpm) vs Method B (Section Median, methodBBpm) 선택
             // 미스매치 곡들의 경우 Global BPM이 정확할 수 있으므로 비교 후 결정
