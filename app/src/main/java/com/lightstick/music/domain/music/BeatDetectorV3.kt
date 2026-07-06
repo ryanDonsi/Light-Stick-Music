@@ -75,6 +75,28 @@ object BeatDetectorV3 {
 
     data class TimedBeat(val timeMs: Long, val confidence: Float)
 
+    // V3.8: Tempogram 분석용 데이터 구조
+    data class AcPeakInfo(
+        val lagMs: Long,
+        val bpm: Float,
+        val acValue: Float,
+        val score: Float,
+        val scorePercent: Int,
+        val ratio: Float,
+        val peakType: String  // PEAK, 2x, 0.5x, etc
+    )
+
+    data class TempogramInsights(
+        val bestBpm: Float,
+        val confidence: Float,
+        val topPeaks: List<AcPeakInfo>,
+        val halfTempoRatio: Float?,
+        val doubleTempoRatio: Float?,
+        val globalAcMagnitude: Float,
+        val peakStrength: Float,
+        val secondaryPeakRatio: Float  // 2nd peak / 1st peak
+    )
+
     enum class TimeSignatureType { FOUR_FOUR, THREE_FOUR, SIX_EIGHT }
 
     data class TimeSignature(
@@ -1010,6 +1032,116 @@ object BeatDetectorV3 {
 
 
     /**
+     * V3.8: Tempogram 분석하여 개선 데이터 추출
+     * @return TempogramInsights - AC 피크, 신뢰도, 2차 피크 비율 등
+     */
+    private fun analyzeTempogramForInsights(
+        tempogram: Array<FloatArray>,
+        hopMs: Long,
+        finalBeatMs: Long,
+        sectionBpms: List<Pair<Long, Float>>
+    ): TempogramInsights {
+        if (tempogram.isEmpty() || tempogram[0].isEmpty()) {
+            return TempogramInsights(
+                bestBpm = 0f,
+                confidence = 0f,
+                topPeaks = emptyList(),
+                halfTempoRatio = null,
+                doubleTempoRatio = null,
+                globalAcMagnitude = 0f,
+                peakStrength = 0f,
+                secondaryPeakRatio = 0f
+            )
+        }
+
+        // Tempogram AC 컬럼 (마지막 프레임)의 피크 찾기
+        val acColumn = tempogram.map { it.last() }.toFloatArray()
+        val minLag = 37  // 375ms / 10ms
+        val maxLag = 120  // 1200ms / 10ms
+
+        // 상위 피크 분석
+        val peaks = mutableListOf<Pair<Int, Float>>()
+        for (lag in minLag..minOf(maxLag, acColumn.size - 1)) {
+            peaks.add(Pair(lag, acColumn[lag]))
+        }
+
+        val sortedPeaks = peaks.sortedByDescending { it.second }
+        if (sortedPeaks.isEmpty()) {
+            return TempogramInsights(
+                bestBpm = 0f,
+                confidence = 0f,
+                topPeaks = emptyList(),
+                halfTempoRatio = null,
+                doubleTempoRatio = null,
+                globalAcMagnitude = 0f,
+                peakStrength = 0f,
+                secondaryPeakRatio = 0f
+            )
+        }
+
+        // 상위 피크 5개 추출
+        val topAcPeaks = sortedPeaks.take(5)
+        val topPeakScore = topAcPeaks.first().second
+        val secondaryPeakRatio = if (topAcPeaks.size > 1) {
+            topAcPeaks[1].second / topPeakScore
+        } else {
+            0f
+        }
+
+        // AC 피크 정보 변환
+        val peakInfoList = topAcPeaks.map { (lag, score) ->
+            val beatMs = lag * hopMs
+            val bpm = bpmFromBeatMs(beatMs)
+            val ratio = lag.toFloat() / topAcPeaks[0].first.toFloat()
+            val peakType = when {
+                kotlin.math.abs(ratio - 0.5f) < 0.08f -> "half"
+                kotlin.math.abs(ratio - 1.0f) < 0.05f -> "peak"
+                kotlin.math.abs(ratio - 2.0f) < 0.08f -> "double"
+                else -> "other"
+            }
+            val scorePercent = (score / topPeakScore * 100).toInt()
+
+            AcPeakInfo(
+                lagMs = beatMs,
+                bpm = bpm,
+                acValue = score,
+                score = score,
+                scorePercent = scorePercent,
+                ratio = ratio,
+                peakType = peakType
+            )
+        }
+
+        // 섹션 기반 신뢰도 계산
+        val sectionBpmValues = sectionBpms.map { it.second }
+        val medianSectionBpm = if (sectionBpmValues.isNotEmpty()) {
+            sectionBpmValues.sorted()[sectionBpmValues.size / 2]
+        } else {
+            0f
+        }
+
+        val bestBpm = bpmFromBeatMs(finalBeatMs)
+        val confidenceScore = if (kotlin.math.abs(bestBpm - medianSectionBpm) <= 5f) {
+            0.95f  // Global과 Median 일치 → 높은 신뢰도
+        } else if (kotlin.math.abs(bestBpm * 2 - medianSectionBpm) <= 5f) {
+            0.70f  // 2배 관계 → 중간 신뢰도
+        } else {
+            topPeakScore / 10f  // AC 강도 기반
+        }
+
+        return TempogramInsights(
+            bestBpm = bestBpm,
+            confidence = kotlin.math.min(confidenceScore, 1f),
+            topPeaks = peakInfoList,
+            halfTempoRatio = null,
+            doubleTempoRatio = null,
+            globalAcMagnitude = topPeakScore,
+            peakStrength = topPeakScore,
+            secondaryPeakRatio = secondaryPeakRatio
+        )
+    }
+
+    /**
      * BPM 변화점 감지 (임계값 기반)
      *
      * @param curve BPM 곡선
@@ -1900,6 +2032,27 @@ object BeatDetectorV3 {
                 val globalBpmMs = methodABeatMs
                 val globalBpmValue = bestBpm  // BPM 값 그자체
 
+                // V3.8: Tempogram 분석 데이터 수집 (Tempogram 개선용)
+                val tempogramInsightsJson = if (tempogram != null && collectedSectionBpms.isNotEmpty()) {
+                    try {
+                        val insights = analyzeTempogramForInsights(tempogram, params.hopMs, finalBeatMs, collectedSectionBpms)
+                        ",\"tempogram_insights\":{" +
+                                "\"bestBpm\":${String.format("%.1f", insights.bestBpm)}," +
+                                "\"confidence\":${String.format("%.1f", insights.confidence)}," +
+                                "\"topPeaks\":[${insights.topPeaks.take(5).joinToString(",") { peak ->
+                                    "{\"bpm\":${String.format("%.1f", peak.bpm)}," +
+                                    "\"scorePercent\":${peak.scorePercent}," +
+                                    "\"peakType\":\"${peak.peakType}\"}"
+                                }}]," +
+                                "\"secondaryPeakRatio\":${String.format("%.2f", insights.secondaryPeakRatio)}" +
+                                "}"
+                    } catch (e: Exception) {
+                        ""
+                    }
+                } else {
+                    ""
+                }
+
                 val analysisJson = "{" +
                         "\"title\":\"$songTitle\"," +
                         "\"v3_5_analysis\":{" +
@@ -1923,6 +2076,7 @@ object BeatDetectorV3 {
                         "\"sectionBpms\":[$sectionBpmList]" +
                         "}," +
                         "\"durationMs\":${durationMs}" +
+                        tempogramInsightsJson +
                         "}"
 
                 val filesDir = context.filesDir
