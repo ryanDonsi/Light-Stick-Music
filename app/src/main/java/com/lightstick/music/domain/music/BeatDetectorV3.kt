@@ -1019,7 +1019,12 @@ object BeatDetectorV3 {
      * @param methodABeatMs Global AC에서 계산한 beatMs
      * @return 최종 선택된 beatMs
      */
-    private fun selectBetweenMethodsAandB(globalBpm: Float, methodBBpm: Float, methodABeatMs: Long): MethodSelectionResult {
+    private fun selectBetweenMethodsAandB(
+        globalBpm: Float,
+        methodBBpm: Float,
+        methodABeatMs: Long,
+        isCompoundMeter: Boolean = false
+    ): MethodSelectionResult {
         if (methodBBpm <= 0f) {
             // methodBBpm이 없으면 Global AC 사용
             return MethodSelectionResult(methodABeatMs, "NO_METHOD_B: methodB unavailable → use Global ${"%.1f".format(globalBpm)}")
@@ -1072,10 +1077,20 @@ object BeatDetectorV3 {
         }
 
         // 2x 관계 없음 → methodBBpm이 합리적이면 사용, 아니면 Global 사용
-        if (methodBBpm >= IDEAL_MIN && methodBBpm <= IDEAL_MAX) {
+        // V4.1: 6/8박(복합박자)에서는 이 "묻지도 따지지도 않고 methodB 우선" 규칙이
+        // 오히려 이미 맞는 Global을 뒤집는 경우가 있음 (Entrance: Global=105.3 정답인데
+        // methodB=131.9로 잘못 대체됨, 비율 1.25로 다른 4/4·3/4 곡들의 1.49 근처와 다름).
+        // 43곡 검증: 4/4·3/4 곡 11개는 전부 이 분기에서 methodB가 정답이었고,
+        // 6/8인 Entrance만 예외였음 → 6/8일 때만 Global 유지.
+        if (methodBBpm >= IDEAL_MIN && methodBBpm <= IDEAL_MAX && !isCompoundMeter) {
             val reason = "SELECT_METHOD_B_FINAL: no 2x relation, methodB=${"%.1f".format(methodBBpm)} preferred over Global=${"%.1f".format(globalBpm)}"
             Log.d(TAG, "V3.7 $reason")
             return MethodSelectionResult(beatMsFromBpm(methodBBpm), reason)
+        }
+        if (methodBBpm >= IDEAL_MIN && methodBBpm <= IDEAL_MAX && isCompoundMeter) {
+            val reason = "SELECT_GLOBAL_COMPOUND_METER: no 2x relation, but compound(6/8) meter detected → keep Global=${"%.1f".format(globalBpm)} instead of methodB=${"%.1f".format(methodBBpm)}"
+            Log.d(TAG, "V4.1 $reason")
+            return MethodSelectionResult(methodABeatMs, reason)
         }
 
         // 최후의 수단: Global AC 사용
@@ -2086,6 +2101,12 @@ object BeatDetectorV3 {
         // Beat 추정 (Method A: Tempogram 기반)
         val methodABeatMs = beatMsFromBpm(bestBpm)
 
+        // V4.1: Method A(Global) 후보 자체의 임시 박자 판정 (Entrance 같은 6/8곡 보호용)
+        // detectTimeSignature는 finalBeatMs 확정 후 다시 정식으로 호출되므로 순환 의존이 아님 —
+        // 여기서는 Method A/B 선택에만 쓰는 사전 판단용으로 별도 계산.
+        val provisionalTimeSig = detectTimeSignature(integratedOdf, methodABeatMs, params.hopMs)
+        val isCompoundMeterCandidate = provisionalTimeSig == TimeSignature.SIX_EIGHT
+
         // Method B: 섹션 중앙값 기반 BPM 보정 (V3.7)
         val methodBBpm: Float
         val finalBeatMs: Long
@@ -2104,7 +2125,7 @@ object BeatDetectorV3 {
 
             // Step 3: Method A (Global AC, bestBpm) vs Method B (Section Median, methodBBpm) 선택
             // 미스매치 곡들의 경우 Global BPM이 정확할 수 있으므로 비교 후 결정
-            val selectionResult = selectBetweenMethodsAandB(bestBpm, methodBBpm, methodABeatMs)
+            val selectionResult = selectBetweenMethodsAandB(bestBpm, methodBBpm, methodABeatMs, isCompoundMeterCandidate)
             finalBeatMs = selectionResult.beatMs
             methodSelectionReason = selectionResult.reason
         } else {
