@@ -602,16 +602,12 @@ object BeatDetectorV3 {
             if (doubleLagIdx in filtered.indices) {
                 val doubleStrength = filtered[doubleLagIdx]
                 val ratio = doubleStrength / strength
-                // V4.3: 임계값 대폭 강화 (0.50 → 0.90), 억제 강도 완화 (0.1배 → 0.5배)
-                // 실제 음악은 정박과 그 절반박(2배 lag) 모두에서 강한 자기상관을 갖는 게 정상
-                // (짝수번째 비트만 세어도 주기가 성립하므로) — ratio>=0.50 정도는 흔한 현상이라
-                // "느린 쪽이 진짜"라고 단정하면 박구윤(150)/Stray Kids(157.9) 같은 정답을
-                // 도리어 죽여버림. 0.90 이상, 즉 거의 구분 안 될 정도로 압도적일 때만 억제.
-                // 억제도 완전 제거(0.1배)가 아니라 절반(0.5배)만 깎아서, 뒤 단계의
-                // composite scoring(AC+Prior+Temporal)이 여전히 판단할 여지를 남김.
-                if (ratio >= 0.90f) {
-                    filtered[idx] = strength * 0.5f
-                    Log.d(TAG, "V4.3 HARMONIC_FILTER: lag=$lag(2x하모닉) ratio=${"%.2f".format(ratio)} → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
+                // 2배 lag이 현재 lag와 비슷하거나 강하면, 현재 lag는 절반 박자(하모닉)
+                // V3.3: 강화된 필터링 (0.65 → 0.50, 0.3 → 0.1)
+                if (ratio >= 0.50f) {
+                    // 절반 박자로 판정되었으므로 강도 감소 (0.3배 → 0.1배)
+                    filtered[idx] = strength * 0.1f
+                    Log.d(TAG, "V3.3 HARMONIC_FILTER: lag=$lag(2x하모닉) ratio=${"%.2f".format(ratio)} → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
                     continue
                 }
             }
@@ -622,10 +618,12 @@ object BeatDetectorV3 {
                 if (halfLagIdx >= 0 && halfLagIdx in filtered.indices) {
                     val halfStrength = filtered[halfLagIdx]
                     val ratio = halfStrength / strength
-                    // V4.3: 동일하게 임계값 강화(0.90) + 억제 완화(0.5배)
-                    if (ratio >= 0.90f) {
-                        filtered[idx] = strength * 0.5f
-                        Log.d(TAG, "V4.3 HARMONIC_FILTER: lag=$lag(0.5x하모닉) ratio=${"%.2f".format(ratio)} → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
+                    // 절반 lag이 현재 lag와 비슷하거나 강하면, 현재 lag는 두배 박자(하모닉)
+                    // V3.3: 강화된 필터링 (0.65 → 0.50, 0.3 → 0.1)
+                    if (ratio >= 0.50f) {
+                        // 두배 박자로 판정되었으므로 강도 감소 (0.3배 → 0.1배)
+                        filtered[idx] = strength * 0.1f
+                        Log.d(TAG, "V3.3 HARMONIC_FILTER: lag=$lag(0.5x하모닉) ratio=${"%.2f".format(ratio)} → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
                         continue
                     }
                 }
