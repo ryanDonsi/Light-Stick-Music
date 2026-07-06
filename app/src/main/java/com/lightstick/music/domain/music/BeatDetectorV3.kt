@@ -115,6 +115,12 @@ object BeatDetectorV3 {
         val octaveCorrected: Boolean
     )
 
+    /** V4.0: detectAndCorrectOctaveError의 결과 + 어떤 판단 근거로 결정했는지 (JSON 저장용) */
+    data class OctaveCorrectionResult(val bpm: Float, val reason: String)
+
+    /** V4.0: selectBetweenMethodsAandB의 결과 + 어떤 판단 근거로 결정했는지 (JSON 저장용) */
+    data class MethodSelectionResult(val beatMs: Long, val reason: String)
+
     enum class TimeSignatureType { FOUR_FOUR, THREE_FOUR, SIX_EIGHT }
 
     data class TimeSignature(
@@ -1013,10 +1019,10 @@ object BeatDetectorV3 {
      * @param methodABeatMs Global AC에서 계산한 beatMs
      * @return 최종 선택된 beatMs
      */
-    private fun selectBetweenMethodsAandB(globalBpm: Float, methodBBpm: Float, methodABeatMs: Long): Long {
+    private fun selectBetweenMethodsAandB(globalBpm: Float, methodBBpm: Float, methodABeatMs: Long): MethodSelectionResult {
         if (methodBBpm <= 0f) {
             // methodBBpm이 없으면 Global AC 사용
-            return methodABeatMs
+            return MethodSelectionResult(methodABeatMs, "NO_METHOD_B: methodB unavailable → use Global ${"%.1f".format(globalBpm)}")
         }
 
         val IDEAL_MIN = 80f
@@ -1028,20 +1034,23 @@ object BeatDetectorV3 {
         // Case 1: 두 값이 일치하면 평균 사용 (둘 다 신뢰)
         if (diff <= tolerance) {
             val avgBpm = (methodBBpm + globalBpm) / 2f
-            Log.d(TAG, "V3.7 SELECT_AVG: methodB=${"%.1f".format(methodBBpm)} ≈ methodA=${"%.1f".format(globalBpm)} → avg=${"%.1f".format(avgBpm)}")
-            return beatMsFromBpm(avgBpm)
+            val reason = "SELECT_AVG: methodB=${"%.1f".format(methodBBpm)} ≈ methodA=${"%.1f".format(globalBpm)} → avg=${"%.1f".format(avgBpm)}"
+            Log.d(TAG, "V3.7 $reason")
+            return MethodSelectionResult(beatMsFromBpm(avgBpm), reason)
         }
 
         // Case 2: methodBBpm이 비합리적인 범위면 Global BPM 사용
         if (methodBBpm < IDEAL_MIN || methodBBpm > IDEAL_MAX) {
-            Log.d(TAG, "V3.7 SELECT_GLOBAL: methodB=${"%.1f".format(methodBBpm)} out of range [$IDEAL_MIN-$IDEAL_MAX] → use Global ${"%.1f".format(globalBpm)}")
-            return methodABeatMs
+            val reason = "SELECT_GLOBAL: methodB=${"%.1f".format(methodBBpm)} out of range [$IDEAL_MIN-$IDEAL_MAX] → use Global ${"%.1f".format(globalBpm)}"
+            Log.d(TAG, "V3.7 $reason")
+            return MethodSelectionResult(methodABeatMs, reason)
         }
 
         // Case 3: Global BPM이 비합리적인 범위면 methodBBpm 사용
         if (globalBpm < IDEAL_MIN || globalBpm > IDEAL_MAX) {
-            Log.d(TAG, "V3.7 SELECT_METHOD_B: Global=${"%.1f".format(globalBpm)} out of range → use methodB ${"%.1f".format(methodBBpm)}")
-            return beatMsFromBpm(methodBBpm)
+            val reason = "SELECT_METHOD_B: Global=${"%.1f".format(globalBpm)} out of range → use methodB ${"%.1f".format(methodBBpm)}"
+            Log.d(TAG, "V3.7 $reason")
+            return MethodSelectionResult(beatMsFromBpm(methodBBpm), reason)
         }
 
         // Case 4: 둘 다 합리적이지만 차이가 크면 → 2x 관계 확인
@@ -1049,26 +1058,30 @@ object BeatDetectorV3 {
         val doubleRelationDiff = kotlin.math.abs((methodBBpm * 2) - globalBpm)
         if (doubleRelationDiff <= 10f) {
             // methodBBpm * 2 ≈ globalBpm → methodBBpm이 절반 속도
-            Log.d(TAG, "V3.7 SELECT_DOUBLE: methodB=${"%.1f".format(methodBBpm)} × 2 ≈ Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(doubleRelationDiff)}) → use doubled methodB=${"%.1f".format(methodBBpm * 2)}")
-            return beatMsFromBpm(methodBBpm * 2)
+            val reason = "SELECT_DOUBLE: methodB=${"%.1f".format(methodBBpm)} × 2 ≈ Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(doubleRelationDiff)}) → use doubled methodB=${"%.1f".format(methodBBpm * 2)}"
+            Log.d(TAG, "V3.7 $reason")
+            return MethodSelectionResult(beatMsFromBpm(methodBBpm * 2), reason)
         }
 
         val halfRelationDiff = kotlin.math.abs((methodBBpm / 2) - globalBpm)
         if (halfRelationDiff <= 10f) {
             // methodBBpm / 2 ≈ globalBpm → methodBBpm이 2배 속도
-            Log.d(TAG, "V3.7 SELECT_HALF: methodB=${"%.1f".format(methodBBpm)} / 2 ≈ Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(halfRelationDiff)}) → use halved methodB=${"%.1f".format(methodBBpm / 2)}")
-            return beatMsFromBpm(methodBBpm / 2)
+            val reason = "SELECT_HALF: methodB=${"%.1f".format(methodBBpm)} / 2 ≈ Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(halfRelationDiff)}) → use halved methodB=${"%.1f".format(methodBBpm / 2)}"
+            Log.d(TAG, "V3.7 $reason")
+            return MethodSelectionResult(beatMsFromBpm(methodBBpm / 2), reason)
         }
 
         // 2x 관계 없음 → methodBBpm이 합리적이면 사용, 아니면 Global 사용
         if (methodBBpm >= IDEAL_MIN && methodBBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.7 SELECT_METHOD_B_FINAL: no 2x relation, methodB=${"%.1f".format(methodBBpm)} preferred over Global=${"%.1f".format(globalBpm)}")
-            return beatMsFromBpm(methodBBpm)
+            val reason = "SELECT_METHOD_B_FINAL: no 2x relation, methodB=${"%.1f".format(methodBBpm)} preferred over Global=${"%.1f".format(globalBpm)}"
+            Log.d(TAG, "V3.7 $reason")
+            return MethodSelectionResult(beatMsFromBpm(methodBBpm), reason)
         }
 
         // 최후의 수단: Global AC 사용
-        Log.d(TAG, "V3.7 SELECT_GLOBAL_FINAL: methodB=${"%.1f".format(methodBBpm)} vs Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(diff)}) → use Global as fallback")
-        return methodABeatMs
+        val reason = "SELECT_GLOBAL_FINAL: methodB=${"%.1f".format(methodBBpm)} vs Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(diff)}) → use Global as fallback"
+        Log.d(TAG, "V3.7 $reason")
+        return MethodSelectionResult(methodABeatMs, reason)
     }
 
     /**
@@ -1091,14 +1104,14 @@ object BeatDetectorV3 {
      * @param sectionBpms 섹션별 (timeMs, BPM) 쌍 리스트
      * @return 보정된 BPM 값
      */
-    private fun detectAndCorrectOctaveError(medianBpm: Float, globalBpm: Float, sectionBpms: List<Pair<Long, Float>>): Float {
-        if (medianBpm <= 0f || sectionBpms.isEmpty()) return medianBpm
+    private fun detectAndCorrectOctaveError(medianBpm: Float, globalBpm: Float, sectionBpms: List<Pair<Long, Float>>): OctaveCorrectionResult {
+        if (medianBpm <= 0f || sectionBpms.isEmpty()) return OctaveCorrectionResult(medianBpm, "NO_DATA: medianBpm<=0 or no sections")
 
         val IDEAL_MIN = 80f
         val IDEAL_MAX = 180f
 
         val bpmValues = sectionBpms.map { it.second }.sorted()
-        if (bpmValues.isEmpty()) return medianBpm
+        if (bpmValues.isEmpty()) return OctaveCorrectionResult(medianBpm, "NO_DATA: empty bpmValues")
 
         val minBpm = bpmValues.minOrNull() ?: medianBpm
         val maxBpm = bpmValues.maxOrNull() ?: medianBpm
@@ -1119,18 +1132,18 @@ object BeatDetectorV3 {
         // V3.7.8: Global과 Median이 일치(≤5)하고 섹션 범위가 좁으면(≤50) 보정 안 함
         // → 정상 곡: TOMBOY, 진미령 등 (범위 28-47)
         if (globalMedianDiff <= 5f && bpmRange <= 50f) {
-            Log.d(TAG, "V3.7.8 TRUST_BOTH_METHODS: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} " +
-                    "(perfect match, narrow range=${"%.0f".format(bpmRange)})")
-            return medianBpm
+            val reason = "TRUST_BOTH_METHODS: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} (perfect match, narrow range=${"%.0f".format(bpmRange)})"
+            Log.d(TAG, "V3.7.8 $reason")
+            return OctaveCorrectionResult(medianBpm, reason)
         }
 
         // V3.9: Global과 Median이 가깝고 둘 다 정상 범위면 보정 방지
         if (globalMedianDiff <= 15f &&
             globalBpm >= IDEAL_MIN && globalBpm <= IDEAL_MAX &&
             medianBpm >= IDEAL_MIN && medianBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.9 KEEP_ORIGINAL: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} " +
-                    "(both in normal range, diff=${"%.1f".format(globalMedianDiff)})")
-            return medianBpm
+            val reason = "KEEP_ORIGINAL: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} (both in normal range, diff=${"%.1f".format(globalMedianDiff)})"
+            Log.d(TAG, "V3.9 $reason")
+            return OctaveCorrectionResult(medianBpm, reason)
         }
 
         // V3.9: Global과 Median 모두 <80이고 가깝지만, 고BPM 섹션이 2배 관계를 보이면 보정
@@ -1149,30 +1162,37 @@ object BeatDetectorV3 {
                     "doubleExpected=${"%.1f".format(doubleExpectation)}, ratio=${"%.2f".format(doubleRatio)}")
 
             if (doubleRatio <= 0.10f && doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
-                Log.d(TAG, "V3.9 HALF_TEMPO_CONFIRMED: low sections match 2x high sections → return doubled BPM")
-                return doubledBpm
+                val reason = "HALF_TEMPO_CONFIRMED: median=${"%.1f".format(medianBpm)}, highBpmMedian=${"%.1f".format(highBpmMedian)} " +
+                        "matches 2x(doubleRatio=${"%.2f".format(doubleRatio)}) → return doubled ${"%.1f".format(doubledBpm)}"
+                Log.d(TAG, "V3.9 $reason")
+                return OctaveCorrectionResult(doubledBpm, reason)
             } else {
-                Log.d(TAG, "V3.9 HALF_TEMPO_REJECTED: high BPMs don't match 2x pattern → trust original median")
-                return medianBpm
+                val reason = "HALF_TEMPO_REJECTED: median=${"%.1f".format(medianBpm)}, highBpmMedian=${"%.1f".format(highBpmMedian)} " +
+                        "doesn't match 2x(doubleRatio=${"%.2f".format(doubleRatio)}) → trust original median"
+                Log.d(TAG, "V3.9 $reason")
+                return OctaveCorrectionResult(medianBpm, reason)
             }
         }
 
         // 절반 속도 감지: 섹션 BPM이 모두 낮은 범위(50-100)에 집중
         // 그리고 2배하면 합리적인 음악 BPM 범위(80-180)가 됨
         if (lowRangeCount >= totalSections * 0.7f && doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.9 HALF_TEMPO_DETECTED: 70% of sections <100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}")
-            return doubledBpm
+            val reason = "HALF_TEMPO_DETECTED: 70% of sections <100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}"
+            Log.d(TAG, "V3.9 $reason")
+            return OctaveCorrectionResult(doubledBpm, reason)
         }
 
         // 2배 속도 감지: 섹션 BPM이 모두 높은 범위(100+)에 집중
         // 그리고 절반하면 합리적인 음악 BPM 범위(80-180)가 됨
         if (highRangeCount >= totalSections * 0.7f && halvedBpm >= IDEAL_MIN && halvedBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.9 DOUBLE_TEMPO_DETECTED: 70% of sections ≥100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}")
-            return halvedBpm
+            val reason = "DOUBLE_TEMPO_DETECTED: 70% of sections ≥100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}"
+            Log.d(TAG, "V3.9 $reason")
+            return OctaveCorrectionResult(halvedBpm, reason)
         }
 
-        Log.d(TAG, "V3.9 KEEP_ORIGINAL: median=${"%.1f".format(medianBpm)} BPM (no clear octave pattern)")
-        return medianBpm
+        val reason = "KEEP_ORIGINAL: median=${"%.1f".format(medianBpm)} BPM (no clear octave pattern)"
+        Log.d(TAG, "V3.9 $reason")
+        return OctaveCorrectionResult(medianBpm, reason)
     }
 
 
@@ -2061,6 +2081,8 @@ object BeatDetectorV3 {
         // Method B: 섹션 중앙값 기반 BPM 보정 (V3.7)
         val methodBBpm: Float
         val finalBeatMs: Long
+        val octaveCorrectionReason: String
+        val methodSelectionReason: String
 
         if (collectedSectionBpms.isNotEmpty()) {
             // Step 1: 기본 중앙값 계산
@@ -2068,14 +2090,20 @@ object BeatDetectorV3 {
 
             // Step 2: V3.7.4 - Global AC와 비교하여 과도한 보정 방지
             // Global AC가 이미 합리적인 범위(80-180)면 보정하지 않음
-            methodBBpm = detectAndCorrectOctaveError(baseMedianBpm, bestBpm, collectedSectionBpms)
+            val octaveResult = detectAndCorrectOctaveError(baseMedianBpm, bestBpm, collectedSectionBpms)
+            methodBBpm = octaveResult.bpm
+            octaveCorrectionReason = octaveResult.reason
 
             // Step 3: Method A (Global AC, bestBpm) vs Method B (Section Median, methodBBpm) 선택
             // 미스매치 곡들의 경우 Global BPM이 정확할 수 있으므로 비교 후 결정
-            finalBeatMs = selectBetweenMethodsAandB(bestBpm, methodBBpm, methodABeatMs)
+            val selectionResult = selectBetweenMethodsAandB(bestBpm, methodBBpm, methodABeatMs)
+            finalBeatMs = selectionResult.beatMs
+            methodSelectionReason = selectionResult.reason
         } else {
             methodBBpm = 0f
             finalBeatMs = methodABeatMs
+            octaveCorrectionReason = "NO_SECTIONS: no section BPMs collected"
+            methodSelectionReason = "NO_SECTIONS: using Global AC directly"
         }
 
         // V3.5 FIX: Generate actual beat positions using dpBeatTracker
@@ -2238,7 +2266,9 @@ object BeatDetectorV3 {
                         "\"globalBpmMs\":$globalBpmMs," +
                         "\"globalBpm\":${String.format("%.1f", globalBpmValue)}," +
                         "\"methodBBpm\":${if (methodBBpm > 0) String.format("%.1f", methodBBpm) else "0.0"}," +
-                        "\"medianBpmBeforeAdjust\":${if (collectedSectionBpms.isNotEmpty()) String.format("%.1f", calculateMedianBpmFromSections(collectedSectionBpms)) else "0.0"}" +
+                        "\"medianBpmBeforeAdjust\":${if (collectedSectionBpms.isNotEmpty()) String.format("%.1f", calculateMedianBpmFromSections(collectedSectionBpms)) else "0.0"}," +
+                        "\"octaveCorrectionReason\":\"${octaveCorrectionReason.replace("\"", "'")}\"," +
+                        "\"methodSelectionReason\":\"${methodSelectionReason.replace("\"", "'")}\"" +
                         "}," +
                         "\"sectionAnalysis\":{" +
                         "\"totalSections\":${collectedSectionBpms.size}," +
