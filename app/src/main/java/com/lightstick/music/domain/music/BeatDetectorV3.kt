@@ -1162,6 +1162,28 @@ object BeatDetectorV3 {
         if (globalMedianDiff <= 15f &&
             globalBpm >= IDEAL_MIN && globalBpm <= IDEAL_MAX &&
             medianBpm >= IDEAL_MIN && medianBpm <= IDEAL_MAX) {
+
+            // V4.4: "정상 범위"라고 무조건 믿기 전에, 고BPM 섹션들이 가리키는 값이
+            // 현재 값과 사실상 같은 템포(측정 오차로 100 근처만 넘긴 것)인지, 아니면
+            // 완전히 동떨어진 별개의 클러스터인지 구분. IYKYK: Global=85.7인데 섹션의
+            // 45%가 127 근처(highBpmMedian/global 비율 1.52)로 몰려있음에도 이 분기가
+            // 먼저 발동해 뒤의 HALF_TEMPO_DETECTED 체크에 도달하지 못했던 문제.
+            // 43곡 실측: 정상적으로 이 분기를 타는 5곡(홍진영/aespa NextLevel/CharliePuth/
+            // MyWorld/AlmondChoc)은 highBpmMedian/global 비율이 0.998~1.000(사실상 동일 템포).
+            // IYKYK만 1.517로 확연히 다름 — 임계값 1.2로 안전하게 분리 가능.
+            val highBpms = bpmValues.filter { it >= 100f }
+            if (highRangeCount >= 3) {
+                val highBpmMedian = highBpms.sorted()[highBpms.size / 2]
+                val clusterRatio = highBpmMedian / globalBpm
+                if (clusterRatio >= 1.2f) {
+                    val reason = "DISTINCT_HIGH_CLUSTER: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} " +
+                            "but highBpmMedian=${"%.1f".format(highBpmMedian)}(ratio=${"%.2f".format(clusterRatio)}, count=$highRangeCount) " +
+                            "is a distinct tempo cluster, not measurement noise → offer as methodB candidate"
+                    Log.d(TAG, "V4.4 $reason")
+                    return OctaveCorrectionResult(highBpmMedian, reason)
+                }
+            }
+
             val reason = "KEEP_ORIGINAL: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} (both in normal range, diff=${"%.1f".format(globalMedianDiff)})"
             Log.d(TAG, "V3.9 $reason")
             return OctaveCorrectionResult(medianBpm, reason)
