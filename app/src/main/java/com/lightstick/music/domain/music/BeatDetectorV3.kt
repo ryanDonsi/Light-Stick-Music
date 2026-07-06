@@ -993,40 +993,64 @@ object BeatDetectorV3 {
 
         val doubledBpm = medianBpm * 2
         val halvedBpm = medianBpm / 2
+        val globalMedianDiff = kotlin.math.abs(globalBpm - medianBpm)
 
         // V3.7.8: Global과 Median이 일치(≤5)하고 섹션 범위가 좁으면(≤50) 보정 안 함
         // → 정상 곡: TOMBOY, 진미령 등 (범위 28-47)
-        val globalMedianDiff = kotlin.math.abs(globalBpm - medianBpm)
         if (globalMedianDiff <= 5f && bpmRange <= 50f) {
             Log.d(TAG, "V3.7.8 TRUST_BOTH_METHODS: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} " +
                     "(perfect match, narrow range=${"%.0f".format(bpmRange)})")
             return medianBpm
         }
 
-        // V3.7.5: Global과 Median이 가깝고 둘 다 정상 범위면 보정 방지
+        // V3.9: Global과 Median이 가깝고 둘 다 정상 범위면 보정 방지
         if (globalMedianDiff <= 15f &&
             globalBpm >= IDEAL_MIN && globalBpm <= IDEAL_MAX &&
             medianBpm >= IDEAL_MIN && medianBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.7.8 KEEP_ORIGINAL: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} " +
+            Log.d(TAG, "V3.9 KEEP_ORIGINAL: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} " +
                     "(both in normal range, diff=${"%.1f".format(globalMedianDiff)})")
             return medianBpm
+        }
+
+        // V3.9: Global과 Median 모두 <80이고 가깝지만, 고BPM 섹션이 2배 관계를 보이면 보정
+        // 예: TOMBOY (Global=74, Median=74, highBpms=[105,115,142,146] → 대부분 2배 범위)
+        if (globalMedianDiff <= 5f && globalBpm < IDEAL_MIN && medianBpm < IDEAL_MIN &&
+            highRangeCount > 0) {
+            // 고BPM 섹션의 중앙값 계산
+            val highBpms = bpmValues.filter { it >= 100f }
+            val highBpmMedian = highBpms.sorted()[highBpms.size / 2]
+
+            // 고BPM 중앙값이 2배 관계에 있는지 확인 (±10%)
+            val doubleExpectation = doubledBpm
+            val doubleRatio = kotlin.math.abs(highBpmMedian - doubleExpectation) / doubleExpectation
+
+            Log.d(TAG, "V3.9 OCTAVE_CHECK_LOWBPM: median=${"%.1f".format(medianBpm)}, highBpmMedian=${"%.1f".format(highBpmMedian)}, " +
+                    "doubleExpected=${"%.1f".format(doubleExpectation)}, ratio=${"%.2f".format(doubleRatio)}")
+
+            if (doubleRatio <= 0.10f && doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
+                Log.d(TAG, "V3.9 HALF_TEMPO_CONFIRMED: low sections match 2x high sections → return doubled BPM")
+                return doubledBpm
+            } else {
+                Log.d(TAG, "V3.9 HALF_TEMPO_REJECTED: high BPMs don't match 2x pattern → trust original median")
+                return medianBpm
+            }
         }
 
         // 절반 속도 감지: 섹션 BPM이 모두 낮은 범위(50-100)에 집중
         // 그리고 2배하면 합리적인 음악 BPM 범위(80-180)가 됨
         if (lowRangeCount >= totalSections * 0.7f && doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.7.8 HALF_TEMPO_DETECTED: 70% of sections <100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}")
+            Log.d(TAG, "V3.9 HALF_TEMPO_DETECTED: 70% of sections <100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}")
             return doubledBpm
         }
 
         // 2배 속도 감지: 섹션 BPM이 모두 높은 범위(100+)에 집중
         // 그리고 절반하면 합리적인 음악 BPM 범위(80-180)가 됨
         if (highRangeCount >= totalSections * 0.7f && halvedBpm >= IDEAL_MIN && halvedBpm <= IDEAL_MAX) {
-            Log.d(TAG, "V3.7.8 DOUBLE_TEMPO_DETECTED: 70% of sections ≥100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}")
+            Log.d(TAG, "V3.9 DOUBLE_TEMPO_DETECTED: 70% of sections ≥100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}")
             return halvedBpm
         }
 
-        Log.d(TAG, "V3.7.8 KEEP_ORIGINAL: median=${"%.1f".format(medianBpm)} BPM (no clear octave pattern)")
+        Log.d(TAG, "V3.9 KEEP_ORIGINAL: median=${"%.1f".format(medianBpm)} BPM (no clear octave pattern)")
         return medianBpm
     }
 
