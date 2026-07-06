@@ -1018,8 +1018,7 @@ object BeatDetectorV3 {
     private fun detectAndCorrectOctaveError(
         medianBpm: Float,
         globalBpm: Float,
-        sectionBpms: List<Pair<Long, Float>>,
-        peakCandidates: List<PeakCandidateDebugInfo> = emptyList()
+        sectionBpms: List<Pair<Long, Float>>
     ): OctaveCorrectionResult {
         if (medianBpm <= 0f || sectionBpms.isEmpty()) return OctaveCorrectionResult(medianBpm, "NO_DATA: medianBpm<=0 or no sections")
 
@@ -1108,23 +1107,6 @@ object BeatDetectorV3 {
                         "matches 2x(doubleRatio=${"%.2f".format(doubleRatio)}, highCount=$highRangeCount) → return doubled ${"%.1f".format(doubledBpm)}"
                 return OctaveCorrectionResult(doubledBpm, reason)
             } else {
-                // V4.5: 2배(옥타브) 관계는 아니지만 3:2(셋잇단/컴파운드 박자) 관계일 가능성 확인.
-                // Ed Sheeran(Shape of You): median=63.8인데 정답은 96.8 (63.8×1.5=95.7, 1.1% 오차).
-                // v4_peak_evaluation 후보 중 median×1.5 근처에 AC 근거가 있는 후보가 존재하면
-                // 그것을 채택. 43곡 실측: 이 조건(HALF_TEMPO_REJECTED 분기 + tol=4% + AC>=0.55)으로
-                // TOMBOY/초혼/사랑참/StrayKids/별보러가자 등 나머지 곡은 전혀 영향 없이 Ed Sheeran만 해결됨.
-                val compoundTarget = medianBpm * 1.5f
-                val compoundCandidate = peakCandidates
-                    .filter { kotlin.math.abs(it.bpm - compoundTarget) / compoundTarget <= 0.04f && it.acStrength >= 0.55f }
-                    .maxByOrNull { it.acStrength }
-
-                if (compoundCandidate != null) {
-                    val reason = "COMPOUND_RATIO_DETECTED: median=${"%.1f".format(medianBpm)} rejected as 2x " +
-                            "but found AC-supported 3:2 candidate ${"%.1f".format(compoundCandidate.bpm)}(AC=${"%.2f".format(compoundCandidate.acStrength)}) " +
-                            "near median×1.5=${"%.1f".format(compoundTarget)} → use it"
-                    return OctaveCorrectionResult(compoundCandidate.bpm, reason)
-                }
-
                 val reason = "HALF_TEMPO_REJECTED: median=${"%.1f".format(medianBpm)}, highBpmMedian=${"%.1f".format(highBpmMedian)} " +
                         "doubleRatio=${"%.2f".format(doubleRatio)} highCount=$highRangeCount " +
                         "(${if (!highCountLooksLikeGlobalTempo) "too many high-BPM outlier sections, likely local fills not global tempo" else "ratio mismatch"}) → trust original median"
@@ -1960,7 +1942,7 @@ object BeatDetectorV3 {
 
             // Step 2: V3.7.4 - Global AC와 비교하여 과도한 보정 방지
             // Global AC가 이미 합리적인 범위(80-180)면 보정하지 않음
-            val octaveResult = detectAndCorrectOctaveError(baseMedianBpm, bestBpm, collectedSectionBpms, peakCandidates)
+            val octaveResult = detectAndCorrectOctaveError(baseMedianBpm, bestBpm, collectedSectionBpms)
             methodBBpm = octaveResult.bpm
             octaveCorrectionReason = octaveResult.reason
 
