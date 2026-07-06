@@ -320,23 +320,20 @@ object BeatDetectorV3 {
         // 절반 박자(하모닉)를 감지하고 필터링
         val harmonicFiltered = filterHarmonicPeaks(bpmStrengths, minLag)
 
-        // V4.1: 상위 피크 후보군 추출 (단순 AC 기반이 아닌 다중 기준 평가)
-        // V3.6까지는 전체 후보를 ac×prior로 채점해 최고점을 골랐으나, V4.0에서
-        // "raw AC 상위 5개로 먼저 추린 뒤 그 안에서만 정교하게 채점"하도록 바뀌면서
-        // 정답 후보가 raw AC 순위 5위 밖으로 밀려나면 애초에 채점 기회조차 못 받는
-        // 회귀가 생김 (예: Ed Sheeran — V3.6 Global=95.2(거의 정답) → V4.0 Global=63.8).
-        // 5 → 15로 넓혀서 정답 후보가 최소한 평가 대상에는 들어오도록 함.
-        val topCandidates = harmonicFiltered.indices
+        // V4.2: 전체 lag를 채점 대상으로 사용 (BeatDetectorV1의 "raw AC로 미리 추리지 않고
+        // score=ac×prior를 전체 lag에 연속으로 적용해 argmax"하는 방식을 반영).
+        // V4.0~V4.1은 raw AC 상위 N개로 먼저 추린 뒤 그 안에서만 정교하게 채점했는데,
+        // 이 사전 필터링 자체가 정답 후보를 통째로 배제하는 경우가 있었음
+        // (Ed Sheeran: raw AC 순위 15위 밖, IYKYK: top15에도 안 들어옴).
+        // minLag~maxLag 범위가 보통 80~90개 수준(375~1200ms)이라 전부 채점해도 비용이 작음.
+        val allCandidates = harmonicFiltered.indices
             .map { idx ->
                 val lag = idx + minLag
                 Triple(lag, harmonicFiltered[idx], bpmFromBeatMs(lag * hopMs))
             }
-            .sortedByDescending { it.second }
-            .take(15)  // 상위 15개 피크 고려 (V4.0: 5개 → V4.1: 15개)
+            .filter { it.second > 1e-6f }  // 강도가 0에 가까운 lag는 제외 (노이즈)
 
-        Log.d(TAG, "V4.0 TOP_PEAK_CANDIDATES: ${topCandidates.mapIndexed { i, (lag, strength, bpm) ->
-            "[$i] lag=$lag BPM=${bpm.toInt()} AC=${"%.3f".format(strength)}"
-        }.joinToString(" | ")}")
+        Log.d(TAG, "V4.2 ALL_CANDIDATES_COUNT: ${allCandidates.size}개 lag 전체 채점 (minLag=$minLag)")
 
         // 시간대별 BPM 분포 로깅
         val timeDistribution = mutableListOf<String>()
@@ -426,8 +423,8 @@ object BeatDetectorV3 {
         }
 
 
-        // 각 후보 피크 평가
-        val candidateScores = topCandidates.map { (lag, acStrength, bpm) ->
+        // V4.2: 전체 lag를 대상으로 채점 (raw AC 사전 필터링 없음 — BeatDetectorV1 방식)
+        val candidateScores = allCandidates.map { (lag, acStrength, bpm) ->
             val lagIdx = lag - minLag
             val prior = calculateLogNormalPrior(bpm)
             val temporalConsistency = calculateTemporalConsistency(lagIdx)
@@ -448,19 +445,23 @@ object BeatDetectorV3 {
             )
         }
 
-        // 최고 점수의 후보 선택
+        // 최고 점수의 후보 선택 (전체 lag 중 composite score 최고값)
         val bestCandidate = candidateScores.maxByOrNull { it.compositeScore }
             ?: candidateScores.firstOrNull()
             ?: PeakCandidate(minLag, bpmFromBeatMs(minLag * hopMs), 1f, 1f, 0.5f, 1f)
 
+        // V4.2: 로깅/JSON 저장은 전체(~80여개)가 아닌 composite score 상위 20개만
+        // (선택된 후보는 항상 1위이므로 이 목록에 반드시 포함됨)
+        val topScoredCandidates = candidateScores.sortedByDescending { it.compositeScore }.take(20)
+
         // V4.0 평가 결과 로깅
-        Log.d(TAG, "V4.0 PEAK_EVALUATION: ${candidateScores.map { cand ->
+        Log.d(TAG, "V4.2 PEAK_EVALUATION (top20/${candidateScores.size}): ${topScoredCandidates.map { cand ->
             "BPM=${cand.bpm.toInt()} AC=${"%.3f".format(cand.acStrength)} Prior=${"%.3f".format(cand.prior)} " +
             "Temporal=${"%.3f".format(cand.temporalConsistency)} Composite=${"%.3f".format(cand.compositeScore)}"
         }.joinToString(" | ")}")
 
-        // V4.0: JSON 저장용 후보 디버그 목록 (선택된 후보 표시)
-        val candidateDebugList = candidateScores.map { cand ->
+        // V4.0: JSON 저장용 후보 디버그 목록 (선택된 후보 표시, 상위 20개만 저장)
+        val candidateDebugList = topScoredCandidates.map { cand ->
             PeakCandidateDebugInfo(
                 bpm = cand.bpm,
                 acStrength = cand.acStrength,
