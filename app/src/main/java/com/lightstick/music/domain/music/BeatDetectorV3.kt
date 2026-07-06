@@ -1159,16 +1159,24 @@ object BeatDetectorV3 {
             val doubleRatio = kotlin.math.abs(highBpmMedian - doubleExpectation) / doubleExpectation
 
             Log.d(TAG, "V3.9 OCTAVE_CHECK_LOWBPM: median=${"%.1f".format(medianBpm)}, highBpmMedian=${"%.1f".format(highBpmMedian)}, " +
-                    "doubleExpected=${"%.1f".format(doubleExpectation)}, ratio=${"%.2f".format(doubleRatio)}")
+                    "doubleExpected=${"%.1f".format(doubleExpectation)}, ratio=${"%.2f".format(doubleRatio)}, highCount=$highRangeCount")
 
-            if (doubleRatio <= 0.10f && doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
+            // V4.1: doubleRatio 단독으로는 오탐/정탐 구분이 안 됨 (43곡 실측 결과 0.03~0.04 범위에 오탐/정탐 혼재).
+            // 대신 highRangeCount(2배로 보이는 섹션 개수)가 판별력을 가짐:
+            //   - 실제 곡 전체가 빠른 경우: 섹션별 검출도 대부분 절반속도로 오검출되어 "고BPM 섹션"이 1~2개만 우연히 남음
+            //   - 실제로는 느린 곡인데 드럼필 등 국소 구간만 빠른 경우: 고BPM 섹션이 여러 개(4개 이상) 나타남
+            // 43곡 실측: 정탐(JUMP,COOMO,Cherish,SodaPop,KillThisLove)=1~2개, 오탐(TOMBOY,초혼,EdSheeran)=4개 이상
+            val highCountLooksLikeGlobalTempo = highRangeCount <= 2
+
+            if (doubleRatio <= 0.10f && doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX && highCountLooksLikeGlobalTempo) {
                 val reason = "HALF_TEMPO_CONFIRMED: median=${"%.1f".format(medianBpm)}, highBpmMedian=${"%.1f".format(highBpmMedian)} " +
-                        "matches 2x(doubleRatio=${"%.2f".format(doubleRatio)}) → return doubled ${"%.1f".format(doubledBpm)}"
+                        "matches 2x(doubleRatio=${"%.2f".format(doubleRatio)}, highCount=$highRangeCount) → return doubled ${"%.1f".format(doubledBpm)}"
                 Log.d(TAG, "V3.9 $reason")
                 return OctaveCorrectionResult(doubledBpm, reason)
             } else {
                 val reason = "HALF_TEMPO_REJECTED: median=${"%.1f".format(medianBpm)}, highBpmMedian=${"%.1f".format(highBpmMedian)} " +
-                        "doesn't match 2x(doubleRatio=${"%.2f".format(doubleRatio)}) → trust original median"
+                        "doubleRatio=${"%.2f".format(doubleRatio)} highCount=$highRangeCount " +
+                        "(${if (!highCountLooksLikeGlobalTempo) "too many high-BPM outlier sections, likely local fills not global tempo" else "ratio mismatch"}) → trust original median"
                 Log.d(TAG, "V3.9 $reason")
                 return OctaveCorrectionResult(medianBpm, reason)
             }
