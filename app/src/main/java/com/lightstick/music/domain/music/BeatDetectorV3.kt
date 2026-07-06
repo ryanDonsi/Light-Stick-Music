@@ -318,7 +318,17 @@ object BeatDetectorV3 {
 
         // === Harmonic Peak Filtering (부음 필터링) ===
         // 절반 박자(하모닉)를 감지하고 필터링
-        val harmonicFiltered = filterHarmonicPeaks(bpmStrengths, minLag)
+        // V4.4: findModalPeak(Global/Method A)에서만 완화된 임계값 사용 (0.90/0.5배).
+        // 섹션별 분석(detectSectionBpms)의 filterHarmonicPeaks 호출은 원래 값(0.50/0.1배) 유지 —
+        // 두 호출이 같은 함수를 공유해서 지난번 전역 완화가 Method B(섹션 분석)까지 흔들어
+        // TOMBOY/JUMP 등에서 회귀가 났었음. Global 쪽만 완화해서 IYKYK/Ed Sheeran/박구윤/
+        // Stray Kids의 빠른 정답 후보가 미리 죽는 것을 막되, 섹션별 하모닉 필터링(및 그걸
+        // 사용하는 detectAndCorrectOctaveError의 highRangeCount 휴리스틱)은 그대로 보존.
+        val harmonicFiltered = filterHarmonicPeaks(
+            bpmStrengths, minLag,
+            suppressRatioThreshold = 0.90f,
+            suppressMultiplier = 0.5f
+        )
 
         // V4.2: 전체 lag를 채점 대상으로 사용 (BeatDetectorV1의 "raw AC로 미리 추리지 않고
         // score=ac×prior를 전체 lag에 연속으로 적용해 argmax"하는 방식을 반영).
@@ -586,9 +596,16 @@ object BeatDetectorV3 {
      *
      * @param bpmStrengths 각 lag별 강도 배열 (인덱스 0 = lag minLag에 해당)
      * @param minLag 최소 lag 값
+     * @param suppressRatioThreshold 억제를 발동시키는 상대강도 임계값 (기본 0.50, 섹션별 분석용)
+     * @param suppressMultiplier 억제 시 곱해지는 감쇠 계수 (기본 0.1, 섹션별 분석용)
      * @return 하모닉 필터링 후 강도 배열
      */
-    private fun filterHarmonicPeaks(bpmStrengths: FloatArray, minLag: Int): FloatArray {
+    private fun filterHarmonicPeaks(
+        bpmStrengths: FloatArray,
+        minLag: Int,
+        suppressRatioThreshold: Float = 0.50f,
+        suppressMultiplier: Float = 0.1f
+    ): FloatArray {
         val filtered = bpmStrengths.copyOf()
 
         for (idx in filtered.indices) {
@@ -604,9 +621,8 @@ object BeatDetectorV3 {
                 val ratio = doubleStrength / strength
                 // 2배 lag이 현재 lag와 비슷하거나 강하면, 현재 lag는 절반 박자(하모닉)
                 // V3.3: 강화된 필터링 (0.65 → 0.50, 0.3 → 0.1)
-                if (ratio >= 0.50f) {
-                    // 절반 박자로 판정되었으므로 강도 감소 (0.3배 → 0.1배)
-                    filtered[idx] = strength * 0.1f
+                if (ratio >= suppressRatioThreshold) {
+                    filtered[idx] = strength * suppressMultiplier
                     Log.d(TAG, "V3.3 HARMONIC_FILTER: lag=$lag(2x하모닉) ratio=${"%.2f".format(ratio)} → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
                     continue
                 }
@@ -620,9 +636,8 @@ object BeatDetectorV3 {
                     val ratio = halfStrength / strength
                     // 절반 lag이 현재 lag와 비슷하거나 강하면, 현재 lag는 두배 박자(하모닉)
                     // V3.3: 강화된 필터링 (0.65 → 0.50, 0.3 → 0.1)
-                    if (ratio >= 0.50f) {
-                        // 두배 박자로 판정되었으므로 강도 감소 (0.3배 → 0.1배)
-                        filtered[idx] = strength * 0.1f
+                    if (ratio >= suppressRatioThreshold) {
+                        filtered[idx] = strength * suppressMultiplier
                         Log.d(TAG, "V3.3 HARMONIC_FILTER: lag=$lag(0.5x하모닉) ratio=${"%.2f".format(ratio)} → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
                         continue
                     }
