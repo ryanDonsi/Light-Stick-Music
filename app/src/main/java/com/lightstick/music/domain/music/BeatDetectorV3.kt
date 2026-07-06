@@ -298,6 +298,19 @@ object BeatDetectorV3 {
         // 절반 박자(하모닉)를 감지하고 필터링
         val harmonicFiltered = filterHarmonicPeaks(bpmStrengths, minLag)
 
+        // V4.0: 상위 피크 후보군 추출 (단순 AC 기반이 아닌 다중 기준 평가)
+        val topCandidates = harmonicFiltered.indices
+            .map { idx ->
+                val lag = idx + minLag
+                Triple(lag, harmonicFiltered[idx], bpmFromBeatMs(lag * hopMs))
+            }
+            .sortedByDescending { it.second }
+            .take(5)  // 상위 5개 피크 고려
+
+        Log.d(TAG, "V4.0 TOP_PEAK_CANDIDATES: ${topCandidates.mapIndexed { i, (lag, strength, bpm) ->
+            "[$i] lag=$lag BPM=${bpm.toInt()} AC=${"%.3f".format(strength)}"
+        }.joinToString(" | ")}")
+
         // 시간대별 BPM 분포 로깅
         val timeDistribution = mutableListOf<String>()
         for (tIdx in 0 until minOf(5, tempogram[0].size)) {
@@ -347,42 +360,90 @@ object BeatDetectorV3 {
         Log.d(TAG, "V3 TOP5_BPMS_BEFORE: $topBpmsBefore")
         Log.d(TAG, "V3 TOP5_BPMS_AFTER_HARMONIC_FILTER: $topBpmsAfter")
 
-        // === Log-Normal Prior 적용으로 최고 BPM 선택 ===
-        // AC 값 × Log-Normal Prior(음악 BPM 확률 분포)로 최종 점수 계산
-        data class LagCandidate(val lag: Int, val ac: Float, val prior: Float, val score: Float)
+        // === V4.0: 다중 피크 평가 (Multi-peak evaluation) ===
+        // 상위 5개 피크 각각을 3가지 기준으로 평가:
+        // 1. AC 강도 (Tempogram에서의 절대값)
+        // 2. Log-Normal Prior (음악 BPM 자연 분포)
+        // 3. 시간 일관성 (Temporal Consistency) - 시간을 통해 일정하게 강한가?
 
-        val lagCandidates = harmonicFiltered.indices
-            .map { idx ->
-                val lag = idx + minLag
-                val beatMs = lag * hopMs
-                val bpm = bpmFromBeatMs(beatMs)
-                val ac = harmonicFiltered[idx]
-                val prior = calculateLogNormalPrior(bpm)
-                val score = ac * prior  // AC × Prior
-                LagCandidate(lag, ac, prior, score)
-            }
+        data class PeakCandidate(
+            val lag: Int,
+            val bpm: Float,
+            val acStrength: Float,
+            val prior: Float,
+            val temporalConsistency: Float,
+            val compositeScore: Float
+        )
 
-        val bestCandidate = lagCandidates.maxByOrNull { it.score } ?: lagCandidates.getOrNull(0)
-                ?: LagCandidate(minLag, 1f, 1f, 1f)
+        // V4.0: 시간 일관성 점수 계산
+        fun calculateTemporalConsistency(lagIdx: Int): Float {
+            if (tempogram.isEmpty() || tempogram[0].isEmpty()) return 0.5f
+            val lagStrengths = tempogram.getOrNull(lagIdx) ?: return 0.5f
+            if (lagStrengths.isEmpty()) return 0.5f
+
+            // 각 시간 윈도우에서 이 lag의 강도 분포 분석
+            val strengths = lagStrengths.filter { it > 1e-6f }
+            if (strengths.size < 2) return 0.5f
+
+            // 평균과 표준편차 계산
+            val mean = strengths.average().toFloat()
+            val variance = strengths.map { (it - mean) * (it - mean) }.average()
+            val stdDev = sqrt(variance).coerceAtLeast(1e-6f)
+
+            // CV (Coefficient of Variation): stdDev / mean
+            // CV가 낮을수록 일관성이 높음 (score 높음)
+            val cv = if (mean > 1e-6f) stdDev / mean else 1f
+            val consistency = (1f / (1f + cv)).coerceIn(0f, 1f)  // CV=0 → score=1, CV=1 → score=0.5
+
+            return consistency
+        }
+
+        // 각 후보 피크 평가
+        val candidateScores = topCandidates.map { (lag, acStrength, bpm) ->
+            val lagIdx = lag - minLag
+            val prior = calculateLogNormalPrior(bpm)
+            val temporalConsistency = calculateTemporalConsistency(lagIdx)
+
+            // 가중치 조합 (V4.0):
+            // - AC 강도: 30% (절대값이 높은 것)
+            // - Log-Normal Prior: 30% (자연스러운 BPM)
+            // - 시간 일관성: 40% (곡 전체에서 일정한 것)
+            val compositeScore = (acStrength * 0.3f) + (prior * 0.3f) + (temporalConsistency * 0.4f)
+
+            PeakCandidate(
+                lag = lag,
+                bpm = bpm,
+                acStrength = acStrength,
+                prior = prior,
+                temporalConsistency = temporalConsistency,
+                compositeScore = compositeScore
+            )
+        }
+
+        // 최고 점수의 후보 선택
+        val bestCandidate = candidateScores.maxByOrNull { it.compositeScore }
+            ?: candidateScores.firstOrNull()
+            ?: PeakCandidate(minLag, bpmFromBeatMs(minLag * hopMs), 1f, 1f, 0.5f, 1f)
+
+        // V4.0 평가 결과 로깅
+        Log.d(TAG, "V4.0 PEAK_EVALUATION: ${candidateScores.map { cand ->
+            "BPM=${cand.bpm.toInt()} AC=${"%.3f".format(cand.acStrength)} Prior=${"%.3f".format(cand.prior)} " +
+            "Temporal=${"%.3f".format(cand.temporalConsistency)} Composite=${"%.3f".format(cand.compositeScore)}"
+        }.joinToString(" | ")}")
 
         val bestLagIdx = bestCandidate.lag - minLag
         val bestLag = bestCandidate.lag
         var finalLag = bestLag
         val bestBeatMs = bestLag * hopMs
-        var bestBpm = bpmFromBeatMs(bestBeatMs)
+        var bestBpm = bestCandidate.bpm
 
-        // Log-Normal Prior 적용 로깅
-        val acOnlyBestIdx = harmonicFiltered.indices.maxByOrNull { harmonicFiltered[it] } ?: 0
-        val acOnlyBestLag = acOnlyBestIdx + minLag
-        val acOnlyBestBeatMs = acOnlyBestLag * hopMs
-        val acOnlyBestBpm = bpmFromBeatMs(acOnlyBestBeatMs)
-        if (acOnlyBestBpm != bestBpm) {
+        // 최종 선택 이유 로깅
+        if (candidateScores.size > 1) {
             Log.d(
                 TAG,
-                "V3 PRIOR_APPLIED: AC-only=${acOnlyBestBpm.toInt()}BPM (prior=%.3f) → final=${bestBpm.toInt()}BPM (prior=%.3f)".format(
-                    calculateLogNormalPrior(acOnlyBestBpm),
-                    bestCandidate.prior
-                )
+                "V4.0 BEST_PEAK_SELECTED: BPM=${bestBpm.toInt()} (AC=${"%.3f".format(bestCandidate.acStrength)} " +
+                "Prior=${"%.3f".format(bestCandidate.prior)} Temporal=${"%.3f".format(bestCandidate.temporalConsistency)} " +
+                "Composite=${"%.3f".format(bestCandidate.compositeScore)})"
             )
         }
 
@@ -394,8 +455,43 @@ object BeatDetectorV3 {
             sorted.firstOrNull()?.coerceIn(TEMPOGRAM_MIN_CONFIDENCE, 1.0f) ?: 0.5f
         }
 
-        // === 옥타브 에러 보정 (필터링 후 재확인) ===
-        // V3.9: 개선된 octave error correction
+        // === V4.0: 강화된 옥타브 에러 검증 (Octave Error Validation) ===
+        // V4.0은 다중 피크 평가를 통해 이미 최적 BPM을 선택했으므로,
+        // 옥타브 보정은 신중하게 수행:
+        // - 보정된 BPM의 시간 일관성 확인
+        // - 보정으로 인한 손실이 충분히 큰지 확인
+
+        fun shouldApplyOctaveCorrection(
+            originalBpm: Float,
+            candidateBpm: Float,
+            candidateStrength: Float,
+            originalStrength: Float,
+            ratio: Float
+        ): Boolean {
+            // 기본 강도 비율 요건
+            if (ratio < 0.45f) return false
+
+            // 후보 BPM의 시간 일관성 확인
+            val candidateLag = beatMsFromBpm(candidateBpm) / hopMs
+            if (candidateLag !in 1..harmonicFiltered.size) return false
+
+            val candidateConsistency = calculateTemporalConsistency(candidateLag.toInt() - minLag)
+            val originalConsistency = calculateTemporalConsistency(bestLagIdx)
+
+            // V4.0: 시간 일관성이 충분히 개선되어야만 보정 적용
+            // 최소 0.10 포인트 이상의 개선이 필요
+            if (candidateConsistency - originalConsistency < 0.10f) {
+                return false
+            }
+
+            // 원래 BPM이 이미 좋은 일관성을 가지면 보정하지 않음 (회귀 방지)
+            if (originalConsistency >= 0.65f) {
+                return false
+            }
+
+            return true
+        }
+
         // 절반 비트(2배 BPM) 확인: lag/2
         val halfLag = bestLag / 2
         val halfStrength = if (halfLag >= minLag && halfLag - minLag < harmonicFiltered.size) {
@@ -410,32 +506,29 @@ object BeatDetectorV3 {
         } else 0f
         val doubleRatio = if (harmonicFiltered[bestLagIdx] > 1e-6f) doubleStrength / harmonicFiltered[bestLagIdx] else 0f
 
-        // V3.9: 개선된 옥타브 에러 감지
-        // 절반 비트가 강한 경우: 원래 BPM이 2배로 잘못된 것
-        // 조건: halfRatio >= 0.50 (기존) 또는 절반 BPM이 60-80 범위면 더 허용적
-        if (halfLag >= minLag && (halfRatio >= 0.50f ||
-            (bpmFromBeatMs(halfLag * hopMs) >= 60f && bpmFromBeatMs(halfLag * hopMs) <= 85f))) {
+        // V4.0: 절반 비트 보정 (2배 오류 수정)
+        if (halfLag >= minLag && shouldApplyOctaveCorrection(bestBpm, bpmFromBeatMs(halfLag * hopMs), halfStrength, harmonicFiltered[bestLagIdx], halfRatio)) {
             val halfBeatMs = halfLag * hopMs
             val halfBpm = bpmFromBeatMs(halfBeatMs)
             Log.d(
                 TAG,
-                "V3.9 OctaveError2x: halfLag=$halfLag halfRatio=${"%.2f".format(halfRatio)} halfBpm=${"%.1f".format(halfBpm)} → " +
-                        "BPM ${bestBpm.toInt()} → ${halfBpm.toInt()}"
+                "V4.0 OctaveError2x_VALIDATED: halfLag=$halfLag halfRatio=${"%.2f".format(halfRatio)} halfBpm=${"%.1f".format(halfBpm)} → " +
+                        "BPM ${bestBpm.toInt()} → ${halfBpm.toInt()} (better consistency)"
             )
             finalLag = halfLag
             bestBpm = halfBpm
             confidence = minOf(1.0f, halfStrength / sorted[0])
         }
-        // 2배 비트가 강한 경우: 원래 BPM이 절반으로 잘못된 것
-        // V3.9: 더 낮은 임계값 (0.45f, 0.7f) - 높은 BPM 더 잘 감지
+        // V4.0: 2배 비트 보정 (절반 오류 수정)
         else if (doubleLag - minLag < harmonicFiltered.size && doubleRatio >= 0.45f &&
-                 doubleStrength > harmonicFiltered[bestLagIdx] * 0.7f) {
+                 doubleStrength > harmonicFiltered[bestLagIdx] * 0.7f &&
+                 shouldApplyOctaveCorrection(bestBpm, bpmFromBeatMs(doubleLag * hopMs), doubleStrength, harmonicFiltered[bestLagIdx], doubleRatio)) {
             val doubleBeatMs = doubleLag * hopMs
             val doubleBpm = bpmFromBeatMs(doubleBeatMs)
             Log.d(
                 TAG,
-                "V3.9 OctaveError0.5x: doubleLag=$doubleLag doubleRatio=${"%.2f".format(doubleRatio)} doubleBpm=${"%.1f".format(doubleBpm)} → " +
-                        "BPM ${bestBpm.toInt()} → ${doubleBpm.toInt()}"
+                "V4.0 OctaveError0.5x_VALIDATED: doubleLag=$doubleLag doubleRatio=${"%.2f".format(doubleRatio)} doubleBpm=${"%.1f".format(doubleBpm)} → " +
+                        "BPM ${bestBpm.toInt()} → ${doubleBpm.toInt()} (better consistency)"
             )
             finalLag = doubleLag
             bestBpm = doubleBpm
