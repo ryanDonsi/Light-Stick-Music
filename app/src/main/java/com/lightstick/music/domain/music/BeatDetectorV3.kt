@@ -398,37 +398,6 @@ object BeatDetectorV3 {
             return consistency
         }
 
-        // V4.0: 옥타브 보정 검증 (calculateTemporalConsistency 이후에 정의)
-        fun shouldApplyOctaveCorrection(
-            originalBpm: Float,
-            candidateBpm: Float,
-            candidateStrength: Float,
-            originalStrength: Float,
-            ratio: Float
-        ): Boolean {
-            // 기본 강도 비율 요건
-            if (ratio < 0.45f) return false
-
-            // 후보 BPM의 시간 일관성 확인
-            val candidateLag = beatMsFromBpm(candidateBpm) / hopMs
-            if (candidateLag < 1L || candidateLag > harmonicFiltered.size) return false
-
-            val candidateConsistency = calculateTemporalConsistency(candidateLag.toInt() - minLag)
-            val originalConsistency = calculateTemporalConsistency(bestLagIdx)
-
-            // V4.0: 시간 일관성이 충분히 개선되어야만 보정 적용
-            // 최소 0.10 포인트 이상의 개선이 필요
-            if (candidateConsistency - originalConsistency < 0.10f) {
-                return false
-            }
-
-            // 원래 BPM이 이미 좋은 일관성을 가지면 보정하지 않음 (회귀 방지)
-            if (originalConsistency >= 0.65f) {
-                return false
-            }
-
-            return true
-        }
 
         // 각 후보 피크 평가
         val candidateScores = topCandidates.map { (lag, acStrength, bpm) ->
@@ -488,11 +457,34 @@ object BeatDetectorV3 {
         }
 
         // === V4.0: 강화된 옥타브 에러 검증 (Octave Error Validation) ===
-        // V4.0은 다중 피크 평가를 통해 이미 최적 BPM을 선택했으므로,
-        // 옥타브 보정은 신중하게 수행:
-        // - 보정된 BPM의 시간 일관성 확인
-        // - 보정으로 인한 손실이 충분히 큰지 확인
-        // (shouldApplyOctaveCorrection 함수는 위에서 정의됨)
+        // V4.0: 옥타브 보정 검증 함수 (bestLagIdx 정의 이후)
+        fun shouldApplyOctaveCorrection(
+            candidateBpm: Float,
+            candidateStrength: Float,
+            ratio: Float
+        ): Boolean {
+            // 기본 강도 비율 요건
+            if (ratio < 0.45f) return false
+
+            // 후보 BPM의 시간 일관성 확인
+            val candidateLag = beatMsFromBpm(candidateBpm) / hopMs
+            if (candidateLag < 1L || candidateLag > harmonicFiltered.size) return false
+
+            val candidateConsistency = calculateTemporalConsistency(candidateLag.toInt() - minLag)
+            val originalConsistency = calculateTemporalConsistency(bestLagIdx)
+
+            // V4.0: 시간 일관성이 충분히 개선되어야만 보정 적용
+            if (candidateConsistency - originalConsistency < 0.10f) {
+                return false
+            }
+
+            // 원래 BPM이 이미 좋은 일관성을 가지면 보정하지 않음 (회귀 방지)
+            if (originalConsistency >= 0.65f) {
+                return false
+            }
+
+            return true
+        }
 
         // 절반 비트(2배 BPM) 확인: lag/2
         val halfLag = bestLag / 2
@@ -509,7 +501,7 @@ object BeatDetectorV3 {
         val doubleRatio = if (harmonicFiltered[bestLagIdx] > 1e-6f) doubleStrength / harmonicFiltered[bestLagIdx] else 0f
 
         // V4.0: 절반 비트 보정 (2배 오류 수정)
-        if (halfLag >= minLag && shouldApplyOctaveCorrection(bestBpm, bpmFromBeatMs(halfLag * hopMs), halfStrength, harmonicFiltered[bestLagIdx], halfRatio)) {
+        if (halfLag >= minLag && shouldApplyOctaveCorrection(bpmFromBeatMs(halfLag * hopMs), halfStrength, halfRatio)) {
             val halfBeatMs = halfLag * hopMs
             val halfBpm = bpmFromBeatMs(halfBeatMs)
             Log.d(
@@ -524,7 +516,7 @@ object BeatDetectorV3 {
         // V4.0: 2배 비트 보정 (절반 오류 수정)
         else if (doubleLag - minLag < harmonicFiltered.size && doubleRatio >= 0.45f &&
                  doubleStrength > harmonicFiltered[bestLagIdx] * 0.7f &&
-                 shouldApplyOctaveCorrection(bestBpm, bpmFromBeatMs(doubleLag * hopMs), doubleStrength, harmonicFiltered[bestLagIdx], doubleRatio)) {
+                 shouldApplyOctaveCorrection(bpmFromBeatMs(doubleLag * hopMs), doubleStrength, doubleRatio)) {
             val doubleBeatMs = doubleLag * hopMs
             val doubleBpm = bpmFromBeatMs(doubleBeatMs)
             Log.d(
