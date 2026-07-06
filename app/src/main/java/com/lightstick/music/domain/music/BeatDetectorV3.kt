@@ -395,7 +395,7 @@ object BeatDetectorV3 {
         }
 
         // === 옥타브 에러 보정 (필터링 후 재확인) ===
-        // V3.3: 강화된 octave error correction
+        // V3.9: 개선된 octave error correction
         // 절반 비트(2배 BPM) 확인: lag/2
         val halfLag = bestLag / 2
         val halfStrength = if (halfLag >= minLag && halfLag - minLag < harmonicFiltered.size) {
@@ -410,14 +410,16 @@ object BeatDetectorV3 {
         } else 0f
         val doubleRatio = if (harmonicFiltered[bestLagIdx] > 1e-6f) doubleStrength / harmonicFiltered[bestLagIdx] else 0f
 
-        // V3.3: Stricter octave error detection (0.65 → 0.55)
+        // V3.9: 개선된 옥타브 에러 감지
         // 절반 비트가 강한 경우: 원래 BPM이 2배로 잘못된 것
-        if (halfLag >= minLag && halfRatio >= 0.55f) {
+        // 조건: halfRatio >= 0.50 (기존) 또는 절반 BPM이 60-80 범위면 더 허용적
+        if (halfLag >= minLag && (halfRatio >= 0.50f ||
+            (bpmFromBeatMs(halfLag * hopMs) >= 60f && bpmFromBeatMs(halfLag * hopMs) <= 85f))) {
             val halfBeatMs = halfLag * hopMs
             val halfBpm = bpmFromBeatMs(halfBeatMs)
             Log.d(
                 TAG,
-                "V3.3 OctaveError2x: halfLag=$halfLag halfRatio=${"%.2f".format(halfRatio)} → " +
+                "V3.9 OctaveError2x: halfLag=$halfLag halfRatio=${"%.2f".format(halfRatio)} halfBpm=${"%.1f".format(halfBpm)} → " +
                         "BPM ${bestBpm.toInt()} → ${halfBpm.toInt()}"
             )
             finalLag = halfLag
@@ -425,13 +427,14 @@ object BeatDetectorV3 {
             confidence = minOf(1.0f, halfStrength / sorted[0])
         }
         // 2배 비트가 강한 경우: 원래 BPM이 절반으로 잘못된 것
-        // V3.3: 더 엄격한 기준 (0.65 → 0.55, 0.9 → 0.8)
-        else if (doubleLag - minLag < harmonicFiltered.size && doubleRatio >= 0.55f && doubleStrength > harmonicFiltered[bestLagIdx] * 0.8f) {
+        // V3.9: 더 낮은 임계값 (0.45f, 0.7f) - 높은 BPM 더 잘 감지
+        else if (doubleLag - minLag < harmonicFiltered.size && doubleRatio >= 0.45f &&
+                 doubleStrength > harmonicFiltered[bestLagIdx] * 0.7f) {
             val doubleBeatMs = doubleLag * hopMs
             val doubleBpm = bpmFromBeatMs(doubleBeatMs)
             Log.d(
                 TAG,
-                "V3.3 OctaveError0.5x: doubleLag=$doubleLag doubleRatio=${"%.2f".format(doubleRatio)} → " +
+                "V3.9 OctaveError0.5x: doubleLag=$doubleLag doubleRatio=${"%.2f".format(doubleRatio)} doubleBpm=${"%.1f".format(doubleBpm)} → " +
                         "BPM ${bestBpm.toInt()} → ${doubleBpm.toInt()}"
             )
             finalLag = doubleLag
@@ -501,11 +504,10 @@ object BeatDetectorV3 {
     }
 
     /**
-     * Log-Normal Prior: 음악 BPM 확률 분포 (V1 방식)
+     * Log-Normal Prior: 음악 BPM 확률 분포 (V3.9 개선)
      *
-     * 실제 음악은 특정 BPM 범위(60~180)에 편중됨.
-     * 절반 박자(30~90)나 2배 박자(120~360)는 확률이 낮음.
-     * 로그정규분포로 이를 모델링하여 AC값에 가중치 적용.
+     * V3.9: Prior 중심을 120 BPM으로 이동하고 std를 증가시켜
+     * 높은 BPM(140~180)의 가중치를 높이고 낮은 BPM(60~80)의 페널티 감소
      *
      * @param bpm BPM 값
      * @return 확률 가중치 (0~1)
@@ -513,9 +515,9 @@ object BeatDetectorV3 {
     private fun calculateLogNormalPrior(bpm: Float): Float {
         if (bpm < 30 || bpm > 360) return 0.01f
 
-        // 로그정규분포 파라미터
-        val muLn = ln(110.0)  // 평균 110 BPM의 로그값
-        val sigma = 0.35f      // 표준편차 (분산 제어)
+        // V3.9: 파라미터 개선 - 중심을 120 BPM으로, std를 0.45로 증가
+        val muLn = ln(120.0)   // V3.9: 평균 120 BPM의 로그값 (기존 110)
+        val sigma = 0.45f      // V3.9: 표준편차 증가 0.35f → 0.45f (더 광범위 허용)
 
         val lnBpm = ln(bpm.toDouble())
         val exponent = -((lnBpm - muLn) * (lnBpm - muLn)) / (2 * sigma * sigma)
@@ -524,8 +526,9 @@ object BeatDetectorV3 {
         val density = (1.0 / (bpm * sigma * sqrt(2 * PI))).toFloat() *
                       exp(exponent).toFloat()
 
-        // 0~1로 정규화 (최대값 약 0.011 at BPM=110)
-        return (density / 0.011f).coerceIn(0.01f, 1.0f)
+        // 0~1로 정규화 (최대값 약 0.010 at BPM=120)
+        // V3.9: 정규화 계수 조정 (기존 0.011 → 0.009, 더 넓은 분포)
+        return (density / 0.009f).coerceIn(0.01f, 1.0f)
     }
 
     /**
