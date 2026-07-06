@@ -320,14 +320,19 @@ object BeatDetectorV3 {
         // 절반 박자(하모닉)를 감지하고 필터링
         val harmonicFiltered = filterHarmonicPeaks(bpmStrengths, minLag)
 
-        // V4.0: 상위 피크 후보군 추출 (단순 AC 기반이 아닌 다중 기준 평가)
+        // V4.1: 상위 피크 후보군 추출 (단순 AC 기반이 아닌 다중 기준 평가)
+        // V3.6까지는 전체 후보를 ac×prior로 채점해 최고점을 골랐으나, V4.0에서
+        // "raw AC 상위 5개로 먼저 추린 뒤 그 안에서만 정교하게 채점"하도록 바뀌면서
+        // 정답 후보가 raw AC 순위 5위 밖으로 밀려나면 애초에 채점 기회조차 못 받는
+        // 회귀가 생김 (예: Ed Sheeran — V3.6 Global=95.2(거의 정답) → V4.0 Global=63.8).
+        // 5 → 15로 넓혀서 정답 후보가 최소한 평가 대상에는 들어오도록 함.
         val topCandidates = harmonicFiltered.indices
             .map { idx ->
                 val lag = idx + minLag
                 Triple(lag, harmonicFiltered[idx], bpmFromBeatMs(lag * hopMs))
             }
             .sortedByDescending { it.second }
-            .take(5)  // 상위 5개 피크 고려
+            .take(15)  // 상위 15개 피크 고려 (V4.0: 5개 → V4.1: 15개)
 
         Log.d(TAG, "V4.0 TOP_PEAK_CANDIDATES: ${topCandidates.mapIndexed { i, (lag, strength, bpm) ->
             "[$i] lag=$lag BPM=${bpm.toInt()} AC=${"%.3f".format(strength)}"
