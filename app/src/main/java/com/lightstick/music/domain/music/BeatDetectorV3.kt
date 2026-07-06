@@ -25,6 +25,10 @@ import kotlin.math.*
 object BeatDetectorV3 {
 
     private const val TAG = "AutoTimeline_BeatDetectorV3"
+    private const val PERF_TAG = "AutoTimeline_BeatDetectorV3_Perf"
+
+    /** 정확도 진단용 JSON 저장(v3_analysis/bpm_results.jsonl) On/Off. 평상시 OFF, 분석 필요할 때만 켜서 사용. */
+    private const val ENABLE_JSON_EXPORT = false
 
     // ════════════════════════════════════════════════════════════════════
     // 단위 변환 함수 - 모든 코드에서 일관된 단위 사용을 강제
@@ -333,57 +337,6 @@ object BeatDetectorV3 {
             }
             .filter { it.second > 1e-6f }  // 강도가 0에 가까운 lag는 제외 (노이즈)
 
-        Log.d(TAG, "V4.2 ALL_CANDIDATES_COUNT: ${allCandidates.size}개 lag 전체 채점 (minLag=$minLag)")
-
-        // 시간대별 BPM 분포 로깅
-        val timeDistribution = mutableListOf<String>()
-        for (tIdx in 0 until minOf(5, tempogram[0].size)) {
-            val timeStep = tempogram[0].size / 4 // 0%, 25%, 50%, 75%, 100%
-            val t = tIdx * timeStep
-            if (t >= tempogram[0].size) continue
-
-            var peakLag = 0
-            var peakStrength = 0f
-            for (i in bpmStrengths.indices) {
-                if (t < tempogram[i].size && tempogram[i][t] > peakStrength) {
-                    peakStrength = tempogram[i][t]
-                    peakLag = i + minLag
-                }
-            }
-            if (peakLag > 0) {
-                val peakBeatMs = peakLag * hopMs
-                val peakBpm = bpmFromBeatMs(peakBeatMs)
-                timeDistribution.add("t=${t*10}ms: lag=$peakLag BPM=${peakBpm.toInt()} strength=${"%.3f".format(peakStrength)}")
-            }
-        }
-        if (timeDistribution.isNotEmpty()) {
-            Log.d(TAG, "V3 TEMPOGRAM_TIME_DIST: ${timeDistribution.joinToString(" | ")}")
-        }
-
-        // 상위 BPM 후보 로깅 (필터링 전후)
-        val topBpmsBefore = bpmStrengths.withIndex()
-            .sortedByDescending { it.value }
-            .take(5)
-            .map { (idx, strength) ->
-                val lag = idx + minLag
-                val beatMs = lag * hopMs
-                val bpm = bpmFromBeatMs(beatMs)
-                "lag=$lag BPM=${bpm.toInt()} str=${"%.3f".format(strength)}"
-            }.joinToString(" | ")
-
-        val topBpmsAfter = harmonicFiltered.withIndex()
-            .sortedByDescending { it.value }
-            .take(5)
-            .map { (idx, strength) ->
-                val lag = idx + minLag
-                val beatMs = lag * hopMs
-                val bpm = bpmFromBeatMs(beatMs)
-                "lag=$lag BPM=${bpm.toInt()} str=${"%.3f".format(strength)}"
-            }.joinToString(" | ")
-
-        Log.d(TAG, "V3 TOP5_BPMS_BEFORE: $topBpmsBefore")
-        Log.d(TAG, "V3 TOP5_BPMS_AFTER_HARMONIC_FILTER: $topBpmsAfter")
-
         // === V4.0: 다중 피크 평가 (Multi-peak evaluation) ===
         // 상위 5개 피크 각각을 3가지 기준으로 평가:
         // 1. AC 강도 (Tempogram에서의 절대값)
@@ -454,12 +407,6 @@ object BeatDetectorV3 {
         // (선택된 후보는 항상 1위이므로 이 목록에 반드시 포함됨)
         val topScoredCandidates = candidateScores.sortedByDescending { it.compositeScore }.take(20)
 
-        // V4.0 평가 결과 로깅
-        Log.d(TAG, "V4.2 PEAK_EVALUATION (top20/${candidateScores.size}): ${topScoredCandidates.map { cand ->
-            "BPM=${cand.bpm.toInt()} AC=${"%.3f".format(cand.acStrength)} Prior=${"%.3f".format(cand.prior)} " +
-            "Temporal=${"%.3f".format(cand.temporalConsistency)} Composite=${"%.3f".format(cand.compositeScore)}"
-        }.joinToString(" | ")}")
-
         // V4.0: JSON 저장용 후보 디버그 목록 (선택된 후보 표시, 상위 20개만 저장)
         val candidateDebugList = topScoredCandidates.map { cand ->
             PeakCandidateDebugInfo(
@@ -474,20 +421,9 @@ object BeatDetectorV3 {
 
         val bestLagIdx = bestCandidate.lag - minLag
         val bestLag = bestCandidate.lag
-        var finalLag = bestLag
         val bestBeatMs = bestLag * hopMs
         var bestBpm = bestCandidate.bpm
         var octaveCorrected = false
-
-        // 최종 선택 이유 로깅
-        if (candidateScores.size > 1) {
-            Log.d(
-                TAG,
-                "V4.0 BEST_PEAK_SELECTED: BPM=${bestBpm.toInt()} (AC=${"%.3f".format(bestCandidate.acStrength)} " +
-                "Prior=${"%.3f".format(bestCandidate.prior)} Temporal=${"%.3f".format(bestCandidate.temporalConsistency)} " +
-                "Composite=${"%.3f".format(bestCandidate.compositeScore)})"
-            )
-        }
 
         // 신뢰도: 필터링된 값 기준
         val sorted = harmonicFiltered.sortedDescending()
@@ -545,12 +481,6 @@ object BeatDetectorV3 {
         if (halfLag >= minLag && shouldApplyOctaveCorrection(bpmFromBeatMs(halfLag * hopMs), halfStrength, halfRatio)) {
             val halfBeatMs = halfLag * hopMs
             val halfBpm = bpmFromBeatMs(halfBeatMs)
-            Log.d(
-                TAG,
-                "V4.0 OctaveError2x_VALIDATED: halfLag=$halfLag halfRatio=${"%.2f".format(halfRatio)} halfBpm=${"%.1f".format(halfBpm)} → " +
-                        "BPM ${bestBpm.toInt()} → ${halfBpm.toInt()} (better consistency)"
-            )
-            finalLag = halfLag
             bestBpm = halfBpm
             confidence = minOf(1.0f, halfStrength / sorted[0])
             octaveCorrected = true
@@ -561,18 +491,10 @@ object BeatDetectorV3 {
                  shouldApplyOctaveCorrection(bpmFromBeatMs(doubleLag * hopMs), doubleStrength, doubleRatio)) {
             val doubleBeatMs = doubleLag * hopMs
             val doubleBpm = bpmFromBeatMs(doubleBeatMs)
-            Log.d(
-                TAG,
-                "V4.0 OctaveError0.5x_VALIDATED: doubleLag=$doubleLag doubleRatio=${"%.2f".format(doubleRatio)} doubleBpm=${"%.1f".format(doubleBpm)} → " +
-                        "BPM ${bestBpm.toInt()} → ${doubleBpm.toInt()} (better consistency)"
-            )
-            finalLag = doubleLag
             bestBpm = doubleBpm
             confidence = minOf(1.0f, doubleStrength / sorted[0])
             octaveCorrected = true
         }
-
-        Log.d(TAG, "V3 ModalPeak: BPM=${bestBpm.toInt()}, Confidence=${(confidence * 100).toInt()}% (lag=$finalLag)")
 
         return ModalPeakResult(bestBpm, confidence, candidateDebugList, octaveCorrected)
     }
@@ -607,7 +529,6 @@ object BeatDetectorV3 {
                 if (ratio >= 0.50f) {
                     // 절반 박자로 판정되었으므로 강도 감소 (0.3배 → 0.1배)
                     filtered[idx] = strength * 0.1f
-                    Log.d(TAG, "V3.3 HARMONIC_FILTER: lag=$lag(2x하모닉) ratio=${"%.2f".format(ratio)} → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
                     continue
                 }
             }
@@ -623,7 +544,6 @@ object BeatDetectorV3 {
                     if (ratio >= 0.50f) {
                         // 두배 박자로 판정되었으므로 강도 감소 (0.3배 → 0.1배)
                         filtered[idx] = strength * 0.1f
-                        Log.d(TAG, "V3.3 HARMONIC_FILTER: lag=$lag(0.5x하모닉) ratio=${"%.2f".format(ratio)} → strength ${"%.3f".format(strength)} → ${"%.3f".format(filtered[idx])}")
                         continue
                     }
                 }
@@ -989,28 +909,6 @@ object BeatDetectorV3 {
             median
         }
 
-        // 상세 로깅: 섹션별 BPM, 통계
-        val minBpm = bpmValues.minOrNull() ?: 0f
-        val maxBpm = bpmValues.maxOrNull() ?: 0f
-        val avgBpm = bpmValues.average().toFloat()
-        val stdDev = if (bpmValues.size > 1) {
-            kotlin.math.sqrt(bpmValues.map { (it - avgBpm) * (it - avgBpm) }.average()).toFloat()
-        } else 0f
-
-        val filterInfo = if (filteredBpms.size < bpmValues.size) {
-            " [FILTERED: ${bpmValues.size} → ${filteredBpms.size} sections, median ${initialMedian.toInt()} → ${finalMedian.toInt()}]"
-        } else {
-            ""
-        }
-
-        Log.d(
-            TAG,
-            "V3 METHOD_B_MEDIAN: sections=${sectionBpms.size}, " +
-                    "bpms=${bpmValues.map { it.toInt() }}, " +
-                    "median=${finalMedian.toInt()} BPM, " +
-                    "min=$minBpm, max=$maxBpm, avg=${"%.1f".format(avgBpm)}, stdDev=${"%.1f".format(stdDev)}" +
-                    filterInfo
-        )
         return finalMedian
     }
 
@@ -1046,21 +944,18 @@ object BeatDetectorV3 {
         if (diff <= tolerance) {
             val avgBpm = (methodBBpm + globalBpm) / 2f
             val reason = "SELECT_AVG: methodB=${"%.1f".format(methodBBpm)} ≈ methodA=${"%.1f".format(globalBpm)} → avg=${"%.1f".format(avgBpm)}"
-            Log.d(TAG, "V3.7 $reason")
             return MethodSelectionResult(beatMsFromBpm(avgBpm), reason)
         }
 
         // Case 2: methodBBpm이 비합리적인 범위면 Global BPM 사용
         if (methodBBpm < IDEAL_MIN || methodBBpm > IDEAL_MAX) {
             val reason = "SELECT_GLOBAL: methodB=${"%.1f".format(methodBBpm)} out of range [$IDEAL_MIN-$IDEAL_MAX] → use Global ${"%.1f".format(globalBpm)}"
-            Log.d(TAG, "V3.7 $reason")
             return MethodSelectionResult(methodABeatMs, reason)
         }
 
         // Case 3: Global BPM이 비합리적인 범위면 methodBBpm 사용
         if (globalBpm < IDEAL_MIN || globalBpm > IDEAL_MAX) {
             val reason = "SELECT_METHOD_B: Global=${"%.1f".format(globalBpm)} out of range → use methodB ${"%.1f".format(methodBBpm)}"
-            Log.d(TAG, "V3.7 $reason")
             return MethodSelectionResult(beatMsFromBpm(methodBBpm), reason)
         }
 
@@ -1070,7 +965,6 @@ object BeatDetectorV3 {
         if (doubleRelationDiff <= 10f) {
             // methodBBpm * 2 ≈ globalBpm → methodBBpm이 절반 속도
             val reason = "SELECT_DOUBLE: methodB=${"%.1f".format(methodBBpm)} × 2 ≈ Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(doubleRelationDiff)}) → use doubled methodB=${"%.1f".format(methodBBpm * 2)}"
-            Log.d(TAG, "V3.7 $reason")
             return MethodSelectionResult(beatMsFromBpm(methodBBpm * 2), reason)
         }
 
@@ -1078,7 +972,6 @@ object BeatDetectorV3 {
         if (halfRelationDiff <= 10f) {
             // methodBBpm / 2 ≈ globalBpm → methodBBpm이 2배 속도
             val reason = "SELECT_HALF: methodB=${"%.1f".format(methodBBpm)} / 2 ≈ Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(halfRelationDiff)}) → use halved methodB=${"%.1f".format(methodBBpm / 2)}"
-            Log.d(TAG, "V3.7 $reason")
             return MethodSelectionResult(beatMsFromBpm(methodBBpm / 2), reason)
         }
 
@@ -1090,18 +983,15 @@ object BeatDetectorV3 {
         // 6/8인 Entrance만 예외였음 → 6/8일 때만 Global 유지.
         if (methodBBpm >= IDEAL_MIN && methodBBpm <= IDEAL_MAX && !isCompoundMeter) {
             val reason = "SELECT_METHOD_B_FINAL: no 2x relation, methodB=${"%.1f".format(methodBBpm)} preferred over Global=${"%.1f".format(globalBpm)}"
-            Log.d(TAG, "V3.7 $reason")
             return MethodSelectionResult(beatMsFromBpm(methodBBpm), reason)
         }
         if (methodBBpm >= IDEAL_MIN && methodBBpm <= IDEAL_MAX && isCompoundMeter) {
             val reason = "SELECT_GLOBAL_COMPOUND_METER: no 2x relation, but compound(6/8) meter detected → keep Global=${"%.1f".format(globalBpm)} instead of methodB=${"%.1f".format(methodBBpm)}"
-            Log.d(TAG, "V4.1 $reason")
             return MethodSelectionResult(methodABeatMs, reason)
         }
 
         // 최후의 수단: Global AC 사용
         val reason = "SELECT_GLOBAL_FINAL: methodB=${"%.1f".format(methodBBpm)} vs Global=${"%.1f".format(globalBpm)} (diff=${"%.1f".format(diff)}) → use Global as fallback"
-        Log.d(TAG, "V3.7 $reason")
         return MethodSelectionResult(methodABeatMs, reason)
     }
 
@@ -1159,7 +1049,6 @@ object BeatDetectorV3 {
         // → 정상 곡: TOMBOY, 진미령 등 (범위 28-47)
         if (globalMedianDiff <= 5f && bpmRange <= 50f) {
             val reason = "TRUST_BOTH_METHODS: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} (perfect match, narrow range=${"%.0f".format(bpmRange)})"
-            Log.d(TAG, "V3.7.8 $reason")
             return OctaveCorrectionResult(medianBpm, reason)
         }
 
@@ -1184,13 +1073,11 @@ object BeatDetectorV3 {
                     val reason = "DISTINCT_HIGH_CLUSTER: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} " +
                             "but highBpmMedian=${"%.1f".format(highBpmMedian)}(ratio=${"%.2f".format(clusterRatio)}, count=$highRangeCount) " +
                             "is a distinct tempo cluster, not measurement noise → offer as methodB candidate"
-                    Log.d(TAG, "V4.4 $reason")
                     return OctaveCorrectionResult(highBpmMedian, reason)
                 }
             }
 
             val reason = "KEEP_ORIGINAL: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} (both in normal range, diff=${"%.1f".format(globalMedianDiff)})"
-            Log.d(TAG, "V3.9 $reason")
             return OctaveCorrectionResult(medianBpm, reason)
         }
 
@@ -1219,7 +1106,6 @@ object BeatDetectorV3 {
             if (doubleRatio <= 0.10f && doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX && highCountLooksLikeGlobalTempo) {
                 val reason = "HALF_TEMPO_CONFIRMED: median=${"%.1f".format(medianBpm)}, highBpmMedian=${"%.1f".format(highBpmMedian)} " +
                         "matches 2x(doubleRatio=${"%.2f".format(doubleRatio)}, highCount=$highRangeCount) → return doubled ${"%.1f".format(doubledBpm)}"
-                Log.d(TAG, "V3.9 $reason")
                 return OctaveCorrectionResult(doubledBpm, reason)
             } else {
                 // V4.5: 2배(옥타브) 관계는 아니지만 3:2(셋잇단/컴파운드 박자) 관계일 가능성 확인.
@@ -1236,14 +1122,12 @@ object BeatDetectorV3 {
                     val reason = "COMPOUND_RATIO_DETECTED: median=${"%.1f".format(medianBpm)} rejected as 2x " +
                             "but found AC-supported 3:2 candidate ${"%.1f".format(compoundCandidate.bpm)}(AC=${"%.2f".format(compoundCandidate.acStrength)}) " +
                             "near median×1.5=${"%.1f".format(compoundTarget)} → use it"
-                    Log.d(TAG, "V4.5 $reason")
                     return OctaveCorrectionResult(compoundCandidate.bpm, reason)
                 }
 
                 val reason = "HALF_TEMPO_REJECTED: median=${"%.1f".format(medianBpm)}, highBpmMedian=${"%.1f".format(highBpmMedian)} " +
                         "doubleRatio=${"%.2f".format(doubleRatio)} highCount=$highRangeCount " +
                         "(${if (!highCountLooksLikeGlobalTempo) "too many high-BPM outlier sections, likely local fills not global tempo" else "ratio mismatch"}) → trust original median"
-                Log.d(TAG, "V3.9 $reason")
                 return OctaveCorrectionResult(medianBpm, reason)
             }
         }
@@ -1252,7 +1136,6 @@ object BeatDetectorV3 {
         // 그리고 2배하면 합리적인 음악 BPM 범위(80-180)가 됨
         if (lowRangeCount >= totalSections * 0.7f && doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX) {
             val reason = "HALF_TEMPO_DETECTED: 70% of sections <100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(doubledBpm)}"
-            Log.d(TAG, "V3.9 $reason")
             return OctaveCorrectionResult(doubledBpm, reason)
         }
 
@@ -1260,12 +1143,10 @@ object BeatDetectorV3 {
         // 그리고 절반하면 합리적인 음악 BPM 범위(80-180)가 됨
         if (highRangeCount >= totalSections * 0.7f && halvedBpm >= IDEAL_MIN && halvedBpm <= IDEAL_MAX) {
             val reason = "DOUBLE_TEMPO_DETECTED: 70% of sections ≥100 BPM, ${"%.1f".format(medianBpm)} → ${"%.1f".format(halvedBpm)}"
-            Log.d(TAG, "V3.9 $reason")
             return OctaveCorrectionResult(halvedBpm, reason)
         }
 
         val reason = "KEEP_ORIGINAL: median=${"%.1f".format(medianBpm)} BPM (no clear octave pattern)"
-        Log.d(TAG, "V3.9 $reason")
         return OctaveCorrectionResult(medianBpm, reason)
     }
 
@@ -1596,7 +1477,6 @@ object BeatDetectorV3 {
             // 정규화 전 절대 강도 확인: 절대값 < 0.02는 신호가 극도로 약함
             val maxAbsoluteStrength = sectionStrengths.maxOrNull() ?: 0f
             if (maxAbsoluteStrength < 0.02f) {
-                Log.d(TAG, "V3 Section[${startMs}ms-${endMs}ms]: SKIPPED (signal too weak, max absolute=${"%.4f".format(maxAbsoluteStrength)})")
                 continue
             }
 
@@ -1621,26 +1501,6 @@ object BeatDetectorV3 {
             val bestLag = peaks[0].first
             val bestBeatMs = bestLag * hopMs
             val sectionBpm = bpmFromBeatMs(bestBeatMs)
-
-            // 섹션별 상세 로그
-            val sectionLog = StringBuilder("V3 Section[${startMs}ms-${endMs}ms]:\n")
-            peaks.forEachIndexed { idx, (lag, strength) ->
-                val beatMs = lag * hopMs
-                val bpm = bpmFromBeatMs(beatMs)
-                val ratio = lag.toFloat() / bestLag.toFloat()
-                val harmonicType = when {
-                    kotlin.math.abs(ratio - 0.5f) < 0.08f -> "2x"
-                    kotlin.math.abs(ratio - 0.67f) < 0.08f -> "1.5x"
-                    kotlin.math.abs(ratio - 1.0f) < 0.05f -> "PEAK"
-                    kotlin.math.abs(ratio - 1.5f) < 0.08f -> "0.67x"
-                    kotlin.math.abs(ratio - 2.0f) < 0.08f -> "0.5x"
-                    else -> "other"
-                }
-                val normStrength = (strength * 100).toInt()
-                sectionLog.append("  [$idx] lag=$lag(${bpm.toInt()}BPM,ratio=${String.format("%.2f", ratio)},$harmonicType,str=$normStrength%)\n")
-            }
-            sectionLog.append("  SELECTED: lag=$bestLag(${sectionBpm.toInt()}BPM)")
-            Log.d(TAG, sectionLog.toString())
 
             result.add(Pair(startMs, sectionBpm))
         }
@@ -1678,11 +1538,17 @@ object BeatDetectorV3 {
             return BpmV3Result(0f, 0f, null)
         }
 
+        // Tempogram 사용 (프로덕션 기본 경로: useTempogram=true)
+        if (useTempogram) {
+            val tempogram = computeTempogram(odf, hopMs, minBeatMs, maxBeatMs)
+            val modalPeakResult = findModalPeak(tempogram, hopMs, minBeatMs)
+            return BpmV3Result(modalPeakResult.bpm, modalPeakResult.confidence, tempogram, modalPeakResult.candidates)
+        }
+
+        // V1 방식 (useTempogram=false일 때만 사용되는 폴백): 전체 lag AC × log-normal prior로 argmax
         val acVals = FloatArray(maxLag + 1)
-        val priorVals = FloatArray(maxLag + 1)
         val scoreVals = FloatArray(maxLag + 1)
 
-        // Autocorrelation 계산
         for (lag in minLag..maxLag) {
             var acSum = 0f
             for (i in 0 until odf.size - lag) {
@@ -1692,126 +1558,37 @@ object BeatDetectorV3 {
             val acVal = acSum / (odf.size - lag)
             acVals[lag] = acVal
 
-            // Log-normal prior
             val lagMs = lag * hopMs
             val logRatio = ln(lagMs.toFloat() / priorCenterMs) / ln(2f)
             val prior = exp(-0.5f * (logRatio / priorStdOctave).pow(2))
 
-            priorVals[lag] = prior
             scoreVals[lag] = acVal * prior
         }
 
-        // 상위 피크 분석 (하모닉 감지용) - 개선: 8개 → 20개로 확대
-        val peaksByScore = (minLag..maxLag).map { lag ->
-            Triple(lag, scoreVals[lag], acVals[lag])
-        }.sortedByDescending { it.second }.take(20)
+        val bestLag = (minLag..maxLag).maxByOrNull { scoreVals[it] } ?: minLag
+        val bestAc = acVals[bestLag]
 
-        val harmonicDiag = StringBuilder("V3 AC_PEAKS_GLOBAL:\n")
-        peaksByScore.forEachIndexed { idx, (lag, score, ac) ->
-            val beatMs = lag * hopMs
-            val bpm = bpmFromBeatMs(beatMs)
-            val ratio = if (peaksByScore[0].first > 0) lag.toFloat() / peaksByScore[0].first.toFloat() else 0f
-            val harmonicType = when {
-                kotlin.math.abs(ratio - 0.5f) < 0.08f -> "2x"
-                kotlin.math.abs(ratio - 0.67f) < 0.08f -> "1.5x"
-                kotlin.math.abs(ratio - 1.0f) < 0.05f -> "PEAK"
-                kotlin.math.abs(ratio - 1.5f) < 0.08f -> "0.67x"
-                kotlin.math.abs(ratio - 2.0f) < 0.08f -> "0.5x"
-                else -> "other"
+        // Half-tempo check
+        var finalLag = bestLag
+        val halfLag = bestLag / 2
+        if (halfLag >= minLag && bestAc > 1e-6f) {
+            if (acVals[halfLag] / bestAc >= halfTempoRatio) {
+                finalLag = halfLag
             }
-            val normScore = if (peaksByScore[0].second > 0) (score / peaksByScore[0].second * 100).toInt() else 0
-            harmonicDiag.append("  [$idx] lag=$lag(${bpm.toInt()}BPM,ratio=${String.format("%.2f", ratio)},$harmonicType,score=$normScore%,ac=${String.format("%.6f", ac)})\n")
-        }
-        Log.d(TAG, harmonicDiag.toString())
-
-        // AC_PEAKS 절반/2배 분포 분석
-        val halfPeaks = peaksByScore.filter { (lag, _, _) ->
-            if (peaksByScore[0].first > 0) {
-                val ratio = lag.toFloat() / peaksByScore[0].first.toFloat()
-                kotlin.math.abs(ratio - 0.5f) < 0.12f
-            } else false
-        }
-        val doublePeaks = peaksByScore.filter { (lag, _, _) ->
-            if (peaksByScore[0].first > 0) {
-                val ratio = lag.toFloat() / peaksByScore[0].first.toFloat()
-                kotlin.math.abs(ratio - 2.0f) < 0.12f
-            } else false
-        }
-        if (halfPeaks.isNotEmpty() || doublePeaks.isNotEmpty()) {
-            Log.d(
-                TAG,
-                "V3 AC_OCTAVE_ANALYSIS: halfPeaks=${halfPeaks.size} (score=${halfPeaks.maxOfOrNull { it.second }?.let { String.format("%.2f", it) } ?: "N/A"}) " +
-                        "doublePeaks=${doublePeaks.size} (score=${doublePeaks.maxOfOrNull { it.second }?.let { String.format("%.2f", it) } ?: "N/A"})"
-            )
         }
 
-        // Method A: AC_PEAKS 상위 N개에서 최적 피크 선택
-        val selectedPeak = selectBestPeakFromAcPeaks(peaksByScore, hopMs)
-        val methodABpm = if (selectedPeak != null && selectedPeak.first > 0) {
-            60_000L / (selectedPeak.first * hopMs)
-        } else {
-            0L
-        }
-        if (methodABpm > 0L) {
-            // AC_PEAKS 상세 정보 로깅
-            val peaksInfo = peaksByScore.take(10).mapIndexed { idx, (lag, score) ->
-                val bpm = 60_000L / (lag * hopMs)
-                val ac = acVals[lag]
-                "[$idx] lag=$lag BPM=$bpm AC=${"%.6f".format(ac)} score=${"%.2f".format(score)}"
-            }.joinToString(" | ")
-            Log.d(TAG, "V3 AC_PEAKS_TOP10: $peaksInfo")
-
-            Log.d(
-                TAG,
-                "V3 METHOD_A_SELECTION: Selected lag=${selectedPeak?.first}, BPM=$methodABpm, Score=${"%.2f".format(peaksByScore.firstOrNull()?.second ?: 0f)}"
-            )
-        }
-
-        // Tempogram 사용
-        if (useTempogram) {
-            val tempogram = computeTempogram(odf, hopMs, minBeatMs, maxBeatMs)
-            val modalPeakResult = findModalPeak(tempogram, hopMs, minBeatMs)
-            val bestBpm = modalPeakResult.bpm
-            val confidence = modalPeakResult.confidence
-
-            Log.d(
-                TAG,
-                "V3 Tempogram: BPM=$bestBpm, Confidence=$confidence"
-            )
-
-            return BpmV3Result(bestBpm, confidence, tempogram, modalPeakResult.candidates)
-        } else {
-            // V1 방식
-            val bestLag = (minLag..maxLag).maxByOrNull { scoreVals[it] } ?: minLag
-            val bestAc = acVals[bestLag]
-
-            // Half-tempo check
-            var finalLag = bestLag
-            val halfLag = bestLag / 2
-            if (halfLag >= minLag && bestAc > 1e-6f) {
-                if (acVals[halfLag] / bestAc >= halfTempoRatio) {
-                    finalLag = halfLag
-                }
+        // Double-tempo check
+        val doubleLag = bestLag * 2
+        if (doubleLag <= maxLag && bestAc > 1e-6f) {
+            if (acVals[doubleLag] / bestAc >= doubleTempoRatio) {
+                finalLag = doubleLag
             }
-
-            // Double-tempo check
-            val doubleLag = bestLag * 2
-            if (doubleLag <= maxLag && bestAc > 1e-6f) {
-                if (acVals[doubleLag] / bestAc >= doubleTempoRatio) {
-                    finalLag = doubleLag
-                }
-            }
-
-            val bestBpm = 60_000L / (finalLag * hopMs)
-            val confidence = minOf(1.0f, bestAc * 10)  // AC를 신뢰도로 변환
-
-            Log.d(
-                TAG,
-                "V3 V1-Mode: BPM=$bestBpm, Confidence=$confidence"
-            )
-
-            return BpmV3Result(bestBpm.toFloat(), confidence, null)
         }
+
+        val bestBpm = 60_000L / (finalLag * hopMs)
+        val confidence = minOf(1.0f, bestAc * 10)  // AC를 신뢰도로 변환
+
+        return BpmV3Result(bestBpm.toFloat(), confidence, null)
     }
 
     /**
@@ -1929,6 +1706,8 @@ object BeatDetectorV3 {
             )
         }
 
+        val perfPcmT0 = System.nanoTime()
+
         // PCM → Envelope 계산 (V3.1: 5-band 주파수 분해)
         val hopSamples = kotlin.math.max(1, (sampleRate * params.hopMs / 1000).toInt())
         val numFrames = monoSamples.size / hopSamples
@@ -2000,13 +1779,24 @@ object BeatDetectorV3 {
             return if (mx > 1e-6f) src.map { (it / mx).coerceIn(0f, 1f) } else src
         }
 
+        val perfPcmT1Envelope = System.nanoTime()
+
         // V3.1: 5-band 주파수 분석 사용
-        return detectFiveBand(
+        val result = detectFiveBand(
             normalizeEnv(outVeryLow), normalizeEnv(outLowMid),
             normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outHigh),
             normalizeEnv(outFull),
             params, songTitle, emptyList(), context
         )
+
+        val perfPcmT2Total = System.nanoTime()
+        Log.d(
+            PERF_TAG,
+            "title=\"$songTitle\" detectPcm total=${"%.1f".format((perfPcmT2Total - perfPcmT0) / 1_000_000.0)}ms " +
+                    "(envelope=${"%.1f".format((perfPcmT1Envelope - perfPcmT0) / 1_000_000.0)}ms, " +
+                    "detectFiveBand=${"%.1f".format((perfPcmT2Total - perfPcmT1Envelope) / 1_000_000.0)}ms)"
+        )
+        return result
     }
 
     /**
@@ -2066,6 +1856,8 @@ object BeatDetectorV3 {
         //      → 완전한 비트 정보 반환
         // ════════════════════════════════════════════════════════════════════════════════
 
+        val perfT0 = System.nanoTime()
+
         // List<Float> → FloatArray 변환
         val minSize = minOf(veryLowEnv.size, lowMidEnv.size, lowEnv.size, midEnv.size, highEnv.size, fullEnv.size)
 
@@ -2113,7 +1905,7 @@ object BeatDetectorV3 {
              odfHigh[i] * weightHigh)
         }
 
-        Log.d(TAG, "V3.2 5-BAND_ODF_WEIGHTED: veryLow(8%), lowMid(12%), low(20%), mid(35%), high(25%)")
+        val perfT1Odf = System.nanoTime()
 
         // 통합 ODF로 BPM 추정
         val (bestBpm, confidence, tempogram, peakCandidates) = estimateBpmV3(
@@ -2125,6 +1917,8 @@ object BeatDetectorV3 {
             halfTempoRatio = params.halfTempoRatio,
             doubleTempoRatio = params.doubleTempoRatio
         )
+
+        val perfT2Bpm = System.nanoTime()
 
         // 섹션별 BPM 분석 (Tempogram 기반)
         var collectedSectionBpms: List<Pair<Long, Float>> = emptyList()
@@ -2148,6 +1942,8 @@ object BeatDetectorV3 {
                 )
             }
         }
+
+        val perfT3Sections = System.nanoTime()
 
         // Beat 추정 (Method A: Tempogram 기반)
         val methodABeatMs = beatMsFromBpm(bestBpm)
@@ -2189,6 +1985,8 @@ object BeatDetectorV3 {
             octaveCorrectionReason = "NO_SECTIONS: no section BPMs collected"
             methodSelectionReason = "NO_SECTIONS: using Global AC directly"
         }
+
+        val perfT4Selection = System.nanoTime()
 
         // V3.5 FIX: Generate actual beat positions using dpBeatTracker
         // ════════════════════════════════════════════════════════════════════════════════
@@ -2232,7 +2030,6 @@ object BeatDetectorV3 {
 
         val beats: List<TimedBeat> = if (finalBeatMs > 0L && integratedOdf.isNotEmpty()) {
             val dpTimes = dpBeatTracker(integratedOdf, finalBeatMs, params.hopMs, durationMs, anchorMs = phaseMs)
-            Log.d(TAG, "V3.5 Beat tracking: dpTimes=${dpTimes.size} frames from finalBeatMs=$finalBeatMs ms (phase=$phaseMs ms)")
 
             if (dpTimes.isNotEmpty()) {
                 dpTimes.map { TimedBeat(it, 0.8f) }
@@ -2259,6 +2056,8 @@ object BeatDetectorV3 {
             emptyList()
         }
 
+        val perfT5Beats = System.nanoTime()
+
         // 시간 서명 감지
         val timeSignature = if (beats.isNotEmpty() && integratedOdf.isNotEmpty()) {
             detectTimeSignature(integratedOdf, finalBeatMs, params.hopMs)
@@ -2280,11 +2079,25 @@ object BeatDetectorV3 {
             0L
         }
 
+        val perfT6TimeSig = System.nanoTime()
+
         val finalBpmForLog = bpmFromBeatMs(finalBeatMs)
         Log.d(TAG, "V3.5 RESULT: beats=${beats.size} beatMs=$finalBeatMs BPM=${finalBpmForLog.toInt()} timeSig=${timeSignature.type} downbeatMs=$downbeatMs")
 
-        // V3.5 섹션별 BPM 분석 데이터 저장 (JSON)
-        if (context != null && songTitle != null) {
+        fun perfMs(from: Long, to: Long) = "%.1f".format((to - from) / 1_000_000.0)
+        Log.d(
+            PERF_TAG,
+            "title=\"$songTitle\" total=${perfMs(perfT0, perfT6TimeSig)}ms " +
+                    "[odf=${perfMs(perfT0, perfT1Odf)} " +
+                    "bpmEstimate=${perfMs(perfT1Odf, perfT2Bpm)} " +
+                    "sections=${perfMs(perfT2Bpm, perfT3Sections)} " +
+                    "methodSelection=${perfMs(perfT3Sections, perfT4Selection)} " +
+                    "beatTracking=${perfMs(perfT4Selection, perfT5Beats)} " +
+                    "timeSigDownbeat=${perfMs(perfT5Beats, perfT6TimeSig)}]"
+        )
+
+        // V3.5 섹션별 BPM 분석 데이터 저장 (JSON) - 정확도 진단용, 평상시 OFF
+        if (ENABLE_JSON_EXPORT && context != null && songTitle != null) {
             try {
                 val sectionBpmList = collectedSectionBpms.joinToString(",") { (ms, bpm) ->
                     "{\"timeMs\":$ms,\"bpm\":${bpm.toInt()}}"
@@ -2957,8 +2770,8 @@ object BeatDetectorV3 {
             "methodUsed" to (if (reason.contains("section")) "section_based" else "global")
         )
 
-        // JSON으로 종합 분석 데이터 저장
-        if (context != null && songTitle != null) {
+        // JSON으로 종합 분석 데이터 저장 (정확도 진단용, 평상시 OFF)
+        if (ENABLE_JSON_EXPORT && context != null && songTitle != null) {
             try {
                 val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
                 val odfSizeVal = (odfStats["size"] as? Int) ?: 0
@@ -3040,130 +2853,6 @@ object BeatDetectorV3 {
             timeSignature = timeSignature,
             tempogram = tempogram
         )
-    }
-
-    // ====================== Method A: AC_PEAKS Top-N Selection ======================
-
-    private fun selectBestPeakFromAcPeaks(
-        peaksByScore: List<Triple<Int, Float, Float>>,
-        hopMs: Long
-    ): Pair<Int, Float>? {
-        if (peaksByScore.isEmpty()) return null
-
-        val topLag = peaksByScore[0].first
-        val topScore = peaksByScore[0].second
-
-        if (topScore <= 1e-6f) return Pair(topLag, topScore)
-
-        // 개선: Harmonic 클러스터 분석으로 메인 비트 선택 (데이터 기반)
-        val topCandidates = peaksByScore.take(minOf(15, peaksByScore.size))
-
-        // 최고 피크 기준 harmonic 클러스터 분류
-        val harmonicClusters = mutableMapOf<String, MutableList<Triple<Int, Float, Float>>>()
-
-        for (peak in topCandidates) {
-            val ratio = peak.first.toFloat() / topLag.toFloat()
-            val clusterKey = when {
-                kotlin.math.abs(ratio - 1.0f) < 0.05f -> "MAIN"
-                kotlin.math.abs(ratio - 0.5f) < 0.12f -> "HALF"  // 절반 BPM (고조파)
-                kotlin.math.abs(ratio - 0.67f) < 0.12f -> "1.5x"  // 1.5배
-                kotlin.math.abs(ratio - 1.5f) < 0.12f -> "0.67x" // 0.67배
-                kotlin.math.abs(ratio - 2.0f) < 0.12f -> "DOUBLE" // 2배 (고조파)
-                else -> "OTHER"
-            }
-            harmonicClusters.getOrPut(clusterKey) { mutableListOf() }.add(peak)
-        }
-
-        // [FIX #1] AC Ratio 기반 고조파 필터링
-        val harmonicStrength = (harmonicClusters["HALF"]?.maxOfOrNull { it.third } ?: 0f) +
-                               (harmonicClusters["DOUBLE"]?.maxOfOrNull { it.third } ?: 0f)
-        val mainStrength = harmonicClusters["MAIN"]?.maxOfOrNull { it.third } ?: 0f
-
-        // 고조파와 기본음의 AC 값이 유사하면 (ratio >= 0.85) 고조파 의심
-        val isHarmonicAmbiguous = harmonicStrength > 0f && mainStrength > 0f &&
-                (harmonicStrength / mainStrength) >= 0.85f
-
-        if (isHarmonicAmbiguous) {
-            Log.d(
-                TAG,
-                "V3 HARMONIC_DETECTED: mainStrength=${"%.6f".format(mainStrength)}, " +
-                        "harmonicStrength=${"%.6f".format(harmonicStrength)}, " +
-                        "ratio=${"%.2f".format(harmonicStrength / mainStrength)} >= 0.85"
-            )
-        }
-
-        // 클러스터별 최고 피크 선택 (평균 대신 신뢰도 기반)
-        val clusterScores = harmonicClusters.map { (clusterKey, peaks) ->
-            val bestPeak = peaks.maxByOrNull { it.third } ?: peaks[0]
-            val selectedLag = bestPeak.first
-            val selectedScore = bestPeak.second
-            val selectedAc = bestPeak.third
-            val selectedBeatMs = selectedLag * hopMs
-            val selectedBpm = bpmFromBeatMs(selectedBeatMs)
-
-            // [FIX #1] V3.3: 강화된 고조파 가중치 재조정
-            val baseWeight = when (clusterKey) {
-                "MAIN" -> 2.5f  // 2.0 → 2.5 (메인 피크 선호도 상향)
-                "1.5x", "0.67x" -> 1.2f
-                "HALF" -> if (isHarmonicAmbiguous) 0.1f else 0.3f  // 고조파 의심 시 0.3f → 0.1f
-                "DOUBLE" -> if (isHarmonicAmbiguous) 0.1f else 0.2f  // 0.8f → 0.2f (더 공격적)
-                else -> 0.5f  // 0.8f → 0.5f
-            }
-            val finalScore = selectedScore * baseWeight
-
-            // 클러스터 상세 로그
-            Log.d(
-                TAG,
-                "V3 AC_CLUSTER_DETAIL: $clusterKey → lag=$selectedLag (${selectedBpm.toInt()}BPM, " +
-                        "ac=${String.format("%.6f", selectedAc)}, score=$selectedScore, " +
-                        "weight=$baseWeight, weighted=$finalScore, peaks_in_cluster=${peaks.size})"
-            )
-
-            // 클러스터 내 상위 피크들 기록
-            val topPeaksInCluster = peaks.sortedByDescending { it.third }.take(3)
-            if (topPeaksInCluster.size > 1) {
-                Log.d(
-                    TAG,
-                    "V3 AC_CLUSTER_PEAKS_$clusterKey: " +
-                            topPeaksInCluster.mapIndexed { idx, (lag, score, ac) ->
-                                val beatMs = lag * hopMs
-                                val bpm = bpmFromBeatMs(beatMs)
-                                "[$idx]$lag(${bpm.toInt()}BPM,ac=${String.format("%.6f", ac)})"
-                            }.joinToString(" | ")
-                )
-            }
-
-            Triple(clusterKey, selectedLag, finalScore)
-        }.sortedByDescending { it.third }
-
-        if (clusterScores.isNotEmpty()) {
-            val bestCluster = clusterScores[0]
-
-            // 모든 클러스터 스코어 로깅
-            val allClustersInfo = clusterScores.take(5).mapIndexed { idx, (key, lag, score) ->
-                val beatMs = lag * hopMs
-                val bpm = bpmFromBeatMs(beatMs)
-                "[$idx]$key BPM=${bpm.toInt()} lag=$lag score=${"%.2f".format(score)}"
-            }.joinToString(" | ")
-            Log.d(TAG, "V3 AC_CLUSTERS_RANKED: $allClustersInfo")
-
-            Log.d(
-                TAG,
-                "V3 AC_PEAKS_ENHANCED: clusters=${harmonicClusters.size}, harmonic_ambiguous=$isHarmonicAmbiguous, " +
-                        "selected='${bestCluster.first}' lag=${bestCluster.second} score=${String.format("%.2f", bestCluster.third)}"
-            )
-            return Pair(bestCluster.second, bestCluster.third.toFloat())
-        }
-
-        // Fallback
-        return Pair(topLag, topScore)
-    }
-
-    private fun checkIfHarmonic(ratio: Float): Boolean {
-        return (kotlin.math.abs(ratio - 0.5f) < 0.10f ||  // 2x octave
-                kotlin.math.abs(ratio - 0.67f) < 0.10f ||  // 1.5x harmonic
-                kotlin.math.abs(ratio - 1.5f) < 0.10f ||  // 0.67x harmonic
-                kotlin.math.abs(ratio - 2.0f) < 0.10f)    // 0.5x octave
     }
 
     // ====================== V1 호환 헬퍼 메서드들 ======================
