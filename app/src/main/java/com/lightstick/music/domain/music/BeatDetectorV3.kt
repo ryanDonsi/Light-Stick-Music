@@ -24,7 +24,13 @@ import kotlin.math.*
 object BeatDetectorV3 {
 
     /** 정확도 진단용 JSON 저장(v3_analysis/bpm_results.jsonl) On/Off. 평상시 OFF, 분석 필요할 때만 켜서 사용. */
-    private const val ENABLE_JSON_EXPORT = false
+    private const val ENABLE_JSON_EXPORT = true
+
+    /** ENABLE_JSON_EXPORT=true일 때 JSON을 남길 곡 제목(전체 배치를 다 남기지 않고 진단 대상만 수집). 비어 있으면 전곡 저장. */
+    private val JSON_EXPORT_TITLE_FILTER = setOf(
+        "Stray Kids 神메뉴(God's Menu) MV",
+        "박구윤 - 뿐이고"
+    )
 
     // ════════════════════════════════════════════════════════════════════
     // 단위 변환 함수 - 모든 코드에서 일관된 단위 사용을 강제
@@ -1938,7 +1944,8 @@ object BeatDetectorV3 {
         val finalBpmForLog = bpmFromBeatMs(finalBeatMs)
 
         // V3.5 섹션별 BPM 분석 데이터 저장 (JSON) - 정확도 진단용, 평상시 OFF
-        if (ENABLE_JSON_EXPORT && context != null && songTitle != null) {
+        if (ENABLE_JSON_EXPORT && context != null && songTitle != null &&
+            (JSON_EXPORT_TITLE_FILTER.isEmpty() || songTitle in JSON_EXPORT_TITLE_FILTER)) {
             try {
                 val sectionBpmList = collectedSectionBpms.joinToString(",") { (ms, bpm) ->
                     "{\"timeMs\":$ms,\"bpm\":${bpm.toInt()}}"
@@ -2439,7 +2446,8 @@ object BeatDetectorV3 {
         )
 
         // JSON으로 종합 분석 데이터 저장 (정확도 진단용, 평상시 OFF)
-        if (ENABLE_JSON_EXPORT && context != null && songTitle != null) {
+        if (ENABLE_JSON_EXPORT && context != null && songTitle != null &&
+            (JSON_EXPORT_TITLE_FILTER.isEmpty() || songTitle in JSON_EXPORT_TITLE_FILTER)) {
             try {
                 val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
                 val odfSizeVal = (odfStats["size"] as? Int) ?: 0
