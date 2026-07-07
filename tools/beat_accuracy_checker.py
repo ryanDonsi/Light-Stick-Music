@@ -1385,6 +1385,59 @@ def detect_gt_sections(audio_path, duration_sec, music_id=None):
     return sections
 
 
+# ──────────────────────────────────────────────
+# GT 비트 전용 캐시 (music_id + engine 기준)
+# ──────────────────────────────────────────────
+# GT 비트 감지(특히 Beat Transformer)도 비용이 커서, beat_analysis_records.json
+# (비교 결과·정확도 지표까지 포함하는 큰 기록 파일)과는 별도로 music_id+engine
+# 조합만으로 즉시 조회 가능한 전용 캐시 파일에 저장한다. GT 비트는 엔진에 따라
+# 결과가 다르므로 music_id 단독이 아니라 "{music_id}_{engine}"을 키로 쓴다.
+_GT_BEATS_CACHE_PATH = os.path.join(os.path.dirname(__file__), "gt_beats_cache.json")
+
+def _load_gt_beats_cache():
+    try:
+        with open(_GT_BEATS_CACHE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_gt_beats_cache(cache_key, beats_ms, bpm):
+    cache = _load_gt_beats_cache()
+    cache[cache_key] = {"beats_ms": beats_ms, "bpm": bpm}
+    try:
+        with open(_GT_BEATS_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def detect_gt_beats(engine, audio_path, bpm_hint=0.0, music_id=None):
+    """엔진별 GT 비트 감지. music_id를 넘기면 gt_beats_cache.json을
+    "{music_id}_{engine}" 키로 먼저 조회하고, 없을 때만 새로 감지한 뒤
+    캐시에 저장한다 (Beat Transformer 등 GT 비트 감지는 비용이 커서
+    매번 다시 돌리지 않도록).
+
+    반환: (beats_ms, bpm, from_cache)
+    """
+    cache_key = f"{music_id}_{engine}" if music_id not in (None, "", "—") else None
+    if cache_key:
+        cached = _load_gt_beats_cache().get(cache_key)
+        if cached and cached.get("beats_ms"):
+            return cached["beats_ms"], cached.get("bpm", 0.0), True
+
+    if engine == "beat_transformer":
+        ref_sec, bpm = detect_beats_beat_transformer(audio_path)
+    elif engine == "madmom":
+        ref_sec, bpm = detect_beats_madmom(audio_path)
+    else:
+        ref_sec, bpm = detect_beats_librosa(audio_path, bpm_hint)
+    beats_ms = [int(t * 1000) for t in ref_sec]
+
+    if cache_key and beats_ms:
+        _save_gt_beats_cache(cache_key, beats_ms, bpm)
+    return beats_ms, bpm, False
+
+
 def _compute_gt_sections(audio_path, duration_sec):
     """GT 섹션 감지 우선순위:
     allin1 → demucs(4-스템)+msaf(구조경계) → msaf(semantic) → msaf(cluster) → librosa
@@ -4157,58 +4210,25 @@ class App(tk.Tk):
                 self._log(f"  이상 인터벌: {app_st.get('anomaly_pct',0):.1f}%")
         self.after(0, _lb)
 
-        # ② Ground-truth — 캐시 우선 사용 (엔진별 분석 결과 캐싱)
+        # ② Ground-truth — GT 비트 전용 캐시(gt_beats_cache.json) 사용
         records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
-        cached_gt_ms  = None
-        cached_gt_bpm = None
-        try:
-            with open(records_path, encoding="utf-8") as _f:
-                _recs = json.load(_f)
-            # music_id 정규화 (바이너리 파일명 기준)
-            music_id_display = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id
-
-            # 같은 music_id와 engine을 가진 레코드에서 GT 정보 추출 (엔진별 캐시)
-            _cached = next((r for r in _recs
-                            if r.get("music_id") == music_id_display and
-                               r.get("engine") == engine and
-                               r.get("beats", {}).get("gt_ms") and
-                               r.get("summary", {}).get("bpm_gt")), None)
-            if _cached:
-                _gt_beats = _cached.get("beats", {}).get("gt_ms")
-                _gt_bpm   = _cached.get("summary", {}).get("bpm_gt")
-                if _gt_beats and _gt_bpm:
-                    cached_gt_ms  = _gt_beats
-                    cached_gt_bpm = _gt_bpm
-                    self.after(0, lambda: self._log(
-                        f"  [✓ 캐시 사용] music_id={music_id_display} 기존 분석 결과 재사용", "green"))
-        except Exception as _cache_err:
-            pass
+        music_id_display = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id
 
         _step_gt_start = time.time()
         # 엔진별 단계 번호 결정
         step_num = {"beat_transformer": 4, "madmom": 5, "librosa": 6}.get(engine, 4)
 
-        # GT 비트 감지 실행 (로그는 나중에 표시)
-        gt_cache_flag = False
-        if cached_gt_ms is not None:
-            gt_cache_flag = True
-            ref_ms  = cached_gt_ms
-            ref_bpm = cached_gt_bpm
-            _steps_timing['gt'] = 0.0
-        else:
-            try:
-                if engine == "beat_transformer":
-                    ref_sec, ref_bpm = detect_beats_beat_transformer(audio_path)
-                elif engine == "madmom":
-                    ref_sec, ref_bpm = detect_beats_madmom(audio_path)
-                else:
-                    ref_sec, ref_bpm = detect_beats_librosa(audio_path, bpm_hint)
-                ref_ms = [int(t * 1000) for t in ref_sec]
-                _steps_timing['gt'] = time.time() - _step_gt_start
-            except Exception as e:
-                self.after(0, lambda m=str(e)[:150]:
-                           self._log(f"[❌ 실패] {eng_name} 감지 오류: {m}", "red"))
-                raise
+        try:
+            ref_ms, ref_bpm, gt_cache_flag = detect_gt_beats(
+                engine, audio_path, bpm_hint, music_id=music_id_display)
+            _steps_timing['gt'] = 0.0 if gt_cache_flag else time.time() - _step_gt_start
+            if gt_cache_flag:
+                self.after(0, lambda: self._log(
+                    f"  [✓ 캐시 사용] music_id={music_id_display} 기존 분석 결과 재사용", "green"))
+        except Exception as e:
+            self.after(0, lambda m=str(e)[:150]:
+                       self._log(f"[❌ 실패] {eng_name} 감지 오류: {m}", "red"))
+            raise
         ref_sec = [t / 1000.0 for t in ref_ms]  # 통합: 이후 코드는 ref_sec 사용
         ref_st  = beat_stats(ref_ms)
         try:
