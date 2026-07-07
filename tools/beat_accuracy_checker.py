@@ -1054,54 +1054,151 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
         return []
 
 
-def detect_msaf_sections_with_drums(audio_path, duration_sec):
-    """Demucs로 드럼 분리 후 msaf로 섹션 감지 (더 정확한 경계 감지).
+def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
+    """demucs 4-스템 분리 + msaf 구조 경계 검출을 결합해 allin1 방식으로
+    GT 섹션의 경계·라벨을 모두 만든다.
 
-    드럼 트랙은 섹션 경계가 명확하므로 msaf 성능이 향상됨.
+    - 경계 판단: 드럼 스템에 msaf(scluster, 구조적 반복 기반)를 적용한다.
+      드럼은 리듬 전환이 뚜렷해 경계가 원곡보다 명확히 드러나며, 이는
+      allin1이 곡 전체의 구조적 반복을 근거로 경계를 정하는 것과 같은 취지다
+      (고정 개수로 자르고 보는 librosa 폴백과 달리, 실제 구조 반복을 본다).
+    - 성격 구분/라벨링: 보컬/드럼/베이스/기타 4개 스템의 구간별 에너지로
+      "이 구간에 보컬이 있는가", "악기가 전부 합주 중인가"를 직접 측정해
+      VERSE/CHORUS/BRIDGE/INST/SOLO를 구분한다. 원곡 혼합 신호의 스펙트럼
+      특징만으로 추정하던 기존 방식보다 실제 편성(성격)에 더 가깝다.
     """
-    if not HAS_DEMUCS or not HAS_MSAF:
-        return None
+    if not (HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA):
+        return []
     try:
-        import tempfile
-        import soundfile as sf
+        import numpy as np
+        from collections import Counter
 
-        # 1. Demucs로 드럼 분리
         stems = demucs.api.separate(audio_path, model='htdemucs_v4')
-        drums_stem = stems.get('drums')
-        if drums_stem is None:
-            return None
+        vocals_stem = stems.get('vocals')
+        drums_stem  = stems.get('drums')
+        bass_stem   = stems.get('bass')
+        other_stem  = stems.get('other')
+        if not vocals_stem or not drums_stem:
+            return []
 
-        # 2. 드럼 스템으로 msaf 섹션 감지
-        bounds, cluster_ids = _msaf_mod.process(
+        # ── 1. 경계: 드럼 스템 + msaf(구조 반복 기반) ──
+        bounds, _cluster_ids = _msaf_mod.process(
             drums_stem, boundaries_id='scluster', labels_id='fmc2d')
-        cluster_ids = list(cluster_ids)
-        n = len(cluster_ids)
-        if n == 0:
-            return None
+        bounds = [float(b) for b in bounds]
+        if bounds[0] > 0.1:
+            bounds = [0.0] + bounds
+        if bounds[-1] < duration_sec - 0.1:
+            bounds = bounds + [duration_sec]
+        n = len(bounds) - 1
+        if n < 2:
+            return []
 
-        # 3. 클러스터 ID → 알파벳 매핑
-        _CLUSTER_LETTERS = 'ABCDEFGHIJ'
-        if float(bounds[0]) > 0.1:
-            bounds = np.concatenate([[0.0], bounds])
-        if len(bounds) < n + 1:
-            bounds = np.concatenate([bounds, [duration_sec]])
+        load_dur = min(300.0, duration_sec) if duration_sec > 0 else 300.0
 
-        seen = {}
-        for cid in cluster_ids:
-            if cid not in seen:
-                seen[cid] = _CLUSTER_LETTERS[len(seen) % len(_CLUSTER_LETTERS)]
+        def _stem_rms_per_segment(stem_path):
+            """스템 오디오를 로드해 각 구간(bounds)의 평균 RMS를 계산."""
+            if not stem_path:
+                return [0.0] * n
+            y, sr = librosa.load(stem_path, sr=22050, mono=True, duration=load_dur)
+            rms = librosa.feature.rms(y=y, hop_length=512)[0]
+            total = len(rms)
 
-        sections = [
-            {'start_ms': int(float(bounds[i]) * 1000),
-             'end_ms':   int(float(bounds[i + 1]) * 1000),
-             'index':    i,
-             'type':     seen[int(cluster_ids[i])],
-             'stem':     'drums'}
+            def _f(t):
+                return min(int(t * sr / 512), total)
+
+            out = []
+            for i in range(n):
+                f0, f1 = _f(bounds[i]), _f(bounds[i + 1])
+                if f1 <= f0:
+                    f1 = f0 + 1
+                out.append(float(rms[f0:min(f1, total)].mean()) if f0 < total else 0.0)
+            return out
+
+        vocal_rms = _stem_rms_per_segment(vocals_stem)
+        drums_rms = _stem_rms_per_segment(drums_stem)
+        bass_rms  = _stem_rms_per_segment(bass_stem)
+        other_rms = _stem_rms_per_segment(other_stem)
+
+        def _norm(vals):
+            a = np.array(vals, dtype=float)
+            mn, mx = a.min(), a.max()
+            return (a - mn) / (mx - mn + 1e-8)
+
+        vocal_n     = _norm(vocal_rms)
+        other_n     = _norm(other_rms)
+        full_band_n = _norm([drums_rms[i] + bass_rms[i] + other_rms[i] for i in range(n)])
+
+        # ── 2. 반복 구간(코러스 후보) 그룹화: 원곡 크로마 유사도 ──
+        y_mix, sr_mix = librosa.load(audio_path, sr=22050, mono=True, duration=load_dur)
+        chroma_f = librosa.feature.chroma_cqt(y=y_mix, sr=sr_mix, hop_length=512)
+
+        def _fr(t):
+            return min(int(t * sr_mix / 512), chroma_f.shape[1])
+
+        chroma_means = []
+        for i in range(n):
+            f0, f1 = _fr(bounds[i]), _fr(bounds[i + 1])
+            if f1 <= f0:
+                f1 = f0 + 1
+            chroma_means.append(chroma_f[:, f0:f1].mean(axis=1))
+
+        def _cos_sim(a, b):
+            na, nb = np.linalg.norm(a), np.linalg.norm(b)
+            return float(np.dot(a, b) / (na * nb)) if na > 1e-6 and nb > 1e-6 else 0.0
+
+        group_ids = [-1] * n
+        gid = 0
+        for i in range(n):
+            if group_ids[i] >= 0:
+                continue
+            group_ids[i] = gid
+            for j in range(i + 1, n):
+                if group_ids[j] < 0 and _cos_sim(chroma_means[i], chroma_means[j]) >= 0.85:
+                    group_ids[j] = gid
+            gid += 1
+        grp_cnt = Counter(group_ids)
+
+        # ── 3. 구간별 라벨링 (스템 에너지 = 성격 기준) ──
+        VOCAL_TH = 0.15   # 보컬 존재 판정 임계값 (정규화 RMS)
+        FULL_TH  = 0.30   # 전악기 합주(코러스급) 판정 임계값
+        SOLO_TH  = 0.45   # 보컬 없는 구간에서 멜로디 악기가 두드러지는지 판정
+
+        types = [None] * n
+        for i in range(n):
+            if i == 0:
+                types[i] = "INTRO"; continue
+            if i == n - 1:
+                types[i] = "OUTRO"; continue
+
+            has_vocal = vocal_n[i] >= VOCAL_TH
+            if not has_vocal:
+                # 보컬 없는 구간: 멜로디 악기가 두드러지면 SOLO, 아니면 INST
+                types[i] = "SOLO" if other_n[i] >= SOLO_TH else "INST"
+                continue
+
+            repeated = grp_cnt[group_ids[i]] >= 2
+            if repeated and full_band_n[i] >= FULL_TH:
+                types[i] = "CHORUS"
+            elif not repeated:
+                types[i] = "BRIDGE"
+            else:
+                types[i] = "VERSE"
+
+        # ── 4. PRE-CHORUS: VERSE/BRIDGE 다음이 CHORUS이고 합주 에너지 상승 시 ──
+        for i in range(1, n - 1):
+            if types[i] in ("VERSE", "BRIDGE") and types[i + 1] == "CHORUS":
+                if full_band_n[i] > full_band_n[i - 1] + 0.05:
+                    types[i] = "PRE-CHORUS"
+
+        return [
+            {"start_ms": int(bounds[i] * 1000),
+             "end_ms":   int(bounds[i + 1] * 1000),
+             "index":    i,
+             "type":     types[i]}
             for i in range(n)
         ]
-        return sections
     except Exception:
-        return None
+        return []
 
 
 def detect_msaf_sections_with_vocals(audio_path, duration_sec):
@@ -1243,11 +1340,14 @@ def _merge_adjacent_same_type_sections(sections):
 
 def detect_gt_sections(audio_path, duration_sec):
     """GT 섹션 감지 우선순위:
-    allin1 → demucs(drums) → msaf(semantic) → msaf(cluster) → librosa
+    allin1 → demucs(4-스템)+msaf(구조경계) → msaf(semantic) → msaf(cluster) → librosa
 
     allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
     (start/end 마커는 제외)
-    msaf(semantic): MSAF 경계 + librosa 특징으로 의미 있는 라벨 부여
+    demucs+msaf: 경계는 드럼 스템의 구조적 반복(msaf)으로, 라벨은 보컬/드럼/
+    베이스/기타 스템의 구간별 에너지(성격)로 판단 — allin1과 같은 기준.
+    msaf(semantic): 위 방식을 못 쓸 때(demucs 없음), MSAF 경계 + librosa
+    특징으로 의미 있는 라벨을 부여하는 대체 방식.
 
     어떤 엔진으로 감지했든 최종적으로 인접한 동일 라벨 구간을 병합하여
     allin1과 동일한 형태(라벨이 쪼개지지 않고 하나로 이어진 구간)로 맞춘다.
@@ -1271,16 +1371,16 @@ def detect_gt_sections(audio_path, duration_sec):
         except Exception:
             pass
 
-    # Demucs(드럼) 활용한 msaf 시도
-    if HAS_DEMUCS and HAS_MSAF:
+    # ★ demucs(보컬/드럼/베이스/기타) + msaf 결합 — 경계는 구조 반복, 라벨은 스템 성격
+    if HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA:
         try:
-            drums_sections = detect_msaf_sections_with_drums(audio_path, duration_sec)
-            if drums_sections and len(drums_sections) >= 2:
-                return _merge_adjacent_same_type_sections(drums_sections)
+            demucs_sections = detect_gt_sections_demucs_msaf(audio_path, duration_sec)
+            if demucs_sections and len(demucs_sections) >= 2:
+                return _merge_adjacent_same_type_sections(demucs_sections)
         except Exception:
             pass
 
-    # ★ MSAF 경계 + 의미 있는 라벨 (allin1처럼)
+    # MSAF 경계 + 의미 있는 라벨 (demucs 없을 때의 대체 — allin1처럼)
     if HAS_MSAF and HAS_LIBROSA:
         try:
             semantic_sections = classify_msaf_sections_semantic(audio_path, duration_sec)
