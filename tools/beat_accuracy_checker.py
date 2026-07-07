@@ -1062,7 +1062,7 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
 
 def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
     """demucs 4-스템 분리 + msaf 구조 경계 검출을 결합해 allin1 방식으로
-    GT 섹션의 경계·라벨을 모두 만든다.
+    GT 섹션의 경계·라벨을 모두 만든다. (동적 생성 표준 — CUDA 불필요)
 
     - 경계 판단: 드럼 스템에 msaf(scluster, 구조적 반복 기반)를 적용한다.
       드럼은 리듬 전환이 뚜렷해 경계가 원곡보다 명확히 드러나며, 이는
@@ -1070,8 +1070,19 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
       (고정 개수로 자르고 보는 librosa 폴백과 달리, 실제 구조 반복을 본다).
     - 성격 구분/라벨링: 보컬/드럼/베이스/기타 4개 스템의 구간별 에너지로
       "이 구간에 보컬이 있는가", "악기가 전부 합주 중인가"를 직접 측정해
-      VERSE/CHORUS/BRIDGE/INST/SOLO를 구분한다. 원곡 혼합 신호의 스펙트럼
-      특징만으로 추정하던 기존 방식보다 실제 편성(성격)에 더 가깝다.
+      VERSE/CHORUS/BRIDGE/INST/SOLO를 구분한다.
+      * 보컬 유무는 그 순간 4스템 합계 중 보컬이 차지하는 비중(share)으로
+        판단한다 — 곡 전체 loudness와 무관한 상대 비율이라, 조용한 발라드든
+        시끄러운 EDM이든, 보컬이 아예 없는 연주곡이든(비중이 항상 낮게 나옴)
+        전부 같은 기준으로 판단할 수 있다. (기존에는 곡 내 min-max로
+        정규화했는데, 연주곡은 노이즈 차이만으로도 0~1 풀레인지로 뻥튀기되고
+        다이나믹 레인지가 극단적인 곡은 대부분 구간이 한쪽 끝으로 뭉치는
+        문제가 있었다.)
+      * "합주가 코러스급으로 센가/브레이크다운급으로 조용한가"는 곡 내
+        상대적 위치가 중요하므로 percentile rank(이상치에 강함)로 판단한다.
+    - INTRO/OUTRO는 위치(첫/마지막 구간)가 기본값이지만, 그 구간이 이미
+      반복+고에너지로 명백히 CHORUS 패턴이면(예: 코러스로 시작하는 곡)
+      위치보다 내용을 우선해 CHORUS로 유지한다.
     """
     if not (HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA):
         return []
@@ -1125,14 +1136,27 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
         bass_rms  = _stem_rms_per_segment(bass_stem)
         other_rms = _stem_rms_per_segment(other_stem)
 
-        def _norm(vals):
+        _EPS = 1e-8
+        # "보컬이 있는가" = 그 순간 4스템 합계 중 보컬이 차지하는 비중(share).
+        # 곡 전체 loudness에 영향받지 않는 상대 비율이라 조용한 곡/시끄러운 곡/
+        # 연주곡을 같은 임계값으로 판단할 수 있다.
+        vocal_share = [vocal_rms[i] / (vocal_rms[i] + drums_rms[i] + bass_rms[i] + other_rms[i] + _EPS)
+                       for i in range(n)]
+        # "리드 악기(other)가 두드러지는가" = 보컬을 뺀 3개 악기 중 other의 비중.
+        other_share = [other_rms[i] / (drums_rms[i] + bass_rms[i] + other_rms[i] + _EPS)
+                       for i in range(n)]
+        # "합주가 얼마나 센가"는 곡 내 다른 구간과 비교해야 의미가 있으므로,
+        # 절대값이 아니라 percentile rank(0~1)로 나타낸다. min-max와 달리
+        # 극단적으로 튀는 구간 하나 때문에 나머지가 전부 한쪽으로 뭉치지 않는다.
+        def _rank_norm(vals):
             a = np.array(vals, dtype=float)
-            mn, mx = a.min(), a.max()
-            return (a - mn) / (mx - mn + 1e-8)
+            order = a.argsort()
+            ranks = np.empty(len(a), dtype=float)
+            ranks[order] = np.arange(len(a))
+            return ranks / max(len(a) - 1, 1)
 
-        vocal_n     = _norm(vocal_rms)
-        other_n     = _norm(other_rms)
-        full_band_n = _norm([drums_rms[i] + bass_rms[i] + other_rms[i] for i in range(n)])
+        full_energy = [drums_rms[i] + bass_rms[i] + other_rms[i] for i in range(n)]
+        full_rank   = _rank_norm(full_energy)
 
         # ── 2. 반복 구간(코러스 후보) 그룹화: 원곡 크로마 유사도 ──
         y_mix, sr_mix = librosa.load(audio_path, sr=22050, mono=True, duration=load_dur)
@@ -1168,40 +1192,44 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
             gid += 1
         grp_cnt = Counter(group_ids)
 
-        # ── 3. 구간별 라벨링 (스템 에너지 = 성격 기준) ──
+        # ── 3. 구간별 라벨링 (스템 비중/순위 = 성격 기준) ──
         # allin1 라벨 체계(start/end 제외 8개)와 동일하게 맞춘다:
         # intro / verse / chorus / bridge / outro / inst / solo / break
-        VOCAL_TH = 0.15   # 보컬 존재 판정 임계값 (정규화 RMS)
-        FULL_TH  = 0.30   # 전악기 합주(코러스급) 판정 임계값
-        SOLO_TH  = 0.45   # 보컬 없는 구간에서 멜로디 악기가 두드러지는지 판정
-        BREAK_TH = 0.20   # 보컬도 없고 전악기 에너지도 낮은(브레이크다운) 판정
+        VOCAL_SHARE_TH = 0.12   # 4스템 합계 중 보컬 비중 — 이 이상이면 "보컬 있음"
+        OTHER_SHARE_TH = 0.55   # 드럼+베이스+기타 중 기타(리드악기) 비중 — 이 이상이면 SOLO
+        BREAK_RANK_TH  = 0.20   # 합주 에너지 순위 하위 20% 이하 → BREAK(브레이크다운)
+        CHORUS_RANK_TH = 0.60   # 합주 에너지 순위 상위 40%(0.60 이상) → 코러스급 합주
 
+        # 먼저 첫/마지막 구간도 포함해서 전부 같은 규칙으로 라벨링한다.
+        # (위치와 무관하게 "이 구간의 성격이 뭔가"부터 판단)
         types = [None] * n
         for i in range(n):
-            if i == 0:
-                types[i] = "INTRO"; continue
-            if i == n - 1:
-                types[i] = "OUTRO"; continue
-
-            has_vocal = vocal_n[i] >= VOCAL_TH
+            has_vocal = vocal_share[i] >= VOCAL_SHARE_TH
             if not has_vocal:
-                # 보컬 없는 구간: 전악기 에너지까지 낮으면 BREAK,
-                # 멜로디 악기가 두드러지면 SOLO, 그 외에는 INST
-                if full_band_n[i] < BREAK_TH:
+                # 보컬 없는 구간: 합주 에너지까지 낮으면 BREAK,
+                # 리드 악기가 두드러지면 SOLO, 그 외에는 INST
+                if full_rank[i] <= BREAK_RANK_TH:
                     types[i] = "BREAK"
-                elif other_n[i] >= SOLO_TH:
+                elif other_share[i] >= OTHER_SHARE_TH:
                     types[i] = "SOLO"
                 else:
                     types[i] = "INST"
                 continue
 
             repeated = grp_cnt[group_ids[i]] >= 2
-            if repeated and full_band_n[i] >= FULL_TH:
+            if repeated and full_rank[i] >= CHORUS_RANK_TH:
                 types[i] = "CHORUS"
             elif not repeated:
                 types[i] = "BRIDGE"
             else:
                 types[i] = "VERSE"
+
+        # ── 4. INTRO/OUTRO: 위치가 기본값이지만, 이미 명백한 CHORUS(반복+고에너지)
+        # 라면 위치보다 내용을 우선한다 (코러스로 시작/끝나는 곡 대응).
+        if types[0] != "CHORUS":
+            types[0] = "INTRO"
+        if types[n - 1] != "CHORUS":
+            types[n - 1] = "OUTRO"
 
         return [
             {"start_ms": int(bounds[i] * 1000),
