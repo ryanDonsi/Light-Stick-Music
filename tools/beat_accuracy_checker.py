@@ -1249,8 +1249,14 @@ def detect_msaf_sections_with_vocals(audio_path, duration_sec):
         return None
 
 
-def validate_section_meaning(app_sections, gt_sections):
+def validate_section_meaning(app_sections, gt_sections, gt_source=None):
     """앱 섹션의 의미성 검증: 각 앱 섹션이 GT 섹션 경계와 얼마나 일치하는가.
+
+    gt_source: GT 섹션을 감지한 방식("allin1"/"demucs+msaf"/"msaf"/"librosa").
+    allin1·demucs+msaf는 신뢰도가 높은 GT이므로 낮은 일치도는 앱 섹션 로직의
+    문제로 해석하고, msaf(semantic 없이)·librosa 폴백은 GT 자체의 신뢰도가
+    낮으므로 그 사실을 함께 안내한다 (이미 demucs+msaf를 쓰고 있는데도
+    "demucs 사용 권장"이라고 안내하는 오류를 피하기 위함).
 
     반환: {
         'alignment_score': 0-100,  # 경계 일치도 (100이 최고)
@@ -1298,13 +1304,17 @@ def validate_section_meaning(app_sections, gt_sections):
         else:
             stability = 50
 
-        # 3. 권장사항
+        # 3. 권장사항 — GT 신뢰도(gt_source)에 따라 원인을 다르게 안내
+        reliable_gt = gt_source in ("allin1", "demucs+msaf")
         if alignment_score >= 75:
-            recommended_action = '✓ 앱 섹션이 의미 있게 구분됨. msaf 분석이 양호합니다.'
+            recommended_action = ('✓ 앱 섹션 경계가 GT와 잘 일치합니다.' if reliable_gt else
+                                   '✓ 일치도는 높으나 GT가 폴백 방식이라 참고용입니다.')
         elif alignment_score >= 50:
-            recommended_action = '△ 부분적 일치. demucs(드럼)를 사용하여 개선 권장.'
+            recommended_action = ('△ 부분적으로 일치. 앱 섹션 로직 점검을 권장합니다.' if reliable_gt else
+                                   '△ 부분적 일치. GT가 폴백 방식이라 신뢰도가 낮습니다.')
         else:
-            recommended_action = '✗ 낮은 일치도. demucs를 사용한 고도화 필요.'
+            recommended_action = ('✗ 낮은 일치도. 앱 섹션 생성 로직이 GT 구조와 다릅니다.' if reliable_gt else
+                                   '✗ 낮은 일치도. GT가 폴백 방식(msaf/librosa)이라 신뢰도가 낮습니다.')
 
         return {
             'alignment_score': alignment_score,
@@ -4387,13 +4397,15 @@ class App(tk.Tk):
                                self._log(f"  └─ 분석 오류: {e}  ({t:.2f}초)", "red"))
         else:
             _steps_timing['style'] = 0.0
+        # GT 섹션을 어떤 방식으로 감지하는 환경인지 (섹션 검증 결과 해석에도 사용)
+        gt_source = ("allin1" if HAS_ALLIN1
+                     else "demucs+msaf" if (HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA)
+                     else "msaf" if HAS_MSAF else "librosa")
         if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
             try:
                 if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
                     _step3_start = time.time()
-                    src = ("allin1" if HAS_ALLIN1
-                           else "demucs+msaf" if (HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA)
-                           else "msaf" if HAS_MSAF else "librosa")
+                    src = gt_source
                     mid_display = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id
                     _had_cache = bool(_load_gt_sections_cache().get(mid_display, {}).get("sections"))
 
@@ -4441,7 +4453,7 @@ class App(tk.Tk):
                 # ★ 섹션 의미성 검증 (첫 번째 엔진에서만 표시)
                 if librosa_sections and sections and not self._shared_analysis_logged:
                     try:
-                        validation = validate_section_meaning(sections, librosa_sections)
+                        validation = validate_section_meaning(sections, librosa_sections, gt_source=gt_source)
                         score = validation.get('alignment_score', 0)
                         stability = validation.get('stability', 0)
                         action = validation.get('recommended_action', '')
