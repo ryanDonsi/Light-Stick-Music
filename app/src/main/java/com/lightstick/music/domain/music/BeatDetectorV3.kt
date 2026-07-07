@@ -1,6 +1,5 @@
 package com.lightstick.music.domain.music
 
-import android.util.Log
 import kotlin.math.*
 
 /**
@@ -23,9 +22,6 @@ import kotlin.math.*
  * - V3: 96.77 BPM (맞음, confidence 87%)
  */
 object BeatDetectorV3 {
-
-    private const val TAG = "AutoTimeline_BeatDetectorV3"
-    private const val PERF_TAG = "AutoTimeline_BeatDetectorV3_Perf"
 
     /** 정확도 진단용 JSON 저장(v3_analysis/bpm_results.jsonl) On/Off. 평상시 OFF, 분석 필요할 때만 켜서 사용. */
     private const val ENABLE_JSON_EXPORT = false
@@ -655,10 +651,6 @@ object BeatDetectorV3 {
                     // 절반 박자가 훨씬 강하고 농도도 높으면, 현재 lag는 하모닉
                     if (strengthRatio >= 0.7f && concentrationRatio >= 0.8f) {
                         improved[idx] = acVal * 0.25f  // 더 공격적으로 필터링
-                        Log.d(
-                            TAG,
-                            "V3 AC_HARMONIC_FILTER: lag=$lag(2x하모닉) strengthRatio=${"%.2f".format(strengthRatio)} concentrationRatio=${"%.2f".format(concentrationRatio)}"
-                        )
                         continue
                     }
                 }
@@ -678,10 +670,6 @@ object BeatDetectorV3 {
                         // 절반 lag이 훨씬 강하고 농도도 높으면, 현재 lag는 하모닉
                         if (strengthRatio >= 0.7f && concentrationRatio >= 0.8f) {
                             improved[idx] = acVal * 0.25f
-                            Log.d(
-                                TAG,
-                                "V3 AC_HARMONIC_FILTER: lag=$lag(0.5x하모닉) strengthRatio=${"%.2f".format(strengthRatio)} concentrationRatio=${"%.2f".format(concentrationRatio)}"
-                            )
                             continue
                         }
                     }
@@ -692,13 +680,6 @@ object BeatDetectorV3 {
             // 농도 높음 = 주기성 일관됨 = 진정한 박자 가능성 높음
             val concentrationWeight = 0.7f + spectralConcentration[idx] * 0.3f
             improved[idx] = acVal * concentrationWeight
-
-            if (spectralConcentration[idx] > 0.7f) {
-                Log.d(
-                    TAG,
-                    "V3 AC_BOOST: lag=$lag concentration=${"%.3f".format(spectralConcentration[idx])} acBefore=${"%.6f".format(acVal)} acAfter=${"%.6f".format(improved[idx])}"
-                )
-            }
         }
 
         return improved
@@ -723,62 +704,19 @@ object BeatDetectorV3 {
         val numTimeFrames = tempogram[0].size
         val bpmCurve = FloatArray(numTimeFrames)
 
-        // 하모닉 분석용 데이터 수집
-        val harmonicAnalysis = mutableListOf<String>()
-
         for (tIdx in 0 until numTimeFrames) {
-            // 상위 5개 피크 찾기
-            val peaks = mutableListOf<Pair<Int, Float>>() // (lag, strength)
+            // 상위 피크 찾기
+            var bestLag = minLag
+            var bestStrength = Float.NEGATIVE_INFINITY
             for (lagIdx in tempogram.indices) {
-                peaks.add(Pair(lagIdx + minLag, tempogram[lagIdx][tIdx]))
-            }
-            peaks.sortByDescending { it.second }
-            val topPeaks = peaks.take(5)
-
-            // 최고 피크
-            val (bestLag, bestStrength) = topPeaks[0]
-            bpmCurve[tIdx] = (60_000L / (bestLag * hopMs)).toFloat()
-
-            // 매 10프레임마다 상세 로그 기록 (데이터 크기 관리)
-            if (tIdx % 10 == 0) {
-                val timeMs = tIdx * step * hopMs
-                val peakInfoList = topPeaks.mapIndexed { idx, (lag, strength) ->
-                    val bpm = 60_000L / (lag * hopMs)
-                    val ratio = lag.toFloat() / bestLag.toFloat()
-                    val normStrength = if (bestStrength > 0) (strength / bestStrength * 100).toInt() else 0
-
-                    // 하모닉 관계 판정
-                    val harmonicType = when {
-                        kotlin.math.abs(ratio - 0.5f) < 0.08f -> "2x"    // 절반 배속 (BPM 2배)
-                        kotlin.math.abs(ratio - 0.67f) < 0.08f -> "1.5x"  // 2/3 배속 (BPM 1.5배)
-                        kotlin.math.abs(ratio - 1.0f) < 0.05f -> "PEAK"   // 기본 피크
-                        kotlin.math.abs(ratio - 1.5f) < 0.08f -> "0.67x"  // 3/2 배 (BPM 2/3배)
-                        kotlin.math.abs(ratio - 2.0f) < 0.08f -> "0.5x"   // 2배 (BPM 절반)
-                        else -> "other"
-                    }
-
-                    "[$idx]lag=$lag(${bpm.toInt()}BPM,ratio=${String.format("%.2f", ratio)},$harmonicType,str=$normStrength%)"
+                val strength = tempogram[lagIdx][tIdx]
+                if (strength > bestStrength) {
+                    bestStrength = strength
+                    bestLag = lagIdx + minLag
                 }
-
-                val peakInfo = peakInfoList.joinToString(" | ")
-                harmonicAnalysis.add("t=$timeMs: $peakInfo")
             }
+            bpmCurve[tIdx] = (60_000L / (bestLag * hopMs)).toFloat()
         }
-
-        // 하모닉 분석 결과 로그
-        if (harmonicAnalysis.isNotEmpty()) {
-            val harmonicLog = StringBuilder("V3 HARMONIC_PEAKS:\n")
-            harmonicAnalysis.forEach { harmonicLog.append("  $it\n") }
-            Log.d(TAG, harmonicLog.toString())
-        }
-
-        // 진단: BPM 곡선 샘플 출력
-        val diag = StringBuilder("V3 BPM_CURVE_SAMPLE: ")
-        for (i in bpmCurve.indices step maxOf(1, bpmCurve.size / 10)) {
-            val timeMs = i * hopMs
-            diag.append("t=${timeMs}ms:${bpmCurve[i].toInt()}BPM;")
-        }
-        Log.d(TAG, diag.toString())
 
         return bpmCurve
     }
@@ -852,8 +790,6 @@ object BeatDetectorV3 {
 
         var bpm = if (filteredMedian > 0) (60.0 / filteredMedian).toLong() else return 0L
 
-        Log.d(TAG, "V3 BPM_FROM_BEATS: intervals=${intervals.size} → filtered=${filtered.size}, " +
-                "median=${String.format("%.3f", median)}s → ${String.format("%.3f", filteredMedian)}s = ${bpm} BPM")
 
         // === 옥타브 에러 보정 (참고 BPM과 비교) ===
         if (referenceBpm > 0L) {
@@ -862,13 +798,11 @@ object BeatDetectorV3 {
             // 2배 오류 감지 (bpm ≈ 2 * reference)
             if (ratio in 1.9f..2.1f) {
                 val halfBpm = bpm / 2
-                Log.d(TAG, "V3 BPM_OCTAVE_2x: $bpm BPM → $halfBpm BPM (ratio=$ratio)")
                 bpm = halfBpm
             }
             // 절반 오류 감지 (bpm ≈ 0.5 * reference)
             else if (ratio in 0.45f..0.55f) {
                 val doubleBpm = bpm * 2
-                Log.d(TAG, "V3 BPM_OCTAVE_0.5x: $bpm BPM → $doubleBpm BPM (ratio=$ratio)")
                 bpm = doubleBpm
             }
         }
@@ -1037,8 +971,6 @@ object BeatDetectorV3 {
         val highRangeCount = bpmValues.count { it >= 100f }
         val totalSections = bpmValues.size
 
-        Log.d(TAG, "V3.7.8 DistributionAnalysis: median=${"%.1f".format(medianBpm)}, global=${"%.1f".format(globalBpm)}, " +
-                "range=${"%.0f".format(bpmRange)}, low(<100)=$lowRangeCount, high(≥100)=$highRangeCount / $totalSections")
 
         val doubledBpm = medianBpm * 2
         val halvedBpm = medianBpm / 2
@@ -1092,8 +1024,6 @@ object BeatDetectorV3 {
             val doubleExpectation = doubledBpm
             val doubleRatio = kotlin.math.abs(highBpmMedian - doubleExpectation) / doubleExpectation
 
-            Log.d(TAG, "V3.9 OCTAVE_CHECK_LOWBPM: median=${"%.1f".format(medianBpm)}, highBpmMedian=${"%.1f".format(highBpmMedian)}, " +
-                    "doubleExpected=${"%.1f".format(doubleExpectation)}, ratio=${"%.2f".format(doubleRatio)}, highCount=$highRangeCount")
 
             // V4.1: doubleRatio 단독으로는 오탐/정탐 구분이 안 됨 (43곡 실측 결과 0.03~0.04 범위에 오탐/정탐 혼재).
             // 대신 highRangeCount(2배로 보이는 섹션 개수)가 판별력을 가짐:
@@ -1339,15 +1269,6 @@ object BeatDetectorV3 {
         // 6단계: 정렬 및 최종 경계 생성
         val finalBoundaries = allBoundaries.sorted()
 
-        // 로그
-        if (changePoints.isNotEmpty()) {
-            Log.d(
-                TAG,
-                "V3 DynamicSections: detected=${changePoints.size} changes at " +
-                        changePoints.take(5).joinToString(", ") { "${it * hopMs}ms" }
-            )
-        }
-
         return finalBoundaries
     }
 
@@ -1581,7 +1502,7 @@ object BeatDetectorV3 {
      * @param sectionBpms 각 섹션의 BPM (ms → BPM)
      * @param hopMs 홉 간격
      * @param durationMs 전체 곡 길이
-     * @return Pair<섹션별 비트 리스트, 상세 로그>
+     * @return 섹션별 비트 리스트
      */
     private fun dpBeatTrackerPerSection(
         odf: FloatArray,
@@ -1589,13 +1510,12 @@ object BeatDetectorV3 {
         sectionBpms: List<Pair<Long, Float>>,
         hopMs: Long,
         durationMs: Long
-    ): Pair<List<TimedBeat>, String> {
+    ): List<TimedBeat> {
         if (sectionBoundariesMs.isEmpty() || sectionBpms.isEmpty()) {
-            return Pair(emptyList(), "no sections")
+            return emptyList()
         }
 
         val allBeats = mutableListOf<TimedBeat>()
-        val sectionLog = StringBuilder()
         val minSectionDurationMs = 500L  // 최소 섹션 길이: 500ms
 
         // 각 섹션별로 처리
@@ -1618,7 +1538,6 @@ object BeatDetectorV3 {
 
             // 섹션이 너무 짧거나 최소 비트 개수를 충족하지 못하면 스킵
             if (sectionFrames < fpb * 2 || sectionDurationMs < minSectionDurationMs) {
-                sectionLog.append("section[$sectionStartMs-$sectionEndMs]=${sectionBpm.toInt()}BPM skip(frames=$sectionFrames<${fpb*2}); ")
                 continue
             }
 
@@ -1638,31 +1557,12 @@ object BeatDetectorV3 {
             // 섹션 시작 시간을 기준으로 절대 시간 변환
             val sectionBeats = sectionDpTimes.map { it + sectionStartMs }
             allBeats.addAll(sectionBeats.map { TimedBeat(it, 1f) })
-
-            // 섹션별 비트 간격 분석
-            val sectionGaps = mutableListOf<Long>()
-            for (i in 1 until sectionDpTimes.size) {
-                val gap = sectionDpTimes[i] - sectionDpTimes[i - 1]
-                sectionGaps.add(gap)
-            }
-            val avgGap = if (sectionGaps.isNotEmpty()) sectionGaps.average().toLong() else 0L
-            val minGap = sectionGaps.minOrNull() ?: 0L
-            val maxGap = sectionGaps.maxOrNull() ?: 0L
-
-            sectionLog.append("section[$sectionStartMs-$sectionEndMs]=${sectionBpm.toInt()}BPM(beatMs=$beatMs,fpb=${beatMs/hopMs}) beats=${sectionDpTimes.size} gaps=[avg=${avgGap}ms,min=${minGap}ms,max=${maxGap}ms] phase=${phaseMs}ms; ")
-        }
-
-        // 섹션별 분석 로그 출력
-        if (sectionLog.isNotEmpty()) {
-            Log.d(TAG, "V3 SECTION_ANALYSIS: $sectionLog")
         }
 
         // 시간 순으로 정렬 및 중복 제거
-        val finalBeats = allBeats
+        return allBeats
             .sortedBy { it.timeMs }
             .distinctBy { it.timeMs }
-
-        return Pair(finalBeats, sectionLog.toString())
     }
 
     /**
@@ -1687,8 +1587,6 @@ object BeatDetectorV3 {
                 "empty pcm", 0L, TimeSignature.FOUR_FOUR
             )
         }
-
-        val perfPcmT0 = System.nanoTime()
 
         // PCM → Envelope 계산 (V3.1: 5-band 주파수 분해)
         val hopSamples = kotlin.math.max(1, (sampleRate * params.hopMs / 1000).toInt())
@@ -1761,24 +1659,13 @@ object BeatDetectorV3 {
             return if (mx > 1e-6f) src.map { (it / mx).coerceIn(0f, 1f) } else src
         }
 
-        val perfPcmT1Envelope = System.nanoTime()
-
         // V3.1: 5-band 주파수 분석 사용
-        val result = detectFiveBand(
+        return detectFiveBand(
             normalizeEnv(outVeryLow), normalizeEnv(outLowMid),
             normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outHigh),
             normalizeEnv(outFull),
             params, songTitle, emptyList(), context
         )
-
-        val perfPcmT2Total = System.nanoTime()
-        Log.d(
-            PERF_TAG,
-            "title=\"$songTitle\" detectPcm total=${"%.1f".format((perfPcmT2Total - perfPcmT0) / 1_000_000.0)}ms " +
-                    "(envelope=${"%.1f".format((perfPcmT1Envelope - perfPcmT0) / 1_000_000.0)}ms, " +
-                    "detectFiveBand=${"%.1f".format((perfPcmT2Total - perfPcmT1Envelope) / 1_000_000.0)}ms)"
-        )
-        return result
     }
 
     /**
@@ -1838,8 +1725,6 @@ object BeatDetectorV3 {
         //      → 완전한 비트 정보 반환
         // ════════════════════════════════════════════════════════════════════════════════
 
-        val perfT0 = System.nanoTime()
-
         // List<Float> → FloatArray 변환
         val minSize = minOf(veryLowEnv.size, lowMidEnv.size, lowEnv.size, midEnv.size, highEnv.size, fullEnv.size)
 
@@ -1865,11 +1750,11 @@ object BeatDetectorV3 {
         }
 
         // 각 대역별 ODF 계산
-        val odfVeryLow = computeMultiBandFluxOdf(veryLowArr, veryLowArr, veryLowArr, params)
-        val odfLowMid = computeMultiBandFluxOdf(lowMidArr, lowMidArr, lowMidArr, params)
-        val odfLow = computeMultiBandFluxOdf(lowArr, lowArr, lowArr, params)
-        val odfMid = computeMultiBandFluxOdf(midArr, midArr, midArr, params)
-        val odfHigh = computeMultiBandFluxOdf(highArr, highArr, highArr, params)
+        val odfVeryLow = computeSingleBandOdf(veryLowArr, params)
+        val odfLowMid = computeSingleBandOdf(lowMidArr, params)
+        val odfLow = computeSingleBandOdf(lowArr, params)
+        val odfMid = computeSingleBandOdf(midArr, params)
+        val odfHigh = computeSingleBandOdf(highArr, params)
 
         // 5-band ODF 가중치 통합
         val weightVeryLow = 0.08f
@@ -1887,8 +1772,6 @@ object BeatDetectorV3 {
              odfHigh[i] * weightHigh)
         }
 
-        val perfT1Odf = System.nanoTime()
-
         // 통합 ODF로 BPM 추정
         val (bestBpm, confidence, tempogram, peakCandidates) = estimateBpmV3(
             integratedOdf,
@@ -1899,8 +1782,6 @@ object BeatDetectorV3 {
             halfTempoRatio = params.halfTempoRatio,
             doubleTempoRatio = params.doubleTempoRatio
         )
-
-        val perfT2Bpm = System.nanoTime()
 
         // 섹션별 BPM 분석 (Tempogram 기반)
         var collectedSectionBpms: List<Pair<Long, Float>> = emptyList()
@@ -1924,8 +1805,6 @@ object BeatDetectorV3 {
                 )
             }
         }
-
-        val perfT3Sections = System.nanoTime()
 
         // Beat 추정 (Method A: Tempogram 기반)
         val methodABeatMs = beatMsFromBpm(bestBpm)
@@ -1967,8 +1846,6 @@ object BeatDetectorV3 {
             octaveCorrectionReason = "NO_SECTIONS: no section BPMs collected"
             methodSelectionReason = "NO_SECTIONS: using Global AC directly"
         }
-
-        val perfT4Selection = System.nanoTime()
 
         // V3.5 FIX: Generate actual beat positions using dpBeatTracker
         // ════════════════════════════════════════════════════════════════════════════════
@@ -2016,7 +1893,6 @@ object BeatDetectorV3 {
             if (dpTimes.isNotEmpty()) {
                 dpTimes.map { TimedBeat(it, 0.8f) }
             } else {
-                Log.w(TAG, "V3 dpBeatTracker returned empty, trying fallback segment beats")
                 // Fallback: generate segment-based beats if DP tracking fails
                 val segFrames = maxOf(1, (params.segmentMs / params.hopMs).toInt())
                 val segmentBeats = ArrayList<TimedBeat>()
@@ -2037,8 +1913,6 @@ object BeatDetectorV3 {
         } else {
             emptyList()
         }
-
-        val perfT5Beats = System.nanoTime()
 
         // 시간 서명 감지
         val timeSignature = if (beats.isNotEmpty() && integratedOdf.isNotEmpty()) {
@@ -2061,22 +1935,7 @@ object BeatDetectorV3 {
             0L
         }
 
-        val perfT6TimeSig = System.nanoTime()
-
         val finalBpmForLog = bpmFromBeatMs(finalBeatMs)
-        Log.d(TAG, "V3.5 RESULT: beats=${beats.size} beatMs=$finalBeatMs BPM=${finalBpmForLog.toInt()} timeSig=${timeSignature.type} downbeatMs=$downbeatMs")
-
-        fun perfMs(from: Long, to: Long) = "%.1f".format((to - from) / 1_000_000.0)
-        Log.d(
-            PERF_TAG,
-            "title=\"$songTitle\" total=${perfMs(perfT0, perfT6TimeSig)}ms " +
-                    "[odf=${perfMs(perfT0, perfT1Odf)} " +
-                    "bpmEstimate=${perfMs(perfT1Odf, perfT2Bpm)} " +
-                    "sections=${perfMs(perfT2Bpm, perfT3Sections)} " +
-                    "methodSelection=${perfMs(perfT3Sections, perfT4Selection)} " +
-                    "beatTracking=${perfMs(perfT4Selection, perfT5Beats)} " +
-                    "timeSigDownbeat=${perfMs(perfT5Beats, perfT6TimeSig)}]"
-        )
 
         // V3.5 섹션별 BPM 분석 데이터 저장 (JSON) - 정확도 진단용, 평상시 OFF
         if (ENABLE_JSON_EXPORT && context != null && songTitle != null) {
@@ -2166,9 +2025,8 @@ object BeatDetectorV3 {
                 }
                 val file = java.io.File(analysisDir, "bpm_results.jsonl")
                 file.appendText(analysisJson + "\n")
-                Log.d(TAG, "V3.5 SECTION_BPM_SAVED: ${file.absolutePath}")
             } catch (e: Exception) {
-                Log.e(TAG, "V3.5 SAVE_FAILED: ${e.message}")
+                // JSON 저장 실패는 무시 (진단용 데이터이므로 실패해도 분석 자체엔 영향 없음)
             }
         }
 
@@ -2248,14 +2106,6 @@ object BeatDetectorV3 {
             "mean" to String.format("%.6f", odfMean),
             "std" to String.format("%.6f", odfStd)
         )
-        Log.d(
-            TAG,
-            "V3 ODF_STATS: title=\"$songTitle\" size=${globalOdf.size} max=${String.format("%.6f", odfMax)} mean=${String.format("%.6f", odfMean)} std=${String.format("%.6f", odfStd)}"
-        )
-
-        if (bestBpm <= 0f) {
-            Log.w(TAG, "V3 BPM탐지 실패! 신호 확인 필요 (ODF 약함)")
-        }
 
         // 분석 데이터 수집용 변수 초기화
         var methodABpm = bestBpm.toLong()
@@ -2285,25 +2135,6 @@ object BeatDetectorV3 {
                 minLag
             )
 
-            // 로깅: AC 개선 효과 분석
-            val topBefore = acVals.withIndex()
-                .filter { it.index >= minLag && it.index <= maxLag }
-                .maxByOrNull { it.value }
-            val topAfter = improvedAcVals.withIndex()
-                .filter { it.index >= minLag && it.index <= maxLag }
-                .maxByOrNull { it.value }
-
-            if (topBefore != null && topAfter != null) {
-                val topBpmBefore = 60_000L / (topBefore.index * params.hopMs)
-                val topBpmAfter = 60_000L / (topAfter.index * params.hopMs)
-                if (topBpmBefore != topBpmAfter) {
-                    Log.d(
-                        TAG,
-                        "V3 AC_IMPROVED: top AC before=${topBefore.index}lag(${topBpmBefore}BPM) after=${topAfter.index}lag(${topBpmAfter}BPM)"
-                    )
-                }
-            }
-
             // 3단계: Top 10 peaks 추출 (AC + Log-Normal Prior)
             data class PeakCandidate(val lag: Int, val bpm: Long, val ac: Float, val prior: Float, val score: Float)
 
@@ -2330,28 +2161,8 @@ object BeatDetectorV3 {
                 ))
             }
 
-            // Log-Normal Prior 적용 결과
-            if (peakCandidates.isNotEmpty()) {
-                val topWithoutPrior = (minLag..maxLag)
-                    .maxByOrNull { improvedAcVals[it] }
-                if (topWithoutPrior != null) {
-                    val topBpmWithoutPrior = 60_000L / (topWithoutPrior * params.hopMs)
-                    val topWithPrior = peakCandidates[0]
-
-                    if (topBpmWithoutPrior != topWithPrior.bpm) {
-                        Log.d(
-                            TAG,
-                            "V3 PRIOR_APPLIED: AC only=${topBpmWithoutPrior}BPM prior=${topWithPrior.bpm}BPM (prior weight=%.3f)".format(topWithPrior.prior)
-                        )
-                    }
-                }
-            }
         }
 
-        Log.d(
-            TAG,
-            "V3 detect: title=\"$songTitle\" BPM=$bestBpm Confidence=${confidence * 100}%"
-        )
 
         // DP를 사용한 비트 추적
         val durationMs = minSize * params.hopMs
@@ -2360,7 +2171,6 @@ object BeatDetectorV3 {
 
         val beats: List<TimedBeat>
         var reason: String
-        var sectionInfo = ""
         var collectedSectionBpms: List<Pair<Long, Float>> = emptyList()  // Method B용
 
         // 섹션별 BPM 분석 (Tempogram 기반 + 동적 감지)
@@ -2407,7 +2217,7 @@ object BeatDetectorV3 {
 
                 // 3단계: 섹션별 비트 추적
                 if (sectionBpms.isNotEmpty() && sectionBpms.size > 1) {
-                    val (sectionBeats, sectionLog) = dpBeatTrackerPerSection(
+                    val sectionBeats = dpBeatTrackerPerSection(
                         globalOdf,
                         dynamicSections,
                         sectionBpms,
@@ -2418,16 +2228,8 @@ object BeatDetectorV3 {
                     if (sectionBeats.isNotEmpty()) {
                         beats = sectionBeats
                         reason = "dp_per_section"
-                        sectionInfo = sectionLog
-
-                        val sectionBpmInfo = sectionBpms.joinToString(", ") { (ms, bpm) ->
-                            "${ms}ms: ${bpm.toInt()} BPM"
-                        }
-                        Log.d(TAG, "V3 DynamicSectionBPMs: $sectionBpmInfo")
-                        Log.d(TAG, "V3 SectionBeats: $sectionInfo")
                     } else {
                         // 섹션별 추적 실패 → 섹션 중앙값으로 폴백 시도
-                        Log.w(TAG, "V3 SectionBeats failed → trying median BPM from sections")
 
                         // 유효한 섹션 BPM만 필터링 (sanity check: 30-200 BPM)
                         val validSectionBpms = sectionBpms.filter { (_, bpm) ->
@@ -2437,10 +2239,8 @@ object BeatDetectorV3 {
                         // 섹션 중앙값 계산
                         val fallbackBpmToTry = if (validSectionBpms.isNotEmpty()) {
                             val medianSectionBpm = calculateMedianBpmFromSections(validSectionBpms)
-                            Log.d(TAG, "V3 SectionFallback: using median=${medianSectionBpm.toInt()}BPM from ${validSectionBpms.size} valid sections")
                             medianSectionBpm
                         } else {
-                            Log.d(TAG, "V3 SectionFallback: no valid sections, using bestBpm=${bestBpm.toInt()}")
                             bestBpm
                         }
 
@@ -2462,7 +2262,6 @@ object BeatDetectorV3 {
                         beats = if (dpOk) {
                             dpTimes.map { TimedBeat(it, 1f) }
                         } else {
-                            Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → final fallback")
                             fallbackSegmentBeats(
                                 low, mid, full, params, fallbackBpmToTry.toLong(), durationMs
                             ).map { TimedBeat(it.timeMs, it.confidence) }
@@ -2471,7 +2270,6 @@ object BeatDetectorV3 {
                     }
                 } else {
                     // 섹션별 BPM 계산 실패 → 전체 BPM 사용
-                    Log.d(TAG, "V3 SectionBPMs insufficient → using global BPM")
                     val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
                     val dpTimes = dpBeatTracker(
                         globalOdf, beatMs, params.hopMs,
@@ -2483,7 +2281,6 @@ object BeatDetectorV3 {
                     beats = if (dpOk) {
                         dpTimes.map { TimedBeat(it, 1f) }
                     } else {
-                        Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → fallback")
                         fallbackSegmentBeats(
                             low, mid, full, params, bestBpm.toLong(), durationMs
                         ).map { TimedBeat(it.timeMs, it.confidence) }
@@ -2503,7 +2300,6 @@ object BeatDetectorV3 {
                 beats = if (dpOk) {
                     dpTimes.map { TimedBeat(it, 1f) }
                 } else {
-                    Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → fallback")
                     fallbackSegmentBeats(
                         low, mid, full, params, bestBpm.toLong(), durationMs
                     ).map { TimedBeat(it.timeMs, it.confidence) }
@@ -2524,7 +2320,6 @@ object BeatDetectorV3 {
                 beats = dpTimes.map { TimedBeat(it, 1f) }
                 reason = "dp"
             } else {
-                Log.w(TAG, "V3 DP insufficient (${dpTimes.size}/$expectedBeats) → fallback")
                 beats = fallbackSegmentBeats(
                     low, mid, full, params, bestBpm.toLong(), durationMs
                 ).map { TimedBeat(it.timeMs, it.confidence) }
@@ -2533,65 +2328,13 @@ object BeatDetectorV3 {
         }
 
         if (beats.isEmpty()) {
-            Log.w(TAG, "V3 detect FAIL")
             return DetectResultV3(
                 emptyList(), bestBpm.toLong(), confidence, null,
                 "all failed", 0L, TimeSignature.FOUR_FOUR
             )
         }
 
-        // 상세 분석 로그
         val beatTimesMs = beats.map { it.timeMs }
-        val beatGaps = mutableListOf<Long>()
-        for (i in 1 until beatTimesMs.size) {
-            beatGaps.add(beatTimesMs[i] - beatTimesMs[i - 1])
-        }
-        val avgGap = if (beatGaps.isNotEmpty()) beatGaps.average().toLong() else 0L
-        val minGap = beatGaps.minOrNull() ?: 0L
-        val maxGap = beatGaps.maxOrNull() ?: 0L
-
-        // 실제 비트 간격으로부터 추정 BPM (검증용)
-        val detectedBpmFromBeats = if (avgGap > 0) {
-            60_000L / avgGap
-        } else {
-            0L
-        }
-
-        Log.d(
-            TAG,
-            "V3 BEAT_ANALYSIS: title=\"$songTitle\" BPM=$bestBpm beatMs=$beatMs fpb=$fpb " +
-            "beats=${beats.size} gaps=[avg=${avgGap}ms, min=${minGap}ms, max=${maxGap}ms] " +
-            "detectedBpm=$detectedBpmFromBeats reason=$reason"
-        )
-
-        // V3 비트 타임라인 로그 (F-measure 계산용)
-        val beatTimestamps = beats.map { it.timeMs }
-        Log.d(
-            TAG,
-            "V3 BEAT_TIMESTAMPS: title=\"$songTitle\" beats=[${beatTimestamps.take(20).joinToString(",")}${if(beatTimestamps.size > 20) ",...(${beatTimestamps.size} total)" else ""}]"
-        )
-
-        // ODF 상세 통계
-        val odfStatsDetail = StringBuilder()
-        val odfValues = globalOdf.filter { it > 0f }.toList()
-        if (odfValues.isNotEmpty()) {
-            val odfMean = odfValues.average()
-            val odfStd = kotlin.math.sqrt(odfValues.map { (it - odfMean).pow(2) }.average())
-            val odfMedian = odfValues.sorted()[odfValues.size / 2]
-            odfStatsDetail.append("max=${String.format("%.6f", odfValues.maxOrNull() ?: 0f)} ")
-            odfStatsDetail.append("mean=${String.format("%.6f", odfMean)} ")
-            odfStatsDetail.append("median=${String.format("%.6f", odfMedian)} ")
-            odfStatsDetail.append("std=${String.format("%.6f", odfStd)} ")
-            odfStatsDetail.append("count=${odfValues.size}")
-        }
-        Log.d(TAG, "V3 ODF_STATS_DETAIL: title=\"$songTitle\" $odfStatsDetail")
-
-        // DP 디버그: beatMs 전달 확인
-        Log.d(
-            TAG,
-            "V3 DP_DEBUG: title=\"$songTitle\" beatMs=$beatMs (60000/$bestBpm) hopMs=${params.hopMs} " +
-            "fpb=$fpb odfSize=${globalOdf.size} durationMs=$durationMs"
-        )
 
         // === Method B: 동적 섹션 BPM의 중앙값 사용 ===
         val medianSectionBpm = if (collectedSectionBpms.isNotEmpty()) {
@@ -2623,21 +2366,11 @@ object BeatDetectorV3 {
             if (ratioMod2 < 0.15f) {
                 octaveErrorDetected = true
                 octaveErrorReason = "2x_octave"
-                Log.d(
-                    TAG,
-                    "V3 OCTAVE_DETECTED: 2x ratio=${String.format("%.3f", ratio)} " +
-                    "methodA=${methodABpmFromPeaks} methodB=${medianSectionBpm.toLong()} → using methodA"
-                )
             }
             // 0.5x 옥타브 에러 검출 (비율 ≈ 0.5 ± 0.15)
             else if (ratioMod05 < 0.15f) {
                 octaveErrorDetected = true
                 octaveErrorReason = "05x_octave"
-                Log.d(
-                    TAG,
-                    "V3 OCTAVE_DETECTED: 0.5x ratio=${String.format("%.3f", ratio)} " +
-                    "methodA=${methodABpmFromPeaks} methodB=${medianSectionBpm.toLong()} → using methodA"
-                )
             }
         }
 
@@ -2649,62 +2382,20 @@ object BeatDetectorV3 {
         } else if (medianSectionBpm > 0f && collectedSectionBpms.size >= 2) {
             // Method B: 섹션 기반 중앙값 우선 (위상 정확도 개선)
             methodBBpm = medianSectionBpm.toLong()
-            val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
-
-            // 극단값 분석
-            val sortedBpms = sectionBpmList.sorted()
-            val minBpm = sortedBpms.firstOrNull() ?: 0
-            val maxBpm = sortedBpms.lastOrNull() ?: 0
-            val range = maxBpm - minBpm
-
-            Log.d(
-                TAG,
-                "V3 METHOD_B_SELECTED: medianBpm=${methodBBpm} (from ${collectedSectionBpms.size} sections, values=$sectionBpmList, " +
-                "min=$minBpm max=$maxBpm range=$range)"
-            )
-
-            // 극단값이 심한 경우 경고
-            if (range > 60) {
-                Log.d(
-                    TAG,
-                    "V3 METHOD_B_WARNING: high_bpm_variance! range=$range, " +
-                    "expected_bpm=${"%.1f".format(bestBpm)} tempogram_bpm=${"%.1f".format(bestBpm)}"
-                )
-            }
-
             methodBBpm
         } else {
             // Fallback: madmom 방식 (옥타브 에러 보정)
             val madmomBpm = calculateBpmFromBeats(beatTimesMs, referenceBpm = bestBpm.toLong())
 
-            Log.d(
-                TAG,
-                "V3 FINAL_BPM_SELECTION: title=\"$songTitle\" " +
-                        "bestBpm=${bestBpm.toInt()} medianSection=${if(medianSectionBpm > 0) medianSectionBpm.toInt() else "N/A"} " +
-                        "madmomBpm=$madmomBpm beatCount=${beatTimesMs.size} sections=${collectedSectionBpms.size}"
-            )
-
             if (madmomBpm > 0L) {
                 val ratio = madmomBpm.toFloat() / bestBpm.toFloat()
                 // bestBpm이 불안정한 대역 내이고, 계산된 BPM과 큰 차이가 나면 bestBpm 유지
                 if (bestBpm >= 65f && bestBpm <= 115f && (ratio < 0.8f || ratio > 1.25f)) {
-                    Log.d(
-                        TAG,
-                        "V3 BPM_RECALC_ADJUSTED: calculated=$madmomBpm rejected (ratio=${String.format("%.2f", ratio)}), " +
-                                "keeping bestBpm=${bestBpm.toInt()} (in unstable 65-115 band)"
-                    )
                     bestBpm.toLong()
                 } else {
-                    if (madmomBpm != bestBpm.toLong()) {
-                        Log.d(
-                            TAG,
-                            "V3 BPM_RECALC: original=${bestBpm.toInt()} madmom=$madmomBpm (from ${beatTimesMs.size} beats, ratio=${String.format("%.2f", ratio)})"
-                        )
-                    }
                     madmomBpm
                 }
             } else {
-                Log.d(TAG, "V3 BPM_FALLBACK: madmomBpm failed, using bestBpm=${bestBpm.toInt()}")
                 bestBpm.toLong()
             }
         }
@@ -2720,7 +2411,6 @@ object BeatDetectorV3 {
             // Method A와 B가 다른 경우 (옥타브 오류 감지)
             // finalBpm이 methodBBpm과 같으면 신뢰도를 100%로 상향 (고조파 필터링 성공)
             if (finalBpm == methodBBpm) {
-                Log.d(TAG, "V3 CONFIDENCE_BOOST: methodA=$methodABpm (harmonic) → methodB=$methodBBpm (selected), confidence 100%")
                 1.0f
             } else {
                 // finalBpm이 다른 경우는 confidence 유지
@@ -2740,10 +2430,6 @@ object BeatDetectorV3 {
         )
         val downbeatOffsetMs = (downbeatMs - (beats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        Log.d(
-            TAG,
-            "V3 OK beats=${beats.size} BPM=$finalBpm Confidence=${adjustedConfidence * 100}% reason=$reason"
-        )
 
         // DP tracking 결과 저장
         dpTrackingResults = mapOf(
@@ -2819,9 +2505,8 @@ object BeatDetectorV3 {
                 }
                 val file = java.io.File(analysisDir, "bpm_results.jsonl")
                 file.appendText(analysisJson + "\n")
-                Log.d(TAG, "V3 ANALYSIS_SAVED: ${file.absolutePath}")
             } catch (e: Exception) {
-                Log.e(TAG, "V3 SAVE_FAILED: ${e.message}")
+                // JSON 저장 실패는 무시 (진단용 데이터이므로 실패해도 분석 자체엔 영향 없음)
             }
         }
 
@@ -2872,19 +2557,22 @@ object BeatDetectorV3 {
         }
 
         // 로깅: 적응적 가중치 정보
-        Log.d(
-            TAG,
-            "V3 ODF_BAND_WEIGHTS: low=${"%.2f".format(normLowWeight)} mid=${"%.2f".format(normMidWeight)} full=${"%.2f".format(normFullWeight)} (mid_enhanced)"
-        )
-
-        // [V3 개선] 대역별 ODF 저장 (나중에 AC 계산에 활용)
-        bandOdfs = Triple(lowFlux.toFloatArray(), midFlux.toFloatArray(), fullFlux.toFloatArray())
 
         return localNormalizeMean(combined, GLOBAL_NORM_WINDOW).toFloatArray()
     }
 
-    // [V3 개선] 대역별 ODF 저장소
-    private var bandOdfs: Triple<FloatArray, FloatArray, FloatArray>? = null
+    /**
+     * 단일 대역 ODF 계산 (5-band 구조 전용).
+     *
+     * computeMultiBandFluxOdf(band, band, band, params)를 호출하면 3개 인자가 전부 같은 배열이라
+     * computeOdf가 동일한 결과를 3번 계산하고, calculateAdaptiveBandWeights로 가중 평균을 낸 뒤
+     * 재정규화하는 과정이 lowFlux==midFlux==fullFlux이므로 결과적으로 그냥 lowFlux를 반환하는 것과
+     * 수학적으로 동일함. 이 함수는 그 중복 계산을 제거하고 동일한 결과를 반환한다.
+     */
+    private fun computeSingleBandOdf(band: FloatArray, params: Params): FloatArray {
+        val flux = computeOdf(band.toList(), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
+        return localNormalizeMean(flux, GLOBAL_NORM_WINDOW).toFloatArray()
+    }
 
     /**
      * 곡의 주파수 특성에 따른 적응적 대역 가중치 계산
@@ -2966,10 +2654,6 @@ object BeatDetectorV3 {
             midWeight = midWeight * 3.0f / newWeightSum
             fullWeight = fullWeight * 3.0f / newWeightSum
 
-            Log.d(
-                TAG,
-                "V3.2 HALF_TEMPO_PENALTY: lowPeakRatio=${"%.2f".format(lowPeakRatio)} vs midPeakRatio=${"%.2f".format(midPeakRatio)} → aggressive low reduction"
-            )
         }
         // 추가: Mid가 Low의 1.3배 이상 강하면 Mid를 더 신뢰
         else if (midPeakRatio > lowPeakRatio * 1.3f) {
@@ -2982,10 +2666,6 @@ object BeatDetectorV3 {
             midWeight = midWeight * 3.0f / newWeightSum
             fullWeight = fullWeight * 3.0f / newWeightSum
 
-            Log.d(
-                TAG,
-                "V3.2 MID_PREFERENCE: midPeakRatio=${"%.2f".format(midPeakRatio)} > lowPeakRatio → mid boost"
-            )
         }
 
         return Triple(lowWeight, midWeight, fullWeight)
@@ -3141,11 +2821,6 @@ object BeatDetectorV3 {
         }
 
         val phaseMs = bestPhase.toLong() * hopMs
-        Log.d(
-            TAG,
-            "V3 PHASE_ESTIMATE: selected phase=$bestPhase (${phaseMs}ms, score=$bestScore) " +
-                    "from ${searchEndFrame} frames (${searchEndFrame * hopMs}ms range, beatMs=$beatMs)"
-        )
 
         return phaseMs
     }
