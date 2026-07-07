@@ -24,11 +24,9 @@ import kotlin.math.*
 object BeatDetectorV3 {
 
     /** 정확도 진단용 JSON 저장(v3_analysis/bpm_results.jsonl) On/Off. 평상시 OFF, 분석 필요할 때만 켜서 사용. */
-    private const val ENABLE_JSON_EXPORT = true
+    private const val ENABLE_JSON_EXPORT = false
 
-    /** ENABLE_JSON_EXPORT=true일 때 JSON을 남길 곡 제목 필터. 비어 있으면 전곡 저장.
-     *  Stray Kids/박구윤 - 뿐이고 만 봐서는 안 됨 — 다른 곡들과 비교해야 두 곡만 구분되는
-     *  신호를 찾을 수 있고, 수정 시 다른 곡에 사이드 이펙트가 없는지도 전곡 데이터로 검증해야 함. */
+    /** ENABLE_JSON_EXPORT=true일 때 JSON을 남길 곡 제목 필터. 비어 있으면 전곡 저장. */
     private val JSON_EXPORT_TITLE_FILTER = emptySet<String>()
 
     // ════════════════════════════════════════════════════════════════════
