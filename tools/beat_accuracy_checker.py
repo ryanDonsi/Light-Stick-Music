@@ -1159,9 +1159,12 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
         grp_cnt = Counter(group_ids)
 
         # ── 3. 구간별 라벨링 (스템 에너지 = 성격 기준) ──
+        # allin1 라벨 체계(start/end 제외 8개)와 동일하게 맞춘다:
+        # intro / verse / chorus / bridge / outro / inst / solo / break
         VOCAL_TH = 0.15   # 보컬 존재 판정 임계값 (정규화 RMS)
         FULL_TH  = 0.30   # 전악기 합주(코러스급) 판정 임계값
         SOLO_TH  = 0.45   # 보컬 없는 구간에서 멜로디 악기가 두드러지는지 판정
+        BREAK_TH = 0.20   # 보컬도 없고 전악기 에너지도 낮은(브레이크다운) 판정
 
         types = [None] * n
         for i in range(n):
@@ -1172,8 +1175,14 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
 
             has_vocal = vocal_n[i] >= VOCAL_TH
             if not has_vocal:
-                # 보컬 없는 구간: 멜로디 악기가 두드러지면 SOLO, 아니면 INST
-                types[i] = "SOLO" if other_n[i] >= SOLO_TH else "INST"
+                # 보컬 없는 구간: 전악기 에너지까지 낮으면 BREAK,
+                # 멜로디 악기가 두드러지면 SOLO, 그 외에는 INST
+                if full_band_n[i] < BREAK_TH:
+                    types[i] = "BREAK"
+                elif other_n[i] >= SOLO_TH:
+                    types[i] = "SOLO"
+                else:
+                    types[i] = "INST"
                 continue
 
             repeated = grp_cnt[group_ids[i]] >= 2
@@ -1183,12 +1192,6 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
                 types[i] = "BRIDGE"
             else:
                 types[i] = "VERSE"
-
-        # ── 4. PRE-CHORUS: VERSE/BRIDGE 다음이 CHORUS이고 합주 에너지 상승 시 ──
-        for i in range(1, n - 1):
-            if types[i] in ("VERSE", "BRIDGE") and types[i + 1] == "CHORUS":
-                if full_band_n[i] > full_band_n[i - 1] + 0.05:
-                    types[i] = "PRE-CHORUS"
 
         return [
             {"start_ms": int(bounds[i] * 1000),
