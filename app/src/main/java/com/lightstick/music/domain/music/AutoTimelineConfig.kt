@@ -87,7 +87,7 @@ object AutoTimelineConfig {
      * - V0: 테스트용, 저사양 기기용
      * - V1: 호환성 유지, 레거시 지원
      * - V2: 높은 정확도 필요할 때
-     * - V3: madmom 수준의 최고 정확도 필요 (추천, 현재 기본값)
+     * - V3: madmom 유사 수준 정확도, V1 수준 처리 속도 (추천, 현재 기본값)
      */
     const val BEAT_DETECTOR_VERSION = 3
 
@@ -112,7 +112,7 @@ object AutoTimelineConfig {
      *   - 청크 단위로 처리해 메모리 효율적
      */
     fun beatDetectorHopMs(version: Int = BEAT_DETECTOR_VERSION): Long = when (version) {
-        1, 2 -> 10L
+        1, 2, 3 -> 10L
         else -> 50L   // V0
     }
 
