@@ -1218,6 +1218,29 @@ def validate_section_meaning(app_sections, gt_sections):
                 'recommended_action': f'분석 오류: {str(e)}'}
 
 
+def _merge_adjacent_same_type_sections(sections):
+    """연속으로 같은 type인 구간을 하나로 병합한다.
+
+    allin1은 모델이 직접 경계를 판단하므로 같은 라벨이 잘게 쪼개져
+    연속으로 나오지 않는다. 반면 msaf/librosa 폴백은 고정 개수로
+    구간을 나눈 뒤 라벨을 붙이므로, 같은 라벨이 여러 조각으로 쪼개져
+    시각적으로 중복되어 보인다. allin1과 동일한 결과 형태를 만들기
+    위해 인접한 동일 라벨 구간을 하나로 합친다.
+    """
+    if not sections:
+        return sections
+    merged = [dict(sections[0])]
+    for sec in sections[1:]:
+        last = merged[-1]
+        if sec.get("type") == last.get("type"):
+            last["end_ms"] = sec["end_ms"]
+        else:
+            merged.append(dict(sec))
+    for i, sec in enumerate(merged):
+        sec["index"] = i
+    return merged
+
+
 def detect_gt_sections(audio_path, duration_sec):
     """GT 섹션 감지 우선순위:
     allin1 → demucs(drums) → msaf(semantic) → msaf(cluster) → librosa
@@ -1225,6 +1248,9 @@ def detect_gt_sections(audio_path, duration_sec):
     allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
     (start/end 마커는 제외)
     msaf(semantic): MSAF 경계 + librosa 특징으로 의미 있는 라벨 부여
+
+    어떤 엔진으로 감지했든 최종적으로 인접한 동일 라벨 구간을 병합하여
+    allin1과 동일한 형태(라벨이 쪼개지지 않고 하나로 이어진 구간)로 맞춘다.
     """
     if HAS_ALLIN1:
         try:
@@ -1241,7 +1267,7 @@ def detect_gt_sections(audio_path, duration_sec):
                     "type":     lbl,
                 })
             if sections:
-                return sections
+                return _merge_adjacent_same_type_sections(sections)
         except Exception:
             pass
 
@@ -1250,7 +1276,7 @@ def detect_gt_sections(audio_path, duration_sec):
         try:
             drums_sections = detect_msaf_sections_with_drums(audio_path, duration_sec)
             if drums_sections and len(drums_sections) >= 2:
-                return drums_sections
+                return _merge_adjacent_same_type_sections(drums_sections)
         except Exception:
             pass
 
@@ -1259,7 +1285,7 @@ def detect_gt_sections(audio_path, duration_sec):
         try:
             semantic_sections = classify_msaf_sections_semantic(audio_path, duration_sec)
             if semantic_sections and len(semantic_sections) >= 2:
-                return semantic_sections
+                return _merge_adjacent_same_type_sections(semantic_sections)
         except Exception:
             pass
 
@@ -1268,11 +1294,12 @@ def detect_gt_sections(audio_path, duration_sec):
         try:
             result = detect_msaf_sections(audio_path, duration_sec)
             if result:
-                return result
+                return _merge_adjacent_same_type_sections(result)
         except Exception:
             pass
 
-    return detect_librosa_sections(audio_path, duration_sec)
+    return _merge_adjacent_same_type_sections(
+        detect_librosa_sections(audio_path, duration_sec))
 
 
 def load_waveform(audio_path, max_sr=22050, max_duration=600.0):
