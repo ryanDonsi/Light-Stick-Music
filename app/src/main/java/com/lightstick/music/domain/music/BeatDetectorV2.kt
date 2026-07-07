@@ -3,13 +3,10 @@ package com.lightstick.music.domain.music
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import android.util.Log
 import org.jtransforms.fft.FloatFFT_1D
 import kotlin.math.*
 
 object BeatDetectorV2 {
-
-    private const val TAG = "AutoTimelineV2"
 
     private const val FFT_SIZE  = 2048
     private const val HOP_MS    = 10L
@@ -80,15 +77,12 @@ object BeatDetectorV2 {
         musicPath: String,
         params: Params = Params()
     ): DetectResult {
-        val songName = musicPath.substringAfterLast("/").substringBeforeLast(".")
-        Log.d(TAG, "V2 [$songName] start")
-
         val (odfTempo, odfTrack, hopMs) = streamingOdf(musicPath)
         if (odfTempo.isEmpty() || odfTrack.isEmpty()) {
             return DetectResult(emptyList(), 0L, null, "empty input", 0L, TimeSignature.FOUR_FOUR)
         }
 
-        val beatMs = estimateBpm(odfTempo, hopMs, params.minBeatMs, params.maxBeatMs, songName)
+        val beatMs = estimateBpm(odfTempo, hopMs, params.minBeatMs, params.maxBeatMs)
         val phaseMs = estimatePhaseFromOdf(odfTrack, beatMs, hopMs)
         val dpTimes = dpBeatTracker(odfTrack, beatMs, hopMs, anchorMs = phaseMs)
 
@@ -120,7 +114,6 @@ object BeatDetectorV2 {
             clippedBeats.map { it.timeMs }, odfTrack, beatMs, timeSignature.beatsPerBar, hopMs)
         val downbeatOffsetMs = (downbeatMs - (clippedBeats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        Log.d(TAG, "V2 complete")
 
         return DetectResult(
             beats            = clippedBeats,
@@ -334,7 +327,6 @@ object BeatDetectorV2 {
 
             OdfResult(normTempo, normTrack, hopMs)
         } catch (t: Throwable) {
-            Log.e(TAG, "V2 streamingOdf fail: ${t.message}")
             try { codec?.stop() }     catch (_: Throwable) {}
             try { codec?.release() }  catch (_: Throwable) {}
             try { extractor.release() } catch (_: Throwable) {}
@@ -347,10 +339,8 @@ object BeatDetectorV2 {
         odf: List<Float>,
         hopMs: Long,
         minBeatMs: Long,
-        maxBeatMs: Long,
-        songName: String = ""
+        maxBeatMs: Long
     ): Long {
-        val t = if (songName.isNotEmpty()) "[$songName]" else ""
         val minLag = max(1, (minBeatMs / hopMs).toInt())
         val maxLag = max(minLag + 1, (maxBeatMs / hopMs).toInt())
         if (odf.size <= maxLag + 2) return minBeatMs
@@ -379,21 +369,7 @@ object BeatDetectorV2 {
         if (bestLag <= 0) return minBeatMs
 
         val bestMs  = bestLag * hopMs
-        val bestBpm = 60_000L / bestMs
         val bestAc  = acVals[bestLag]
-        val bestPrior = priorVals[bestLag]
-
-        val top5 = (minLag..maxLag)
-            .sortedByDescending { scoreVals[it] }
-            .take(5)
-        val top5str = top5.joinToString(" | ") { lag ->
-            val ms = lag * hopMs
-            "${ms}ms(${60_000L/ms}BPM) ac=%.3f prior=%.3f sc=%.4f".format(
-                acVals[lag], priorVals[lag], scoreVals[lag])
-        }
-        Log.d(TAG, "V2$t TOP5: $top5str")
-
-        Log.d(TAG, "V2$t WINNER: ${bestMs}ms(${bestBpm}BPM) ac=$bestAc prior=$bestPrior score=$bestScore")
 
         val halfLag = bestLag / 2
         val halfMs  = halfLag * hopMs
@@ -403,62 +379,15 @@ object BeatDetectorV2 {
             if (c > 0) s / c else 0f
         }
         val halfRatio = if (bestAc > 0f) halfAc / bestAc else 0f
-        Log.d(TAG, "V2$t HALF: lag=${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
-            " ac=$halfAc ratio=$halfRatio  [threshold=${BPM_HALF_TEMPO_RATIO}]" +
-            if (halfLag >= minLag) "" else " (below minLag)")
 
         val doubleLag    = bestLag * 2
         val doubleMs     = doubleLag * hopMs
         val doubleAc     = if (doubleLag <= maxLag) acVals[doubleLag] else 0f
         val doubleRatio  = if (bestAc > 0f) doubleAc / bestAc else 0f
-        val subBeatLag   = bestLag / 2   // halfLag와 동일
         val subBeatRatio = halfRatio      // halfRatio와 동일
-        if (doubleLag <= maxLag) {
-            Log.d(TAG, "V2$t DOUBLE: lag=${doubleMs}ms(${60_000L/doubleMs}BPM)" +
-                " ac=$doubleAc doubleRatio=$doubleRatio" +
-                " | subBeat=${subBeatLag*hopMs}ms subRatio=$subBeatRatio")
-        } else {
-            Log.d(TAG, "V2$t DOUBLE: doubleLag=${doubleMs}ms > maxLag=${maxLag*hopMs}ms (범위 초과)" +
-                " | subBeat=${subBeatLag*hopMs}ms subRatio=$subBeatRatio")
-        }
-
-        val snapBpms = longArrayOf(60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160)
-        val priorSnap = snapBpms.joinToString(" ") { bpm ->
-            val ms = 60_000L / bpm
-            val lag = (ms / hopMs).toInt().coerceIn(minLag, maxLag)
-            "${bpm}=${priorVals[lag].let { "%.3f".format(it) }}"
-        }
-        Log.d(TAG, "V2$t PRIOR_SNAP: $priorSnap")
-
-        // ════════════════════════════════════════════════════════════════════════════════════════
-        // 📊 조건 조정용 상세 메트릭 로그 (모든 곡에 대해 기록 - if 조건 밖)
-        // ════════════════════════════════════════════════════════════════════════════════════════
-        // 모든 곡의 원본 감지 메트릭 기록
-        Log.d(TAG, "BEAT_METRICS | song=$songName | bestLag=$bestLag | bestMs=$bestMs | bestBpm=$bestBpm | " +
-            "bestAc=$bestAc | bestPrior=$bestPrior | halfLag=$halfLag | halfMs=$halfMs | halfAc=$halfAc | " +
-            "halfRatio=$halfRatio | doubleLag=$doubleLag | doubleMs=$doubleMs | doubleAc=$doubleAc | " +
-            "doubleRatio=$doubleRatio | subBeatRatio=$subBeatRatio | minLag=$minLag | maxLag=$maxLag | hopMs=$hopMs")
-
-        // 절반비트 감지 가능성 있는 곡들에 대해서만 tempoRatio 계산 및 조건 검사 로그
-        if (halfLag >= minLag && bestAc > 0f) {
-            val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
-
-            // 조건별 체크 결과 (디버깅용)
-            val cond1_tempoOk = tempoRatio in 1.95f..2.05f
-            val cond1_halfOk = halfRatio >= 0.68f
-            val cond2_halfOk = halfRatio >= BPM_HALF_TEMPO_RATIO
-            val cond3_tempoOk = tempoRatio in 1.95f..2.05f
-            val cond3_halfOk = halfRatio in 0.45f..0.59999f
-
-            Log.d(TAG, "BEAT_TEMPO_RATIO | song=$songName | tempoRatio=$tempoRatio | " +
-                "cond1=${if(cond1_tempoOk && cond1_halfOk) "✓" else "✗"}(tempo=$cond1_tempoOk half=$cond1_halfOk) | " +
-                "cond2=${if(cond2_halfOk) "✓" else "✗"}(half=$cond2_halfOk) | " +
-                "cond3=${if(cond3_tempoOk && cond3_halfOk) "✓" else "✗"}(tempo=$cond3_tempoOk half=$cond3_halfOk)")
-        }
 
         if (halfLag >= minLag && bestAc > 0f) {
             val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
-            val normLag = (bestLag - minLag).toFloat() / (maxLag - minLag).toFloat()
 
             // ── 명시적 2배 Octave Error (낮은 halfRatio + 강한 doubleRatio 확인) ────
             // Madmom 기준 2배 오류 곡들:
@@ -474,9 +403,6 @@ object BeatDetectorV2 {
             // - 2배 오류는 강한 doubleRatio (>= 0.95)
             // - doubleRatio=0인 곡은 자동 제외되어 보호됨
             if (tempoRatio in 1.95f..2.05f && halfRatio < 0.70f && doubleRatio >= 0.95f) {
-                Log.d(TAG, "V2$t halfTempoFix FIRED (2x octave low halfRatio): ${bestMs}ms(${bestBpm}BPM)" +
-                    " → ${halfMs}ms(${if(halfMs>0) 60_000L/halfMs else 0}BPM)" +
-                    " halfRatio=$halfRatio tempoRatio=${String.format("%.3f", tempoRatio)} doubleRatio=$doubleRatio")
                 return halfMs
             }
         }
@@ -496,10 +422,6 @@ object BeatDetectorV2 {
                 subBeatRatio < BPM_SUBBEAT_RATIO_MAX &&
                 doubleErrorRate > 50 &&
                 reliabilityFilterPass) {
-                Log.d(TAG, "V2$t doubleTempoFix CONDITION1 FIRED (Refined V3): ${bestMs}ms(${bestBpm}BPM)" +
-                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
-                    " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate% " +
-                    "bestAc=$bestAc halfRatio=$halfRatio doubleAcRatio=$doubleAcRatio")
                 return doubleMs
             }
 
@@ -509,10 +431,6 @@ object BeatDetectorV2 {
                 doubleErrorRate > 25 &&
                 doubleErrorRate <= 50 &&
                 reliabilityFilterPass) {
-                Log.d(TAG, "V2$t doubleTempoFix CONDITION2 FIRED (Refined V3): ${bestMs}ms(${bestBpm}BPM)" +
-                    " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
-                    " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate% " +
-                    "bestAc=$bestAc halfRatio=$halfRatio doubleAcRatio=$doubleAcRatio")
                 return doubleMs
             }
         }
@@ -525,14 +443,9 @@ object BeatDetectorV2 {
             subBeatRatio >= 0.65f && subBeatRatio <= 0.71f &&
             doubleErrorRate > 50 &&
             doubleAc >= bestAc * 0.95f) {
-            Log.d(TAG, "V2$t doubleTempoFix CONDITION3 FIRED (improved): ${bestMs}ms(${bestBpm}BPM)" +
-                " → ${doubleMs}ms(${60_000L/doubleMs}BPM)" +
-                " doubleRatio=$doubleRatio subRatio=$subBeatRatio errorRate=$doubleErrorRate%" +
-                " doubleAc=$doubleAc (>= bestAc*0.95=${bestAc*0.95f})")
             return doubleMs
         }
 
-        Log.d(TAG, "V2$t RESULT: ${bestMs}ms (${bestBpm}BPM)")
         return bestMs
     }
 

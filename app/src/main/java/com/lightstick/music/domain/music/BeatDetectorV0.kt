@@ -1,11 +1,8 @@
 package com.lightstick.music.domain.music
 
-import android.util.Log
 import kotlin.math.*
 
 object BeatDetectorV0 {
-
-    private const val TAG = "AutoTimeline_BeatDetectorV0"
 
     private const val FILL_CONFIDENCE = 0.20f
     private const val LOCAL_NORM_WINDOW  = 60
@@ -85,13 +82,10 @@ object BeatDetectorV0 {
         val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)
         val beatMs = dbnEstimateTempo(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs,
                                       DBN_TRANSITION_LAMBDA, DBN_OBSERVATION_LAMBDA)
-        Log.d(TAG, "V0 beatMs=$beatMs (${60_000L / beatMs} BPM) durationMs=$durationMs")
 
         val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
-        Log.d(TAG, "V0 phaseMs=$phaseMs")
 
         val dpTimes = dpBeatTracker(globalOdf, beatMs, params.hopMs, durationMs, anchorMs = phaseMs)
-        Log.d(TAG, "V0 dpTimes=${dpTimes.size}")
 
         val expectedBeats = max(1, (durationMs / beatMs).toInt())
         val dpOk = dpTimes.size >= max(4, (expectedBeats * DP_MIN_BEAT_RATIO).toInt())
@@ -102,13 +96,11 @@ object BeatDetectorV0 {
             beats  = dpTimes.map { TimedBeat(it, 1f) }
             reason = "dp"
         } else {
-            Log.w(TAG, "V0 DP insufficient (${dpTimes.size}/$expectedBeats) → segment fallback")
             beats  = fallbackSegmentBeats(low, mid, full, params, beatMs, durationMs)
             reason = if (beats.isNotEmpty()) "dp+fallback" else "failed"
         }
 
         if (beats.isEmpty()) {
-            Log.w(TAG, "V0 detect FAIL")
             return DetectResult(emptyList(), 0L, null, "all failed", 0L, TimeSignature.FOUR_FOUR)
         }
 
@@ -117,8 +109,6 @@ object BeatDetectorV0 {
             beats.map { it.timeMs }, low, beatMs, timeSignature.beatsPerBar, params.hopMs)
         val downbeatOffsetMs = (downbeatMs - (beats.firstOrNull()?.timeMs ?: 0L)).coerceAtLeast(0L)
 
-        Log.d(TAG, "V0 OK beats=${beats.size} beatMs=$beatMs " +
-            "timeSig=${timeSignature.type} reason=$reason")
 
         return DetectResult(
             beats            = beats,
@@ -266,9 +256,6 @@ object BeatDetectorV0 {
             }
         }
 
-        if (bestCorrMs != resultMs)
-            Log.d(TAG, "V0 dbnTempo harmonic fix: ${resultMs}ms→${bestCorrMs}ms (${60_000L/resultMs}→${60_000L/bestCorrMs} BPM)")
-        Log.d(TAG, "V0 dbnTempo: ${bestCorrMs}ms (${60_000L / bestCorrMs} BPM)")
         return bestCorrMs
     }
 
