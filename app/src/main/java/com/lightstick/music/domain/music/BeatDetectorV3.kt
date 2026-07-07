@@ -24,7 +24,7 @@ import kotlin.math.*
 object BeatDetectorV3 {
 
     /** 정확도 진단용 JSON 저장(v3_analysis/bpm_results.jsonl) On/Off. 평상시 OFF, 분석 필요할 때만 켜서 사용. */
-    private const val ENABLE_JSON_EXPORT = false
+    private const val ENABLE_JSON_EXPORT = true
 
     /** ENABLE_JSON_EXPORT=true일 때 JSON을 남길 곡 제목 필터. 비어 있으면 전곡 저장. */
     private val JSON_EXPORT_TITLE_FILTER = emptySet<String>()
@@ -110,12 +110,24 @@ object BeatDetectorV3 {
         val selected: Boolean
     )
 
+    /** V4.3: 하모닉 필터링 전(raw) 자기상관 강도 진단 정보 — 절반 lag(2배 BPM 후보)가
+     *  filterHarmonicPeaks에 의해 억제되기 전 원래 신호가 얼마나 있었는지 확인용 (JSON 저장용) */
+    data class RawHarmonicDiagInfo(
+        val bestLagRawStrength: Float,
+        val halfLagBpm: Float,
+        val halfLagRawStrength: Float,
+        val halfLagRawRatio: Float,
+        val halfLagFilteredStrength: Float,
+        val halfLagTemporalConsistency: Float
+    )
+
     /** V4.0: findModalPeak의 전체 평가 결과 (선택된 BPM + 후보 목록 + 옥타브 보정 여부) */
     data class ModalPeakResult(
         val bpm: Float,
         val confidence: Float,
         val candidates: List<PeakCandidateDebugInfo>,
-        val octaveCorrected: Boolean
+        val octaveCorrected: Boolean,
+        val rawHarmonicDiag: RawHarmonicDiagInfo? = null
     )
 
     /** V4.0: detectAndCorrectOctaveError의 결과 + 어떤 판단 근거로 결정했는지 (JSON 저장용) */
@@ -495,7 +507,25 @@ object BeatDetectorV3 {
             octaveCorrected = true
         }
 
-        return ModalPeakResult(bestBpm, confidence, candidateDebugList, octaveCorrected)
+        // V4.3: 진단용 — 하모닉 필터링 전(raw) 절반 lag(2배 BPM) 신호 기록.
+        // filterHarmonicPeaks가 억제하기 전 원래 자기상관 강도가 얼마나 있었는지 확인해서
+        // "정답 BPM이 raw 신호에는 있었는데 억제됐는지" vs "raw 신호에도 애초에 없었는지" 구분용.
+        val rawHalfLagIdx = halfLag - minLag
+        val rawHarmonicDiag = if (halfLag >= minLag && rawHalfLagIdx < bpmStrengths.size &&
+                                   bestLagIdx < bpmStrengths.size) {
+            val bestLagRaw = bpmStrengths[bestLagIdx]
+            val halfLagRaw = bpmStrengths[rawHalfLagIdx]
+            RawHarmonicDiagInfo(
+                bestLagRawStrength = bestLagRaw,
+                halfLagBpm = bpmFromBeatMs(halfLag * hopMs),
+                halfLagRawStrength = halfLagRaw,
+                halfLagRawRatio = if (bestLagRaw > 1e-6f) halfLagRaw / bestLagRaw else 0f,
+                halfLagFilteredStrength = halfStrength,
+                halfLagTemporalConsistency = calculateTemporalConsistency(rawHalfLagIdx)
+            )
+        } else null
+
+        return ModalPeakResult(bestBpm, confidence, candidateDebugList, octaveCorrected, rawHarmonicDiag)
     }
 
     /**
@@ -1419,7 +1449,8 @@ object BeatDetectorV3 {
         val bpm: Float,
         val confidence: Float,
         val tempogram: Array<FloatArray>?,
-        val peakCandidates: List<PeakCandidateDebugInfo> = emptyList()
+        val peakCandidates: List<PeakCandidateDebugInfo> = emptyList(),
+        val rawHarmonicDiag: RawHarmonicDiagInfo? = null
     )
 
     /**
@@ -1448,7 +1479,10 @@ object BeatDetectorV3 {
         if (useTempogram) {
             val tempogram = computeTempogram(odf, hopMs, minBeatMs, maxBeatMs)
             val modalPeakResult = findModalPeak(tempogram, hopMs, minBeatMs)
-            return BpmV3Result(modalPeakResult.bpm, modalPeakResult.confidence, tempogram, modalPeakResult.candidates)
+            return BpmV3Result(
+                modalPeakResult.bpm, modalPeakResult.confidence, tempogram,
+                modalPeakResult.candidates, modalPeakResult.rawHarmonicDiag
+            )
         }
 
         // V1 방식 (useTempogram=false일 때만 사용되는 폴백): 전체 lag AC × log-normal prior로 argmax
@@ -1776,7 +1810,7 @@ object BeatDetectorV3 {
         }
 
         // 통합 ODF로 BPM 추정
-        val (bestBpm, confidence, tempogram, peakCandidates) = estimateBpmV3(
+        val (bestBpm, confidence, tempogram, peakCandidates, rawHarmonicDiag) = estimateBpmV3(
             integratedOdf,
             hopMs = params.hopMs,
             minBeatMs = params.minBeatMs,
@@ -1993,6 +2027,24 @@ object BeatDetectorV3 {
                     ""
                 }
 
+                // V4.3: 하모닉 필터링 전(raw) 절반-lag 진단 정보 JSON (박구윤 - 뿐이고 등 진단용)
+                val rawHarmonicDiagJson = if (rawHarmonicDiag != null) {
+                    try {
+                        ",\"v4_3_raw_harmonic_diag\":{" +
+                        "\"bestLagRawStrength\":${String.format("%.4f", rawHarmonicDiag.bestLagRawStrength)}," +
+                        "\"halfLagBpm\":${String.format("%.1f", rawHarmonicDiag.halfLagBpm)}," +
+                        "\"halfLagRawStrength\":${String.format("%.4f", rawHarmonicDiag.halfLagRawStrength)}," +
+                        "\"halfLagRawRatio\":${String.format("%.4f", rawHarmonicDiag.halfLagRawRatio)}," +
+                        "\"halfLagFilteredStrength\":${String.format("%.4f", rawHarmonicDiag.halfLagFilteredStrength)}," +
+                        "\"halfLagTemporalConsistency\":${String.format("%.4f", rawHarmonicDiag.halfLagTemporalConsistency)}" +
+                        "}"
+                    } catch (e: Exception) {
+                        ""
+                    }
+                } else {
+                    ""
+                }
+
                 val analysisJson = "{" +
                         "\"title\":\"$songTitle\"," +
                         "\"v3_5_analysis\":{" +
@@ -2020,6 +2072,7 @@ object BeatDetectorV3 {
                         "\"durationMs\":${durationMs}" +
                         tempogramInsightsJson +
                         peakEvaluationJson +
+                        rawHarmonicDiagJson +
                         "}"
 
                 val filesDir = context.filesDir
