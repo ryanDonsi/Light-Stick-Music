@@ -1530,6 +1530,52 @@ def load_waveform(audio_path, max_sr=22050, max_duration=600.0):
     except Exception:
         return None, 0
 
+
+# ──────────────────────────────────────────────
+# 파형 전용 캐시 (music_id 기준) — 곡 하나당 파일 하나(.npz)
+# ──────────────────────────────────────────────
+# mp3 디코딩(librosa.load)은 demucs/Beat Transformer보다는 훨씬 가볍지만,
+# 같은 곡을 여러 엔진으로 반복 분석하거나 나중에 다시 열 때마다 매번 다시
+# 디코딩하는 건 낭비다. JSON이 아니라 music_id별 .npz(압축 numpy) 파일로
+# 저장한다 — 파형은 샘플이 수백만 개라 텍스트(JSON)로 담기에는 너무 크다.
+_WAVEFORM_CACHE_DIR = os.path.join(os.path.dirname(__file__), "waveform_cache")
+
+def _waveform_cache_path(music_id):
+    return os.path.join(_WAVEFORM_CACHE_DIR, f"{music_id}.npz")
+
+def _load_waveform_cache(music_id):
+    try:
+        with np.load(_waveform_cache_path(music_id)) as data:
+            return data["y"], int(data["sr"])
+    except Exception:
+        return None, 0
+
+def _save_waveform_cache(music_id, y, sr):
+    try:
+        os.makedirs(_WAVEFORM_CACHE_DIR, exist_ok=True)
+        np.savez_compressed(_waveform_cache_path(music_id), y=y.astype(np.float32), sr=sr)
+    except Exception:
+        pass
+
+
+def load_waveform_cached(audio_path, music_id=None, max_sr=22050, max_duration=600.0):
+    """load_waveform()에 music_id 기준 전용 캐시(waveform_cache/*.npz)를 얹은 버전.
+    같은 곡을 여러 엔진으로, 또는 나중에 다시 분석할 때도 mp3 디코딩을
+    반복하지 않는다.
+    """
+    cache_key = str(music_id) if music_id not in (None, "", "—") else None
+    if cache_key:
+        y, sr = _load_waveform_cache(cache_key)
+        if y is not None and sr > 0:
+            return y, sr
+
+    y, sr = load_waveform(audio_path, max_sr=max_sr, max_duration=max_duration)
+
+    if cache_key and y is not None and sr > 0:
+        _save_waveform_cache(cache_key, y, sr)
+    return y, sr
+
+
 def get_audio_duration(audio_path):
     if HAS_LIBROSA:
         return librosa.get_duration(path=audio_path)
@@ -3174,8 +3220,8 @@ class App(tk.Tk):
                 audio_path = item.get("path", "")
                 if audio_path and os.path.exists(audio_path):
                     def _load_waveform_async(it=item, lr=self._last_result,
-                                             ap=audio_path):
-                        wv, ws = load_waveform(ap)
+                                             ap=audio_path, mid=disp_mid):
+                        wv, ws = load_waveform_cached(ap, music_id=mid)
                         it["waveform"] = wv
                         it["wav_sr"]   = ws
                         lr["waveform"] = wv
@@ -4258,9 +4304,9 @@ class App(tk.Tk):
             self._log(f"  중앙 간격  : {ref_st.get('median_ms',0):.1f} ms")
         self.after(0, _lr)
 
-        # 파형 로드
+        # 파형 로드 — waveform_cache/*.npz 사용 (같은 곡을 여러 엔진에서 반복 디코딩하지 않음)
         self.after(0, lambda: self._log("\n결과 리포트…", "gray"))
-        waveform, wav_sr = load_waveform(audio_path)
+        waveform, wav_sr = load_waveform_cached(audio_path, music_id=music_id_display)
 
         # F-measure + 분류
         tol_sec          = tol_ms / 1000.0
