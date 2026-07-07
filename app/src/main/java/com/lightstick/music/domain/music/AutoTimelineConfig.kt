@@ -73,10 +73,21 @@ object AutoTimelineConfig {
      *           Hann window 캐싱으로 성능 최적화
      *     메모리: 낮음 (스트리밍 처리)
      *
+     * V3: Tempogram 기반 BPM 탐지 + AC 개선
+     *     입력: PCM (오디오 샘플 직접 입력, V1처럼)
+     *     hopMs: 10ms (높은 분해능)
+     *     정확도: 최고 (madmom 수준 목표)
+     *     속도: 중간
+     *     용도: madmom 정확도 달성 필요
+     *     특징: Tempogram 2D 분석 + 섹션별 BPM 감지
+     *           AC 스펙트럼 농도 기반 하모닉 필터링
+     *           ODF 멀티밴드 가중치 개선
+     *
      * 선택 기준:
      * - V0: 테스트용, 저사양 기기용
      * - V1: 호환성 유지, 레거시 지원
-     * - V2: 최고 정확도 필요할 때 (추천, 현재 기본값)
+     * - V2: 높은 정확도 필요할 때
+     * - V3: madmom 수준의 최고 정확도 필요 (추천, 현재 기본값)
      */
     const val BEAT_DETECTOR_VERSION = 2
 

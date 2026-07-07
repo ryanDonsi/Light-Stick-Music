@@ -131,6 +131,9 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                         } catch (t: Throwable) {
                             failed.incrementAndGet()
                             Log.e(TAG, "failed v$version file=${file.name} err=${t.message}")
+                        } finally {
+                            // 각 파일 처리 완료 후 즉시 GC: V3의 메모리 누수 방지
+                            Runtime.getRuntime().gc()
                         }
                     }
                 }
