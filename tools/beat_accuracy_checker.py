@@ -723,6 +723,7 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
         for i in range(n):
             t0, t1 = all_times[i], all_times[i + 1]
             f0, f1 = _frames(t0), _frames(t1)
+            f0 = min(f0, chroma_f.shape[1] - 1)  # f0가 배열 끝(빈 슬라이스)을 넘지 않도록
             if f1 <= f0:
                 f1 = f0 + 1
             chroma_mean = chroma_f[:, f0:f1].mean(axis=1)
@@ -936,6 +937,10 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
         for i in range(n):
             t0, t1 = float(bounds[i]), float(bounds[i + 1])
             f0, f1 = _frames(t0), _frames(t1)
+            # msaf는 원곡 전체 길이로 경계를 잡지만, 위 특징 배열은 load_dur(최대 300초)로
+            # 자른 y에서 계산됐다 — 5분 넘는 곡은 뒤쪽 구간의 f0가 배열 끝과 같아져 빈
+            # 슬라이스(Mean of empty slice/NaN)가 되므로 마지막 유효 프레임으로 고정한다.
+            f0 = min(f0, chroma_f.shape[1] - 1)
             if f1 <= f0:
                 f1 = f0 + 1
 
@@ -1139,6 +1144,10 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
         chroma_means = []
         for i in range(n):
             f0, f1 = _fr(bounds[i]), _fr(bounds[i + 1])
+            # msaf 경계는 드럼 스템 전체 길이 기준인데 chroma_f는 load_dur(최대 300초)로
+            # 자른 y_mix에서 계산됐다 — 5분 넘는 곡은 뒤쪽 구간이 빈 슬라이스(NaN)가 되므로
+            # 마지막 유효 프레임으로 고정한다.
+            f0 = min(f0, chroma_f.shape[1] - 1)
             if f1 <= f0:
                 f1 = f0 + 1
             chroma_means.append(chroma_f[:, f0:f1].mean(axis=1))
