@@ -15,3 +15,6 @@
 local.properties
 __pycache__/
 *.pyc
+tools/beat_analysis_records.json
+tools/gt_sections_cache.json
+tools/.beat_checker_state.json
