@@ -68,17 +68,19 @@ object BeatDetectorRouter {
      *
      * @param version [AutoTimelineConfig.BEAT_DETECTOR_VERSION] 기본값 사용
      * @param hopMs   Envelope hop 간격 ms ([AutoTimelineConfig.beatDetectorHopMs] 기본값)
+     * @param context Android context for saving analysis data (V3만 사용)
      */
     fun detect(
         filePath:  String,
         version:   Int  = AutoTimelineConfig.BEAT_DETECTOR_VERSION,
         hopMs:     Long = AutoTimelineConfig.beatDetectorHopMs(AutoTimelineConfig.BEAT_DETECTOR_VERSION),
         minBeatMs: Long,
-        maxBeatMs: Long
+        maxBeatMs: Long,
+        context: android.content.Context? = null
     ): BeatInfo = when (version) {
         1    -> detectV1(filePath, hopMs, minBeatMs, maxBeatMs)
         2    -> detectV2(filePath, hopMs, minBeatMs, maxBeatMs)
-        3    -> detectV3(filePath, hopMs, minBeatMs, maxBeatMs)
+        3    -> detectV3(filePath, hopMs, minBeatMs, maxBeatMs, context)
         else -> detectV0(filePath, hopMs, minBeatMs, maxBeatMs)
     }
 
@@ -128,20 +130,21 @@ object BeatDetectorRouter {
         )
     }
 
-    /** V3: Tempogram 기반 BPM 탐지 → BeatDetectorV3.detect */
-    private fun detectV3(filePath: String, hopMs: Long, minBeatMs: Long, maxBeatMs: Long): BeatInfo {
-        val decoded = decodeWithEnvelopes(filePath, hopMs, collectPcm = false)
-        if (decoded.full.isEmpty()) return emptyBeatInfo()
+    /** V3: Tempogram 기반 BPM 탐지 → BeatDetectorV3.detectPcm (V1처럼 PCM 직접 처리) */
+    private fun detectV3(filePath: String, hopMs: Long, minBeatMs: Long, maxBeatMs: Long, context: android.content.Context? = null): BeatInfo {
+        val decoded = decodeWithEnvelopes(filePath, hopMs, collectPcm = true)
+        if (decoded.pcm.isEmpty()) return emptyBeatInfo()
         val songTitle = java.io.File(filePath).nameWithoutExtension
-        val r = BeatDetectorV3.detect(
-            decoded.low, decoded.mid, decoded.full,
+        val r = BeatDetectorV3.detectPcm(
+            decoded.pcm, decoded.sampleRate,
             BeatDetectorV3.Params(
                 hopMs     = hopMs,
                 minBeatMs = minBeatMs.coerceAtLeast(375L),
                 maxBeatMs = maxBeatMs.coerceAtMost(1000L),
                 useTempogram = true
             ),
-            songTitle
+            songTitle,
+            context
         )
         return BeatInfo(
             beats       = r.beats.map { BeatInfo.Beat(it.timeMs, it.confidence) },
