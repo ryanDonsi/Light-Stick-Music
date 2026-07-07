@@ -582,6 +582,53 @@ object BeatDetectorV3 {
         return filtered
     }
 
+    /** V4.4: ODF(온셋 검출 함수)의 "뾰족함 vs 뭉개짐" 진단 정보 (JSON 저장용).
+     *  에너지가 계속 높게 깔려있는(=뭉개진) 곡은 진짜 박자 간격의 자기상관 신호가
+     *  약해지고 더 굵은 절반-박자 펄스에 밀릴 수 있다는 가설을 검증하기 위한 지표. */
+    data class OdfShapeDiagInfo(
+        val mean: Float,
+        val std: Float,
+        val cv: Float,
+        val max: Float,
+        val maxToMeanRatio: Float,
+        val peakCount: Int,
+        val expectedBeatCount: Float,
+        val peakCountRatio: Float
+    )
+
+    /**
+     * ODF 배열의 뾰족함/뭉개짐 지표 계산
+     * @param odf 통합 ODF 배열
+     * @param hopMs 프레임 간격(ms)
+     * @param beatMs 최종 선택된 비트 간격(ms) — 예상 비트 개수 계산용
+     */
+    private fun computeOdfShapeDiag(odf: FloatArray, hopMs: Long, beatMs: Long): OdfShapeDiagInfo? {
+        if (odf.size < 3) return null
+
+        val mean = odf.average().toFloat()
+        if (mean < 1e-6f) return null
+        val variance = odf.map { (it - mean) * (it - mean) }.average().toFloat()
+        val std = sqrt(variance)
+        val cv = std / mean
+        val max = odf.maxOrNull() ?: 0f
+        val maxToMeanRatio = max / mean
+
+        // 국소 최댓값(local maxima) 중 mean + 0.5*std 이상인 것만 "뚜렷한 피크"로 카운트
+        val peakThreshold = mean + 0.5f * std
+        var peakCount = 0
+        for (i in 1 until odf.size - 1) {
+            if (odf[i] > odf[i - 1] && odf[i] >= odf[i + 1] && odf[i] >= peakThreshold) {
+                peakCount++
+            }
+        }
+
+        val durationMs = odf.size.toLong() * hopMs
+        val expectedBeatCount = if (beatMs > 0L) durationMs.toFloat() / beatMs.toFloat() else 0f
+        val peakCountRatio = if (expectedBeatCount > 1e-6f) peakCount / expectedBeatCount else 0f
+
+        return OdfShapeDiagInfo(mean, std, cv, max, maxToMeanRatio, peakCount, expectedBeatCount, peakCountRatio)
+    }
+
     /**
      * Log-Normal Prior: 음악 BPM 확률 분포 (V3.9 개선)
      *
@@ -2045,6 +2092,27 @@ object BeatDetectorV3 {
                     ""
                 }
 
+                // V4.4: ODF 뾰족함/뭉개짐 진단 정보 JSON (에너지가 계속 높은 곡의 자기상관 왜곡 가설 검증용)
+                val odfShapeDiag = computeOdfShapeDiag(integratedOdf, params.hopMs, finalBeatMs)
+                val odfShapeDiagJson = if (odfShapeDiag != null) {
+                    try {
+                        ",\"v4_4_odf_shape_diag\":{" +
+                        "\"mean\":${String.format("%.5f", odfShapeDiag.mean)}," +
+                        "\"std\":${String.format("%.5f", odfShapeDiag.std)}," +
+                        "\"cv\":${String.format("%.4f", odfShapeDiag.cv)}," +
+                        "\"max\":${String.format("%.5f", odfShapeDiag.max)}," +
+                        "\"maxToMeanRatio\":${String.format("%.3f", odfShapeDiag.maxToMeanRatio)}," +
+                        "\"peakCount\":${odfShapeDiag.peakCount}," +
+                        "\"expectedBeatCount\":${String.format("%.1f", odfShapeDiag.expectedBeatCount)}," +
+                        "\"peakCountRatio\":${String.format("%.3f", odfShapeDiag.peakCountRatio)}" +
+                        "}"
+                    } catch (e: Exception) {
+                        ""
+                    }
+                } else {
+                    ""
+                }
+
                 val analysisJson = "{" +
                         "\"title\":\"$songTitle\"," +
                         "\"v3_5_analysis\":{" +
@@ -2073,6 +2141,7 @@ object BeatDetectorV3 {
                         tempogramInsightsJson +
                         peakEvaluationJson +
                         rawHarmonicDiagJson +
+                        odfShapeDiagJson +
                         "}"
 
                 val filesDir = context.filesDir
