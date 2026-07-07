@@ -686,7 +686,8 @@ def compute_music_style_librosa(audio_path, beats_sec, bpm):
 def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
     """다중 특징 기반 섹션 분류.
     RMS 에너지 + Spectral centroid + Onset density + Chroma 유사도 + 시간적 위치
-    를 복합 사용하여 INTRO/VERSE/PRE-CHORUS/CHORUS/BRIDGE/OUTRO 를 판별한다.
+    를 복합 사용하여 allin1과 동일한 라벨 체계
+    (INTRO/VERSE/CHORUS/BRIDGE/OUTRO/INST/SOLO/BREAK)로 판별한다.
     """
     if not HAS_LIBROSA:
         return []
@@ -800,30 +801,22 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
             else:
                 types.append("VERSE")
 
-        # ── 8. POST: PRE-CHORUS 탐지 ──
-        # VERSE/BRIDGE 다음에 CHORUS가 오고 에너지가 높거나 직전보다 상승이면 PRE-CHORUS
-        verse_e = [rms_n[i] for i in range(n) if types[i] == "VERSE"]
-        verse_mean = float(np.mean(verse_e)) if verse_e else 0.5
+        # ── 8. INST / SOLO / BREAK 탐지 (allin1 라벨 체계에 맞춤) ──
+        # 보컬 스템이 없어 "보컬 유무"를 직접 잴 수 없으므로, 전체 에너지가
+        # 매우 낮은 구간은 BREAK로, tonal(저 flatness)+저 onset인 조용한
+        # 선율 구간은 SOLO(고 centroid)/INST(저·중 centroid)로 근사한다.
+        BREAK_TH = 0.12
+        onset_low_th = float(np.percentile(onset_n[1:-1], 33)) if n > 2 else 0.0  # 하위 33%
         for i in range(1, n - 1):
-            if types[i] in ("VERSE", "BRIDGE") and types[i + 1] == "CHORUS":
-                rising = i > 0 and rms_n[i] > rms_n[i - 1] + 0.05
-                high   = rms_n[i] > verse_mean + 0.08
-                if rising or high:
-                    types[i] = "PRE-CHORUS"
-
-        # ── 9. VOCAL / INST 탐지 ──
-        # tonal(저 flatness) + 저 onset → 조용한 선율 구간
-        # centroid 높음 → 보컬(고음역), centroid 낮음 → 연주(저·중음역)
-        onset_low_th = float(np.percentile(onset_n[1:-1], 33))  # 하위 33%
-        for i in range(1, n - 1):
-            if types[i] in ("VERSE",):
-                tonal = flat_n[i] < 0.40          # 저 flatness → tonal (비잡음)
-                quiet = onset_n[i] <= onset_low_th # 저 onset → 타악기 적음
-                if tonal and quiet:
-                    if cent_n[i] >= 0.55:          # 고 centroid → 보컬 음역
-                        types[i] = "VOCAL"
-                    else:                           # 저·중 centroid → 악기 선율
-                        types[i] = "INST"
+            if types[i] not in ("VERSE", "BRIDGE"):
+                continue
+            if rms_n[i] <= BREAK_TH:               # 전체 에너지 매우 낮음 → 브레이크다운
+                types[i] = "BREAK"
+                continue
+            tonal = flat_n[i] < 0.40               # 저 flatness → tonal (비잡음)
+            quiet = onset_n[i] <= onset_low_th     # 저 onset → 타악기 적음
+            if tonal and quiet:
+                types[i] = "SOLO" if cent_n[i] >= 0.55 else "INST"
 
         return [
             {"start_ms": int(all_times[i] * 1000),
@@ -889,7 +882,7 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
 
     반환: [
         {'start_ms': int, 'end_ms': int, 'index': int,
-         'type': 'INTRO'|'VERSE'|'CHORUS'|'BRIDGE'|'OUTRO'|'PRE-CHORUS',
+         'type': 'INTRO'|'VERSE'|'CHORUS'|'BRIDGE'|'OUTRO'|'INST'|'SOLO'|'BREAK',
          'confidence': 0-1,  # 분류 신뢰도
          'cluster': 'A'|'B'|'C'...}  # 원본 msaf 클러스터
     ]
@@ -1029,16 +1022,24 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
                 types.append("VERSE")
                 confidence_scores.append(0.5)
 
-        # ── 8. PRE-CHORUS 탐지 ──
-        verse_e = [rms_n[i] for i in range(n) if types[i] == "VERSE"]
-        verse_mean = float(np.mean(verse_e)) if verse_e else 0.5
+        # ── 8. INST / SOLO / BREAK 탐지 (allin1 라벨 체계에 맞춤) ──
+        # 보컬 스템이 없어 "보컬 유무"를 직접 잴 수 없으므로, 전체 에너지가
+        # 매우 낮은 구간은 BREAK로, tonal(저 flatness)+저 onset인 조용한
+        # 선율 구간은 SOLO(고 centroid)/INST(저·중 centroid)로 근사한다.
+        BREAK_TH = 0.12
+        onset_low_th = float(np.percentile(onset_n[1:-1], 33)) if n > 2 else 0.0
         for i in range(1, n - 1):
-            if types[i] in ("VERSE", "BRIDGE") and types[i + 1] == "CHORUS":
-                rising = rms_n[i] > rms_n[i - 1] + 0.05
-                high   = rms_n[i] > verse_mean + 0.08
-                if rising or high:
-                    types[i] = "PRE-CHORUS"
-                    confidence_scores[i] = 0.7
+            if types[i] not in ("VERSE", "BRIDGE"):
+                continue
+            if rms_n[i] <= BREAK_TH:
+                types[i] = "BREAK"
+                confidence_scores[i] = 0.6
+                continue
+            tonal = flat_n[i] < 0.40
+            quiet = onset_n[i] <= onset_low_th
+            if tonal and quiet:
+                types[i] = "SOLO" if cent_n[i] >= 0.55 else "INST"
+                confidence_scores[i] = 0.6
 
         # ── 9. 결과 구성 ──
         return [
