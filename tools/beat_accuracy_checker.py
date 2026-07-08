@@ -1223,7 +1223,7 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
         # 없다 — Separator를 만들어 separate_audio_file()을 호출해야 하고,
         # 반환값은 파일 경로가 아니라 torch 텐서(dict[str, Tensor])다. msaf.process()/
         # librosa.load()는 파일 경로가 필요하므로 스템을 임시 wav로 저장한다.
-        separator = demucs.api.Separator(model='htdemucs_v4')
+        separator = demucs.api.Separator(model='htdemucs')
         _origin, stems_dict = separator.separate_audio_file(audio_path)
         if 'vocals' not in stems_dict or 'drums' not in stems_dict:
             return []
