@@ -2028,13 +2028,15 @@ _STYLE_COLORS = {
 }
 
 # 섹션 타입별 색상
+# 타겟 라벨 체계(10개, 앱의 SectionType과 동일): END/INTRO/VERSE/CHORUS/
+# BRIDGE/OUTRO/INST/SOLO/BREAK/CLIMAX. (PRE-CHORUS/VOCAL/BEAT/BUILD는
+# 어떤 GT 감지 경로도 만들지 않는 죽은 라벨이라 제거함)
 _SECTION_COLORS = {
-    'INTRO':       '#7c4dff', 'VERSE':  '#1565c0', 'PRE-CHORUS': '#00838f',
+    'INTRO':       '#7c4dff', 'VERSE':  '#1565c0',
     'CHORUS':      '#e65100', 'BRIDGE': '#2e7d32', 'END':        '#b71c1c',
-    'VOCAL':       '#00acc1', 'INST':   '#558b2f', 'BEAT':       '#f57f17',
-    'BUILD':       '#0277bd', 'CLIMAX': '#ad1457', 'BREAK':      '#546e7a',
+    'INST':        '#558b2f', 'CLIMAX': '#ad1457', 'BREAK':      '#546e7a',
     'OUTRO':       '#4a148c', 'SOLO':   '#ff6f00',
-    # msaf 클러스터 그룹 (A=0, B=1, ...)
+    # msaf 클러스터 그룹 (A=0, B=1, ...) — msaf(raw) 폴백 전용
     'A': '#e53935', 'B': '#43a047', 'C': '#1e88e5', 'D': '#fb8c00', 'E': '#8e24aa',
     'F': '#00acc1', 'G': '#f4511e', 'H': '#6d4c41', 'I': '#039be5', 'J': '#c0ca33',
 }
@@ -2587,8 +2589,8 @@ class App(tk.Tk):
         sec_legend.pack(side="left", padx=(4, 6))
         tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
                  font=("", 7)).pack(side="left", padx=(0, 3))
-        _legend_types = ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO",
-                          "VOCAL", "INST", "SOLO", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]
+        _legend_types = ["INTRO", "VERSE", "CHORUS", "BRIDGE", "OUTRO",
+                          "INST", "SOLO", "CLIMAX", "BREAK", "END"]
         if HAS_MSAF:
             _legend_types += list("ABCDEFGHIJ")
         for stype in _legend_types:
