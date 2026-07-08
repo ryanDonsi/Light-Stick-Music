@@ -1209,17 +1209,31 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
     """
     if not (HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA):
         return []
+    _stems_dir = None
     try:
         import numpy as np
         from collections import Counter
+        import tempfile
 
-        stems = demucs.api.separate(audio_path, model='htdemucs_v4')
-        vocals_stem = stems.get('vocals')
-        drums_stem  = stems.get('drums')
-        bass_stem   = stems.get('bass')
-        other_stem  = stems.get('other')
-        if not vocals_stem or not drums_stem:
+        # demucs.api에는 (예전에 이 코드가 가정했던) 최상위 separate() 함수가
+        # 없다 — Separator를 만들어 separate_audio_file()을 호출해야 하고,
+        # 반환값은 파일 경로가 아니라 torch 텐서(dict[str, Tensor])다. msaf.process()/
+        # librosa.load()는 파일 경로가 필요하므로 스템을 임시 wav로 저장한다.
+        separator = demucs.api.Separator(model='htdemucs_v4')
+        _origin, stems_dict = separator.separate_audio_file(audio_path)
+        if 'vocals' not in stems_dict or 'drums' not in stems_dict:
             return []
+
+        _stems_dir = tempfile.mkdtemp(prefix="demucs_stems_")
+        stem_paths = {}
+        for _name, _wav in stems_dict.items():
+            _p = os.path.join(_stems_dir, f"{_name}.wav")
+            demucs.api.save_audio(_wav, _p, samplerate=separator.samplerate)
+            stem_paths[_name] = _p
+        vocals_stem = stem_paths.get('vocals')
+        drums_stem  = stem_paths.get('drums')
+        bass_stem   = stem_paths.get('bass')
+        other_stem  = stem_paths.get('other')
 
         # ── 1. 경계: 드럼 스템 + msaf(구조 반복 기반) ──
         bounds, _cluster_ids = _msaf_mod.process(
@@ -1425,6 +1439,10 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
         if debug is not None:
             debug["error"] = str(e)
         return []
+    finally:
+        if _stems_dir:
+            import shutil
+            shutil.rmtree(_stems_dir, ignore_errors=True)
 
 
 def detect_msaf_sections_with_vocals(audio_path, duration_sec):
