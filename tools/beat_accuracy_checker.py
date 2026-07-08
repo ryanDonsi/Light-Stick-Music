@@ -442,7 +442,10 @@ except Exception as _e:
 HAS_DEMUCS = False
 _demucs_err = None
 try:
-    import demucs
+    # "import demucs"만으로는 demucs.api 서브모듈이 demucs 이름에 바인딩되지
+    # 않는다(패키지 __init__.py가 api를 자동 임포트하지 않음) — demucs.api.separate()
+    # 호출 시 "module 'demucs' has no attribute 'api'"로 실패하므로 명시적으로 임포트한다.
+    import demucs.api
     HAS_DEMUCS = True
 except Exception as _e:
     _demucs_err = str(_e)
