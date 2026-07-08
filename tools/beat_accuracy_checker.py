@@ -1223,6 +1223,11 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
         # 없다 — Separator를 만들어 separate_audio_file()을 호출해야 하고,
         # 반환값은 파일 경로가 아니라 torch 텐서(dict[str, Tensor])다. msaf.process()/
         # librosa.load()는 파일 경로가 필요하므로 스템을 임시 wav로 저장한다.
+        # demucs.api.save_audio()는 내부적으로 torchaudio.save()를 쓰는데, 최신
+        # torchaudio는 WAV 저장 시 torchcodec 백엔드를 요구해("TorchCodec is
+        # required for save_with_torchcodec") torchcodec 미설치 환경에서 실패한다.
+        # 이미 의존성으로 쓰고 있는 soundfile로 직접 저장해 이를 우회한다.
+        import soundfile as sf
         separator = demucs.api.Separator(model='htdemucs')
         _origin, stems_dict = separator.separate_audio_file(audio_path)
         if 'vocals' not in stems_dict or 'drums' not in stems_dict:
@@ -1232,7 +1237,9 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
         stem_paths = {}
         for _name, _wav in stems_dict.items():
             _p = os.path.join(_stems_dir, f"{_name}.wav")
-            demucs.api.save_audio(_wav, _p, samplerate=separator.samplerate)
+            # torch 텐서 (channels, samples) → soundfile이 기대하는 (samples, channels)
+            _wav_np = _wav.detach().cpu().numpy().T
+            sf.write(_p, _wav_np, int(separator.samplerate))
             stem_paths[_name] = _p
         vocals_stem = stem_paths.get('vocals')
         drums_stem  = stem_paths.get('drums')
