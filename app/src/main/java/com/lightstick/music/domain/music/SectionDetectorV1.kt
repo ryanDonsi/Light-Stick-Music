@@ -35,6 +35,13 @@ class SectionDetectorV1 : SectionDetector {
         private const val CLIMAX_WINDOW_HALF_MS = 2_000L
         private const val CLIMAX_MIN_CV         = 0.35f
         private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
+
+        // BREAK는 "음악이 순간적으로 끊기는" 짧은 구간만을 뜻한다. 조용하지만
+        // 몇십 초씩 이어지는 구간(코러스 뒤 잠깐 가라앉았다가 다시 쌓아올리는
+        // 구간 등)은 끊긴 게 아니라 구조적인 BRIDGE다. classifyType은 순수
+        // 에너지 점수만 보고 지속 시간을 모르므로, 병합된 최종 구간 기준으로
+        // 이 시간을 넘는 BREAK는 BRIDGE로 되돌린다.
+        private const val BREAK_MAX_MS = 8_000L
     }
 
     private data class FeatureWindow(
@@ -94,7 +101,8 @@ class SectionDetectorV1 : SectionDetector {
         // → section.startMs가 항상 실제 beat 위치에 snap됨
         val beatBoundaries = beats.map { it.timeMs }.sorted().toLongArray()
         val alignedSections = alignBoundariesToBars(rawSections, beatBoundaries, durationMs)
-        val labeledSections = applyIntroOutro(alignedSections)
+        val cappedSections = demoteLongBreaks(alignedSections)
+        val labeledSections = applyIntroOutro(cappedSections)
 
         val sections = toSections(labeledSections)
         val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs)
@@ -215,6 +223,16 @@ class SectionDetectorV1 : SectionDetector {
             else              -> SectionDetector.SectionType.VERSE
         }
     }
+
+    // BREAK는 "순간적으로 끊기는" 구간만을 뜻하므로, 병합 후에도 BREAK_MAX_MS보다
+    // 길게 이어지면(=끊긴 게 아니라 조용하게 지속되는 구조적 구간) BRIDGE로 되돌린다.
+    private fun demoteLongBreaks(sections: List<FeatureWindow>): List<FeatureWindow> =
+        sections.map { s ->
+            if (s.sectionType == SectionDetector.SectionType.BREAK &&
+                (s.endMs - s.startMs) > BREAK_MAX_MS)
+                s.copy(sectionType = SectionDetector.SectionType.BRIDGE)
+            else s
+        }
 
     // 첫/마지막 구간은 위치상 INTRO/OUTRO가 기본값이지만, 이미 CHORUS로 명백하면
     // (코러스로 시작/끝나는 곡) 위치보다 내용을 우선해 CHORUS를 유지한다.

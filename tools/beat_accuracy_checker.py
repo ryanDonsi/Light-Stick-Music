@@ -810,12 +810,14 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
         # 매우 낮은 구간은 BREAK로, tonal(저 flatness)+저 onset인 조용한
         # 선율 구간은 SOLO(고 centroid)/INST(저·중 centroid)로 근사한다.
         BREAK_TH = 0.12
+        BREAK_MAX_SEC = 8.0  # 이보다 길게 이어지면 "끊김"이 아니라 구조적 BRIDGE
         onset_low_th = float(np.percentile(onset_n[1:-1], 33)) if n > 2 else 0.0  # 하위 33%
         for i in range(1, n - 1):
             if types[i] not in ("VERSE", "BRIDGE"):
                 continue
             if rms_n[i] <= BREAK_TH:               # 전체 에너지 매우 낮음 → 브레이크다운
-                types[i] = "BREAK"
+                is_short = (all_times[i + 1] - all_times[i]) <= BREAK_MAX_SEC
+                types[i] = "BREAK" if is_short else "BRIDGE"
                 continue
             tonal = flat_n[i] < 0.40               # 저 flatness → tonal (비잡음)
             quiet = onset_n[i] <= onset_low_th     # 저 onset → 타악기 적음
@@ -1040,12 +1042,14 @@ def classify_msaf_sections_semantic(audio_path, duration_sec, debug=None):
         # 매우 낮은 구간은 BREAK로, tonal(저 flatness)+저 onset인 조용한
         # 선율 구간은 SOLO(고 centroid)/INST(저·중 centroid)로 근사한다.
         BREAK_TH = 0.12
+        BREAK_MAX_SEC = 8.0  # 이보다 길게 이어지면 "끊김"이 아니라 구조적 BRIDGE
         onset_low_th = float(np.percentile(onset_n[1:-1], 33)) if n > 2 else 0.0
         for i in range(1, n - 1):
             if types[i] not in ("VERSE", "BRIDGE"):
                 continue
             if rms_n[i] <= BREAK_TH:
-                types[i] = "BREAK"
+                is_short = (float(bounds[i + 1]) - float(bounds[i])) <= BREAK_MAX_SEC
+                types[i] = "BREAK" if is_short else "BRIDGE"
                 confidence_scores[i] = 0.6
                 continue
             tonal = flat_n[i] < 0.40
@@ -1360,6 +1364,14 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
                 types[i] = "BRIDGE"
             else:
                 types[i] = "VERSE"
+
+        # BREAK는 "순간적으로 끊기는" 짧은 구간만을 뜻한다. 보컬 없이 조용하지만
+        # 몇십 초씩 이어지는 구간(코러스 뒤 잠깐 가라앉았다가 다시 쌓아올리는 구간
+        # 등)은 끊긴 게 아니라 조용한 반주가 계속되는 INST다.
+        BREAK_MAX_SEC = 8.0
+        for i in range(n):
+            if types[i] == "BREAK" and (bounds[i + 1] - bounds[i]) > BREAK_MAX_SEC:
+                types[i] = "INST"
 
         # ── 4. INTRO/OUTRO: 위치가 기본값이지만, 이미 명백한 CHORUS(반복+고에너지)
         # 라면 위치보다 내용을 우선한다 (코러스로 시작/끝나는 곡 대응).
