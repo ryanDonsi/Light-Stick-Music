@@ -424,7 +424,8 @@ try:
 except Exception as _e:
     _allin1_err = str(_e)
 
-# msaf (scipy>=1.12에서 scipy.inf 제거 → import 전 monkey-patch로 복원)
+# msaf (scipy>=1.12에서 scipy.inf 제거, scipy>=1.13에서 scipy.signal.gaussian
+# 제거(→ scipy.signal.windows.gaussian로 이동) → import 전 monkey-patch로 복원)
 HAS_MSAF = False
 _msaf_mod = None
 _msaf_err = None
@@ -432,7 +433,11 @@ try:
     import scipy as _scipy_tmp
     if not hasattr(_scipy_tmp, 'inf'):
         _scipy_tmp.inf = float('inf')
-    del _scipy_tmp
+    import scipy.signal as _scipy_signal_tmp
+    if not hasattr(_scipy_signal_tmp, 'gaussian'):
+        from scipy.signal.windows import gaussian as _scipy_gaussian_tmp
+        _scipy_signal_tmp.gaussian = _scipy_gaussian_tmp
+    del _scipy_tmp, _scipy_signal_tmp
     import msaf as _msaf_mod
     HAS_MSAF = True
 except Exception as _e:
