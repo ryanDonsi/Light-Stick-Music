@@ -20,3 +20,4 @@ tools/gt_sections_cache.json
 tools/gt_beats_cache.json
 tools/.beat_checker_state.json
 tools/waveform_cache/
+tools/section_debug/

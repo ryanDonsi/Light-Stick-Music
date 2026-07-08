@@ -1145,7 +1145,7 @@ def _detect_trailing_end_sec(audio_path, duration_sec, tail_window_sec=20.0):
         return duration_sec
 
 
-def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
+def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
     """demucs 4-스템 분리 + msaf 구조 경계 검출을 결합해 allin1 방식으로
     GT 섹션의 경계·라벨을 모두 만든다. (동적 생성 표준 — CUDA 불필요)
 
@@ -1173,6 +1173,11 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
       포함하는 CHORUS 구간을 CLIMAX로 승격한다.
     - END: 앱 detectLastMusicEndMs()와 동일한 방식으로 곡 끝의 무음 구간을
       찾아 마지막 구간에서 분리한다 (OUTRO=마지막 음악, END=그 뒤 무음).
+
+    debug: dict를 넘기면 판정에 쓰인 모든 중간값(구간별 vocal_share/
+    other_share/full_rank/스템 RMS/그룹핑, climax_offsets_sec,
+    end_start_sec, 최종 섹션)을 채워 넣는다. 오디오 자체는 담지 않고
+    전부 숫자/라벨이라 그대로 공유해도 안전하다.
     """
     if not (HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA):
         return []
@@ -1334,6 +1339,36 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
         # ── 6. END: 곡 끝의 무음 구간을 앱과 동일한 방식으로 찾아 별도 구간으로
         # 분리한다 (OUTRO=마지막 음악 구간, END=그 뒤 진짜 무음).
         end_start_sec = _detect_trailing_end_sec(audio_path, duration_sec)
+
+        if debug is not None:
+            # 판정에 쓰인 모든 중간값을 원래 n(END 분리 전) 기준으로 기록한다.
+            # 오디오는 담지 않고 전부 숫자/라벨이라 그대로 공유해도 안전하다.
+            debug["duration_sec"] = duration_sec
+            debug["load_dur_sec"] = load_dur
+            debug["thresholds"] = {
+                "VOCAL_SHARE_TH": VOCAL_SHARE_TH, "OTHER_SHARE_TH": OTHER_SHARE_TH,
+                "BREAK_RANK_TH": BREAK_RANK_TH, "CHORUS_RANK_TH": CHORUS_RANK_TH,
+            }
+            debug["climax_offsets_sec"] = climax_offsets
+            debug["end_start_sec"] = end_start_sec
+            debug["segments"] = [
+                {
+                    "index": i,
+                    "start_sec": round(bounds[i], 3), "end_sec": round(bounds[i + 1], 3),
+                    "type": types[i],
+                    "vocal_share": round(vocal_share[i], 4),
+                    "other_share": round(other_share[i], 4),
+                    "full_energy": round(full_energy[i], 6),
+                    "full_rank": round(float(full_rank[i]), 4),
+                    "group_id": int(group_ids[i]),
+                    "repeated": grp_cnt[group_ids[i]] >= 2,
+                    "vocal_rms": round(vocal_rms[i], 6),
+                    "drums_rms": round(drums_rms[i], 6),
+                    "bass_rms": round(bass_rms[i], 6),
+                    "other_rms": round(other_rms[i], 6),
+                }
+                for i in range(n)
+            ]
         if end_start_sec < duration_sec - 0.05 and end_start_sec > bounds[0]:
             new_bounds, new_types = [], []
             for i in range(n):
@@ -1348,14 +1383,19 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
             new_bounds.append(duration_sec)
             bounds, types, n = new_bounds, new_types, len(new_types)
 
-        return [
+        result = [
             {"start_ms": int(bounds[i] * 1000),
              "end_ms":   int(bounds[i + 1] * 1000),
              "index":    i,
              "type":     types[i]}
             for i in range(n)
         ]
-    except Exception:
+        if debug is not None:
+            debug["final_sections"] = result
+        return result
+    except Exception as e:
+        if debug is not None:
+            debug["error"] = str(e)
         return []
 
 
@@ -1532,18 +1572,22 @@ def _save_gt_sections_cache(music_id, sections):
         pass
 
 
-def detect_gt_sections(audio_path, duration_sec, music_id=None):
+def detect_gt_sections(audio_path, duration_sec, music_id=None, debug=None):
     """GT 섹션 감지. music_id를 넘기면 gt_sections_cache.json을 먼저 조회하고,
     없을 때만 새로 계산한 뒤 캐시에 저장한다 (demucs 4-스템 분리 등 GT 분석은
     비용이 커서 매번 전체를 다시 돌리지 않도록).
+
+    debug: dict를 넘기면 캐시를 무시하고 항상 새로 계산하며(디버그 데이터가
+    필요하니 당연히 실제로 돌려야 함), demucs+msaf 경로의 모든 중간 판정값을
+    이 dict에 채워 넣는다.
     """
     cache_key = str(music_id) if music_id not in (None, "", "—") else None
-    if cache_key:
+    if cache_key and debug is None:
         cached = _load_gt_sections_cache().get(cache_key)
         if cached and cached.get("sections"):
             return cached["sections"]
 
-    sections = _compute_gt_sections(audio_path, duration_sec)
+    sections = _compute_gt_sections(audio_path, duration_sec, debug=debug)
 
     if cache_key and sections:
         _save_gt_sections_cache(cache_key, sections)
@@ -1603,7 +1647,7 @@ def detect_gt_beats(engine, audio_path, bpm_hint=0.0, music_id=None):
     return beats_ms, bpm, False
 
 
-def _compute_gt_sections(audio_path, duration_sec):
+def _compute_gt_sections(audio_path, duration_sec, debug=None):
     """GT 섹션 감지 우선순위:
     allin1 → demucs(4-스템)+msaf(구조경계) → msaf(semantic) → msaf(cluster) → librosa
 
@@ -1645,7 +1689,7 @@ def _compute_gt_sections(audio_path, duration_sec):
     # ★ demucs(보컬/드럼/베이스/기타) + msaf 결합 — 경계는 구조 반복, 라벨은 스템 성격
     if HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA:
         try:
-            demucs_sections = detect_gt_sections_demucs_msaf(audio_path, duration_sec)
+            demucs_sections = detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=debug)
             if demucs_sections and len(demucs_sections) >= 2:
                 return _merge_adjacent_same_type_sections(demucs_sections)
         except Exception:
@@ -2714,6 +2758,13 @@ class App(tk.Tk):
                                   width=7, state="disabled")
         self.save_btn.pack(side="left", padx=2)
 
+        # ── 섹션 디버그 데이터 저장 (demucs+msaf 판정 중간값을 파일로 남겨
+        # 다른 사람에게 전달 → 섹션 감지 개선 분석용) ──
+        self._section_debug_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(col1, text="섹션 디버그 저장 (tools/section_debug/)",
+                       variable=self._section_debug_var,
+                       font=("", 8)).grid(row=3, column=0, sticky="w", padx=6, pady=(0, 4))
+
         # ══════════════════════════════════════════
         # 2열: 분석 결과(위) + 분석 로그(아래)
         # ══════════════════════════════════════════
@@ -3487,11 +3538,22 @@ class App(tk.Tk):
                                self.status_var.set(
                                    f"전체 분석 [{i}/{t}]  {n}  (GT섹션/{'캐시' if c else s})"))
                     _dur = get_audio_duration(audio)
-                    pre_lib_sections = detect_gt_sections(audio, _dur, music_id=mid_display)
+                    want_debug = self._section_debug_var.get()
+                    gt_debug = {} if want_debug else None
+                    pre_lib_sections = detect_gt_sections(audio, _dur, music_id=mid_display,
+                                                          debug=gt_debug)
                     session_gt_cache[bin_id] = pre_lib_sections
                     tag = "저장된 캐시 사용" if _had_cache else "감지"
                     self.after(0, lambda n=len(pre_lib_sections), nm=name, tg=tag, c=_had_cache:
                                self._log(f"[GT섹션]  {nm} — {n}개 ({tg})", "green" if c else "gray"))
+                    if want_debug:
+                        try:
+                            _, _, _app_secs = parse_section_meta_binary(binf)
+                        except Exception:
+                            _app_secs = []
+                        self._export_section_debug(
+                            music_id=mid_display, audio_path=audio, duration_sec=_dur,
+                            gt_source=src, app_sections=_app_secs, gt_debug=gt_debug)
                 except Exception as _se:
                     import traceback
                     session_gt_cache[bin_id] = []  # 실패도 캐시하여 재시도 방지
@@ -3523,6 +3585,37 @@ class App(tk.Tk):
         self.after(0, self._save_state)
 
     # ── 진단 데이터 내보내기 ──────────────────────
+
+    def _export_section_debug(self, *, music_id, audio_path, duration_sec,
+                               gt_source, app_sections, gt_debug):
+        """섹션 감지 개선 분석용 디버그 파일을 저장한다.
+
+        오디오 자체는 담지 않고 판정에 쓰인 숫자/라벨(스템 RMS, vocal_share,
+        full_rank, climax_offsets_sec, end_start_sec, 최종 섹션 등)과 앱
+        섹션(비교 대상)만 담으므로, 이 파일 하나만 전달해도 저작권 있는
+        오디오 없이 섹션 로직을 분석·개선할 수 있다.
+        """
+        import datetime
+        try:
+            debug_dir = os.path.join(os.path.dirname(__file__), "section_debug")
+            os.makedirs(debug_dir, exist_ok=True)
+            payload = {
+                "music_id":       music_id,
+                "audio_file":     os.path.basename(audio_path),
+                "duration_sec":   round(duration_sec, 3),
+                "gt_source":      gt_source,
+                "generated_at":   datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "app_sections":   app_sections or [],
+                "gt_debug":       gt_debug or {},
+            }
+            out_path = os.path.join(debug_dir, f"{music_id}.json")
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            self.after(0, lambda p=out_path:
+                       self._log(f"  [🐛 디버그 저장] {p}", "cyan"))
+        except Exception as e:
+            self.after(0, lambda m=str(e)[:100]:
+                       self._log(f"  [⚠️  디버그 저장 실패] {m}", "orange"))
 
     def _export_analysis_record(self, *, audio_path, bin_path, engine, eng_name,
                                  tol_ms, music_id, duration_sec,
@@ -4624,8 +4717,16 @@ class App(tk.Tk):
 
                     # GT 섹션 전용 캐시(gt_sections_cache.json) 사용 — music_id 기준,
                     # demucs 4-스템 분리처럼 비용이 큰 계산을 반복하지 않는다.
-                    librosa_sections = detect_gt_sections(audio_path, duration_sec, music_id=mid_display)
+                    want_debug = self._section_debug_var.get()
+                    gt_debug = {} if want_debug else None
+                    librosa_sections = detect_gt_sections(audio_path, duration_sec,
+                                                          music_id=mid_display, debug=gt_debug)
                     _steps_timing['sections'] = time.time() - _step3_start
+                    if want_debug:
+                        self._export_section_debug(
+                            music_id=mid_display, audio_path=audio_path,
+                            duration_sec=duration_sec, gt_source=src,
+                            app_sections=sections, gt_debug=gt_debug)
                     if not self._shared_analysis_logged:
                         tag = "캐시" if _had_cache else f"{_steps_timing['sections']:.2f}초"
                         self.after(0, lambda n=len(librosa_sections), t=tag:
