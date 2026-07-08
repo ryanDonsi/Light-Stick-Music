@@ -26,6 +26,9 @@ object BeatDetectorV3 {
     /** 정확도 진단용 JSON 저장(v3_analysis/bpm_results.jsonl) On/Off. 평상시 OFF, 분석 필요할 때만 켜서 사용. */
     private const val ENABLE_JSON_EXPORT = false
 
+    /** ENABLE_JSON_EXPORT=true일 때 JSON을 남길 곡 제목 필터. 비어 있으면 전곡 저장. */
+    private val JSON_EXPORT_TITLE_FILTER = emptySet<String>()
+
     // ════════════════════════════════════════════════════════════════════
     // 단위 변환 함수 - 모든 코드에서 일관된 단위 사용을 강제
     // beatMs: Long = milliseconds between beats = 60_000 / BPM
@@ -61,6 +64,13 @@ object BeatDetectorV3 {
     // Tempogram 파라미터
     private const val TEMPOGRAM_TIME_FRAMES = 200  // 시간 축 프레임 수
     private const val TEMPOGRAM_MIN_CONFIDENCE = 0.3f  // 신뢰도 최소값
+
+    // V4.5: 하모닉 필터링 전(raw) 절반-lag(2배 BPM) 자기상관 비율 기반 옥타브 보정 임계값.
+    // filterHarmonicPeaks가 억제하기 전 원본 신호가 선택된 후보와 비슷하거나 더 강하면(비율↑),
+    // 그 2배 BPM이 억제되어 묻힌 정답일 가능성이 높다는 뜻. 43곡 실측(2026-07-08 진단)에서
+    // 이 값이 계산되는 14곡 중 0.85 이상 5곡은 전부 2배가 정답, 미만 9곡은 전부 2배가 오답으로
+    // 정확히 갈렸음(박구윤 - 뿐이고/Stray Kids 神메뉴/장윤정 - 사랑 참 등 기존 로직이 못 고치던 케이스 포함).
+    private const val RAW_HALF_LAG_RATIO_THRESHOLD = 0.85f
 
     // IIR 필터 상수 (V1과 동일)
     private const val LOW_ALPHA = 0.12f
@@ -107,12 +117,24 @@ object BeatDetectorV3 {
         val selected: Boolean
     )
 
+    /** V4.3: 하모닉 필터링 전(raw) 자기상관 강도 진단 정보 — 절반 lag(2배 BPM 후보)가
+     *  filterHarmonicPeaks에 의해 억제되기 전 원래 신호가 얼마나 있었는지 확인용 (JSON 저장용) */
+    data class RawHarmonicDiagInfo(
+        val bestLagRawStrength: Float,
+        val halfLagBpm: Float,
+        val halfLagRawStrength: Float,
+        val halfLagRawRatio: Float,
+        val halfLagFilteredStrength: Float,
+        val halfLagTemporalConsistency: Float
+    )
+
     /** V4.0: findModalPeak의 전체 평가 결과 (선택된 BPM + 후보 목록 + 옥타브 보정 여부) */
     data class ModalPeakResult(
         val bpm: Float,
         val confidence: Float,
         val candidates: List<PeakCandidateDebugInfo>,
-        val octaveCorrected: Boolean
+        val octaveCorrected: Boolean,
+        val rawHarmonicDiag: RawHarmonicDiagInfo? = null
     )
 
     /** V4.0: detectAndCorrectOctaveError의 결과 + 어떤 판단 근거로 결정했는지 (JSON 저장용) */
@@ -473,7 +495,26 @@ object BeatDetectorV3 {
         } else 0f
         val doubleRatio = if (harmonicFiltered[bestLagIdx] > 1e-6f) doubleStrength / harmonicFiltered[bestLagIdx] else 0f
 
-        // V4.0: 절반 비트 보정 (2배 오류 수정)
+        // V4.3: 하모닉 필터링 전(raw) 절반 lag(2배 BPM) 신호 기록.
+        // filterHarmonicPeaks가 억제하기 전 원래 자기상관 강도가 얼마나 있었는지 확인해서
+        // "정답 BPM이 raw 신호에는 있었는데 억제됐는지" vs "raw 신호에도 애초에 없었는지" 구분용.
+        // halfLag >= minLag는 정확히 "2배 BPM이 탐색 최대 BPM을 넘지 않는다"는 조건과 동치.
+        val rawHalfLagIdx = halfLag - minLag
+        val rawHarmonicDiag = if (halfLag >= minLag && rawHalfLagIdx < bpmStrengths.size &&
+                                   bestLagIdx < bpmStrengths.size) {
+            val bestLagRaw = bpmStrengths[bestLagIdx]
+            val halfLagRaw = bpmStrengths[rawHalfLagIdx]
+            RawHarmonicDiagInfo(
+                bestLagRawStrength = bestLagRaw,
+                halfLagBpm = bpmFromBeatMs(halfLag * hopMs),
+                halfLagRawStrength = halfLagRaw,
+                halfLagRawRatio = if (bestLagRaw > 1e-6f) halfLagRaw / bestLagRaw else 0f,
+                halfLagFilteredStrength = halfStrength,
+                halfLagTemporalConsistency = calculateTemporalConsistency(rawHalfLagIdx)
+            )
+        } else null
+
+        // V4.0: 절반 비트 보정 (2배 오류 수정) — 하모닉 필터링된 강도 기준
         if (halfLag >= minLag && shouldApplyOctaveCorrection(bpmFromBeatMs(halfLag * hopMs), halfStrength, halfRatio)) {
             val halfBeatMs = halfLag * hopMs
             val halfBpm = bpmFromBeatMs(halfBeatMs)
@@ -491,8 +532,18 @@ object BeatDetectorV3 {
             confidence = minOf(1.0f, doubleStrength / sorted[0])
             octaveCorrected = true
         }
+        // V4.5: raw(하모닉 필터링 전) 절반-lag 비율 기반 보정.
+        // 위 두 보정은 harmonicFiltered 기준이라, filterHarmonicPeaks가 이미 억제해버린
+        // 진짜 2배 BPM 후보(예: 박구윤 - 뿐이고, Stray Kids 神메뉴)는 여기까지 못 왔다.
+        // 43곡 실측으로 검증된 임계값이므로 shouldApplyOctaveCorrection의 시간 일관성
+        // 조건(그 자체가 이 케이스들을 걸러내던 원인)은 의도적으로 거치지 않는다.
+        else if (rawHarmonicDiag != null && rawHarmonicDiag.halfLagRawRatio >= RAW_HALF_LAG_RATIO_THRESHOLD) {
+            bestBpm = rawHarmonicDiag.halfLagBpm
+            confidence = minOf(1.0f, rawHarmonicDiag.halfLagRawRatio)
+            octaveCorrected = true
+        }
 
-        return ModalPeakResult(bestBpm, confidence, candidateDebugList, octaveCorrected)
+        return ModalPeakResult(bestBpm, confidence, candidateDebugList, octaveCorrected, rawHarmonicDiag)
     }
 
     /**
@@ -547,6 +598,53 @@ object BeatDetectorV3 {
         }
 
         return filtered
+    }
+
+    /** V4.4: ODF(온셋 검출 함수)의 "뾰족함 vs 뭉개짐" 진단 정보 (JSON 저장용).
+     *  에너지가 계속 높게 깔려있는(=뭉개진) 곡은 진짜 박자 간격의 자기상관 신호가
+     *  약해지고 더 굵은 절반-박자 펄스에 밀릴 수 있다는 가설을 검증하기 위한 지표. */
+    data class OdfShapeDiagInfo(
+        val mean: Float,
+        val std: Float,
+        val cv: Float,
+        val max: Float,
+        val maxToMeanRatio: Float,
+        val peakCount: Int,
+        val expectedBeatCount: Float,
+        val peakCountRatio: Float
+    )
+
+    /**
+     * ODF 배열의 뾰족함/뭉개짐 지표 계산
+     * @param odf 통합 ODF 배열
+     * @param hopMs 프레임 간격(ms)
+     * @param beatMs 최종 선택된 비트 간격(ms) — 예상 비트 개수 계산용
+     */
+    private fun computeOdfShapeDiag(odf: FloatArray, hopMs: Long, beatMs: Long): OdfShapeDiagInfo? {
+        if (odf.size < 3) return null
+
+        val mean = odf.average().toFloat()
+        if (mean < 1e-6f) return null
+        val variance = odf.map { (it - mean) * (it - mean) }.average().toFloat()
+        val std = sqrt(variance)
+        val cv = std / mean
+        val max = odf.maxOrNull() ?: 0f
+        val maxToMeanRatio = max / mean
+
+        // 국소 최댓값(local maxima) 중 mean + 0.5*std 이상인 것만 "뚜렷한 피크"로 카운트
+        val peakThreshold = mean + 0.5f * std
+        var peakCount = 0
+        for (i in 1 until odf.size - 1) {
+            if (odf[i] > odf[i - 1] && odf[i] >= odf[i + 1] && odf[i] >= peakThreshold) {
+                peakCount++
+            }
+        }
+
+        val durationMs = odf.size.toLong() * hopMs
+        val expectedBeatCount = if (beatMs > 0L) durationMs.toFloat() / beatMs.toFloat() else 0f
+        val peakCountRatio = if (expectedBeatCount > 1e-6f) peakCount / expectedBeatCount else 0f
+
+        return OdfShapeDiagInfo(mean, std, cv, max, maxToMeanRatio, peakCount, expectedBeatCount, peakCountRatio)
     }
 
     /**
@@ -1416,7 +1514,8 @@ object BeatDetectorV3 {
         val bpm: Float,
         val confidence: Float,
         val tempogram: Array<FloatArray>?,
-        val peakCandidates: List<PeakCandidateDebugInfo> = emptyList()
+        val peakCandidates: List<PeakCandidateDebugInfo> = emptyList(),
+        val rawHarmonicDiag: RawHarmonicDiagInfo? = null
     )
 
     /**
@@ -1445,7 +1544,10 @@ object BeatDetectorV3 {
         if (useTempogram) {
             val tempogram = computeTempogram(odf, hopMs, minBeatMs, maxBeatMs)
             val modalPeakResult = findModalPeak(tempogram, hopMs, minBeatMs)
-            return BpmV3Result(modalPeakResult.bpm, modalPeakResult.confidence, tempogram, modalPeakResult.candidates)
+            return BpmV3Result(
+                modalPeakResult.bpm, modalPeakResult.confidence, tempogram,
+                modalPeakResult.candidates, modalPeakResult.rawHarmonicDiag
+            )
         }
 
         // V1 방식 (useTempogram=false일 때만 사용되는 폴백): 전체 lag AC × log-normal prior로 argmax
@@ -1773,7 +1875,7 @@ object BeatDetectorV3 {
         }
 
         // 통합 ODF로 BPM 추정
-        val (bestBpm, confidence, tempogram, peakCandidates) = estimateBpmV3(
+        val (bestBpm, confidence, tempogram, peakCandidates, rawHarmonicDiag) = estimateBpmV3(
             integratedOdf,
             hopMs = params.hopMs,
             minBeatMs = params.minBeatMs,
@@ -1938,7 +2040,8 @@ object BeatDetectorV3 {
         val finalBpmForLog = bpmFromBeatMs(finalBeatMs)
 
         // V3.5 섹션별 BPM 분석 데이터 저장 (JSON) - 정확도 진단용, 평상시 OFF
-        if (ENABLE_JSON_EXPORT && context != null && songTitle != null) {
+        if (ENABLE_JSON_EXPORT && context != null && songTitle != null &&
+            (JSON_EXPORT_TITLE_FILTER.isEmpty() || songTitle in JSON_EXPORT_TITLE_FILTER)) {
             try {
                 val sectionBpmList = collectedSectionBpms.joinToString(",") { (ms, bpm) ->
                     "{\"timeMs\":$ms,\"bpm\":${bpm.toInt()}}"
@@ -1989,6 +2092,45 @@ object BeatDetectorV3 {
                     ""
                 }
 
+                // V4.3: 하모닉 필터링 전(raw) 절반-lag 진단 정보 JSON (박구윤 - 뿐이고 등 진단용)
+                val rawHarmonicDiagJson = if (rawHarmonicDiag != null) {
+                    try {
+                        ",\"v4_3_raw_harmonic_diag\":{" +
+                        "\"bestLagRawStrength\":${String.format("%.4f", rawHarmonicDiag.bestLagRawStrength)}," +
+                        "\"halfLagBpm\":${String.format("%.1f", rawHarmonicDiag.halfLagBpm)}," +
+                        "\"halfLagRawStrength\":${String.format("%.4f", rawHarmonicDiag.halfLagRawStrength)}," +
+                        "\"halfLagRawRatio\":${String.format("%.4f", rawHarmonicDiag.halfLagRawRatio)}," +
+                        "\"halfLagFilteredStrength\":${String.format("%.4f", rawHarmonicDiag.halfLagFilteredStrength)}," +
+                        "\"halfLagTemporalConsistency\":${String.format("%.4f", rawHarmonicDiag.halfLagTemporalConsistency)}" +
+                        "}"
+                    } catch (e: Exception) {
+                        ""
+                    }
+                } else {
+                    ""
+                }
+
+                // V4.4: ODF 뾰족함/뭉개짐 진단 정보 JSON (에너지가 계속 높은 곡의 자기상관 왜곡 가설 검증용)
+                val odfShapeDiag = computeOdfShapeDiag(integratedOdf, params.hopMs, finalBeatMs)
+                val odfShapeDiagJson = if (odfShapeDiag != null) {
+                    try {
+                        ",\"v4_4_odf_shape_diag\":{" +
+                        "\"mean\":${String.format("%.5f", odfShapeDiag.mean)}," +
+                        "\"std\":${String.format("%.5f", odfShapeDiag.std)}," +
+                        "\"cv\":${String.format("%.4f", odfShapeDiag.cv)}," +
+                        "\"max\":${String.format("%.5f", odfShapeDiag.max)}," +
+                        "\"maxToMeanRatio\":${String.format("%.3f", odfShapeDiag.maxToMeanRatio)}," +
+                        "\"peakCount\":${odfShapeDiag.peakCount}," +
+                        "\"expectedBeatCount\":${String.format("%.1f", odfShapeDiag.expectedBeatCount)}," +
+                        "\"peakCountRatio\":${String.format("%.3f", odfShapeDiag.peakCountRatio)}" +
+                        "}"
+                    } catch (e: Exception) {
+                        ""
+                    }
+                } else {
+                    ""
+                }
+
                 val analysisJson = "{" +
                         "\"title\":\"$songTitle\"," +
                         "\"v3_5_analysis\":{" +
@@ -2016,6 +2158,8 @@ object BeatDetectorV3 {
                         "\"durationMs\":${durationMs}" +
                         tempogramInsightsJson +
                         peakEvaluationJson +
+                        rawHarmonicDiagJson +
+                        odfShapeDiagJson +
                         "}"
 
                 val filesDir = context.filesDir
@@ -2439,7 +2583,8 @@ object BeatDetectorV3 {
         )
 
         // JSON으로 종합 분석 데이터 저장 (정확도 진단용, 평상시 OFF)
-        if (ENABLE_JSON_EXPORT && context != null && songTitle != null) {
+        if (ENABLE_JSON_EXPORT && context != null && songTitle != null &&
+            (JSON_EXPORT_TITLE_FILTER.isEmpty() || songTitle in JSON_EXPORT_TITLE_FILTER)) {
             try {
                 val sectionBpmList = collectedSectionBpms.map { it.second.toInt() }
                 val odfSizeVal = (odfStats["size"] as? Int) ?: 0
