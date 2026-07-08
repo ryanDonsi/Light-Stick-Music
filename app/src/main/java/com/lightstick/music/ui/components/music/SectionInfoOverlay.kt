@@ -206,6 +206,8 @@ private fun sectionLabel(type: SectionDetector.SectionType): String = when (type
     SectionDetector.SectionType.CHORUS -> "CHORUS"
     SectionDetector.SectionType.BRIDGE -> "BRIDGE"
     SectionDetector.SectionType.END    -> "END"
+    SectionDetector.SectionType.INST   -> "INST"
+    SectionDetector.SectionType.SOLO   -> "SOLO"
 }
 
 private fun changeLabel(s: SectionDetector.ChangeStrength): String = when (s) {
@@ -252,4 +254,7 @@ fun sectionColor(type: SectionDetector.SectionType): Color = when (type) {
     SectionDetector.SectionType.CHORUS -> Color(0xFFF44336)
     SectionDetector.SectionType.BRIDGE -> Color(0xFFFF9800)
     SectionDetector.SectionType.END    -> Color(0xFF26C6DA)
+    // 신규 (INST/SOLO)
+    SectionDetector.SectionType.INST   -> Color(0xFF558B2F)  // Olive Green — 무보컬 반주
+    SectionDetector.SectionType.SOLO   -> Color(0xFFFF6F00)  // Orange      — 리드 악기 솔로
 }

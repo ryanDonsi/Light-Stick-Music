@@ -4,7 +4,11 @@ interface SectionDetector {
 
     // V1 타입 (legacy — 순서 변경 금지, SectionMetaStorage ordinal 의존)
     // V2 타입 (V2 이후)
-    enum class SectionType { INTRO, VERSE, CHORUS, BRIDGE, END, VOCAL, BEAT, BUILD, CLIMAX, BREAK, OUTRO }
+    // INST, SOLO는 새로 추가된 타입 — 반드시 끝에 추가할 것 (ordinal 유지, 기존 저장된
+    // 섹션 메타 바이너리와의 호환성 때문에 기존 값의 순서/값은 절대 바꾸지 않는다).
+    // VOCAL/BEAT/BUILD는 현재 어떤 SectionDetector도 실제로 생성하지 않지만, 같은 이유로
+    // 제거하지 않고 그대로 둔다 (제거 시 뒤따르는 CLIMAX/BREAK/OUTRO의 ordinal이 밀린다).
+    enum class SectionType { INTRO, VERSE, CHORUS, BRIDGE, END, VOCAL, BEAT, BUILD, CLIMAX, BREAK, OUTRO, INST, SOLO }
     enum class ChangeStrength { NONE, MEDIUM, STRONG }
 
     /**

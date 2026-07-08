@@ -94,8 +94,9 @@ class SectionDetectorV1 : SectionDetector {
         // → section.startMs가 항상 실제 beat 위치에 snap됨
         val beatBoundaries = beats.map { it.timeMs }.sorted().toLongArray()
         val alignedSections = alignBoundariesToBars(rawSections, beatBoundaries, durationMs)
+        val labeledSections = applyIntroOutro(alignedSections)
 
-        val sections = toSections(alignedSections)
+        val sections = toSections(labeledSections)
         val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs)
         return annotateBeats(beats, sections, climaxMoments)
     }
@@ -204,11 +205,30 @@ class SectionDetectorV1 : SectionDetector {
 
     private fun classifyType(score: Float, lowTh: Float, highTh: Float): SectionDetector.SectionType {
         val bridgeTh = lowTh * 0.85f
+        // BRIDGE보다도 훨씬 조용한 구간(브레이크다운) — bridgeTh의 절반 이하.
+        // 1차 추정치라 실곡 튜닝이 더 필요할 수 있다.
+        val breakTh  = lowTh * 0.45f
         return when {
             score >= highTh   -> SectionDetector.SectionType.CHORUS
+            score <= breakTh  -> SectionDetector.SectionType.BREAK
             score <= bridgeTh -> SectionDetector.SectionType.BRIDGE
             else              -> SectionDetector.SectionType.VERSE
         }
+    }
+
+    // 첫/마지막 구간은 위치상 INTRO/OUTRO가 기본값이지만, 이미 CHORUS로 명백하면
+    // (코러스로 시작/끝나는 곡) 위치보다 내용을 우선해 CHORUS를 유지한다.
+    // (Python GT의 demucs+msaf 경로와 동일한 철학 — beat_accuracy_checker.py 참고)
+    private fun applyIntroOutro(sections: List<FeatureWindow>): List<FeatureWindow> {
+        if (sections.size < 2) return sections
+        val out = sections.toMutableList()
+        if (out.first().sectionType != SectionDetector.SectionType.CHORUS) {
+            out[0] = out.first().copy(sectionType = SectionDetector.SectionType.INTRO)
+        }
+        if (out.last().sectionType != SectionDetector.SectionType.CHORUS) {
+            out[out.lastIndex] = out.last().copy(sectionType = SectionDetector.SectionType.OUTRO)
+        }
+        return out
     }
 
     private fun estimateChangeStrength(prev: FeatureWindow?, cur: FeatureWindow): SectionDetector.ChangeStrength {
