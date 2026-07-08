@@ -877,12 +877,13 @@ def detect_msaf_sections(audio_path, duration_sec):
         return []
 
 
-def classify_msaf_sections_semantic(audio_path, duration_sec):
+def classify_msaf_sections_semantic(audio_path, duration_sec, debug=None):
     """MSAF 경계 + Librosa 특징으로 의미 있는 섹션 분류.
 
     MSAF로 정확한 경계를 감지하고, 각 구간의 음향 특징(에너지, 스펙트럼,
     리듬 밀도)을 분석하여 allin1처럼 의미 있는 라벨(INTRO/VERSE/CHORUS 등)
-    을 부여한다.
+    을 부여한다. demucs가 없어 스템 분리를 못 쓸 때(HAS_DEMUCS=False)
+    detect_gt_sections_demucs_msaf 대신 쓰이는 폴백이다.
 
     반환: [
         {'start_ms': int, 'end_ms': int, 'index': int,
@@ -890,6 +891,10 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
          'confidence': 0-1,  # 분류 신뢰도
          'cluster': 'A'|'B'|'C'...}  # 원본 msaf 클러스터
     ]
+
+    debug: dict를 넘기면 판정에 쓰인 중간값(구간별 rms_n/centroid_n/
+    flatness_n/onset_n, 그룹핑, 최종 섹션)을 채워 넣는다. demucs+msaf가
+    아니라 원곡 혼합 신호 기반이라 vocal_share 같은 스템 지표는 없다.
     """
     if not HAS_MSAF or not HAS_LIBROSA:
         return []
@@ -1050,7 +1055,7 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
                 confidence_scores[i] = 0.6
 
         # ── 9. 결과 구성 ──
-        return [
+        result = [
             {'start_ms': int(float(bounds[i]) * 1000),
              'end_ms':   int(float(bounds[i + 1]) * 1000),
              'index':    i,
@@ -1059,7 +1064,27 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
              'cluster':  cluster_labels[i]}
             for i in range(n)
         ]
+        if debug is not None:
+            debug["duration_sec"] = duration_sec
+            debug["load_dur_sec"] = load_dur
+            debug["thresholds"] = {"BREAK_TH": BREAK_TH, "onset_low_th": onset_low_th}
+            debug["segments"] = [
+                {
+                    "index": i,
+                    "start_sec": round(float(bounds[i]), 3), "end_sec": round(float(bounds[i + 1]), 3),
+                    "type": types[i], "cluster": cluster_labels[i],
+                    "confidence": round(confidence_scores[i], 3),
+                    "rms_n": round(float(rms_n[i]), 4), "centroid_n": round(float(cent_n[i]), 4),
+                    "flatness_n": round(float(flat_n[i]), 4), "onset_n": round(float(onset_n[i]), 4),
+                    "group_id": int(group_ids[i]), "repeated": grp_cnt[group_ids[i]] >= 2,
+                }
+                for i in range(n)
+            ]
+            debug["final_sections"] = result
+        return result
     except Exception as e:
+        if debug is not None:
+            debug["error"] = str(e)
         return []
 
 
@@ -1690,10 +1715,15 @@ def _compute_gt_sections(audio_path, duration_sec, debug=None):
             pass
 
     # ★ demucs(보컬/드럼/베이스/기타) + msaf 결합 — 경계는 구조 반복, 라벨은 스템 성격
+    # (debug는 실제로 성공한 경로 하나만 채워야 하므로, 각 경로마다 임시 dict에
+    # 담았다가 그 경로가 성공했을 때만 debug로 옮기고 어떤 경로였는지 tag한다.)
     if HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA:
         try:
-            demucs_sections = detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=debug)
+            _dbg = {} if debug is not None else None
+            demucs_sections = detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=_dbg)
             if demucs_sections and len(demucs_sections) >= 2:
+                if debug is not None:
+                    debug.clear(); debug["source"] = "demucs+msaf"; debug.update(_dbg)
                 return _merge_adjacent_same_type_sections(demucs_sections)
         except Exception:
             pass
@@ -1701,8 +1731,11 @@ def _compute_gt_sections(audio_path, duration_sec, debug=None):
     # MSAF 경계 + 의미 있는 라벨 (demucs 없을 때의 대체 — allin1처럼)
     if HAS_MSAF and HAS_LIBROSA:
         try:
-            semantic_sections = classify_msaf_sections_semantic(audio_path, duration_sec)
+            _dbg = {} if debug is not None else None
+            semantic_sections = classify_msaf_sections_semantic(audio_path, duration_sec, debug=_dbg)
             if semantic_sections and len(semantic_sections) >= 2:
+                if debug is not None:
+                    debug.clear(); debug["source"] = "msaf-semantic"; debug.update(_dbg)
                 return _merge_adjacent_same_type_sections(semantic_sections)
         except Exception:
             pass
@@ -2531,6 +2564,14 @@ class App(tk.Tk):
 
         self._build_ui()
         self._load_state()
+
+        # 상단 배너는 에러 메시지를 35~45자로 잘라서 보여주므로(레이아웃상 제약),
+        # 원인 진단을 위해 전체 에러 메시지를 로그창에 남긴다.
+        for _name, _has, _err in (("allin1", HAS_ALLIN1, _allin1_err),
+                                   ("msaf", HAS_MSAF, _msaf_err),
+                                   ("demucs", HAS_DEMUCS, _demucs_err)):
+            if not _has and _err:
+                self._log(f"[⚠️  {_name} 사용 불가] {_err}", "orange")
 
     def _build_ui(self):
         pad = dict(padx=6, pady=3)
