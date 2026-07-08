@@ -24,7 +24,7 @@ import kotlin.math.*
 object BeatDetectorV3 {
 
     /** 정확도 진단용 JSON 저장(v3_analysis/bpm_results.jsonl) On/Off. 평상시 OFF, 분석 필요할 때만 켜서 사용. */
-    private const val ENABLE_JSON_EXPORT = true
+    private const val ENABLE_JSON_EXPORT = false
 
     /** ENABLE_JSON_EXPORT=true일 때 JSON을 남길 곡 제목 필터. 비어 있으면 전곡 저장. */
     private val JSON_EXPORT_TITLE_FILTER = emptySet<String>()
@@ -64,6 +64,13 @@ object BeatDetectorV3 {
     // Tempogram 파라미터
     private const val TEMPOGRAM_TIME_FRAMES = 200  // 시간 축 프레임 수
     private const val TEMPOGRAM_MIN_CONFIDENCE = 0.3f  // 신뢰도 최소값
+
+    // V4.5: 하모닉 필터링 전(raw) 절반-lag(2배 BPM) 자기상관 비율 기반 옥타브 보정 임계값.
+    // filterHarmonicPeaks가 억제하기 전 원본 신호가 선택된 후보와 비슷하거나 더 강하면(비율↑),
+    // 그 2배 BPM이 억제되어 묻힌 정답일 가능성이 높다는 뜻. 43곡 실측(2026-07-08 진단)에서
+    // 이 값이 계산되는 14곡 중 0.85 이상 5곡은 전부 2배가 정답, 미만 9곡은 전부 2배가 오답으로
+    // 정확히 갈렸음(박구윤 - 뿐이고/Stray Kids 神메뉴/장윤정 - 사랑 참 등 기존 로직이 못 고치던 케이스 포함).
+    private const val RAW_HALF_LAG_RATIO_THRESHOLD = 0.85f
 
     // IIR 필터 상수 (V1과 동일)
     private const val LOW_ALPHA = 0.12f
@@ -488,7 +495,26 @@ object BeatDetectorV3 {
         } else 0f
         val doubleRatio = if (harmonicFiltered[bestLagIdx] > 1e-6f) doubleStrength / harmonicFiltered[bestLagIdx] else 0f
 
-        // V4.0: 절반 비트 보정 (2배 오류 수정)
+        // V4.3: 하모닉 필터링 전(raw) 절반 lag(2배 BPM) 신호 기록.
+        // filterHarmonicPeaks가 억제하기 전 원래 자기상관 강도가 얼마나 있었는지 확인해서
+        // "정답 BPM이 raw 신호에는 있었는데 억제됐는지" vs "raw 신호에도 애초에 없었는지" 구분용.
+        // halfLag >= minLag는 정확히 "2배 BPM이 탐색 최대 BPM을 넘지 않는다"는 조건과 동치.
+        val rawHalfLagIdx = halfLag - minLag
+        val rawHarmonicDiag = if (halfLag >= minLag && rawHalfLagIdx < bpmStrengths.size &&
+                                   bestLagIdx < bpmStrengths.size) {
+            val bestLagRaw = bpmStrengths[bestLagIdx]
+            val halfLagRaw = bpmStrengths[rawHalfLagIdx]
+            RawHarmonicDiagInfo(
+                bestLagRawStrength = bestLagRaw,
+                halfLagBpm = bpmFromBeatMs(halfLag * hopMs),
+                halfLagRawStrength = halfLagRaw,
+                halfLagRawRatio = if (bestLagRaw > 1e-6f) halfLagRaw / bestLagRaw else 0f,
+                halfLagFilteredStrength = halfStrength,
+                halfLagTemporalConsistency = calculateTemporalConsistency(rawHalfLagIdx)
+            )
+        } else null
+
+        // V4.0: 절반 비트 보정 (2배 오류 수정) — 하모닉 필터링된 강도 기준
         if (halfLag >= minLag && shouldApplyOctaveCorrection(bpmFromBeatMs(halfLag * hopMs), halfStrength, halfRatio)) {
             val halfBeatMs = halfLag * hopMs
             val halfBpm = bpmFromBeatMs(halfBeatMs)
@@ -506,24 +532,16 @@ object BeatDetectorV3 {
             confidence = minOf(1.0f, doubleStrength / sorted[0])
             octaveCorrected = true
         }
-
-        // V4.3: 진단용 — 하모닉 필터링 전(raw) 절반 lag(2배 BPM) 신호 기록.
-        // filterHarmonicPeaks가 억제하기 전 원래 자기상관 강도가 얼마나 있었는지 확인해서
-        // "정답 BPM이 raw 신호에는 있었는데 억제됐는지" vs "raw 신호에도 애초에 없었는지" 구분용.
-        val rawHalfLagIdx = halfLag - minLag
-        val rawHarmonicDiag = if (halfLag >= minLag && rawHalfLagIdx < bpmStrengths.size &&
-                                   bestLagIdx < bpmStrengths.size) {
-            val bestLagRaw = bpmStrengths[bestLagIdx]
-            val halfLagRaw = bpmStrengths[rawHalfLagIdx]
-            RawHarmonicDiagInfo(
-                bestLagRawStrength = bestLagRaw,
-                halfLagBpm = bpmFromBeatMs(halfLag * hopMs),
-                halfLagRawStrength = halfLagRaw,
-                halfLagRawRatio = if (bestLagRaw > 1e-6f) halfLagRaw / bestLagRaw else 0f,
-                halfLagFilteredStrength = halfStrength,
-                halfLagTemporalConsistency = calculateTemporalConsistency(rawHalfLagIdx)
-            )
-        } else null
+        // V4.5: raw(하모닉 필터링 전) 절반-lag 비율 기반 보정.
+        // 위 두 보정은 harmonicFiltered 기준이라, filterHarmonicPeaks가 이미 억제해버린
+        // 진짜 2배 BPM 후보(예: 박구윤 - 뿐이고, Stray Kids 神메뉴)는 여기까지 못 왔다.
+        // 43곡 실측으로 검증된 임계값이므로 shouldApplyOctaveCorrection의 시간 일관성
+        // 조건(그 자체가 이 케이스들을 걸러내던 원인)은 의도적으로 거치지 않는다.
+        else if (rawHarmonicDiag != null && rawHarmonicDiag.halfLagRawRatio >= RAW_HALF_LAG_RATIO_THRESHOLD) {
+            bestBpm = rawHarmonicDiag.halfLagBpm
+            confidence = minOf(1.0f, rawHarmonicDiag.halfLagRawRatio)
+            octaveCorrected = true
+        }
 
         return ModalPeakResult(bestBpm, confidence, candidateDebugList, octaveCorrected, rawHarmonicDiag)
     }
