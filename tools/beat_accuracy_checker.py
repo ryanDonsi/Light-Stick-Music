@@ -829,6 +829,22 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
             if tonal and quiet:
                 types[i] = "SOLO" if cent_n[i] >= 0.55 else "INST"
 
+        # ── 9. END: 곡 끝의 무음 구간을 다른 티어(demucs+msaf/msaf-semantic)와
+        # 동일한 조건으로 찾아 별도 구간으로 분리한다.
+        end_start_sec = _detect_trailing_end_sec(audio_path, duration_sec)
+        if end_start_sec < duration_sec - 0.05 and end_start_sec > all_times[0]:
+            new_times, new_types = [all_times[0]], []
+            for i in range(n):
+                s, e, t = all_times[i], all_times[i + 1], types[i]
+                if e <= end_start_sec:
+                    new_types.append(t); new_times.append(e)
+                elif s >= end_start_sec:
+                    new_types.append("END"); new_times.append(e)
+                else:
+                    new_types.append(t); new_times.append(end_start_sec)
+                    new_types.append("END"); new_times.append(e)
+            all_times, types, n = new_times, new_types, len(new_types)
+
         return [
             {"start_ms": int(all_times[i] * 1000),
              "end_ms":   int(all_times[i + 1] * 1000),
@@ -1063,17 +1079,8 @@ def classify_msaf_sections_semantic(audio_path, duration_sec, debug=None):
                 types[i] = "SOLO" if cent_n[i] >= 0.55 else "INST"
                 confidence_scores[i] = 0.6
 
-        # ── 9. 결과 구성 ──
-        result = [
-            {'start_ms': int(float(bounds[i]) * 1000),
-             'end_ms':   int(float(bounds[i + 1]) * 1000),
-             'index':    i,
-             'type':     types[i],
-             'confidence': round(confidence_scores[i], 3),
-             'cluster':  cluster_labels[i]}
-            for i in range(n)
-        ]
         if debug is not None:
+            # 판정에 쓰인 모든 중간값을 원래 n(END 분리 전) 기준으로 기록한다.
             debug["duration_sec"] = duration_sec
             debug["load_dur_sec"] = load_dur
             debug["thresholds"] = {"BREAK_TH": BREAK_TH, "onset_low_th": onset_low_th}
@@ -1089,6 +1096,38 @@ def classify_msaf_sections_semantic(audio_path, duration_sec, debug=None):
                 }
                 for i in range(n)
             ]
+
+        # ── 9. END: 곡 끝의 무음 구간을 demucs+msaf 티어와 동일한 조건으로 찾아
+        # 별도 구간으로 분리한다 (마지막 라벨=마지막 음악, 그 뒤 무음=END).
+        end_start_sec = _detect_trailing_end_sec(audio_path, duration_sec)
+        if end_start_sec < duration_sec - 0.05 and end_start_sec > float(bounds[0]):
+            new_bounds, new_types, new_conf, new_cluster = [], [], [], []
+            for i in range(n):
+                s, e = float(bounds[i]), float(bounds[i + 1])
+                t, c, cl = types[i], confidence_scores[i], cluster_labels[i]
+                if e <= end_start_sec:
+                    new_bounds.append(s); new_types.append(t); new_conf.append(c); new_cluster.append(cl)
+                elif s >= end_start_sec:
+                    new_bounds.append(s); new_types.append("END"); new_conf.append(0.95); new_cluster.append(cl)
+                else:
+                    new_bounds.append(s); new_types.append(t); new_conf.append(c); new_cluster.append(cl)
+                    new_bounds.append(end_start_sec); new_types.append("END"); new_conf.append(0.95); new_cluster.append(cl)
+            new_bounds.append(duration_sec)
+            bounds, types, confidence_scores, cluster_labels = new_bounds, new_types, new_conf, new_cluster
+            n = len(new_types)
+
+        # ── 10. 결과 구성 ──
+        result = [
+            {'start_ms': int(float(bounds[i]) * 1000),
+             'end_ms':   int(float(bounds[i + 1]) * 1000),
+             'index':    i,
+             'type':     types[i],
+             'confidence': round(confidence_scores[i], 3),
+             'cluster':  cluster_labels[i]}
+            for i in range(n)
+        ]
+        if debug is not None:
+            debug["end_start_sec"] = end_start_sec
             debug["final_sections"] = result
         return result
     except Exception as e:
