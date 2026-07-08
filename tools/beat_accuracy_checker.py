@@ -1060,6 +1060,91 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
         return []
 
 
+def _detect_climax_offsets_sec(energy, hop_sec, duration_sec):
+    """앱의 SectionDetectorV1.detectClimaxMoments()와 동일한 알고리즘으로
+    "클라이맥스"급 로컬 에너지 피크 시각(초)을 찾는다.
+
+    - 프레임별 노벨티 점수: e*0.50 + max(0,e-직전)*0.30 + max(0,e-주변4프레임평균)*0.20
+    - 곡 전체의 변동성(CV)·피크비가 충분히 크지 않으면(단조로운 곡) 아예 스킵
+    - 로컬 최댓값 + p90*1.18 이상 + 평균+표준편차*1.30 이상만 채택
+    - 곡 앞 30%는 제외, 피크 간 최소 간격 확보, 최대 3개까지
+    """
+    n = len(energy)
+    if n < 8:
+        return []
+    score = [0.0] * n
+    for i in range(2, n - 2):
+        e = energy[i]
+        local_avg = (energy[i - 2] + energy[i - 1] + energy[i + 1] + energy[i + 2]) * 0.25
+        score[i] = e * 0.50 + max(0.0, e - energy[i - 1]) * 0.30 + max(0.0, e - local_avg) * 0.20
+
+    score_list = [s for s in score if s > 0.0]
+    if not score_list:
+        return []
+    env_mean = sum(score_list) / len(score_list)
+    env_std = (sum((v - env_mean) ** 2 for v in score_list) / len(score_list)) ** 0.5
+    cv = env_std / env_mean if env_mean > 0 else 0.0
+    peak_ratio = max(score_list) / env_mean if env_mean > 0 else 0.0
+    if cv < 0.35 or peak_ratio < 2.0:
+        return []
+
+    sorted_scores = sorted(score_list)
+    p90 = sorted_scores[min(int(len(sorted_scores) * 0.90), len(sorted_scores) - 1)]
+    min_gap_sec = 2.0  # 앱은 비트*4를 쓰지만 여기선 bpm 정보가 없어 고정값으로 근사
+    climax_intro_limit = duration_sec * 0.30
+
+    selected = []
+    for i in range(2, n - 2):
+        sc = score[i]
+        if sc <= 0.0:
+            continue
+        t = i * hop_sec
+        if t < climax_intro_limit:
+            continue
+        if (sc >= score[i - 1] and sc >= score[i - 2] and sc >= score[i + 1] and sc >= score[i + 2]
+                and sc >= p90 * 1.18 and sc >= env_mean + env_std * 1.30):
+            if all(abs(t - s) >= min_gap_sec for s in selected):
+                selected.append(t)
+                if len(selected) >= 3:
+                    break
+    return sorted(selected)
+
+
+def _detect_trailing_end_sec(audio_path, duration_sec, tail_window_sec=20.0):
+    """앱의 detectLastMusicEndMs()와 동일한 방식으로 곡 끝의 무음 구간을 찾는다.
+
+    스무딩된 RMS가 (최댓값*0.03) 밑으로 떨어진 뒤 다시 안 올라오는 마지막 지점을
+    찾고, 그 지점부터 곡 끝까지가 1.5초 이상이면 그 지점을(END 시작), 아니면
+    duration_sec을 반환한다. load_dur(최대 300초) 캡과 무관하게 파일 꼬리만
+    별도로 로드하므로 5분 넘는 곡도 정확히 잡는다.
+    """
+    if not HAS_LIBROSA or duration_sec <= 0:
+        return duration_sec
+    try:
+        offset = max(0.0, duration_sec - tail_window_sec)
+        y, sr = librosa.load(audio_path, sr=22050, mono=True,
+                             offset=offset, duration=duration_sec - offset)
+        if len(y) == 0:
+            return duration_sec
+        hop = 512
+        rms = librosa.feature.rms(y=y, hop_length=hop)[0]
+        if len(rms) == 0:
+            return duration_sec
+        smooth = np.array([rms[max(0, i - 4):min(len(rms), i + 5)].mean() for i in range(len(rms))])
+        threshold = max(float(smooth.max()) * 0.03, 0.01)
+        last_active_idx = None
+        for i in range(len(smooth) - 1, -1, -1):
+            if smooth[i] >= threshold:
+                last_active_idx = i
+                break
+        if last_active_idx is None:
+            return duration_sec
+        last_active_sec = offset + (last_active_idx + 1) * hop / sr
+        return last_active_sec if duration_sec - last_active_sec >= 1.5 else duration_sec
+    except Exception:
+        return duration_sec
+
+
 def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
     """demucs 4-스템 분리 + msaf 구조 경계 검출을 결합해 allin1 방식으로
     GT 섹션의 경계·라벨을 모두 만든다. (동적 생성 표준 — CUDA 불필요)
@@ -1083,6 +1168,11 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
     - INTRO/OUTRO는 위치(첫/마지막 구간)가 기본값이지만, 그 구간이 이미
       반복+고에너지로 명백히 CHORUS 패턴이면(예: 코러스로 시작하는 곡)
       위치보다 내용을 우선해 CHORUS로 유지한다.
+    - CLIMAX: 앱 SectionDetectorV1.detectClimaxMoments()와 동일한 알고리즘
+      (로컬 에너지 피크 + CV/피크비 가드)을 원곡 에너지에 적용해, 피크를
+      포함하는 CHORUS 구간을 CLIMAX로 승격한다.
+    - END: 앱 detectLastMusicEndMs()와 동일한 방식으로 곡 끝의 무음 구간을
+      찾아 마지막 구간에서 분리한다 (OUTRO=마지막 음악, END=그 뒤 무음).
     """
     if not (HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA):
         return []
@@ -1230,6 +1320,33 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec):
             types[0] = "INTRO"
         if types[n - 1] != "CHORUS":
             types[n - 1] = "OUTRO"
+
+        # ── 5. CLIMAX: 앱(SectionDetectorV1)과 동일한 피크 검출 알고리즘을 원곡
+        # 전체 에너지에 적용해, 피크를 포함하는 CHORUS 구간을 CLIMAX로 승격한다.
+        mix_rms = librosa.feature.rms(y=y_mix, hop_length=512)[0]
+        hop_sec = 512.0 / sr_mix
+        climax_offsets = _detect_climax_offsets_sec(list(mix_rms), hop_sec, load_dur)
+        if climax_offsets:
+            for i in range(n):
+                if types[i] == "CHORUS" and any(bounds[i] <= t < bounds[i + 1] for t in climax_offsets):
+                    types[i] = "CLIMAX"
+
+        # ── 6. END: 곡 끝의 무음 구간을 앱과 동일한 방식으로 찾아 별도 구간으로
+        # 분리한다 (OUTRO=마지막 음악 구간, END=그 뒤 진짜 무음).
+        end_start_sec = _detect_trailing_end_sec(audio_path, duration_sec)
+        if end_start_sec < duration_sec - 0.05 and end_start_sec > bounds[0]:
+            new_bounds, new_types = [], []
+            for i in range(n):
+                s, e, t = bounds[i], bounds[i + 1], types[i]
+                if e <= end_start_sec:
+                    new_bounds.append(s); new_types.append(t)
+                elif s >= end_start_sec:
+                    new_bounds.append(s); new_types.append("END")
+                else:
+                    new_bounds.append(s); new_types.append(t)
+                    new_bounds.append(end_start_sec); new_types.append("END")
+            new_bounds.append(duration_sec)
+            bounds, types, n = new_bounds, new_types, len(new_types)
 
         return [
             {"start_ms": int(bounds[i] * 1000),
@@ -1490,12 +1607,18 @@ def _compute_gt_sections(audio_path, duration_sec):
     """GT 섹션 감지 우선순위:
     allin1 → demucs(4-스템)+msaf(구조경계) → msaf(semantic) → msaf(cluster) → librosa
 
-    allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
-    (start/end 마커는 제외)
+    타겟 라벨 체계(10개, 앱의 SectionType과 동일한 이름):
+    END / INTRO / VERSE / CHORUS / BRIDGE / OUTRO / INST / SOLO / BREAK / CLIMAX
+
+    allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo / end
+    (start 마커만 제외 — allin1의 end 마커는 그대로 END로 사용. allin1은
+    CLIMAX 개념이 없어 이 경로에서는 CLIMAX가 나오지 않는다.)
     demucs+msaf: 경계는 드럼 스템의 구조적 반복(msaf)으로, 라벨은 보컬/드럼/
     베이스/기타 스템의 구간별 에너지(성격)로 판단 — allin1과 같은 기준.
+    CLIMAX(앱 SectionDetectorV1의 피크 검출 알고리즘 포팅)와 END(앱의
+    trailing-silence 검출 포팅)도 이 경로에서 함께 만든다.
     msaf(semantic): 위 방식을 못 쓸 때(demucs 없음), MSAF 경계 + librosa
-    특징으로 의미 있는 라벨을 부여하는 대체 방식.
+    특징으로 의미 있는 라벨을 부여하는 대체 방식 (CLIMAX/END 없음).
 
     어떤 엔진으로 감지했든 최종적으로 인접한 동일 라벨 구간을 병합하여
     allin1과 동일한 형태(라벨이 쪼개지지 않고 하나로 이어진 구간)로 맞춘다.
@@ -1506,7 +1629,7 @@ def _compute_gt_sections(audio_path, duration_sec):
             sections = []
             for seg in result.segments:
                 lbl = seg.label.upper()
-                if lbl in ('START', 'END'):
+                if lbl == 'START':
                     continue
                 sections.append({
                     "start_ms": int(seg.start * 1000),
