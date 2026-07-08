@@ -1181,10 +1181,12 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
     """demucs 4-스템 분리 + msaf 구조 경계 검출을 결합해 allin1 방식으로
     GT 섹션의 경계·라벨을 모두 만든다. (동적 생성 표준 — CUDA 불필요)
 
-    - 경계 판단: 드럼 스템에 msaf(scluster, 구조적 반복 기반)를 적용한다.
-      드럼은 리듬 전환이 뚜렷해 경계가 원곡보다 명확히 드러나며, 이는
-      allin1이 곡 전체의 구조적 반복을 근거로 경계를 정하는 것과 같은 취지다
-      (고정 개수로 자르고 보는 librosa 폴백과 달리, 실제 구조 반복을 본다).
+    - 경계 판단: 드럼 스템에 msaf(foote, 노벨티/체커보드 커널 기반)를 적용한다.
+      드럼은 리듬 전환이 뚜렷해 경계가 원곡보다 명확히 드러나며, foote는 국소
+      변화 지점을 직접 찾아 scluster(전역 반복 클러스터링)보다 촘촘한 경계를
+      낸다(고정 개수로 자르고 보는 librosa 폴백과 달리, 실제 변화 지점을 본다).
+      경계 이후 라벨은 이 함수가 스템 비중으로 직접 매기므로 msaf 자체 라벨링은
+      쓰지 않는다.
     - 성격 구분/라벨링: 보컬/드럼/베이스/기타 4개 스템의 구간별 에너지로
       "이 구간에 보컬이 있는가", "악기가 전부 합주 중인가"를 직접 측정해
       VERSE/CHORUS/BRIDGE/INST/SOLO를 구분한다.
@@ -1246,9 +1248,15 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
         bass_stem   = stem_paths.get('bass')
         other_stem  = stem_paths.get('other')
 
-        # ── 1. 경계: 드럼 스템 + msaf(구조 반복 기반) ──
-        bounds, _cluster_ids = _msaf_mod.process(
-            drums_stem, boundaries_id='scluster', labels_id='fmc2d')
+        # ── 1. 경계: 드럼 스템 + msaf(노벨티 기반 foote) ──
+        # scluster는 스펙트럴 클러스터링으로 "몇 개의 큰 반복 그룹이 있는가"부터
+        # 자동으로 정하는 알고리즘이라, 곡 후반부가 서로 비슷한 클러스터로
+        # 묶이면 수십~백 초짜리 구간 하나로 뭉개버리는 경우가 있었다(예: 194초
+        # 곡에서 63~194초 131초가 통째로 한 구간). foote는 체커보드 커널로
+        # 국소적인 변화(노벨티)를 직접 찾는 방식이라 훨씬 촘촘한 경계를 낸다.
+        # 라벨은 이 함수가 스템 비중으로 직접 매기므로 msaf 라벨링은 건너뛴다.
+        bounds, _ = _msaf_mod.process(
+            drums_stem, boundaries_id='foote', labels_id=None)
         bounds = [float(b) for b in bounds]
         if bounds[0] > 0.1:
             bounds = [0.0] + bounds
