@@ -2589,10 +2589,11 @@ class App(tk.Tk):
         sec_legend.pack(side="left", padx=(4, 6))
         tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
                  font=("", 7)).pack(side="left", padx=(0, 3))
+        # msaf 원본 클러스터(A-J)는 detect_msaf_sections(우선순위 4/5, 거의 안 쓰임)
+        # 전용이라 범례에서는 뺀다 — _SECTION_COLORS엔 남겨둬서 그 폴백이 실제로
+        # 동작할 때는 여전히 구분되는 색으로는 그려지게 한다.
         _legend_types = ["INTRO", "VERSE", "CHORUS", "BRIDGE", "OUTRO",
                           "INST", "SOLO", "CLIMAX", "BREAK", "END"]
-        if HAS_MSAF:
-            _legend_types += list("ABCDEFGHIJ")
         for stype in _legend_types:
             sc = _SECTION_COLORS.get(stype, "#546e7a")
             tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
