@@ -1097,7 +1097,53 @@ def classify_msaf_sections_semantic(audio_path, duration_sec, debug=None):
         return []
 
 
-def _detect_climax_offsets_sec(energy, hop_sec, duration_sec):
+def _moving_average_edge(vals, window):
+    """numpy 배열/리스트에 이동평균을 적용한다. 가장자리는 zero-padding 대신
+    실제로 존재하는 값만으로 평균 내(윈도우를 줄여서) 앱의 movingAverage()와
+    동일하게 동작한다."""
+    import numpy as np
+    n = len(vals)
+    if n == 0 or window <= 1:
+        return list(vals)
+    half = window // 2
+    csum = np.concatenate(([0.0], np.cumsum(vals)))
+    out = [0.0] * n
+    for i in range(n):
+        s = max(0, i - half)
+        e = min(n - 1, i + half)
+        out[i] = float((csum[e + 1] - csum[s]) / (e - s + 1))
+    return out
+
+
+def _compute_full_energy_app_style(audio_path, duration_sec, hop_ms=10.0):
+    """앱 BeatDetectorRouter.decodeWithEnvelopes()가 만드는 'full' 에너지 엔벨로프를
+    최대한 그대로 재현한다: 원본 샘플레이트로 디코딩(리샘플링 없음) → hopMs(기본
+    10ms, BEAT_DETECTOR_VERSION=3 기준) 단위로 RMS 계산 → 5프레임 이동평균 스무딩
+    → 곡 내 최댓값으로 0~1 정규화.
+
+    CLIMAX 판정(_detect_climax_offsets_sec)은 CV/피크비 임계값을 쓰는데, librosa로
+    22050Hz로 리샘플링한 신호를 그대로 쓰면 (a) 다운샘플링 시 안티에일리어싱
+    저역통과 필터로 트랜지언트가 뭉개지고 (b) hop이 더 커서(23ms vs 10ms) 프레임
+    간 국소 변화가 과도하게 평활화돼, 실제 앱보다 CV가 낮게 나와 CLIMAX가 아예
+    검출되지 않는 경우가 있었다. 앱과 동일한 디코딩/hop/스무딩 파이프라인으로
+    재현해야 같은 곡에서 앱과 같은 CLIMAX 판정이 나온다.
+    """
+    import numpy as np
+    y, sr = librosa.load(audio_path, sr=None, mono=True, duration=duration_sec)
+    hop_samples = max(1, int(sr * hop_ms / 1000.0))
+    rms = librosa.feature.rms(y=y, frame_length=hop_samples, hop_length=hop_samples,
+                               center=False)[0]
+    rms = _moving_average_edge(rms, 5)
+    mx = float(np.max(rms)) if len(rms) else 0.0
+    if mx <= 1e-6:
+        full = [0.0] * len(rms)
+    else:
+        full = [min(1.0, max(0.0, v / mx)) for v in rms]
+    hop_sec = hop_samples / sr
+    return full, hop_sec
+
+
+def _detect_climax_offsets_sec(energy, hop_sec, duration_sec, debug=None):
     """앱의 SectionDetectorV1.detectClimaxMoments()와 동일한 알고리즘으로
     "클라이맥스"급 로컬 에너지 피크 시각(초)을 찾는다.
 
@@ -1105,9 +1151,14 @@ def _detect_climax_offsets_sec(energy, hop_sec, duration_sec):
     - 곡 전체의 변동성(CV)·피크비가 충분히 크지 않으면(단조로운 곡) 아예 스킵
     - 로컬 최댓값 + p90*1.18 이상 + 평균+표준편차*1.30 이상만 채택
     - 곡 앞 30%는 제외, 피크 간 최소 간격 확보, 최대 3개까지
+
+    debug: dict를 넘기면 게이트 판정에 쓰인 cv/peak_ratio와 스킵 사유를 채워 넣는다
+    (CLIMAX가 안 잡힐 때 원인을 바로 확인할 수 있도록).
     """
     n = len(energy)
     if n < 8:
+        if debug is not None:
+            debug["skip_reason"] = "energy_too_short"
         return []
     score = [0.0] * n
     for i in range(2, n - 2):
@@ -1117,12 +1168,21 @@ def _detect_climax_offsets_sec(energy, hop_sec, duration_sec):
 
     score_list = [s for s in score if s > 0.0]
     if not score_list:
+        if debug is not None:
+            debug["skip_reason"] = "no_positive_score"
         return []
     env_mean = sum(score_list) / len(score_list)
     env_std = (sum((v - env_mean) ** 2 for v in score_list) / len(score_list)) ** 0.5
     cv = env_std / env_mean if env_mean > 0 else 0.0
     peak_ratio = max(score_list) / env_mean if env_mean > 0 else 0.0
+    if debug is not None:
+        debug["cv"] = round(cv, 4)
+        debug["peak_ratio"] = round(peak_ratio, 4)
+        debug["cv_th"] = 0.35
+        debug["peak_ratio_th"] = 2.0
     if cv < 0.35 or peak_ratio < 2.0:
+        if debug is not None:
+            debug["skip_reason"] = "cv_or_peak_ratio_below_threshold"
         return []
 
     sorted_scores = sorted(score_list)
@@ -1400,11 +1460,12 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
         if types[n - 1] != "CHORUS":
             types[n - 1] = "OUTRO"
 
-        # ── 5. CLIMAX: 앱(SectionDetectorV1)과 동일한 피크 검출 알고리즘을 원곡
-        # 전체 에너지에 적용해, 피크를 포함하는 CHORUS 구간을 CLIMAX로 승격한다.
-        mix_rms = librosa.feature.rms(y=y_mix, hop_length=512)[0]
-        hop_sec = 512.0 / sr_mix
-        climax_offsets = _detect_climax_offsets_sec(list(mix_rms), hop_sec, load_dur)
+        # ── 5. CLIMAX: 앱(SectionDetectorV1)과 동일한 피크 검출 알고리즘을, 앱과
+        # 동일한 방식(원본 샘플레이트/10ms hop/이동평균 정규화)으로 만든 에너지
+        # 엔벨로프에 적용해, 피크를 포함하는 CHORUS 구간을 CLIMAX로 승격한다.
+        full_energy_app, hop_sec = _compute_full_energy_app_style(audio_path, load_dur)
+        _climax_dbg = {} if debug is not None else None
+        climax_offsets = _detect_climax_offsets_sec(full_energy_app, hop_sec, load_dur, debug=_climax_dbg)
         if climax_offsets:
             for i in range(n):
                 if types[i] == "CHORUS" and any(bounds[i] <= t < bounds[i + 1] for t in climax_offsets):
@@ -1424,6 +1485,7 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
                 "BREAK_RANK_TH": BREAK_RANK_TH, "CHORUS_RANK_TH": CHORUS_RANK_TH,
             }
             debug["climax_offsets_sec"] = climax_offsets
+            debug["climax_debug"] = _climax_dbg
             debug["end_start_sec"] = end_start_sec
             debug["segments"] = [
                 {
