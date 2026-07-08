@@ -39,7 +39,7 @@ object AutoTimelineConfig {
      * 파일 캐시 버전 — 생성기·감지기 조합이 바뀔 때마다 증가시켜 기존 캐시를 무효화한다.
      * 이 값이 변경되면 모든 사용자의 기존 타임라인이 재생성된다.
      */
-    const val VERSION = 0
+    const val VERSION = 1  // SectionType에서 VOCAL/BEAT/BUILD 제거로 ordinal이 밀려 캐시 무효화
 
     // =========================================================================
     // BEAT_DETECTOR: 비트 감지 엔진 버전
