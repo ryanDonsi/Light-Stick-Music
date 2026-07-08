@@ -1695,6 +1695,14 @@ def _compute_gt_sections(audio_path, duration_sec, debug=None):
     어떤 엔진으로 감지했든 최종적으로 인접한 동일 라벨 구간을 병합하여
     allin1과 동일한 형태(라벨이 쪼개지지 않고 하나로 이어진 구간)로 맞춘다.
     """
+    # debug를 넘기면, 실제로 성공한 경로 하나의 상세 정보(debug["source"] +
+    # 그 경로의 중간값)를 채우고, 그 전에 실패한 경로들의 에러도
+    # debug["failed_attempts"]에 남긴다 — "왜 우선순위가 더 높은 경로 대신
+    # 이 경로가 쓰였는지" 진단할 수 있어야 하기 때문이다. 성공한 경로만
+    # 기록하면(과거 방식) 예를 들어 demucs+msaf가 매번 조용히 실패해도
+    # 알 방법이 없었다.
+    _attempts = [] if debug is not None else None
+
     if HAS_ALLIN1:
         try:
             result = _allin1_mod.analyze(audio_path)
@@ -1710,13 +1718,18 @@ def _compute_gt_sections(audio_path, duration_sec, debug=None):
                     "type":     lbl,
                 })
             if sections:
+                if debug is not None:
+                    debug["source"] = "allin1"
+                    if _attempts:
+                        debug["failed_attempts"] = _attempts
                 return _merge_adjacent_same_type_sections(sections)
-        except Exception:
-            pass
+            elif _attempts is not None:
+                _attempts.append({"tier": "allin1", "error": "빈 결과"})
+        except Exception as e:
+            if _attempts is not None:
+                _attempts.append({"tier": "allin1", "error": str(e)})
 
     # ★ demucs(보컬/드럼/베이스/기타) + msaf 결합 — 경계는 구조 반복, 라벨은 스템 성격
-    # (debug는 실제로 성공한 경로 하나만 채워야 하므로, 각 경로마다 임시 dict에
-    # 담았다가 그 경로가 성공했을 때만 debug로 옮기고 어떤 경로였는지 tag한다.)
     if HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA:
         try:
             _dbg = {} if debug is not None else None
@@ -1724,9 +1737,18 @@ def _compute_gt_sections(audio_path, duration_sec, debug=None):
             if demucs_sections and len(demucs_sections) >= 2:
                 if debug is not None:
                     debug.clear(); debug["source"] = "demucs+msaf"; debug.update(_dbg)
+                    if _attempts:
+                        debug["failed_attempts"] = _attempts
                 return _merge_adjacent_same_type_sections(demucs_sections)
-        except Exception:
-            pass
+            elif _attempts is not None:
+                # detect_gt_sections_demucs_msaf는 내부적으로 예외를 잡아
+                # _dbg["error"]에 담고 []를 반환하므로, 여기서 그걸 꺼내와야
+                # 실제 실패 원인이 보인다.
+                _attempts.append({"tier": "demucs+msaf",
+                                   "error": (_dbg or {}).get("error", "빈 결과(2개 미만 섹션)")})
+        except Exception as e:
+            if _attempts is not None:
+                _attempts.append({"tier": "demucs+msaf", "error": str(e)})
 
     # MSAF 경계 + 의미 있는 라벨 (demucs 없을 때의 대체 — allin1처럼)
     if HAS_MSAF and HAS_LIBROSA:
@@ -1736,19 +1758,36 @@ def _compute_gt_sections(audio_path, duration_sec, debug=None):
             if semantic_sections and len(semantic_sections) >= 2:
                 if debug is not None:
                     debug.clear(); debug["source"] = "msaf-semantic"; debug.update(_dbg)
+                    if _attempts:
+                        debug["failed_attempts"] = _attempts
                 return _merge_adjacent_same_type_sections(semantic_sections)
-        except Exception:
-            pass
+            elif _attempts is not None:
+                _attempts.append({"tier": "msaf-semantic",
+                                   "error": (_dbg or {}).get("error", "빈 결과(2개 미만 섹션)")})
+        except Exception as e:
+            if _attempts is not None:
+                _attempts.append({"tier": "msaf-semantic", "error": str(e)})
 
     # 원본 MSAF (음향 클러스터만)
     if HAS_MSAF:
         try:
             result = detect_msaf_sections(audio_path, duration_sec)
             if result:
+                if debug is not None:
+                    debug.clear(); debug["source"] = "msaf-cluster"
+                    if _attempts:
+                        debug["failed_attempts"] = _attempts
                 return _merge_adjacent_same_type_sections(result)
-        except Exception:
-            pass
+            elif _attempts is not None:
+                _attempts.append({"tier": "msaf-cluster", "error": "빈 결과"})
+        except Exception as e:
+            if _attempts is not None:
+                _attempts.append({"tier": "msaf-cluster", "error": str(e)})
 
+    if debug is not None:
+        debug.clear(); debug["source"] = "librosa"
+        if _attempts:
+            debug["failed_attempts"] = _attempts
     return _merge_adjacent_same_type_sections(
         detect_librosa_sections(audio_path, duration_sec))
 
@@ -1986,9 +2025,11 @@ def group_timeline_by_effects(frames):
 
     return effect_stats
 
-# SectionDetector.SectionType enum 순서 (Kotlin 정의와 동일해야 함)
+# SectionDetector.SectionType enum 순서 (Kotlin 정의와 반드시 동일해야 함 —
+# ordinal 기반 직렬화라서 순서가 어긋나면 라벨이 조용히 틀리게 디코딩된다.
+# VOCAL/BEAT/BUILD 제거 후 순서(2026-07, AutoTimelineConfig.VERSION=1):
 _SECTION_TYPES = ['INTRO', 'VERSE', 'CHORUS', 'BRIDGE', 'END',
-                  'VOCAL', 'BEAT', 'BUILD', 'CLIMAX', 'BREAK', 'OUTRO']
+                  'CLIMAX', 'BREAK', 'OUTRO', 'INST', 'SOLO']
 
 def parse_section_meta_binary(path):
     """SectionMetaStorage 바이너리 파싱.
@@ -3600,7 +3641,8 @@ class App(tk.Tk):
                             _app_secs = []
                         self._export_section_debug(
                             music_id=mid_display, audio_path=audio, duration_sec=_dur,
-                            gt_source=src, app_sections=_app_secs, gt_debug=gt_debug)
+                            gt_source=(gt_debug or {}).get("source", src),
+                            app_sections=_app_secs, gt_debug=gt_debug)
                 except Exception as _se:
                     import traceback
                     session_gt_cache[bin_id] = []  # 실패도 캐시하여 재시도 방지
@@ -4772,7 +4814,8 @@ class App(tk.Tk):
                     if want_debug:
                         self._export_section_debug(
                             music_id=mid_display, audio_path=audio_path,
-                            duration_sec=duration_sec, gt_source=src,
+                            duration_sec=duration_sec,
+                            gt_source=(gt_debug or {}).get("source", src),
                             app_sections=sections, gt_debug=gt_debug)
                     if not self._shared_analysis_logged:
                         tag = "캐시" if _had_cache else f"{_steps_timing['sections']:.2f}초"
