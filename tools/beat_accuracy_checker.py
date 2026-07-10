@@ -811,16 +811,24 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
                 types.append("VERSE")
 
         # ── 8. INST / SOLO / BREAK 탐지 (allin1 라벨 체계에 맞춤) ──
-        # 보컬 스템이 없어 "보컬 유무"를 직접 잴 수 없으므로, 전체 에너지가
-        # 매우 낮은 구간은 BREAK로, tonal(저 flatness)+저 onset인 조용한
-        # 선율 구간은 SOLO(고 centroid)/INST(저·중 centroid)로 근사한다.
-        BREAK_TH = 0.12
+        # 보컬 스템이 없어 "보컬 유무"를 직접 잴 수 없으므로, 곡에서 실제로
+        # "쉬는"(거의 무음인) 구간만 BREAK로, tonal(저 flatness)+저 onset인
+        # 조용한 선율 구간은 SOLO(고 centroid)/INST(저·중 centroid)로 근사한다.
+        #
+        # rms_n은 곡 내 min-max 정규화값이라 곡이 한 번도 진짜로 쉬지 않아도
+        # 상대적으로 제일 조용한 구간은 늘 0에 가깝게 나온다 — 그 구간을 그냥
+        # BREAK로 찍으면 실제로는 악기가 줄었을 뿐인 BRIDGE까지 BREAK로
+        # 덮어써버린다. 그래서 "곡에서 가장 큰 구간 평균 RMS 대비 몇 %인가"라는
+        # 절대적 기준(BREAK_ENERGY_RATIO)으로 바꿔, 진짜 무음에 가까운 구간만
+        # BREAK로 잡는다.
+        BREAK_ENERGY_RATIO = 0.15
         BREAK_MAX_SEC = 8.0  # 이보다 길게 이어지면 "끊김"이 아니라 구조적 BRIDGE
+        rms_peak = max((f['rms'] for f in seg_feats), default=0.0)
         onset_low_th = float(np.percentile(onset_n[1:-1], 33)) if n > 2 else 0.0  # 하위 33%
         for i in range(1, n - 1):
             if types[i] not in ("VERSE", "BRIDGE"):
                 continue
-            if rms_n[i] <= BREAK_TH:               # 전체 에너지 매우 낮음 → 브레이크다운
+            if rms_peak > 0 and seg_feats[i]['rms'] <= rms_peak * BREAK_ENERGY_RATIO:
                 is_short = (all_times[i + 1] - all_times[i]) <= BREAK_MAX_SEC
                 types[i] = "BREAK" if is_short else "BRIDGE"
                 continue
@@ -1059,16 +1067,24 @@ def classify_msaf_sections_semantic(audio_path, duration_sec, debug=None):
                 confidence_scores.append(0.5)
 
         # ── 8. INST / SOLO / BREAK 탐지 (allin1 라벨 체계에 맞춤) ──
-        # 보컬 스템이 없어 "보컬 유무"를 직접 잴 수 없으므로, 전체 에너지가
-        # 매우 낮은 구간은 BREAK로, tonal(저 flatness)+저 onset인 조용한
-        # 선율 구간은 SOLO(고 centroid)/INST(저·중 centroid)로 근사한다.
-        BREAK_TH = 0.12
+        # 보컬 스템이 없어 "보컬 유무"를 직접 잴 수 없으므로, 곡에서 실제로
+        # "쉬는"(거의 무음인) 구간만 BREAK로, tonal(저 flatness)+저 onset인
+        # 조용한 선율 구간은 SOLO(고 centroid)/INST(저·중 centroid)로 근사한다.
+        #
+        # rms_n은 곡 내 min-max 정규화값이라 곡이 한 번도 진짜로 쉬지 않아도
+        # 상대적으로 제일 조용한 구간은 늘 0에 가깝게 나온다 — 그 구간을 그냥
+        # BREAK로 찍으면 실제로는 악기가 줄었을 뿐인 BRIDGE까지 BREAK로
+        # 덮어써버린다. 그래서 "곡에서 가장 큰 구간 평균 RMS 대비 몇 %인가"라는
+        # 절대적 기준(BREAK_ENERGY_RATIO)으로 바꿔, 진짜 무음에 가까운 구간만
+        # BREAK로 잡는다.
+        BREAK_ENERGY_RATIO = 0.15
         BREAK_MAX_SEC = 8.0  # 이보다 길게 이어지면 "끊김"이 아니라 구조적 BRIDGE
+        rms_peak = max((f['rms'] for f in seg_feats), default=0.0)
         onset_low_th = float(np.percentile(onset_n[1:-1], 33)) if n > 2 else 0.0
         for i in range(1, n - 1):
             if types[i] not in ("VERSE", "BRIDGE"):
                 continue
-            if rms_n[i] <= BREAK_TH:
+            if rms_peak > 0 and seg_feats[i]['rms'] <= rms_peak * BREAK_ENERGY_RATIO:
                 is_short = (float(bounds[i + 1]) - float(bounds[i])) <= BREAK_MAX_SEC
                 types[i] = "BREAK" if is_short else "BRIDGE"
                 confidence_scores[i] = 0.6
@@ -1083,7 +1099,7 @@ def classify_msaf_sections_semantic(audio_path, duration_sec, debug=None):
             # 판정에 쓰인 모든 중간값을 원래 n(END 분리 전) 기준으로 기록한다.
             debug["duration_sec"] = duration_sec
             debug["load_dur_sec"] = load_dur
-            debug["thresholds"] = {"BREAK_TH": BREAK_TH, "onset_low_th": onset_low_th}
+            debug["thresholds"] = {"BREAK_ENERGY_RATIO": BREAK_ENERGY_RATIO, "onset_low_th": onset_low_th}
             debug["segments"] = [
                 {
                     "index": i,
@@ -1457,8 +1473,15 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
         # intro / verse / chorus / bridge / outro / inst / solo / break
         VOCAL_SHARE_TH = 0.12   # 4스템 합계 중 보컬 비중 — 이 이상이면 "보컬 있음"
         OTHER_SHARE_TH = 0.55   # 드럼+베이스+기타 중 기타(리드악기) 비중 — 이 이상이면 SOLO
-        BREAK_RANK_TH  = 0.20   # 합주 에너지 순위 하위 20% 이하 → BREAK(브레이크다운)
+        # full_rank(순위)는 곡 내 상대 순위라, 곡이 한 번도 진짜로 쉬지 않아도
+        # 하위 20%는 항상 존재한다 — 그 구간을 그냥 BREAK로 찍으면 실제로는
+        # 악기가 줄었을 뿐인 INST/BRIDGE급 구간까지 BREAK로 덮어써버린다.
+        # 그래서 BREAK만은 "곡에서 가장 큰 합주 에너지 대비 몇 %인가"라는
+        # 절대적 기준(BREAK_ENERGY_RATIO)으로 판단해, 진짜 무음에 가까운
+        # 구간만 BREAK로 잡는다.
+        BREAK_ENERGY_RATIO = 0.15
         CHORUS_RANK_TH = 0.60   # 합주 에너지 순위 상위 40%(0.60 이상) → 코러스급 합주
+        full_peak = max(full_energy) if full_energy else 0.0
 
         # 먼저 첫/마지막 구간도 포함해서 전부 같은 규칙으로 라벨링한다.
         # (위치와 무관하게 "이 구간의 성격이 뭔가"부터 판단)
@@ -1466,9 +1489,9 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
         for i in range(n):
             has_vocal = vocal_share[i] >= VOCAL_SHARE_TH
             if not has_vocal:
-                # 보컬 없는 구간: 합주 에너지까지 낮으면 BREAK,
+                # 보컬 없는 구간: 합주 에너지까지 거의 무음이면 BREAK,
                 # 리드 악기가 두드러지면 SOLO, 그 외에는 INST
-                if full_rank[i] <= BREAK_RANK_TH:
+                if full_peak > 0 and full_energy[i] <= full_peak * BREAK_ENERGY_RATIO:
                     types[i] = "BREAK"
                 elif other_share[i] >= OTHER_SHARE_TH:
                     types[i] = "SOLO"
@@ -1521,7 +1544,7 @@ def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
             debug["load_dur_sec"] = load_dur
             debug["thresholds"] = {
                 "VOCAL_SHARE_TH": VOCAL_SHARE_TH, "OTHER_SHARE_TH": OTHER_SHARE_TH,
-                "BREAK_RANK_TH": BREAK_RANK_TH, "CHORUS_RANK_TH": CHORUS_RANK_TH,
+                "BREAK_ENERGY_RATIO": BREAK_ENERGY_RATIO, "CHORUS_RANK_TH": CHORUS_RANK_TH,
             }
             debug["climax_offsets_sec"] = climax_offsets
             debug["climax_debug"] = _climax_dbg
