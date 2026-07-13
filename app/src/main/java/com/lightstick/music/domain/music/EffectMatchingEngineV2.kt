@@ -187,6 +187,8 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
                     effectiveEngine == EffectMatchingEngine.FgEngine.ON_PULSE           -> null
                     effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
                         section.type == SectionDetector.SectionType.VERSE -> 0
+                    effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
+                        section.type == SectionDetector.SectionType.BRIDGE -> msToBridgeBreathRandomDelay(section.beatMs)
                     effectiveEngine == EffectMatchingEngine.FgEngine.BREATH             -> msToBreathRandomDelay(section.beatMs)
                     else                                           -> null
                 }
@@ -210,7 +212,7 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
 
                 if (!skipRepeat) {
                     put(t, buildPayload(effectiveEngine, fg, bg, section.beatMs, beatPeriod,
-                        beatRandomDelay ?: 0, rotateTransit = beatRotateTransit))
+                        beatRandomDelay, rotateTransit = beatRotateTransit))
                 }
 
                 if (beatEngine == EffectMatchingEngine.FgEngine.ON_PULSE && !skipOnPulseOdd) {
@@ -338,7 +340,7 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
 
     private fun buildPayload(
         engine: EffectMatchingEngine.FgEngine, fg: LSColor, bg: LSColor?, beatMs: Long,
-        period: Int? = null, randomDelay: Int = 0, rotateTransit: Int = 0
+        period: Int? = null, randomDelay: Int? = null, rotateTransit: Int = 0
     ): ByteArray {
         val bgColor = bg ?: LSColor(0, 0, 0)
         return when (engine) {
@@ -346,14 +348,14 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
                 LSEffectPayload.Effects.on(color = fg, transit = 0).toByteArray()
             EffectMatchingEngine.FgEngine.BLINK ->
                 LSEffectPayload.Effects.blink(period = period ?: msToBlinkPeriod(beatMs),
-                    color = fg, backgroundColor = bgColor, randomDelay = randomDelay).toByteArray()
+                    color = fg, backgroundColor = bgColor, randomDelay = randomDelay ?: 0).toByteArray()
             EffectMatchingEngine.FgEngine.STROBE ->
                 LSEffectPayload.Effects.strobe(period = period ?: msToStrobePeriod(beatMs),
-                    color = fg, backgroundColor = bgColor, randomDelay = randomDelay).toByteArray()
+                    color = fg, backgroundColor = bgColor, randomDelay = randomDelay ?: 0).toByteArray()
             EffectMatchingEngine.FgEngine.BREATH ->
                 LSEffectPayload.Effects.breath(period = period ?: msToBreathPeriod(beatMs),
                     color = fg, backgroundColor = bgColor,
-                    randomDelay = randomDelay.takeIf { it > 0 } ?: msToBreathRandomDelay(beatMs)).toByteArray()
+                    randomDelay = randomDelay ?: msToBreathRandomDelay(beatMs)).toByteArray()
             EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE ->
                 LSEffectPayload.Effects.on(color = fg, transit = rotateTransit).toByteArray()
             EffectMatchingEngine.FgEngine.OFF_TRANSIT -> buildOffPayload()
@@ -379,6 +381,7 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
     private fun msToStrobePeriod(beatMs: Long)       = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToBreathPeriod(beatMs: Long)       = (beatMs / 20L).toInt().coerceIn(1, 255)
     private fun msToBreathRandomDelay(beatMs: Long)  = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
+    private fun msToBridgeBreathRandomDelay(beatMs: Long) = (msToBreathPeriod(beatMs) / 4).coerceIn(4, 10)
 
     private fun percentile(values: List<Float>, p: Float): Float {
         if (values.isEmpty()) return 0f
