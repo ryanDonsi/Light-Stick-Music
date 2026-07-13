@@ -353,7 +353,7 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
             EffectMatchingEngine.FgEngine.BREATH ->
                 LSEffectPayload.Effects.breath(period = period ?: msToBreathPeriod(beatMs),
                     color = fg, backgroundColor = bgColor,
-                    randomDelay = randomDelay.takeIf { it > 0 } ?: 5).toByteArray()
+                    randomDelay = randomDelay.takeIf { it > 0 } ?: msToBreathRandomDelay(beatMs)).toByteArray()
             EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE ->
                 LSEffectPayload.Effects.on(color = fg, transit = rotateTransit).toByteArray()
             EffectMatchingEngine.FgEngine.OFF_TRANSIT -> buildOffPayload()
