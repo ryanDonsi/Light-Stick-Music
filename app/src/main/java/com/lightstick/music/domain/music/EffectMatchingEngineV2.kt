@@ -364,7 +364,7 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
     private fun msToBlinkPeriod(beatMs: Long)        = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToStrobePeriod(beatMs: Long)       = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToBreathPeriod(beatMs: Long)       = (beatMs / 20L).toInt().coerceIn(1, 255)
-    private fun msToBreathRandomDelay(beatMs: Long)  = msToBreathPeriod(beatMs)
+    private fun msToBreathRandomDelay(beatMs: Long)  = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
 
     private fun percentile(values: List<Float>, p: Float): Float {
         if (values.isEmpty()) return 0f
