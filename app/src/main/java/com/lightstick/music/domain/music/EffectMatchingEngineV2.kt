@@ -188,7 +188,7 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
                     effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
                         section.type == SectionDetector.SectionType.VERSE -> 0
                     effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
-                        section.type == SectionDetector.SectionType.BRIDGE -> msToBridgeBreathRandomDelay(section.beatMs)
+                        section.type == SectionDetector.SectionType.BRIDGE -> beatPeriod
                     effectiveEngine == EffectMatchingEngine.FgEngine.BREATH             -> msToBreathRandomDelay(section.beatMs)
                     else                                           -> null
                 }
@@ -381,7 +381,6 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
     private fun msToStrobePeriod(beatMs: Long)       = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToBreathPeriod(beatMs: Long)       = (beatMs / 20L).toInt().coerceIn(1, 255)
     private fun msToBreathRandomDelay(beatMs: Long)  = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
-    private fun msToBridgeBreathRandomDelay(beatMs: Long) = (msToBreathPeriod(beatMs) / 4).coerceIn(4, 10)
 
     private fun percentile(values: List<Float>, p: Float): Float {
         if (values.isEmpty()) return 0f
