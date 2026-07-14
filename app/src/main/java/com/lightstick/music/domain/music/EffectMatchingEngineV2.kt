@@ -159,15 +159,6 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
 
             val effectiveBeats = section.beatTimesMs
 
-            if (section.type == SectionDetector.SectionType.BEAT) {
-                for (t in effectiveBeats) {
-                    val beatInBar = beatInBar(t, downbeatMs, globalBeatMs = section.beatMs, beatsPerBar)
-                    val (color, fade) = beatSectionColorAndFade(beatInBar, palette)
-                    put(t, LSEffectPayload.Effects.on(color = color, transit = 0, fade = fade).toByteArray())
-                }
-                continue
-            }
-
             if (section.engine == EffectMatchingEngine.FgEngine.OFF_TRANSIT) continue
 
             for ((beatIndex, t) in effectiveBeats.withIndex()) {
@@ -256,23 +247,20 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
             rel >= 0.60f         -> EffectMatchingEngine.FgEngine.STROBE
             else                 -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
         }
-        SectionDetector.SectionType.BUILD  -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-
-        SectionDetector.SectionType.BEAT   -> when {
-            isBalladMode         -> EffectMatchingEngine.FgEngine.BREATH
-            globalBeatMs <= 350L -> EffectMatchingEngine.FgEngine.BLINK
-            else                 -> EffectMatchingEngine.FgEngine.ON_PULSE
-        }
-        SectionDetector.SectionType.VOCAL  -> when {
-            isBalladMode         -> EffectMatchingEngine.FgEngine.BREATH
-            rel >= 0.55f         -> EffectMatchingEngine.FgEngine.ON_PULSE
-            else                 -> EffectMatchingEngine.FgEngine.BREATH
-        }
 
         SectionDetector.SectionType.VERSE  -> if (isBalladMode) EffectMatchingEngine.FgEngine.BREATH else EffectMatchingEngine.FgEngine.ON_PULSE
         SectionDetector.SectionType.CHORUS -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
         SectionDetector.SectionType.BRIDGE -> EffectMatchingEngine.FgEngine.BREATH
         SectionDetector.SectionType.END    -> EffectMatchingEngine.FgEngine.OFF_TRANSIT
+
+        // INST: 무보컬 반주 — VOCAL과 동일하게 에너지 기반으로 판단(보컬만 없을 뿐 편성은 비슷)
+        SectionDetector.SectionType.INST   -> when {
+            isBalladMode         -> EffectMatchingEngine.FgEngine.BREATH
+            rel >= 0.55f         -> EffectMatchingEngine.FgEngine.ON_PULSE
+            else                 -> EffectMatchingEngine.FgEngine.BREATH
+        }
+        // SOLO: 리드 악기가 도드라지는 하이라이트 구간 — CHORUS와 같은 강조 이펙트
+        SectionDetector.SectionType.SOLO   -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
     }
 
     private fun buildSourceName(type: SectionDetector.SectionType, engine: EffectMatchingEngine.FgEngine, beats: Int): String =
@@ -281,16 +269,12 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
             SectionDetector.SectionType.OUTRO  -> "outro-off"
             SectionDetector.SectionType.BREAK  -> "break-breath"
             SectionDetector.SectionType.CLIMAX -> if (engine == EffectMatchingEngine.FgEngine.STROBE) "climax-strobe" else "climax-rotate"
-            SectionDetector.SectionType.BUILD  -> "build-rotate"
-            SectionDetector.SectionType.BEAT   -> when (engine) {
-                EffectMatchingEngine.FgEngine.BLINK -> "beat-blink"
-                else           -> "beat-pulse"
-            }
-            SectionDetector.SectionType.VOCAL  -> if (engine == EffectMatchingEngine.FgEngine.BREATH) "vocal-breath" else "vocal-pulse"
             SectionDetector.SectionType.VERSE  -> "verse-on-pulse"
             SectionDetector.SectionType.CHORUS -> "chorus-rotate"
             SectionDetector.SectionType.BRIDGE -> "bridge-breath"
             SectionDetector.SectionType.END    -> "end-off"
+            SectionDetector.SectionType.INST   -> if (engine == EffectMatchingEngine.FgEngine.BREATH) "inst-breath" else "inst-pulse"
+            SectionDetector.SectionType.SOLO   -> "solo-rotate"
         }
 
     private fun bridgePhaseEngine(
@@ -321,33 +305,24 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         val effectiveColors: List<LSColor> = when (sectionType) {
             SectionDetector.SectionType.CHORUS -> listOf(palette.white) + palette.colorGroup.take(3)
             SectionDetector.SectionType.VERSE  -> palette.colorGroup.take(3)
+            SectionDetector.SectionType.BRIDGE -> listOf(
+                palette.colorGroup.getOrElse(2) { palette.colorGroup[0] },
+                palette.colorGroup[0], palette.white
+            )
             else -> palette.colorGroup
         }
-        val groupColor = effectiveColors[beatIndex % effectiveColors.size]
+        val groupColor   = effectiveColors[beatIndex   % effectiveColors.size]
+        val sectionColor = effectiveColors[sectionIndex % effectiveColors.size]
         return when (engine) {
-            EffectMatchingEngine.FgEngine.ON_PULSE -> {
-                val set = if (isPatternA) palette.onPulseSets[0] else palette.onPulseSets[1]
-                set.fg to set.bg
-            }
-            EffectMatchingEngine.FgEngine.BLINK -> {
-                val set = palette.blinkSets[beatIndex % palette.blinkSets.size]
-                set.fg to set.bg
-            }
-            EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE ->
-                if (sectionType == SectionDetector.SectionType.BRIDGE) {
-                    val set = palette.bridgeSets[beatIndex % palette.bridgeSets.size]
-                    set.fg to set.bg
-                } else {
-                    val bg = if (sectionType == SectionDetector.SectionType.CHORUS) palette.chorusBg else palette.black
-                    groupColor to bg
-                }
-            EffectMatchingEngine.FgEngine.STROBE -> {
-                val set = palette.strokeSets[beatIndex % palette.strokeSets.size]
-                set.fg to set.bg
-            }
-            EffectMatchingEngine.FgEngine.BREATH -> palette.breathSet.fg to palette.breathSet.bg
-            // OFF_TRANSIT 섹션은 buildFramesFromSections에서 이미 continue로 걸러져 여기 도달하지 않음
-            EffectMatchingEngine.FgEngine.OFF_TRANSIT -> palette.black to palette.black
+            EffectMatchingEngine.FgEngine.ON_PULSE ->
+                if (isPatternA) palette.white to palette.onPulseSets[0].bg
+                else            sectionColor  to palette.black
+            EffectMatchingEngine.FgEngine.BLINK, EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE -> groupColor to palette.black
+            EffectMatchingEngine.FgEngine.STROBE  -> palette.white to palette.black
+            EffectMatchingEngine.FgEngine.BREATH  -> palette.breathSet.fg to palette.breathSet.bg
+            else ->
+                if (isPatternA) palette.bridgeSets[0].fg to palette.black
+                else            groupColor               to palette.black
         }
     }
 
@@ -377,23 +352,10 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
 
     private fun buildOffPayload(): ByteArray = LSEffectPayload.Effects.off(transit = ON_TRANSIT).toByteArray()
 
-    private fun beatInBar(tMs: Long, downbeatMs: Long, globalBeatMs: Long, beatsPerBar: Int): Int {
-        if (globalBeatMs <= 0L || beatsPerBar <= 0) return 0
-        val steps = Math.round((tMs - downbeatMs).toDouble() / globalBeatMs.toDouble())
-        return (((steps % beatsPerBar) + beatsPerBar) % beatsPerBar).toInt()
-    }
-
-    private fun beatSectionColorAndFade(beatInBar: Int, palette: EffectMatchingEngine.Palette): Pair<LSColor, Int> {
-        if (beatInBar == 0) return palette.white to 100
-        val paletteColor = palette.colorGroup.getOrElse(beatInBar - 1) { palette.colorGroup.first() }
-        val fade = when (beatInBar) { 2 -> 100; else -> 35 }
-        return paletteColor to fade
-    }
-
     private fun msToBlinkPeriod(beatMs: Long)        = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToStrobePeriod(beatMs: Long)       = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToBreathPeriod(beatMs: Long)       = (beatMs / 20L).toInt().coerceIn(1, 255)
-    private fun msToBreathRandomDelay(beatMs: Long)  = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
+    private fun msToBreathRandomDelay(beatMs: Long)  = msToBreathPeriod(beatMs)
 
     private fun percentile(values: List<Float>, p: Float): Float {
         if (values.isEmpty()) return 0f

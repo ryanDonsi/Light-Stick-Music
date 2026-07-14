@@ -196,9 +196,6 @@ private fun SectionBar(
 
 private fun sectionLabel(type: SectionDetector.SectionType): String = when (type) {
     SectionDetector.SectionType.INTRO  -> "INTRO"
-    SectionDetector.SectionType.VOCAL  -> "VOCAL"
-    SectionDetector.SectionType.BEAT   -> "BEAT"
-    SectionDetector.SectionType.BUILD  -> "BUILD"
     SectionDetector.SectionType.CLIMAX -> "CLIMAX"
     SectionDetector.SectionType.BREAK  -> "BREAK"
     SectionDetector.SectionType.OUTRO  -> "OUTRO"
@@ -206,6 +203,8 @@ private fun sectionLabel(type: SectionDetector.SectionType): String = when (type
     SectionDetector.SectionType.CHORUS -> "CHORUS"
     SectionDetector.SectionType.BRIDGE -> "BRIDGE"
     SectionDetector.SectionType.END    -> "END"
+    SectionDetector.SectionType.INST   -> "INST"
+    SectionDetector.SectionType.SOLO   -> "SOLO"
 }
 
 private fun changeLabel(s: SectionDetector.ChangeStrength): String = when (s) {
@@ -241,9 +240,6 @@ private fun musicStyleColor(style: MusicStyleClassifier.MusicStyle): Color = whe
 fun sectionColor(type: SectionDetector.SectionType): Color = when (type) {
     // V2 타입
     SectionDetector.SectionType.INTRO  -> Color(0xFF9C27B0)  // Purple
-    SectionDetector.SectionType.VOCAL  -> Color(0xFF42A5F5)  // Light Blue  — 보컬
-    SectionDetector.SectionType.BEAT   -> Color(0xFF66BB6A)  // Green       — 비트
-    SectionDetector.SectionType.BUILD  -> Color(0xFFFFCA28)  // Amber       — 빌드업
     SectionDetector.SectionType.CLIMAX -> Color(0xFFEF5350)  // Red         — 클라이맥스
     SectionDetector.SectionType.BREAK  -> Color(0xFF78909C)  // Blue Grey   — 간주
     SectionDetector.SectionType.OUTRO  -> Color(0xFF26C6DA)  // Teal
@@ -252,4 +248,7 @@ fun sectionColor(type: SectionDetector.SectionType): Color = when (type) {
     SectionDetector.SectionType.CHORUS -> Color(0xFFF44336)
     SectionDetector.SectionType.BRIDGE -> Color(0xFFFF9800)
     SectionDetector.SectionType.END    -> Color(0xFF26C6DA)
+    // 신규 (INST/SOLO)
+    SectionDetector.SectionType.INST   -> Color(0xFF558B2F)  // Olive Green — 무보컬 반주
+    SectionDetector.SectionType.SOLO   -> Color(0xFFFF6F00)  // Orange      — 리드 악기 솔로
 }

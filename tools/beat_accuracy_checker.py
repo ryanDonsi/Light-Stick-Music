@@ -424,7 +424,8 @@ try:
 except Exception as _e:
     _allin1_err = str(_e)
 
-# msaf (scipy>=1.12에서 scipy.inf 제거 → import 전 monkey-patch로 복원)
+# msaf (scipy>=1.12에서 scipy.inf 제거, scipy>=1.13에서 scipy.signal.gaussian
+# 제거(→ scipy.signal.windows.gaussian로 이동) → import 전 monkey-patch로 복원)
 HAS_MSAF = False
 _msaf_mod = None
 _msaf_err = None
@@ -432,7 +433,11 @@ try:
     import scipy as _scipy_tmp
     if not hasattr(_scipy_tmp, 'inf'):
         _scipy_tmp.inf = float('inf')
-    del _scipy_tmp
+    import scipy.signal as _scipy_signal_tmp
+    if not hasattr(_scipy_signal_tmp, 'gaussian'):
+        from scipy.signal.windows import gaussian as _scipy_gaussian_tmp
+        _scipy_signal_tmp.gaussian = _scipy_gaussian_tmp
+    del _scipy_tmp, _scipy_signal_tmp
     import msaf as _msaf_mod
     HAS_MSAF = True
 except Exception as _e:
@@ -442,7 +447,10 @@ except Exception as _e:
 HAS_DEMUCS = False
 _demucs_err = None
 try:
-    import demucs
+    # "import demucs"만으로는 demucs.api 서브모듈이 demucs 이름에 바인딩되지
+    # 않는다(패키지 __init__.py가 api를 자동 임포트하지 않음) — demucs.api.separate()
+    # 호출 시 "module 'demucs' has no attribute 'api'"로 실패하므로 명시적으로 임포트한다.
+    import demucs.api
     HAS_DEMUCS = True
 except Exception as _e:
     _demucs_err = str(_e)
@@ -686,7 +694,8 @@ def compute_music_style_librosa(audio_path, beats_sec, bpm):
 def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
     """다중 특징 기반 섹션 분류.
     RMS 에너지 + Spectral centroid + Onset density + Chroma 유사도 + 시간적 위치
-    를 복합 사용하여 INTRO/VERSE/PRE-CHORUS/CHORUS/BRIDGE/OUTRO 를 판별한다.
+    를 복합 사용하여 allin1과 동일한 라벨 체계
+    (INTRO/VERSE/CHORUS/BRIDGE/OUTRO/INST/SOLO/BREAK)로 판별한다.
     """
     if not HAS_LIBROSA:
         return []
@@ -722,6 +731,7 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
         for i in range(n):
             t0, t1 = all_times[i], all_times[i + 1]
             f0, f1 = _frames(t0), _frames(t1)
+            f0 = min(f0, chroma_f.shape[1] - 1)  # f0가 배열 끝(빈 슬라이스)을 넘지 않도록
             if f1 <= f0:
                 f1 = f0 + 1
             chroma_mean = chroma_f[:, f0:f1].mean(axis=1)
@@ -800,30 +810,24 @@ def detect_librosa_sections(audio_path, duration_sec, n_segments=15):
             else:
                 types.append("VERSE")
 
-        # ── 8. POST: PRE-CHORUS 탐지 ──
-        # VERSE/BRIDGE 다음에 CHORUS가 오고 에너지가 높거나 직전보다 상승이면 PRE-CHORUS
-        verse_e = [rms_n[i] for i in range(n) if types[i] == "VERSE"]
-        verse_mean = float(np.mean(verse_e)) if verse_e else 0.5
+        # ── 8. INST / SOLO / BREAK 탐지 (allin1 라벨 체계에 맞춤) ──
+        # 보컬 스템이 없어 "보컬 유무"를 직접 잴 수 없으므로, 전체 에너지가
+        # 매우 낮은 구간은 BREAK로, tonal(저 flatness)+저 onset인 조용한
+        # 선율 구간은 SOLO(고 centroid)/INST(저·중 centroid)로 근사한다.
+        BREAK_TH = 0.12
+        BREAK_MAX_SEC = 8.0  # 이보다 길게 이어지면 "끊김"이 아니라 구조적 BRIDGE
+        onset_low_th = float(np.percentile(onset_n[1:-1], 33)) if n > 2 else 0.0  # 하위 33%
         for i in range(1, n - 1):
-            if types[i] in ("VERSE", "BRIDGE") and types[i + 1] == "CHORUS":
-                rising = i > 0 and rms_n[i] > rms_n[i - 1] + 0.05
-                high   = rms_n[i] > verse_mean + 0.08
-                if rising or high:
-                    types[i] = "PRE-CHORUS"
-
-        # ── 9. VOCAL / INST 탐지 ──
-        # tonal(저 flatness) + 저 onset → 조용한 선율 구간
-        # centroid 높음 → 보컬(고음역), centroid 낮음 → 연주(저·중음역)
-        onset_low_th = float(np.percentile(onset_n[1:-1], 33))  # 하위 33%
-        for i in range(1, n - 1):
-            if types[i] in ("VERSE",):
-                tonal = flat_n[i] < 0.40          # 저 flatness → tonal (비잡음)
-                quiet = onset_n[i] <= onset_low_th # 저 onset → 타악기 적음
-                if tonal and quiet:
-                    if cent_n[i] >= 0.55:          # 고 centroid → 보컬 음역
-                        types[i] = "VOCAL"
-                    else:                           # 저·중 centroid → 악기 선율
-                        types[i] = "INST"
+            if types[i] not in ("VERSE", "BRIDGE"):
+                continue
+            if rms_n[i] <= BREAK_TH:               # 전체 에너지 매우 낮음 → 브레이크다운
+                is_short = (all_times[i + 1] - all_times[i]) <= BREAK_MAX_SEC
+                types[i] = "BREAK" if is_short else "BRIDGE"
+                continue
+            tonal = flat_n[i] < 0.40               # 저 flatness → tonal (비잡음)
+            quiet = onset_n[i] <= onset_low_th     # 저 onset → 타악기 적음
+            if tonal and quiet:
+                types[i] = "SOLO" if cent_n[i] >= 0.55 else "INST"
 
         return [
             {"start_ms": int(all_times[i] * 1000),
@@ -880,19 +884,24 @@ def detect_msaf_sections(audio_path, duration_sec):
         return []
 
 
-def classify_msaf_sections_semantic(audio_path, duration_sec):
+def classify_msaf_sections_semantic(audio_path, duration_sec, debug=None):
     """MSAF 경계 + Librosa 특징으로 의미 있는 섹션 분류.
 
     MSAF로 정확한 경계를 감지하고, 각 구간의 음향 특징(에너지, 스펙트럼,
     리듬 밀도)을 분석하여 allin1처럼 의미 있는 라벨(INTRO/VERSE/CHORUS 등)
-    을 부여한다.
+    을 부여한다. demucs가 없어 스템 분리를 못 쓸 때(HAS_DEMUCS=False)
+    detect_gt_sections_demucs_msaf 대신 쓰이는 폴백이다.
 
     반환: [
         {'start_ms': int, 'end_ms': int, 'index': int,
-         'type': 'INTRO'|'VERSE'|'CHORUS'|'BRIDGE'|'OUTRO'|'PRE-CHORUS',
+         'type': 'INTRO'|'VERSE'|'CHORUS'|'BRIDGE'|'OUTRO'|'INST'|'SOLO'|'BREAK',
          'confidence': 0-1,  # 분류 신뢰도
          'cluster': 'A'|'B'|'C'...}  # 원본 msaf 클러스터
     ]
+
+    debug: dict를 넘기면 판정에 쓰인 중간값(구간별 rms_n/centroid_n/
+    flatness_n/onset_n, 그룹핑, 최종 섹션)을 채워 넣는다. demucs+msaf가
+    아니라 원곡 혼합 신호 기반이라 vocal_share 같은 스템 지표는 없다.
     """
     if not HAS_MSAF or not HAS_LIBROSA:
         return []
@@ -943,6 +952,10 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
         for i in range(n):
             t0, t1 = float(bounds[i]), float(bounds[i + 1])
             f0, f1 = _frames(t0), _frames(t1)
+            # msaf는 원곡 전체 길이로 경계를 잡지만, 위 특징 배열은 load_dur(최대 300초)로
+            # 자른 y에서 계산됐다 — 5분 넘는 곡은 뒤쪽 구간의 f0가 배열 끝과 같아져 빈
+            # 슬라이스(Mean of empty slice/NaN)가 되므로 마지막 유효 프레임으로 고정한다.
+            f0 = min(f0, chroma_f.shape[1] - 1)
             if f1 <= f0:
                 f1 = f0 + 1
 
@@ -1029,19 +1042,29 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
                 types.append("VERSE")
                 confidence_scores.append(0.5)
 
-        # ── 8. PRE-CHORUS 탐지 ──
-        verse_e = [rms_n[i] for i in range(n) if types[i] == "VERSE"]
-        verse_mean = float(np.mean(verse_e)) if verse_e else 0.5
+        # ── 8. INST / SOLO / BREAK 탐지 (allin1 라벨 체계에 맞춤) ──
+        # 보컬 스템이 없어 "보컬 유무"를 직접 잴 수 없으므로, 전체 에너지가
+        # 매우 낮은 구간은 BREAK로, tonal(저 flatness)+저 onset인 조용한
+        # 선율 구간은 SOLO(고 centroid)/INST(저·중 centroid)로 근사한다.
+        BREAK_TH = 0.12
+        BREAK_MAX_SEC = 8.0  # 이보다 길게 이어지면 "끊김"이 아니라 구조적 BRIDGE
+        onset_low_th = float(np.percentile(onset_n[1:-1], 33)) if n > 2 else 0.0
         for i in range(1, n - 1):
-            if types[i] in ("VERSE", "BRIDGE") and types[i + 1] == "CHORUS":
-                rising = rms_n[i] > rms_n[i - 1] + 0.05
-                high   = rms_n[i] > verse_mean + 0.08
-                if rising or high:
-                    types[i] = "PRE-CHORUS"
-                    confidence_scores[i] = 0.7
+            if types[i] not in ("VERSE", "BRIDGE"):
+                continue
+            if rms_n[i] <= BREAK_TH:
+                is_short = (float(bounds[i + 1]) - float(bounds[i])) <= BREAK_MAX_SEC
+                types[i] = "BREAK" if is_short else "BRIDGE"
+                confidence_scores[i] = 0.6
+                continue
+            tonal = flat_n[i] < 0.40
+            quiet = onset_n[i] <= onset_low_th
+            if tonal and quiet:
+                types[i] = "SOLO" if cent_n[i] >= 0.55 else "INST"
+                confidence_scores[i] = 0.6
 
         # ── 9. 결과 구성 ──
-        return [
+        result = [
             {'start_ms': int(float(bounds[i]) * 1000),
              'end_ms':   int(float(bounds[i + 1]) * 1000),
              'index':    i,
@@ -1050,58 +1073,408 @@ def classify_msaf_sections_semantic(audio_path, duration_sec):
              'cluster':  cluster_labels[i]}
             for i in range(n)
         ]
+        if debug is not None:
+            debug["duration_sec"] = duration_sec
+            debug["load_dur_sec"] = load_dur
+            debug["thresholds"] = {"BREAK_TH": BREAK_TH, "onset_low_th": onset_low_th}
+            debug["segments"] = [
+                {
+                    "index": i,
+                    "start_sec": round(float(bounds[i]), 3), "end_sec": round(float(bounds[i + 1]), 3),
+                    "type": types[i], "cluster": cluster_labels[i],
+                    "confidence": round(confidence_scores[i], 3),
+                    "rms_n": round(float(rms_n[i]), 4), "centroid_n": round(float(cent_n[i]), 4),
+                    "flatness_n": round(float(flat_n[i]), 4), "onset_n": round(float(onset_n[i]), 4),
+                    "group_id": int(group_ids[i]), "repeated": grp_cnt[group_ids[i]] >= 2,
+                }
+                for i in range(n)
+            ]
+            debug["final_sections"] = result
+        return result
     except Exception as e:
+        if debug is not None:
+            debug["error"] = str(e)
         return []
 
 
-def detect_msaf_sections_with_drums(audio_path, duration_sec):
-    """Demucs로 드럼 분리 후 msaf로 섹션 감지 (더 정확한 경계 감지).
+def _detect_climax_offsets_sec(energy, hop_sec, duration_sec):
+    """앱의 SectionDetectorV1.detectClimaxMoments()와 동일한 알고리즘으로
+    "클라이맥스"급 로컬 에너지 피크 시각(초)을 찾는다.
 
-    드럼 트랙은 섹션 경계가 명확하므로 msaf 성능이 향상됨.
+    - 프레임별 노벨티 점수: e*0.50 + max(0,e-직전)*0.30 + max(0,e-주변4프레임평균)*0.20
+    - 곡 전체의 변동성(CV)·피크비가 충분히 크지 않으면(단조로운 곡) 아예 스킵
+    - 로컬 최댓값 + p90*1.18 이상 + 평균+표준편차*1.30 이상만 채택
+    - 곡 앞 30%는 제외, 피크 간 최소 간격 확보, 최대 3개까지
     """
-    if not HAS_DEMUCS or not HAS_MSAF:
-        return None
+    n = len(energy)
+    if n < 8:
+        return []
+    score = [0.0] * n
+    for i in range(2, n - 2):
+        e = energy[i]
+        local_avg = (energy[i - 2] + energy[i - 1] + energy[i + 1] + energy[i + 2]) * 0.25
+        score[i] = e * 0.50 + max(0.0, e - energy[i - 1]) * 0.30 + max(0.0, e - local_avg) * 0.20
+
+    score_list = [s for s in score if s > 0.0]
+    if not score_list:
+        return []
+    env_mean = sum(score_list) / len(score_list)
+    env_std = (sum((v - env_mean) ** 2 for v in score_list) / len(score_list)) ** 0.5
+    cv = env_std / env_mean if env_mean > 0 else 0.0
+    peak_ratio = max(score_list) / env_mean if env_mean > 0 else 0.0
+    if cv < 0.35 or peak_ratio < 2.0:
+        return []
+
+    sorted_scores = sorted(score_list)
+    p90 = sorted_scores[min(int(len(sorted_scores) * 0.90), len(sorted_scores) - 1)]
+    min_gap_sec = 2.0  # 앱은 비트*4를 쓰지만 여기선 bpm 정보가 없어 고정값으로 근사
+    climax_intro_limit = duration_sec * 0.30
+
+    selected = []
+    for i in range(2, n - 2):
+        sc = score[i]
+        if sc <= 0.0:
+            continue
+        t = i * hop_sec
+        if t < climax_intro_limit:
+            continue
+        if (sc >= score[i - 1] and sc >= score[i - 2] and sc >= score[i + 1] and sc >= score[i + 2]
+                and sc >= p90 * 1.18 and sc >= env_mean + env_std * 1.30):
+            if all(abs(t - s) >= min_gap_sec for s in selected):
+                selected.append(t)
+                if len(selected) >= 3:
+                    break
+    return sorted(selected)
+
+
+def _detect_trailing_end_sec(audio_path, duration_sec, tail_window_sec=20.0):
+    """앱의 detectLastMusicEndMs()와 동일한 방식으로 곡 끝의 무음 구간을 찾는다.
+
+    스무딩된 RMS가 (최댓값*0.03) 밑으로 떨어진 뒤 다시 안 올라오는 마지막 지점을
+    찾고, 그 지점부터 곡 끝까지가 1.5초 이상이면 그 지점을(END 시작), 아니면
+    duration_sec을 반환한다. load_dur(최대 300초) 캡과 무관하게 파일 꼬리만
+    별도로 로드하므로 5분 넘는 곡도 정확히 잡는다.
+    """
+    if not HAS_LIBROSA or duration_sec <= 0:
+        return duration_sec
     try:
+        offset = max(0.0, duration_sec - tail_window_sec)
+        y, sr = librosa.load(audio_path, sr=22050, mono=True,
+                             offset=offset, duration=duration_sec - offset)
+        if len(y) == 0:
+            return duration_sec
+        hop = 512
+        rms = librosa.feature.rms(y=y, hop_length=hop)[0]
+        if len(rms) == 0:
+            return duration_sec
+        smooth = np.array([rms[max(0, i - 4):min(len(rms), i + 5)].mean() for i in range(len(rms))])
+        threshold = max(float(smooth.max()) * 0.03, 0.01)
+        last_active_idx = None
+        for i in range(len(smooth) - 1, -1, -1):
+            if smooth[i] >= threshold:
+                last_active_idx = i
+                break
+        if last_active_idx is None:
+            return duration_sec
+        last_active_sec = offset + (last_active_idx + 1) * hop / sr
+        return last_active_sec if duration_sec - last_active_sec >= 1.5 else duration_sec
+    except Exception:
+        return duration_sec
+
+
+def detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=None):
+    """demucs 4-스템 분리 + msaf 구조 경계 검출을 결합해 allin1 방식으로
+    GT 섹션의 경계·라벨을 모두 만든다. (동적 생성 표준 — CUDA 불필요)
+
+    - 경계 판단: 드럼 스템에 msaf(foote, 노벨티/체커보드 커널 기반)를 적용한다.
+      드럼은 리듬 전환이 뚜렷해 경계가 원곡보다 명확히 드러나며, foote는 국소
+      변화 지점을 직접 찾아 scluster(전역 반복 클러스터링)보다 촘촘한 경계를
+      낸다(고정 개수로 자르고 보는 librosa 폴백과 달리, 실제 변화 지점을 본다).
+      경계 이후 라벨은 이 함수가 스템 비중으로 직접 매기므로 msaf 자체 라벨링은
+      쓰지 않는다.
+    - 성격 구분/라벨링: 보컬/드럼/베이스/기타 4개 스템의 구간별 에너지로
+      "이 구간에 보컬이 있는가", "악기가 전부 합주 중인가"를 직접 측정해
+      VERSE/CHORUS/BRIDGE/INST/SOLO를 구분한다.
+      * 보컬 유무는 그 순간 4스템 합계 중 보컬이 차지하는 비중(share)으로
+        판단한다 — 곡 전체 loudness와 무관한 상대 비율이라, 조용한 발라드든
+        시끄러운 EDM이든, 보컬이 아예 없는 연주곡이든(비중이 항상 낮게 나옴)
+        전부 같은 기준으로 판단할 수 있다. (기존에는 곡 내 min-max로
+        정규화했는데, 연주곡은 노이즈 차이만으로도 0~1 풀레인지로 뻥튀기되고
+        다이나믹 레인지가 극단적인 곡은 대부분 구간이 한쪽 끝으로 뭉치는
+        문제가 있었다.)
+      * "합주가 코러스급으로 센가/브레이크다운급으로 조용한가"는 곡 내
+        상대적 위치가 중요하므로 percentile rank(이상치에 강함)로 판단한다.
+    - INTRO/OUTRO는 위치(첫/마지막 구간)가 기본값이지만, 그 구간이 이미
+      반복+고에너지로 명백히 CHORUS 패턴이면(예: 코러스로 시작하는 곡)
+      위치보다 내용을 우선해 CHORUS로 유지한다.
+    - CLIMAX: 앱 SectionDetectorV1.detectClimaxMoments()와 동일한 알고리즘
+      (로컬 에너지 피크 + CV/피크비 가드)을 원곡 에너지에 적용해, 피크를
+      포함하는 CHORUS 구간을 CLIMAX로 승격한다.
+    - END: 앱 detectLastMusicEndMs()와 동일한 방식으로 곡 끝의 무음 구간을
+      찾아 마지막 구간에서 분리한다 (OUTRO=마지막 음악, END=그 뒤 무음).
+
+    debug: dict를 넘기면 판정에 쓰인 모든 중간값(구간별 vocal_share/
+    other_share/full_rank/스템 RMS/그룹핑, climax_offsets_sec,
+    end_start_sec, 최종 섹션)을 채워 넣는다. 오디오 자체는 담지 않고
+    전부 숫자/라벨이라 그대로 공유해도 안전하다.
+    """
+    if not (HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA):
+        return []
+    _stems_dir = None
+    try:
+        import numpy as np
+        from collections import Counter
         import tempfile
+
+        # demucs.api에는 (예전에 이 코드가 가정했던) 최상위 separate() 함수가
+        # 없다 — Separator를 만들어 separate_audio_file()을 호출해야 하고,
+        # 반환값은 파일 경로가 아니라 torch 텐서(dict[str, Tensor])다. msaf.process()/
+        # librosa.load()는 파일 경로가 필요하므로 스템을 임시 wav로 저장한다.
+        # demucs.api.save_audio()는 내부적으로 torchaudio.save()를 쓰는데, 최신
+        # torchaudio는 WAV 저장 시 torchcodec 백엔드를 요구해("TorchCodec is
+        # required for save_with_torchcodec") torchcodec 미설치 환경에서 실패한다.
+        # 이미 의존성으로 쓰고 있는 soundfile로 직접 저장해 이를 우회한다.
         import soundfile as sf
+        separator = demucs.api.Separator(model='htdemucs')
+        _origin, stems_dict = separator.separate_audio_file(audio_path)
+        if 'vocals' not in stems_dict or 'drums' not in stems_dict:
+            return []
 
-        # 1. Demucs로 드럼 분리
-        stems = demucs.api.separate(audio_path, model='htdemucs_v4')
-        drums_stem = stems.get('drums')
-        if drums_stem is None:
-            return None
+        _stems_dir = tempfile.mkdtemp(prefix="demucs_stems_")
+        stem_paths = {}
+        for _name, _wav in stems_dict.items():
+            _p = os.path.join(_stems_dir, f"{_name}.wav")
+            # torch 텐서 (channels, samples) → soundfile이 기대하는 (samples, channels)
+            _wav_np = _wav.detach().cpu().numpy().T
+            sf.write(_p, _wav_np, int(separator.samplerate))
+            stem_paths[_name] = _p
+        vocals_stem = stem_paths.get('vocals')
+        drums_stem  = stem_paths.get('drums')
+        bass_stem   = stem_paths.get('bass')
+        other_stem  = stem_paths.get('other')
 
-        # 2. 드럼 스템으로 msaf 섹션 감지
-        bounds, cluster_ids = _msaf_mod.process(
-            drums_stem, boundaries_id='scluster', labels_id='fmc2d')
-        cluster_ids = list(cluster_ids)
-        n = len(cluster_ids)
-        if n == 0:
-            return None
+        # ── 1. 경계: 드럼 스템 + msaf(노벨티 기반 foote) ──
+        # scluster는 스펙트럴 클러스터링으로 "몇 개의 큰 반복 그룹이 있는가"부터
+        # 자동으로 정하는 알고리즘이라, 곡 후반부가 서로 비슷한 클러스터로
+        # 묶이면 수십~백 초짜리 구간 하나로 뭉개버리는 경우가 있었다(예: 194초
+        # 곡에서 63~194초 131초가 통째로 한 구간). foote는 체커보드 커널로
+        # 국소적인 변화(노벨티)를 직접 찾는 방식이라 훨씬 촘촘한 경계를 낸다.
+        # 라벨은 이 함수가 스템 비중으로 직접 매기므로 msaf 라벨링은 건너뛴다.
+        bounds, _ = _msaf_mod.process(
+            drums_stem, boundaries_id='foote', labels_id=None)
+        bounds = [float(b) for b in bounds]
+        if bounds[0] > 0.1:
+            bounds = [0.0] + bounds
+        if bounds[-1] < duration_sec - 0.1:
+            bounds = bounds + [duration_sec]
+        n = len(bounds) - 1
+        if n < 2:
+            return []
 
-        # 3. 클러스터 ID → 알파벳 매핑
-        _CLUSTER_LETTERS = 'ABCDEFGHIJ'
-        if float(bounds[0]) > 0.1:
-            bounds = np.concatenate([[0.0], bounds])
-        if len(bounds) < n + 1:
-            bounds = np.concatenate([bounds, [duration_sec]])
+        load_dur = min(300.0, duration_sec) if duration_sec > 0 else 300.0
 
-        seen = {}
-        for cid in cluster_ids:
-            if cid not in seen:
-                seen[cid] = _CLUSTER_LETTERS[len(seen) % len(_CLUSTER_LETTERS)]
+        def _stem_rms_per_segment(stem_path):
+            """스템 오디오를 로드해 각 구간(bounds)의 평균 RMS를 계산."""
+            if not stem_path:
+                return [0.0] * n
+            y, sr = librosa.load(stem_path, sr=22050, mono=True, duration=load_dur)
+            rms = librosa.feature.rms(y=y, hop_length=512)[0]
+            total = len(rms)
 
-        sections = [
-            {'start_ms': int(float(bounds[i]) * 1000),
-             'end_ms':   int(float(bounds[i + 1]) * 1000),
-             'index':    i,
-             'type':     seen[int(cluster_ids[i])],
-             'stem':     'drums'}
+            def _f(t):
+                return min(int(t * sr / 512), total)
+
+            out = []
+            for i in range(n):
+                f0, f1 = _f(bounds[i]), _f(bounds[i + 1])
+                if f1 <= f0:
+                    f1 = f0 + 1
+                out.append(float(rms[f0:min(f1, total)].mean()) if f0 < total else 0.0)
+            return out
+
+        vocal_rms = _stem_rms_per_segment(vocals_stem)
+        drums_rms = _stem_rms_per_segment(drums_stem)
+        bass_rms  = _stem_rms_per_segment(bass_stem)
+        other_rms = _stem_rms_per_segment(other_stem)
+
+        _EPS = 1e-8
+        # "보컬이 있는가" = 그 순간 4스템 합계 중 보컬이 차지하는 비중(share).
+        # 곡 전체 loudness에 영향받지 않는 상대 비율이라 조용한 곡/시끄러운 곡/
+        # 연주곡을 같은 임계값으로 판단할 수 있다.
+        vocal_share = [vocal_rms[i] / (vocal_rms[i] + drums_rms[i] + bass_rms[i] + other_rms[i] + _EPS)
+                       for i in range(n)]
+        # "리드 악기(other)가 두드러지는가" = 보컬을 뺀 3개 악기 중 other의 비중.
+        other_share = [other_rms[i] / (drums_rms[i] + bass_rms[i] + other_rms[i] + _EPS)
+                       for i in range(n)]
+        # "합주가 얼마나 센가"는 곡 내 다른 구간과 비교해야 의미가 있으므로,
+        # 절대값이 아니라 percentile rank(0~1)로 나타낸다. min-max와 달리
+        # 극단적으로 튀는 구간 하나 때문에 나머지가 전부 한쪽으로 뭉치지 않는다.
+        def _rank_norm(vals):
+            a = np.array(vals, dtype=float)
+            order = a.argsort()
+            ranks = np.empty(len(a), dtype=float)
+            ranks[order] = np.arange(len(a))
+            return ranks / max(len(a) - 1, 1)
+
+        full_energy = [drums_rms[i] + bass_rms[i] + other_rms[i] for i in range(n)]
+        full_rank   = _rank_norm(full_energy)
+
+        # ── 2. 반복 구간(코러스 후보) 그룹화: 원곡 크로마 유사도 ──
+        y_mix, sr_mix = librosa.load(audio_path, sr=22050, mono=True, duration=load_dur)
+        chroma_f = librosa.feature.chroma_cqt(y=y_mix, sr=sr_mix, hop_length=512)
+
+        def _fr(t):
+            return min(int(t * sr_mix / 512), chroma_f.shape[1])
+
+        chroma_means = []
+        for i in range(n):
+            f0, f1 = _fr(bounds[i]), _fr(bounds[i + 1])
+            # msaf 경계는 드럼 스템 전체 길이 기준인데 chroma_f는 load_dur(최대 300초)로
+            # 자른 y_mix에서 계산됐다 — 5분 넘는 곡은 뒤쪽 구간이 빈 슬라이스(NaN)가 되므로
+            # 마지막 유효 프레임으로 고정한다.
+            f0 = min(f0, chroma_f.shape[1] - 1)
+            if f1 <= f0:
+                f1 = f0 + 1
+            chroma_means.append(chroma_f[:, f0:f1].mean(axis=1))
+
+        def _cos_sim(a, b):
+            na, nb = np.linalg.norm(a), np.linalg.norm(b)
+            return float(np.dot(a, b) / (na * nb)) if na > 1e-6 and nb > 1e-6 else 0.0
+
+        group_ids = [-1] * n
+        gid = 0
+        for i in range(n):
+            if group_ids[i] >= 0:
+                continue
+            group_ids[i] = gid
+            for j in range(i + 1, n):
+                if group_ids[j] < 0 and _cos_sim(chroma_means[i], chroma_means[j]) >= 0.85:
+                    group_ids[j] = gid
+            gid += 1
+        grp_cnt = Counter(group_ids)
+
+        # ── 3. 구간별 라벨링 (스템 비중/순위 = 성격 기준) ──
+        # allin1 라벨 체계(start/end 제외 8개)와 동일하게 맞춘다:
+        # intro / verse / chorus / bridge / outro / inst / solo / break
+        VOCAL_SHARE_TH = 0.12   # 4스템 합계 중 보컬 비중 — 이 이상이면 "보컬 있음"
+        OTHER_SHARE_TH = 0.55   # 드럼+베이스+기타 중 기타(리드악기) 비중 — 이 이상이면 SOLO
+        BREAK_RANK_TH  = 0.20   # 합주 에너지 순위 하위 20% 이하 → BREAK(브레이크다운)
+        CHORUS_RANK_TH = 0.60   # 합주 에너지 순위 상위 40%(0.60 이상) → 코러스급 합주
+
+        # 먼저 첫/마지막 구간도 포함해서 전부 같은 규칙으로 라벨링한다.
+        # (위치와 무관하게 "이 구간의 성격이 뭔가"부터 판단)
+        types = [None] * n
+        for i in range(n):
+            has_vocal = vocal_share[i] >= VOCAL_SHARE_TH
+            if not has_vocal:
+                # 보컬 없는 구간: 합주 에너지까지 낮으면 BREAK,
+                # 리드 악기가 두드러지면 SOLO, 그 외에는 INST
+                if full_rank[i] <= BREAK_RANK_TH:
+                    types[i] = "BREAK"
+                elif other_share[i] >= OTHER_SHARE_TH:
+                    types[i] = "SOLO"
+                else:
+                    types[i] = "INST"
+                continue
+
+            repeated = grp_cnt[group_ids[i]] >= 2
+            if repeated and full_rank[i] >= CHORUS_RANK_TH:
+                types[i] = "CHORUS"
+            elif not repeated:
+                types[i] = "BRIDGE"
+            else:
+                types[i] = "VERSE"
+
+        # BREAK는 "순간적으로 끊기는" 짧은 구간만을 뜻한다. 보컬 없이 조용하지만
+        # 몇십 초씩 이어지는 구간(코러스 뒤 잠깐 가라앉았다가 다시 쌓아올리는 구간
+        # 등)은 끊긴 게 아니라 조용한 반주가 계속되는 INST다.
+        BREAK_MAX_SEC = 8.0
+        for i in range(n):
+            if types[i] == "BREAK" and (bounds[i + 1] - bounds[i]) > BREAK_MAX_SEC:
+                types[i] = "INST"
+
+        # ── 4. INTRO/OUTRO: 위치가 기본값이지만, 이미 명백한 CHORUS(반복+고에너지)
+        # 라면 위치보다 내용을 우선한다 (코러스로 시작/끝나는 곡 대응).
+        if types[0] != "CHORUS":
+            types[0] = "INTRO"
+        if types[n - 1] != "CHORUS":
+            types[n - 1] = "OUTRO"
+
+        # ── 5. CLIMAX: 앱(SectionDetectorV1)과 동일한 피크 검출 알고리즘을 원곡
+        # 전체 에너지에 적용해, 피크를 포함하는 CHORUS 구간을 CLIMAX로 승격한다.
+        mix_rms = librosa.feature.rms(y=y_mix, hop_length=512)[0]
+        hop_sec = 512.0 / sr_mix
+        climax_offsets = _detect_climax_offsets_sec(list(mix_rms), hop_sec, load_dur)
+        if climax_offsets:
+            for i in range(n):
+                if types[i] == "CHORUS" and any(bounds[i] <= t < bounds[i + 1] for t in climax_offsets):
+                    types[i] = "CLIMAX"
+
+        # ── 6. END: 곡 끝의 무음 구간을 앱과 동일한 방식으로 찾아 별도 구간으로
+        # 분리한다 (OUTRO=마지막 음악 구간, END=그 뒤 진짜 무음).
+        end_start_sec = _detect_trailing_end_sec(audio_path, duration_sec)
+
+        if debug is not None:
+            # 판정에 쓰인 모든 중간값을 원래 n(END 분리 전) 기준으로 기록한다.
+            # 오디오는 담지 않고 전부 숫자/라벨이라 그대로 공유해도 안전하다.
+            debug["duration_sec"] = duration_sec
+            debug["load_dur_sec"] = load_dur
+            debug["thresholds"] = {
+                "VOCAL_SHARE_TH": VOCAL_SHARE_TH, "OTHER_SHARE_TH": OTHER_SHARE_TH,
+                "BREAK_RANK_TH": BREAK_RANK_TH, "CHORUS_RANK_TH": CHORUS_RANK_TH,
+            }
+            debug["climax_offsets_sec"] = climax_offsets
+            debug["end_start_sec"] = end_start_sec
+            debug["segments"] = [
+                {
+                    "index": i,
+                    "start_sec": round(bounds[i], 3), "end_sec": round(bounds[i + 1], 3),
+                    "type": types[i],
+                    "vocal_share": round(vocal_share[i], 4),
+                    "other_share": round(other_share[i], 4),
+                    "full_energy": round(full_energy[i], 6),
+                    "full_rank": round(float(full_rank[i]), 4),
+                    "group_id": int(group_ids[i]),
+                    "repeated": grp_cnt[group_ids[i]] >= 2,
+                    "vocal_rms": round(vocal_rms[i], 6),
+                    "drums_rms": round(drums_rms[i], 6),
+                    "bass_rms": round(bass_rms[i], 6),
+                    "other_rms": round(other_rms[i], 6),
+                }
+                for i in range(n)
+            ]
+        if end_start_sec < duration_sec - 0.05 and end_start_sec > bounds[0]:
+            new_bounds, new_types = [], []
+            for i in range(n):
+                s, e, t = bounds[i], bounds[i + 1], types[i]
+                if e <= end_start_sec:
+                    new_bounds.append(s); new_types.append(t)
+                elif s >= end_start_sec:
+                    new_bounds.append(s); new_types.append("END")
+                else:
+                    new_bounds.append(s); new_types.append(t)
+                    new_bounds.append(end_start_sec); new_types.append("END")
+            new_bounds.append(duration_sec)
+            bounds, types, n = new_bounds, new_types, len(new_types)
+
+        result = [
+            {"start_ms": int(bounds[i] * 1000),
+             "end_ms":   int(bounds[i + 1] * 1000),
+             "index":    i,
+             "type":     types[i]}
             for i in range(n)
         ]
-        return sections
-    except Exception:
-        return None
+        if debug is not None:
+            debug["final_sections"] = result
+        return result
+    except Exception as e:
+        if debug is not None:
+            debug["error"] = str(e)
+        return []
+    finally:
+        if _stems_dir:
+            import shutil
+            shutil.rmtree(_stems_dir, ignore_errors=True)
 
 
 def detect_msaf_sections_with_vocals(audio_path, duration_sec):
@@ -1148,8 +1521,14 @@ def detect_msaf_sections_with_vocals(audio_path, duration_sec):
         return None
 
 
-def validate_section_meaning(app_sections, gt_sections):
+def validate_section_meaning(app_sections, gt_sections, gt_source=None):
     """앱 섹션의 의미성 검증: 각 앱 섹션이 GT 섹션 경계와 얼마나 일치하는가.
+
+    gt_source: GT 섹션을 감지한 방식("allin1"/"demucs+msaf"/"msaf"/"librosa").
+    allin1·demucs+msaf는 신뢰도가 높은 GT이므로 낮은 일치도는 앱 섹션 로직의
+    문제로 해석하고, msaf(semantic 없이)·librosa 폴백은 GT 자체의 신뢰도가
+    낮으므로 그 사실을 함께 안내한다 (이미 demucs+msaf를 쓰고 있는데도
+    "demucs 사용 권장"이라고 안내하는 오류를 피하기 위함).
 
     반환: {
         'alignment_score': 0-100,  # 경계 일치도 (100이 최고)
@@ -1197,13 +1576,17 @@ def validate_section_meaning(app_sections, gt_sections):
         else:
             stability = 50
 
-        # 3. 권장사항
+        # 3. 권장사항 — GT 신뢰도(gt_source)에 따라 원인을 다르게 안내
+        reliable_gt = gt_source in ("allin1", "demucs+msaf")
         if alignment_score >= 75:
-            recommended_action = '✓ 앱 섹션이 의미 있게 구분됨. msaf 분석이 양호합니다.'
+            recommended_action = ('✓ 앱 섹션 경계가 GT와 잘 일치합니다.' if reliable_gt else
+                                   '✓ 일치도는 높으나 GT가 폴백 방식이라 참고용입니다.')
         elif alignment_score >= 50:
-            recommended_action = '△ 부분적 일치. demucs(드럼)를 사용하여 개선 권장.'
+            recommended_action = ('△ 부분적으로 일치. 앱 섹션 로직 점검을 권장합니다.' if reliable_gt else
+                                   '△ 부분적 일치. GT가 폴백 방식이라 신뢰도가 낮습니다.')
         else:
-            recommended_action = '✗ 낮은 일치도. demucs를 사용한 고도화 필요.'
+            recommended_action = ('✗ 낮은 일치도. 앱 섹션 생성 로직이 GT 구조와 다릅니다.' if reliable_gt else
+                                   '✗ 낮은 일치도. GT가 폴백 방식(msaf/librosa)이라 신뢰도가 낮습니다.')
 
         return {
             'alignment_score': alignment_score,
@@ -1218,21 +1601,165 @@ def validate_section_meaning(app_sections, gt_sections):
                 'recommended_action': f'분석 오류: {str(e)}'}
 
 
-def detect_gt_sections(audio_path, duration_sec):
-    """GT 섹션 감지 우선순위:
-    allin1 → demucs(drums) → msaf(semantic) → msaf(cluster) → librosa
+def _merge_adjacent_same_type_sections(sections):
+    """연속으로 같은 type인 구간을 하나로 병합한다.
 
-    allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo
-    (start/end 마커는 제외)
-    msaf(semantic): MSAF 경계 + librosa 특징으로 의미 있는 라벨 부여
+    allin1은 모델이 직접 경계를 판단하므로 같은 라벨이 잘게 쪼개져
+    연속으로 나오지 않는다. 반면 msaf/librosa 폴백은 고정 개수로
+    구간을 나눈 뒤 라벨을 붙이므로, 같은 라벨이 여러 조각으로 쪼개져
+    시각적으로 중복되어 보인다. allin1과 동일한 결과 형태를 만들기
+    위해 인접한 동일 라벨 구간을 하나로 합친다.
     """
+    if not sections:
+        return sections
+    merged = [dict(sections[0])]
+    for sec in sections[1:]:
+        last = merged[-1]
+        if sec.get("type") == last.get("type"):
+            last["end_ms"] = sec["end_ms"]
+        else:
+            merged.append(dict(sec))
+    for i, sec in enumerate(merged):
+        sec["index"] = i
+    return merged
+
+
+# ──────────────────────────────────────────────
+# GT 섹션 전용 캐시 (music_id 기준, 엔진과 무관)
+# ──────────────────────────────────────────────
+# GT 섹션 감지(특히 demucs 4-스템 분리)는 비용이 커서, 엔진별 비트 정확도
+# 기록인 beat_analysis_records.json과는 별도로 music_id만으로 즉시 조회
+# 가능한 전용 캐시 파일에 결과를 저장한다. 같은 곡을 여러 엔진으로 분석하거나
+# 나중에 다시 분석할 때도 GT 섹션은 한 번만 계산한다.
+_GT_SECTIONS_CACHE_PATH = os.path.join(os.path.dirname(__file__), "gt_sections_cache.json")
+
+def _load_gt_sections_cache():
+    try:
+        with open(_GT_SECTIONS_CACHE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_gt_sections_cache(music_id, sections):
+    cache = _load_gt_sections_cache()
+    cache[str(music_id)] = {"sections": sections}
+    try:
+        with open(_GT_SECTIONS_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def detect_gt_sections(audio_path, duration_sec, music_id=None, debug=None):
+    """GT 섹션 감지. music_id를 넘기면 gt_sections_cache.json을 먼저 조회하고,
+    없을 때만 새로 계산한 뒤 캐시에 저장한다 (demucs 4-스템 분리 등 GT 분석은
+    비용이 커서 매번 전체를 다시 돌리지 않도록).
+
+    debug: dict를 넘기면 캐시를 무시하고 항상 새로 계산하며(디버그 데이터가
+    필요하니 당연히 실제로 돌려야 함), demucs+msaf 경로의 모든 중간 판정값을
+    이 dict에 채워 넣는다.
+    """
+    cache_key = str(music_id) if music_id not in (None, "", "—") else None
+    if cache_key and debug is None:
+        cached = _load_gt_sections_cache().get(cache_key)
+        if cached and cached.get("sections"):
+            return cached["sections"]
+
+    sections = _compute_gt_sections(audio_path, duration_sec, debug=debug)
+
+    if cache_key and sections:
+        _save_gt_sections_cache(cache_key, sections)
+    return sections
+
+
+# ──────────────────────────────────────────────
+# GT 비트 전용 캐시 (music_id + engine 기준)
+# ──────────────────────────────────────────────
+# GT 비트 감지(특히 Beat Transformer)도 비용이 커서, beat_analysis_records.json
+# (비교 결과·정확도 지표까지 포함하는 큰 기록 파일)과는 별도로 music_id+engine
+# 조합만으로 즉시 조회 가능한 전용 캐시 파일에 저장한다. GT 비트는 엔진에 따라
+# 결과가 다르므로 music_id 단독이 아니라 "{music_id}_{engine}"을 키로 쓴다.
+_GT_BEATS_CACHE_PATH = os.path.join(os.path.dirname(__file__), "gt_beats_cache.json")
+
+def _load_gt_beats_cache():
+    try:
+        with open(_GT_BEATS_CACHE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_gt_beats_cache(cache_key, beats_ms, bpm):
+    cache = _load_gt_beats_cache()
+    cache[cache_key] = {"beats_ms": beats_ms, "bpm": bpm}
+    try:
+        with open(_GT_BEATS_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def detect_gt_beats(engine, audio_path, bpm_hint=0.0, music_id=None):
+    """엔진별 GT 비트 감지. music_id를 넘기면 gt_beats_cache.json을
+    "{music_id}_{engine}" 키로 먼저 조회하고, 없을 때만 새로 감지한 뒤
+    캐시에 저장한다 (Beat Transformer 등 GT 비트 감지는 비용이 커서
+    매번 다시 돌리지 않도록).
+
+    반환: (beats_ms, bpm, from_cache)
+    """
+    cache_key = f"{music_id}_{engine}" if music_id not in (None, "", "—") else None
+    if cache_key:
+        cached = _load_gt_beats_cache().get(cache_key)
+        if cached and cached.get("beats_ms"):
+            return cached["beats_ms"], cached.get("bpm", 0.0), True
+
+    if engine == "beat_transformer":
+        ref_sec, bpm = detect_beats_beat_transformer(audio_path)
+    elif engine == "madmom":
+        ref_sec, bpm = detect_beats_madmom(audio_path)
+    else:
+        ref_sec, bpm = detect_beats_librosa(audio_path, bpm_hint)
+    beats_ms = [int(t * 1000) for t in ref_sec]
+
+    if cache_key and beats_ms:
+        _save_gt_beats_cache(cache_key, beats_ms, bpm)
+    return beats_ms, bpm, False
+
+
+def _compute_gt_sections(audio_path, duration_sec, debug=None):
+    """GT 섹션 감지 우선순위:
+    allin1 → demucs(4-스템)+msaf(구조경계) → msaf(semantic) → msaf(cluster) → librosa
+
+    타겟 라벨 체계(10개, 앱의 SectionType과 동일한 이름):
+    END / INTRO / VERSE / CHORUS / BRIDGE / OUTRO / INST / SOLO / BREAK / CLIMAX
+
+    allin1 라벨: intro / verse / chorus / bridge / outro / break / inst / solo / end
+    (start 마커만 제외 — allin1의 end 마커는 그대로 END로 사용. allin1은
+    CLIMAX 개념이 없어 이 경로에서는 CLIMAX가 나오지 않는다.)
+    demucs+msaf: 경계는 드럼 스템의 구조적 반복(msaf)으로, 라벨은 보컬/드럼/
+    베이스/기타 스템의 구간별 에너지(성격)로 판단 — allin1과 같은 기준.
+    CLIMAX(앱 SectionDetectorV1의 피크 검출 알고리즘 포팅)와 END(앱의
+    trailing-silence 검출 포팅)도 이 경로에서 함께 만든다.
+    msaf(semantic): 위 방식을 못 쓸 때(demucs 없음), MSAF 경계 + librosa
+    특징으로 의미 있는 라벨을 부여하는 대체 방식 (CLIMAX/END 없음).
+
+    어떤 엔진으로 감지했든 최종적으로 인접한 동일 라벨 구간을 병합하여
+    allin1과 동일한 형태(라벨이 쪼개지지 않고 하나로 이어진 구간)로 맞춘다.
+    """
+    # debug를 넘기면, 실제로 성공한 경로 하나의 상세 정보(debug["source"] +
+    # 그 경로의 중간값)를 채우고, 그 전에 실패한 경로들의 에러도
+    # debug["failed_attempts"]에 남긴다 — "왜 우선순위가 더 높은 경로 대신
+    # 이 경로가 쓰였는지" 진단할 수 있어야 하기 때문이다. 성공한 경로만
+    # 기록하면(과거 방식) 예를 들어 demucs+msaf가 매번 조용히 실패해도
+    # 알 방법이 없었다.
+    _attempts = [] if debug is not None else None
+
     if HAS_ALLIN1:
         try:
             result = _allin1_mod.analyze(audio_path)
             sections = []
             for seg in result.segments:
                 lbl = seg.label.upper()
-                if lbl in ('START', 'END'):
+                if lbl == 'START':
                     continue
                 sections.append({
                     "start_ms": int(seg.start * 1000),
@@ -1241,38 +1768,78 @@ def detect_gt_sections(audio_path, duration_sec):
                     "type":     lbl,
                 })
             if sections:
-                return sections
-        except Exception:
-            pass
+                if debug is not None:
+                    debug["source"] = "allin1"
+                    if _attempts:
+                        debug["failed_attempts"] = _attempts
+                return _merge_adjacent_same_type_sections(sections)
+            elif _attempts is not None:
+                _attempts.append({"tier": "allin1", "error": "빈 결과"})
+        except Exception as e:
+            if _attempts is not None:
+                _attempts.append({"tier": "allin1", "error": str(e)})
 
-    # Demucs(드럼) 활용한 msaf 시도
-    if HAS_DEMUCS and HAS_MSAF:
+    # ★ demucs(보컬/드럼/베이스/기타) + msaf 결합 — 경계는 구조 반복, 라벨은 스템 성격
+    if HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA:
         try:
-            drums_sections = detect_msaf_sections_with_drums(audio_path, duration_sec)
-            if drums_sections and len(drums_sections) >= 2:
-                return drums_sections
-        except Exception:
-            pass
+            _dbg = {} if debug is not None else None
+            demucs_sections = detect_gt_sections_demucs_msaf(audio_path, duration_sec, debug=_dbg)
+            if demucs_sections and len(demucs_sections) >= 2:
+                if debug is not None:
+                    debug.clear(); debug["source"] = "demucs+msaf"; debug.update(_dbg)
+                    if _attempts:
+                        debug["failed_attempts"] = _attempts
+                return _merge_adjacent_same_type_sections(demucs_sections)
+            elif _attempts is not None:
+                # detect_gt_sections_demucs_msaf는 내부적으로 예외를 잡아
+                # _dbg["error"]에 담고 []를 반환하므로, 여기서 그걸 꺼내와야
+                # 실제 실패 원인이 보인다.
+                _attempts.append({"tier": "demucs+msaf",
+                                   "error": (_dbg or {}).get("error", "빈 결과(2개 미만 섹션)")})
+        except Exception as e:
+            if _attempts is not None:
+                _attempts.append({"tier": "demucs+msaf", "error": str(e)})
 
-    # ★ MSAF 경계 + 의미 있는 라벨 (allin1처럼)
+    # MSAF 경계 + 의미 있는 라벨 (demucs 없을 때의 대체 — allin1처럼)
     if HAS_MSAF and HAS_LIBROSA:
         try:
-            semantic_sections = classify_msaf_sections_semantic(audio_path, duration_sec)
+            _dbg = {} if debug is not None else None
+            semantic_sections = classify_msaf_sections_semantic(audio_path, duration_sec, debug=_dbg)
             if semantic_sections and len(semantic_sections) >= 2:
-                return semantic_sections
-        except Exception:
-            pass
+                if debug is not None:
+                    debug.clear(); debug["source"] = "msaf-semantic"; debug.update(_dbg)
+                    if _attempts:
+                        debug["failed_attempts"] = _attempts
+                return _merge_adjacent_same_type_sections(semantic_sections)
+            elif _attempts is not None:
+                _attempts.append({"tier": "msaf-semantic",
+                                   "error": (_dbg or {}).get("error", "빈 결과(2개 미만 섹션)")})
+        except Exception as e:
+            if _attempts is not None:
+                _attempts.append({"tier": "msaf-semantic", "error": str(e)})
 
     # 원본 MSAF (음향 클러스터만)
     if HAS_MSAF:
         try:
             result = detect_msaf_sections(audio_path, duration_sec)
             if result:
-                return result
-        except Exception:
-            pass
+                if debug is not None:
+                    debug.clear(); debug["source"] = "msaf-cluster"
+                    if _attempts:
+                        debug["failed_attempts"] = _attempts
+                return _merge_adjacent_same_type_sections(result)
+            elif _attempts is not None:
+                _attempts.append({"tier": "msaf-cluster", "error": "빈 결과"})
+        except Exception as e:
+            if _attempts is not None:
+                _attempts.append({"tier": "msaf-cluster", "error": str(e)})
 
-    return detect_librosa_sections(audio_path, duration_sec)
+    if debug is not None:
+        debug.clear(); debug["source"] = "librosa"
+        if _attempts:
+            debug["failed_attempts"] = _attempts
+    return _merge_adjacent_same_type_sections(
+        detect_librosa_sections(audio_path, duration_sec))
 
 
 def load_waveform(audio_path, max_sr=22050, max_duration=600.0):
@@ -1291,6 +1858,52 @@ def load_waveform(audio_path, max_sr=22050, max_duration=600.0):
         return y, sr
     except Exception:
         return None, 0
+
+
+# ──────────────────────────────────────────────
+# 파형 전용 캐시 (music_id 기준) — 곡 하나당 파일 하나(.npz)
+# ──────────────────────────────────────────────
+# mp3 디코딩(librosa.load)은 demucs/Beat Transformer보다는 훨씬 가볍지만,
+# 같은 곡을 여러 엔진으로 반복 분석하거나 나중에 다시 열 때마다 매번 다시
+# 디코딩하는 건 낭비다. JSON이 아니라 music_id별 .npz(압축 numpy) 파일로
+# 저장한다 — 파형은 샘플이 수백만 개라 텍스트(JSON)로 담기에는 너무 크다.
+_WAVEFORM_CACHE_DIR = os.path.join(os.path.dirname(__file__), "waveform_cache")
+
+def _waveform_cache_path(music_id):
+    return os.path.join(_WAVEFORM_CACHE_DIR, f"{music_id}.npz")
+
+def _load_waveform_cache(music_id):
+    try:
+        with np.load(_waveform_cache_path(music_id)) as data:
+            return data["y"], int(data["sr"])
+    except Exception:
+        return None, 0
+
+def _save_waveform_cache(music_id, y, sr):
+    try:
+        os.makedirs(_WAVEFORM_CACHE_DIR, exist_ok=True)
+        np.savez_compressed(_waveform_cache_path(music_id), y=y.astype(np.float32), sr=sr)
+    except Exception:
+        pass
+
+
+def load_waveform_cached(audio_path, music_id=None, max_sr=22050, max_duration=600.0):
+    """load_waveform()에 music_id 기준 전용 캐시(waveform_cache/*.npz)를 얹은 버전.
+    같은 곡을 여러 엔진으로, 또는 나중에 다시 분석할 때도 mp3 디코딩을
+    반복하지 않는다.
+    """
+    cache_key = str(music_id) if music_id not in (None, "", "—") else None
+    if cache_key:
+        y, sr = _load_waveform_cache(cache_key)
+        if y is not None and sr > 0:
+            return y, sr
+
+    y, sr = load_waveform(audio_path, max_sr=max_sr, max_duration=max_duration)
+
+    if cache_key and y is not None and sr > 0:
+        _save_waveform_cache(cache_key, y, sr)
+    return y, sr
+
 
 def get_audio_duration(audio_path):
     if HAS_LIBROSA:
@@ -1462,9 +2075,11 @@ def group_timeline_by_effects(frames):
 
     return effect_stats
 
-# SectionDetector.SectionType enum 순서 (Kotlin 정의와 동일해야 함)
+# SectionDetector.SectionType enum 순서 (Kotlin 정의와 반드시 동일해야 함 —
+# ordinal 기반 직렬화라서 순서가 어긋나면 라벨이 조용히 틀리게 디코딩된다.
+# VOCAL/BEAT/BUILD 제거 후 순서(2026-07, AutoTimelineConfig.VERSION=1):
 _SECTION_TYPES = ['INTRO', 'VERSE', 'CHORUS', 'BRIDGE', 'END',
-                  'VOCAL', 'BEAT', 'BUILD', 'CLIMAX', 'BREAK', 'OUTRO']
+                  'CLIMAX', 'BREAK', 'OUTRO', 'INST', 'SOLO']
 
 def parse_section_meta_binary(path):
     """SectionMetaStorage 바이너리 파싱.
@@ -1537,13 +2152,15 @@ _STYLE_COLORS = {
 }
 
 # 섹션 타입별 색상
+# 타겟 라벨 체계(10개, 앱의 SectionType과 동일): END/INTRO/VERSE/CHORUS/
+# BRIDGE/OUTRO/INST/SOLO/BREAK/CLIMAX. (PRE-CHORUS/VOCAL/BEAT/BUILD는
+# 어떤 GT 감지 경로도 만들지 않는 죽은 라벨이라 제거함)
 _SECTION_COLORS = {
-    'INTRO':       '#7c4dff', 'VERSE':  '#1565c0', 'PRE-CHORUS': '#00838f',
+    'INTRO':       '#7c4dff', 'VERSE':  '#1565c0',
     'CHORUS':      '#e65100', 'BRIDGE': '#2e7d32', 'END':        '#b71c1c',
-    'VOCAL':       '#00acc1', 'INST':   '#558b2f', 'BEAT':       '#f57f17',
-    'BUILD':       '#0277bd', 'CLIMAX': '#ad1457', 'BREAK':      '#546e7a',
+    'INST':        '#558b2f', 'CLIMAX': '#ad1457', 'BREAK':      '#546e7a',
     'OUTRO':       '#4a148c', 'SOLO':   '#ff6f00',
-    # msaf 클러스터 그룹 (A=0, B=1, ...)
+    # msaf 클러스터 그룹 (A=0, B=1, ...) — msaf(raw) 폴백 전용
     'A': '#e53935', 'B': '#43a047', 'C': '#1e88e5', 'D': '#fb8c00', 'E': '#8e24aa',
     'F': '#00acc1', 'G': '#f4511e', 'H': '#6d4c41', 'I': '#039be5', 'J': '#c0ca33',
 }
@@ -2039,6 +2656,14 @@ class App(tk.Tk):
         self._build_ui()
         self._load_state()
 
+        # 상단 배너는 에러 메시지를 35~45자로 잘라서 보여주므로(레이아웃상 제약),
+        # 원인 진단을 위해 전체 에러 메시지를 로그창에 남긴다.
+        for _name, _has, _err in (("allin1", HAS_ALLIN1, _allin1_err),
+                                   ("msaf", HAS_MSAF, _msaf_err),
+                                   ("demucs", HAS_DEMUCS, _demucs_err)):
+            if not _has and _err:
+                self._log(f"[⚠️  {_name} 사용 불가] {_err}", "orange")
+
     def _build_ui(self):
         pad = dict(padx=6, pady=3)
 
@@ -2096,10 +2721,11 @@ class App(tk.Tk):
         sec_legend.pack(side="left", padx=(4, 6))
         tk.Label(sec_legend, text="섹션:", bg="#1a1a2e", fg="#546e7a",
                  font=("", 7)).pack(side="left", padx=(0, 3))
-        _legend_types = ["INTRO", "VERSE", "PRE-CHORUS", "CHORUS", "BRIDGE", "OUTRO",
-                          "VOCAL", "INST", "SOLO", "BEAT", "BUILD", "CLIMAX", "BREAK", "END"]
-        if HAS_MSAF:
-            _legend_types += list("ABCDEFGHIJ")
+        # msaf 원본 클러스터(A-J)는 detect_msaf_sections(우선순위 4/5, 거의 안 쓰임)
+        # 전용이라 범례에서는 뺀다 — _SECTION_COLORS엔 남겨둬서 그 폴백이 실제로
+        # 동작할 때는 여전히 구분되는 색으로는 그려지게 한다.
+        _legend_types = ["INTRO", "VERSE", "CHORUS", "BRIDGE", "OUTRO",
+                          "INST", "SOLO", "CLIMAX", "BREAK", "END"]
         for stype in _legend_types:
             sc = _SECTION_COLORS.get(stype, "#546e7a")
             tk.Label(sec_legend, text=f" {stype} ", bg=sc, fg="white",
@@ -2269,6 +2895,13 @@ class App(tk.Tk):
                                   activebackground="#4a148c", command=self._save_beatmap,
                                   width=7, state="disabled")
         self.save_btn.pack(side="left", padx=2)
+
+        # ── 섹션 디버그 데이터 저장 (demucs+msaf 판정 중간값을 파일로 남겨
+        # 다른 사람에게 전달 → 섹션 감지 개선 분석용) ──
+        self._section_debug_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(col1, text="섹션 디버그 저장 (tools/section_debug/)",
+                       variable=self._section_debug_var,
+                       font=("", 8)).grid(row=3, column=0, sticky="w", padx=6, pady=(0, 4))
 
         # ══════════════════════════════════════════
         # 2열: 분석 결과(위) + 분석 로그(아래)
@@ -2936,8 +3569,8 @@ class App(tk.Tk):
                 audio_path = item.get("path", "")
                 if audio_path and os.path.exists(audio_path):
                     def _load_waveform_async(it=item, lr=self._last_result,
-                                             ap=audio_path):
-                        wv, ws = load_waveform(ap)
+                                             ap=audio_path, mid=disp_mid):
+                        wv, ws = load_waveform_cached(ap, music_id=mid)
                         it["waveform"] = wv
                         it["wav_sr"]   = ws
                         lr["waveform"] = wv
@@ -3017,60 +3650,53 @@ class App(tk.Tk):
     def _run_all_thread(self, targets, engines, tol_ms, bpm_hint):
         total = len(targets)
 
-        # 세션 내 캐시 + JSON 기반 장기 캐시
-        cached_gt_sections = {}  # 현재 세션 내 캐시
-        records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
-
-        # JSON 레코드 로드 (music_id별 섹션 캐시)
-        json_gt_sections = {}
-        try:
-            with open(records_path, encoding="utf-8") as _f:
-                _recs = json.load(_f)
-                for rec in _recs:
-                    mid = rec.get("music_id")
-                    sections = rec.get("librosa_sections", [])
-                    if mid and sections and mid not in json_gt_sections:
-                        json_gt_sections[mid] = sections
-        except Exception:
-            pass
+        # GT 섹션은 music_id 기준으로 gt_sections_cache.json(전용 캐시)에 저장된다.
+        # session_gt_cache는 이번 실행에서 같은 곡이 여러 번 나올 때 디스크 재조회만 줄인다.
+        session_gt_cache = {}
 
         for idx, (iid, item) in enumerate(targets, 1):
             audio = item["path"]
             binf  = item["bin_path"]
             name  = os.path.basename(audio)
 
-            # GT 섹션 분석: music_id 기반 캐싱 (세션 + JSON)
-            pre_lib_sections = []
-
-            # music_id 계산
             bin_id = extract_music_id(binf) or os.path.splitext(os.path.basename(binf))[0]
             mid_display = _to_signed_display(int(bin_id)) if bin_id.lstrip("-").isdigit() else bin_id
 
-            # 1단계: 세션 캐시 확인
-            if bin_id in cached_gt_sections:
-                pre_lib_sections = cached_gt_sections[bin_id]
+            if bin_id in session_gt_cache:
+                pre_lib_sections = session_gt_cache[bin_id]
                 self.after(0, lambda n=len(pre_lib_sections), nm=name:
                            self._log(f"[GT섹션]  {nm} — {n}개 (세션 캐시 사용)", "gray"))
-            # 2단계: JSON 캐시 확인
-            elif mid_display in json_gt_sections:
-                pre_lib_sections = json_gt_sections[mid_display]
-                cached_gt_sections[bin_id] = pre_lib_sections
-                self.after(0, lambda n=len(pre_lib_sections), nm=name:
-                           self._log(f"[GT섹션]  {nm} — {n}개 (저장된 캐시 사용)", "green"))
-            # 3단계: 새로 분석
-            elif HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
+            else:
                 try:
-                    src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
-                    self.after(0, lambda n=name, i=idx, t=total, s=src:
-                               self.status_var.set(f"전체 분석 [{i}/{t}]  {n}  (GT섹션/{s})"))
+                    src = ("allin1" if HAS_ALLIN1
+                           else "demucs+msaf" if (HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA)
+                           else "msaf" if HAS_MSAF else "librosa")
+                    _had_cache = bool(_load_gt_sections_cache().get(mid_display, {}).get("sections"))
+                    self.after(0, lambda n=name, i=idx, t=total, s=src, c=_had_cache:
+                               self.status_var.set(
+                                   f"전체 분석 [{i}/{t}]  {n}  (GT섹션/{'캐시' if c else s})"))
                     _dur = get_audio_duration(audio)
-                    pre_lib_sections = detect_gt_sections(audio, _dur)
-                    cached_gt_sections[bin_id] = pre_lib_sections  # 세션 캐시에 저장
-                    self.after(0, lambda n=len(pre_lib_sections), nm=name:
-                               self._log(f"[GT섹션]  {nm} — {n}개 감지", "gray"))
+                    want_debug = self._section_debug_var.get()
+                    gt_debug = {} if want_debug else None
+                    pre_lib_sections = detect_gt_sections(audio, _dur, music_id=mid_display,
+                                                          debug=gt_debug)
+                    session_gt_cache[bin_id] = pre_lib_sections
+                    tag = "저장된 캐시 사용" if _had_cache else "감지"
+                    self.after(0, lambda n=len(pre_lib_sections), nm=name, tg=tag, c=_had_cache:
+                               self._log(f"[GT섹션]  {nm} — {n}개 ({tg})", "green" if c else "gray"))
+                    if want_debug:
+                        try:
+                            _, _, _app_secs = parse_section_meta_binary(binf)
+                        except Exception:
+                            _app_secs = []
+                        self._export_section_debug(
+                            music_id=mid_display, audio_path=audio, duration_sec=_dur,
+                            gt_source=(gt_debug or {}).get("source", src),
+                            app_sections=_app_secs, gt_debug=gt_debug)
                 except Exception as _se:
                     import traceback
-                    cached_gt_sections[bin_id] = []  # 실패도 캐시하여 재시도 방지
+                    session_gt_cache[bin_id] = []  # 실패도 캐시하여 재시도 방지
+                    pre_lib_sections = []
                     self.after(0, lambda e=str(_se)[:100], tb=traceback.format_exc()[:200], nm=name:
                                self._log(f"[❌ GT섹션] {nm} 감지 실패: {e}", "red"))
 
@@ -3098,6 +3724,37 @@ class App(tk.Tk):
         self.after(0, self._save_state)
 
     # ── 진단 데이터 내보내기 ──────────────────────
+
+    def _export_section_debug(self, *, music_id, audio_path, duration_sec,
+                               gt_source, app_sections, gt_debug):
+        """섹션 감지 개선 분석용 디버그 파일을 저장한다.
+
+        오디오 자체는 담지 않고 판정에 쓰인 숫자/라벨(스템 RMS, vocal_share,
+        full_rank, climax_offsets_sec, end_start_sec, 최종 섹션 등)과 앱
+        섹션(비교 대상)만 담으므로, 이 파일 하나만 전달해도 저작권 있는
+        오디오 없이 섹션 로직을 분석·개선할 수 있다.
+        """
+        import datetime
+        try:
+            debug_dir = os.path.join(os.path.dirname(__file__), "section_debug")
+            os.makedirs(debug_dir, exist_ok=True)
+            payload = {
+                "music_id":       music_id,
+                "audio_file":     os.path.basename(audio_path),
+                "duration_sec":   round(duration_sec, 3),
+                "gt_source":      gt_source,
+                "generated_at":   datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "app_sections":   app_sections or [],
+                "gt_debug":       gt_debug or {},
+            }
+            out_path = os.path.join(debug_dir, f"{music_id}.json")
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            self.after(0, lambda p=out_path:
+                       self._log(f"  [🐛 디버그 저장] {p}", "cyan"))
+        except Exception as e:
+            self.after(0, lambda m=str(e)[:100]:
+                       self._log(f"  [⚠️  디버그 저장 실패] {m}", "orange"))
 
     def _export_analysis_record(self, *, audio_path, bin_path, engine, eng_name,
                                  tol_ms, music_id, duration_sec,
@@ -4002,58 +4659,25 @@ class App(tk.Tk):
                 self._log(f"  이상 인터벌: {app_st.get('anomaly_pct',0):.1f}%")
         self.after(0, _lb)
 
-        # ② Ground-truth — 캐시 우선 사용 (엔진별 분석 결과 캐싱)
+        # ② Ground-truth — GT 비트 전용 캐시(gt_beats_cache.json) 사용
         records_path = os.path.join(os.path.dirname(__file__), "beat_analysis_records.json")
-        cached_gt_ms  = None
-        cached_gt_bpm = None
-        try:
-            with open(records_path, encoding="utf-8") as _f:
-                _recs = json.load(_f)
-            # music_id 정규화 (바이너리 파일명 기준)
-            music_id_display = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id
-
-            # 같은 music_id와 engine을 가진 레코드에서 GT 정보 추출 (엔진별 캐시)
-            _cached = next((r for r in _recs
-                            if r.get("music_id") == music_id_display and
-                               r.get("engine") == engine and
-                               r.get("beats", {}).get("gt_ms") and
-                               r.get("summary", {}).get("bpm_gt")), None)
-            if _cached:
-                _gt_beats = _cached.get("beats", {}).get("gt_ms")
-                _gt_bpm   = _cached.get("summary", {}).get("bpm_gt")
-                if _gt_beats and _gt_bpm:
-                    cached_gt_ms  = _gt_beats
-                    cached_gt_bpm = _gt_bpm
-                    self.after(0, lambda: self._log(
-                        f"  [✓ 캐시 사용] music_id={music_id_display} 기존 분석 결과 재사용", "green"))
-        except Exception as _cache_err:
-            pass
+        music_id_display = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id
 
         _step_gt_start = time.time()
         # 엔진별 단계 번호 결정
         step_num = {"beat_transformer": 4, "madmom": 5, "librosa": 6}.get(engine, 4)
 
-        # GT 비트 감지 실행 (로그는 나중에 표시)
-        gt_cache_flag = False
-        if cached_gt_ms is not None:
-            gt_cache_flag = True
-            ref_ms  = cached_gt_ms
-            ref_bpm = cached_gt_bpm
-            _steps_timing['gt'] = 0.0
-        else:
-            try:
-                if engine == "beat_transformer":
-                    ref_sec, ref_bpm = detect_beats_beat_transformer(audio_path)
-                elif engine == "madmom":
-                    ref_sec, ref_bpm = detect_beats_madmom(audio_path)
-                else:
-                    ref_sec, ref_bpm = detect_beats_librosa(audio_path, bpm_hint)
-                ref_ms = [int(t * 1000) for t in ref_sec]
-                _steps_timing['gt'] = time.time() - _step_gt_start
-            except Exception as e:
-                self.after(0, lambda m=str(e)[:150]:
-                           self._log(f"[❌ 실패] {eng_name} 감지 오류: {m}", "red"))
-                raise
+        try:
+            ref_ms, ref_bpm, gt_cache_flag = detect_gt_beats(
+                engine, audio_path, bpm_hint, music_id=music_id_display)
+            _steps_timing['gt'] = 0.0 if gt_cache_flag else time.time() - _step_gt_start
+            if gt_cache_flag:
+                self.after(0, lambda: self._log(
+                    f"  [✓ 캐시 사용] music_id={music_id_display} 기존 분석 결과 재사용", "green"))
+        except Exception as e:
+            self.after(0, lambda m=str(e)[:150]:
+                       self._log(f"[❌ 실패] {eng_name} 감지 오류: {m}", "red"))
+            raise
         ref_sec = [t / 1000.0 for t in ref_ms]  # 통합: 이후 코드는 ref_sec 사용
         ref_st  = beat_stats(ref_ms)
         try:
@@ -4072,9 +4696,9 @@ class App(tk.Tk):
             self._log(f"  중앙 간격  : {ref_st.get('median_ms',0):.1f} ms")
         self.after(0, _lr)
 
-        # 파형 로드
+        # 파형 로드 — waveform_cache/*.npz 사용 (같은 곡을 여러 엔진에서 반복 디코딩하지 않음)
         self.after(0, lambda: self._log("\n결과 리포트…", "gray"))
-        waveform, wav_sr = load_waveform(audio_path)
+        waveform, wav_sr = load_waveform_cached(audio_path, music_id=music_id_display)
 
         # F-measure + 분류
         tol_sec          = tol_ms / 1000.0
@@ -4211,68 +4835,42 @@ class App(tk.Tk):
                                self._log(f"  └─ 분석 오류: {e}  ({t:.2f}초)", "red"))
         else:
             _steps_timing['style'] = 0.0
+        # GT 섹션을 어떤 방식으로 감지하는 환경인지 (섹션 검증 결과 해석에도 사용)
+        gt_source = ("allin1" if HAS_ALLIN1
+                     else "demucs+msaf" if (HAS_DEMUCS and HAS_MSAF and HAS_LIBROSA)
+                     else "msaf" if HAS_MSAF else "librosa")
         if HAS_ALLIN1 or HAS_MSAF or HAS_LIBROSA:
             try:
                 if not librosa_sections:          # 전체 분석에서 사전 계산된 경우 생략
                     _step3_start = time.time()
-                    src = "allin1" if HAS_ALLIN1 else "msaf" if HAS_MSAF else "librosa"
+                    src = gt_source
+                    mid_display = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id
+                    _had_cache = bool(_load_gt_sections_cache().get(mid_display, {}).get("sections"))
 
-                    # ── 섹션 캐시 확인 ──
-                    cached_sections = None
-                    try:
-                        with open(records_path, encoding="utf-8") as _f:
-                            _recs = json.load(_f)
-                        mid_display = _to_signed_display(int(music_id)) if music_id.lstrip("-").isdigit() else music_id
-                        _cached = next((r for r in _recs
-                                        if r.get("music_id") == mid_display and
-                                           r.get("librosa_sections")), None)
-                        if _cached:
-                            cached_sections = _cached.get("librosa_sections", [])
-                    except Exception:
-                        pass
-
-                    if cached_sections:
-                        if not self._shared_analysis_logged:
+                    if not self._shared_analysis_logged:
+                        if _had_cache:
                             self.after(0, lambda:
                                        self._log(f"[ 3/6 ]  GT 섹션 분석 (저장된 캐시 사용)…", "green"))
-                        librosa_sections = cached_sections
-                        _steps_timing['sections'] = time.time() - _step3_start
-                        if not self._shared_analysis_logged:
-                            self.after(0, lambda n=len(librosa_sections), t=_steps_timing['sections']:
-                                self._log(f"  └─ {n}개 섹션 (캐시)  ({t:.3f}초)", "cyan"))
-                    else:
-                        if not self._shared_analysis_logged:
+                        else:
                             self.after(0, lambda: self._log(f"[ 3/6 ]  GT 섹션 분석 ({src})…", "gray"))
-                        try:
-                            librosa_sections = detect_gt_sections(audio_path, duration_sec)
-                            _steps_timing['sections'] = time.time() - _step3_start
-                            if not self._shared_analysis_logged:
-                                self.after(0, lambda n=len(librosa_sections), t=_steps_timing['sections']:
-                                    self._log(f"  └─ {n}개 섹션 감지  ({t:.2f}초)", "cyan"))
 
-                            # 캐시 저장
-                            try:
-                                with open(records_path, encoding="utf-8") as _f:
-                                    _recs = json.load(_f)
-                            except Exception:
-                                _recs = []
-
-                            _key = f"{audio_hash_id}_sections"
-                            _idx = next((i for i, r in enumerate(_recs) if r.get("_key") == _key), -1)
-                            if _idx >= 0:
-                                _recs[_idx]["sections"] = librosa_sections
-                            else:
-                                _recs.append({"_key": _key, "sections": librosa_sections})
-
-                            try:
-                                with open(records_path, "w", encoding="utf-8") as _f:
-                                    json.dump(_recs, _f, ensure_ascii=False, indent=2)
-                            except Exception:
-                                pass
-                        except Exception as e:
-                            self.after(0, lambda m=str(e)[:100]:
-                                       self._log(f"  [❌ GT섹션 감지 실패] {m}", "red"))
-                            raise
+                    # GT 섹션 전용 캐시(gt_sections_cache.json) 사용 — music_id 기준,
+                    # demucs 4-스템 분리처럼 비용이 큰 계산을 반복하지 않는다.
+                    want_debug = self._section_debug_var.get()
+                    gt_debug = {} if want_debug else None
+                    librosa_sections = detect_gt_sections(audio_path, duration_sec,
+                                                          music_id=mid_display, debug=gt_debug)
+                    _steps_timing['sections'] = time.time() - _step3_start
+                    if want_debug:
+                        self._export_section_debug(
+                            music_id=mid_display, audio_path=audio_path,
+                            duration_sec=duration_sec,
+                            gt_source=(gt_debug or {}).get("source", src),
+                            app_sections=sections, gt_debug=gt_debug)
+                    if not self._shared_analysis_logged:
+                        tag = "캐시" if _had_cache else f"{_steps_timing['sections']:.2f}초"
+                        self.after(0, lambda n=len(librosa_sections), t=tag:
+                            self._log(f"  └─ {n}개 섹션 감지  ({t})", "cyan"))
 
                     # 섹션 타입 및 신뢰도 표시 (첫 번째 엔진에서만)
                     if librosa_sections and not self._shared_analysis_logged:
@@ -4295,8 +4893,6 @@ class App(tk.Tk):
                         except Exception as e:
                             self.after(0, lambda m=str(e)[:80]:
                                        self._log(f"  [⚠️  섹션 분석] {m}", "orange"))
-                        else:
-                            pass
                 else:
                     self.after(0, lambda n=len(librosa_sections):
                         self._log(f"  GT 섹션 : {n}개 (사전계산)", "cyan"))
@@ -4304,7 +4900,7 @@ class App(tk.Tk):
                 # ★ 섹션 의미성 검증 (첫 번째 엔진에서만 표시)
                 if librosa_sections and sections and not self._shared_analysis_logged:
                     try:
-                        validation = validate_section_meaning(sections, librosa_sections)
+                        validation = validate_section_meaning(sections, librosa_sections, gt_source=gt_source)
                         score = validation.get('alignment_score', 0)
                         stability = validation.get('stability', 0)
                         action = validation.get('recommended_action', '')
