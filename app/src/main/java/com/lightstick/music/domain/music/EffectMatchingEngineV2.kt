@@ -305,24 +305,33 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         val effectiveColors: List<LSColor> = when (sectionType) {
             SectionDetector.SectionType.CHORUS -> listOf(palette.white) + palette.colorGroup.take(3)
             SectionDetector.SectionType.VERSE  -> palette.colorGroup.take(3)
-            SectionDetector.SectionType.BRIDGE -> listOf(
-                palette.colorGroup.getOrElse(2) { palette.colorGroup[0] },
-                palette.colorGroup[0], palette.white
-            )
             else -> palette.colorGroup
         }
-        val groupColor   = effectiveColors[beatIndex   % effectiveColors.size]
-        val sectionColor = effectiveColors[sectionIndex % effectiveColors.size]
+        val groupColor = effectiveColors[beatIndex % effectiveColors.size]
         return when (engine) {
-            EffectMatchingEngine.FgEngine.ON_PULSE ->
-                if (isPatternA) palette.white to palette.onPulseSets[0].bg
-                else            sectionColor  to palette.black
-            EffectMatchingEngine.FgEngine.BLINK, EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE -> groupColor to palette.black
-            EffectMatchingEngine.FgEngine.STROBE  -> palette.white to palette.black
-            EffectMatchingEngine.FgEngine.BREATH  -> palette.breathSet.fg to palette.breathSet.bg
-            else ->
-                if (isPatternA) palette.bridgeSets[0].fg to palette.black
-                else            groupColor               to palette.black
+            EffectMatchingEngine.FgEngine.ON_PULSE -> {
+                val set = if (isPatternA) palette.onPulseSets[0] else palette.onPulseSets[1]
+                set.fg to set.bg
+            }
+            EffectMatchingEngine.FgEngine.BLINK -> {
+                val set = palette.blinkSets[beatIndex % palette.blinkSets.size]
+                set.fg to set.bg
+            }
+            EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE ->
+                if (sectionType == SectionDetector.SectionType.BRIDGE) {
+                    val set = palette.bridgeSets[beatIndex % palette.bridgeSets.size]
+                    set.fg to set.bg
+                } else {
+                    val bg = if (sectionType == SectionDetector.SectionType.CHORUS) palette.chorusBg else palette.black
+                    groupColor to bg
+                }
+            EffectMatchingEngine.FgEngine.STROBE -> {
+                val set = palette.strokeSets[beatIndex % palette.strokeSets.size]
+                set.fg to set.bg
+            }
+            EffectMatchingEngine.FgEngine.BREATH -> palette.breathSet.fg to palette.breathSet.bg
+            // OFF_TRANSIT 섹션은 buildFramesFromSections에서 이미 continue로 걸러져 여기 도달하지 않음
+            EffectMatchingEngine.FgEngine.OFF_TRANSIT -> palette.black to palette.black
         }
     }
 
