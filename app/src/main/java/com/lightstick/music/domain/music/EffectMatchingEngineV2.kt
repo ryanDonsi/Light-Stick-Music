@@ -32,21 +32,25 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         val rawHue  = (((seed.toLong() * 2654435761L) ushr 8) and 0x7FFFFFFFL).toInt()
         val baseHue = (((rawHue % 360) + 360) % 360).toFloat()
         val cMain  = hsvToColor(baseHue,                 1.00f, 1.00f)
-        val cStep1 = hsvToColor(wrap360(baseHue +  60f), 1.00f, 1.00f)
-        val cStep2 = hsvToColor(wrap360(baseHue -  60f), 0.85f, 0.95f)
-        val cStep3 = hsvToColor(wrap360(baseHue - 120f), 1.00f, 1.00f)
+        val cStep1 = hsvToColor(wrap360(baseHue +  30f), 1.00f, 1.00f)
+        val cStep2 = hsvToColor(wrap360(baseHue -  30f), 1.00f, 1.00f)
+        val cStep3 = hsvToColor(wrap360(baseHue +  60f), 1.00f, 1.00f)
+        val cStep4 = hsvToColor(wrap360(baseHue -  60f), 1.00f, 1.00f)
+        val cStep5 = hsvToColor(wrap360(baseHue + 120f), 1.00f, 1.00f)
+        val cStep6 = hsvToColor(wrap360(baseHue - 120f), 1.00f, 1.00f)
         val cDeep  = hsvToColor(baseHue,                 1.00f, 0.48f)
-        val black  = LSColor(0, 0, 0); val white = LSColor(255, 255, 255)
-        val colorGroup = listOf(cMain, cStep1, cStep2, cStep3)
+        val black  = LSColor(0, 0, 0)
+        val white = LSColor(255, 255, 255)
+        val colorGroup = listOf(cMain, cStep3, cStep4, cStep5)
         val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
         val patternABg = if (cMainLuma >= 128f) cDeep else cMain
         return EffectMatchingEngine.Palette(
             black       = black, white = white,
-            onPulseSets = listOf(EffectMatchingEngine.ColorSet(white, patternABg), EffectMatchingEngine.ColorSet(cMain, black)),
-            blinkSets   = listOf(EffectMatchingEngine.ColorSet(cMain, black), EffectMatchingEngine.ColorSet(cStep1, black)),
+            onPulseSets = listOf(EffectMatchingEngine.ColorSet(cMain, patternABg), EffectMatchingEngine.ColorSet(cStep1, black)),
+            blinkSets   = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cStep3, black)),
             strokeSets  = listOf(EffectMatchingEngine.ColorSet(white, black)),
-            breathSet   = EffectMatchingEngine.ColorSet(white, patternABg),
-            bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cMain, black)),
+            breathSet   = EffectMatchingEngine.ColorSet(cStep4, patternABg),
+            bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep6, black), EffectMatchingEngine.ColorSet(cMain, black)),
             chorusBg    = cDeep, colorGroup = colorGroup
         )
     }
