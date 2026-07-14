@@ -161,10 +161,20 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
 
             if (section.engine == EffectMatchingEngine.FgEngine.OFF_TRANSIT) continue
 
+            val enginePool  = sectionEnginePool(section.type, section.relScore, section.beatMs, isBalladMode)
+            val barBlockLen = sectionBarBlockLen(section)
+
             for ((beatIndex, t) in effectiveBeats.withIndex()) {
-                val beatEngine = if (section.type == SectionDetector.SectionType.BRIDGE)
-                    bridgePhaseEngine(beatIndex, effectiveBeats.size, section.beatMs, section.relScore, isBalladMode)
-                else section.engine
+                val beatEngine = when {
+                    section.type == SectionDetector.SectionType.BRIDGE ->
+                        bridgePhaseEngine(beatIndex, effectiveBeats.size, section.beatMs, section.relScore, isBalladMode)
+                    enginePool.size > 1 -> {
+                        val barIdx  = barIndexAt(t, downbeatMs, section.beatMs, beatsPerBar)
+                        val blockIdx = Math.floorDiv(barIdx, barBlockLen)
+                        enginePool[Math.floorMod(blockIdx, enginePool.size)]
+                    }
+                    else -> section.engine
+                }
 
                 val effectiveEngine = beatEngine
 
@@ -261,6 +271,58 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         }
         // SOLO: 리드 악기가 도드라지는 하이라이트 구간 — CHORUS와 같은 강조 이펙트
         SectionDetector.SectionType.SOLO   -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
+    }
+
+    /**
+     * 섹션 성격에 맞는 이펙트 후보군.
+     * assignFgEngine이 고르는 엔진을 pool[0]으로 유지하고, 같은 분위기에서 자연스러운
+     * 두 번째 엔진을 pool[1]에 더해 buildFramesFromSections에서 bar 단위로 순환시킨다.
+     * BRIDGE는 bridgePhaseEngine이 별도로 처리하므로 여기서는 사용되지 않는다.
+     */
+    private fun sectionEnginePool(
+        type: SectionDetector.SectionType, rel: Float, globalBeatMs: Long, isBalladMode: Boolean
+    ): List<EffectMatchingEngine.FgEngine> = when (type) {
+        SectionDetector.SectionType.INTRO  -> listOf(EffectMatchingEngine.FgEngine.BREATH)
+        SectionDetector.SectionType.OUTRO  -> listOf(EffectMatchingEngine.FgEngine.OFF_TRANSIT)
+        SectionDetector.SectionType.BREAK  -> listOf(EffectMatchingEngine.FgEngine.BREATH)
+        SectionDetector.SectionType.END    -> listOf(EffectMatchingEngine.FgEngine.OFF_TRANSIT)
+        SectionDetector.SectionType.BRIDGE -> listOf(EffectMatchingEngine.FgEngine.BREATH)
+
+        SectionDetector.SectionType.CLIMAX ->
+            if (globalBeatMs <= 300L || rel >= 0.60f)
+                listOf(EffectMatchingEngine.FgEngine.STROBE, EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
+            else
+                listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE, EffectMatchingEngine.FgEngine.STROBE)
+
+        SectionDetector.SectionType.VERSE ->
+            if (isBalladMode) listOf(EffectMatchingEngine.FgEngine.BREATH)
+            else listOf(EffectMatchingEngine.FgEngine.ON_PULSE, EffectMatchingEngine.FgEngine.BLINK)
+
+        SectionDetector.SectionType.CHORUS ->
+            listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE, EffectMatchingEngine.FgEngine.STROBE)
+
+        SectionDetector.SectionType.INST ->
+            when {
+                isBalladMode -> listOf(EffectMatchingEngine.FgEngine.BREATH)
+                rel >= 0.55f -> listOf(EffectMatchingEngine.FgEngine.ON_PULSE, EffectMatchingEngine.FgEngine.BREATH)
+                else         -> listOf(EffectMatchingEngine.FgEngine.BREATH, EffectMatchingEngine.FgEngine.ON_PULSE)
+            }
+
+        SectionDetector.SectionType.SOLO ->
+            listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE, EffectMatchingEngine.FgEngine.STROBE)
+    }
+
+    /** 섹션마다 결정론적으로 2~5 사이의 bar 블록 길이를 고른다 (같은 곡이면 항상 같은 결과). */
+    private fun sectionBarBlockLen(section: V8Section): Int {
+        val h = section.startMs * 2654435761L + section.type.ordinal * 97L
+        return 2 + Math.floorMod(h, 4L).toInt()
+    }
+
+    /** downbeatMs를 기준으로 한 절대 bar 인덱스 (beatInBar와 달리 마디 내 위치가 아닌 마디 자체의 순번). */
+    private fun barIndexAt(tMs: Long, downbeatMs: Long, globalBeatMs: Long, beatsPerBar: Int): Int {
+        if (globalBeatMs <= 0L || beatsPerBar <= 0) return 0
+        val steps = Math.round((tMs - downbeatMs).toDouble() / globalBeatMs.toDouble())
+        return Math.floorDiv(steps, beatsPerBar.toLong()).toInt()
     }
 
     private fun buildSourceName(type: SectionDetector.SectionType, engine: EffectMatchingEngine.FgEngine, beats: Int): String =
