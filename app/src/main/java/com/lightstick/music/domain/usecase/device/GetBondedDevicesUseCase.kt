@@ -1,5 +1,6 @@
 package com.lightstick.music.domain.usecase.device
 
+import android.annotation.SuppressLint
 import android.content.Context
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
@@ -26,6 +27,7 @@ class GetBondedDevicesUseCase @Inject constructor() {
      * @param context Android Context
      * @return Result<List<Device>> 성공 시 디바이스 리스트, 실패 시 에러
      */
+    @SuppressLint("MissingPermission")
     operator fun invoke(context: Context): Result<List<Device>> {
         return try {
             if (!PermissionManager.hasBluetoothConnectPermission(context)) {
