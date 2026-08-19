@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
+import com.lightstick.game.GameCmd
 import com.lightstick.game.GameResult
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
@@ -22,8 +23,8 @@ import javax.inject.Singleton
  * 게임 모드 BLE 통신 관리자.
  *
  * SDK [Device] 고수준 API를 사용:
- * - TX+RX: [Device.startGame] → FF03 READY 전송 + FF04 Notify 구독 일괄 처리
- * - TX: [Device.stopGame] / [Device.clearGame]
+ * - TX+RX: [Device.sendGameCmd] → FF03 명령 전송 + (onResult 전달 시) FF04 Notify 구독 일괄 처리
+ * - TX: [Device.sendGameCmd]([GameCmd.STOP]/[GameCmd.CLEAR])
  */
 @Singleton
 class GameBleManager @Inject constructor() {
@@ -86,7 +87,7 @@ class GameBleManager @Inject constructor() {
         _connectionState.value = ConnectionState.Connected
     }
 
-    /** 게임 시작: FF04 Notify 구독 + READY 커맨드 전송을 SDK가 일괄 처리 */
+    /** 게임 시작: READY(cmd=1) 커맨드 전송 + FF04 Notify 구독을 SDK가 일괄 처리 */
     @SuppressLint("MissingPermission")
     fun startGame(mode: GameMode, difficulty: GameDifficulty): Boolean {
         val device = activeDevice ?: run {
@@ -94,49 +95,55 @@ class GameBleManager @Inject constructor() {
             return false
         }
         val option = if (mode == GameMode.TEAM_BATTLE) Device.GAME_OPTION_RANDOM_TEAM else 0
-        return device.startGame(
+        return device.sendGameCmd(
+            cmd    = GameCmd.START,
             mode   = mode.toSdkMode(),
-            level  = difficulty.toSdkLevel(),
-            option = option
+            level  = difficulty.toSdkLevel().value,
+            option = option,
+            wandId = 0
         ) { result ->
             _gameResultFlow.tryEmit(result)
         }
     }
 
-    /** WINNER 커맨드 전송 (Mode 1·2 전용) */
+    /** WINNER(cmd=6) 커맨드 전송 (Mode 1·2 전용) */
     @SuppressLint("MissingPermission")
     fun sendWinner(mode: GameMode, winnerWandId: Int): Boolean {
         val device = activeDevice ?: run {
             Log.e(TAG, "sendWinner() — activeDevice null")
             return false
         }
-        return device.sendWinner(mode.toSdkMode(), winnerWandId)
+        return device.sendGameCmd(
+            cmd    = GameCmd.WINNER,
+            mode   = mode.toSdkMode(),
+            wandId = winnerWandId
+        )
     }
 
-    /** 게임 중지 커맨드 전송 */
+    /** 게임 중지(cmd=3) 커맨드 전송 */
     @SuppressLint("MissingPermission")
     fun stopGame(): Boolean {
         val device = activeDevice ?: run {
             Log.e(TAG, "stopGame() — activeDevice null")
             return false
         }
-        return device.stopGame()
+        return device.sendGameCmd(cmd = GameCmd.STOP)
     }
 
-    /** 게임 초기화 커맨드 전송 및 FF04 Notify 구독 해제 */
+    /** 게임 초기화(cmd=4) 커맨드 전송 */
     @SuppressLint("MissingPermission")
     fun clearGame(): Boolean {
         val device = activeDevice ?: run {
             Log.e(TAG, "clearGame() — activeDevice null")
             return false
         }
-        return device.clearGame()
+        return device.sendGameCmd(cmd = GameCmd.CLEAR)
     }
 
     /** FF04 Notify 구독 해제 */
     @SuppressLint("MissingPermission")
     fun disconnect() {
-        activeDevice?.unsubscribeGameResults()
+        activeDevice?.clearNotifyGameResults()
         activeDevice = null
         _isGameModeSupported.value = false
         _connectionState.value = ConnectionState.Disconnected
