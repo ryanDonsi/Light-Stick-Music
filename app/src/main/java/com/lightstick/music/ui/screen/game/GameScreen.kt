@@ -558,13 +558,11 @@ private fun PlayingContent(
                     style = MaterialTheme.typography.titleLarge,
                     color = colors.primary
                 )
-                if (mode != null) {
-                    Text(
-                        text = mode.nameKr,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colors.surfaceVariant
-                    )
-                }
+                Text(
+                    text = mode.nameKr,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.surfaceVariant
+                )
             }
 
             Text(
