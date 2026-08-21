@@ -217,7 +217,7 @@ fun EffectScreen(
             EffectViewModel.UiEffectType.EffectList(3, "록"),
             EffectViewModel.UiEffectType.EffectList(4, "그룹 물결"),
             EffectViewModel.UiEffectType.EffectList(5, "그룹 쌓기"),
-            EffectViewModel.UiEffectType.EffectList(6, "클래식")
+            EffectViewModel.UiEffectType.EffectList(6, "그룹 스캐너")
         )
     }
 

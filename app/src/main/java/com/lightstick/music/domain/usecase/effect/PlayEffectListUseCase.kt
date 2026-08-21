@@ -150,12 +150,30 @@ class PlayEffectListUseCase @Inject constructor() {
 
                 frames
             }
-            6 -> listOf(
-                0L    to LSEffectPayload.Effects.breath(60, Colors.WHITE, Colors.BLACK).toByteArray(),
-                3000L to LSEffectPayload.Effects.on(LightStickColor(255, 192, 203), transit = 50).toByteArray(),
-                6000L to LSEffectPayload.Effects.breath(70, LightStickColor(135, 206, 235), Colors.BLACK).toByteArray(),
-                9000L to LSEffectPayload.Effects.on(Colors.WHITE, transit = 60).toByteArray()
-            )
+            6 -> {
+                // 그룹 스캐너: 그룹1~10을 한 줄로 뒀을 때 단일 점이 좌(1)→우(10)→좌(1)로 왕복.
+                // 매 스텝마다 직전 그룹은 OFF, 새 그룹은 ON — 항상 한 그룹만 켜진 채로 이동.
+                val groupWaveCount = 10
+                val stepMs = 200L
+
+                val path = (1..groupWaveCount).toList() + (groupWaveCount - 1 downTo 2).toList()
+
+                val frames = mutableListOf<Pair<Long, ByteArray>>()
+                frames.add(0L to LSEffectPayload.Effects.on(Colors.WHITE, transit = 0, groupMask = 1L shl (path[0] - 1)).toByteArray())
+
+                for (i in 1 until path.size) {
+                    val timestamp = i * stepMs
+                    val prevMask = 1L shl (path[i - 1] - 1)
+                    val currentMask = 1L shl (path[i] - 1)
+                    frames.add(timestamp to LSEffectPayload.Effects.off(transit = 0, groupMask = prevMask).toByteArray())
+                    frames.add(timestamp to LSEffectPayload.Effects.on(Colors.WHITE, transit = 0, groupMask = currentMask).toByteArray())
+                }
+
+                val lastMask = 1L shl (path.last() - 1)
+                frames.add(path.size * stepMs to LSEffectPayload.Effects.off(transit = 0, groupMask = lastMask).toByteArray())
+
+                frames
+            }
             else -> listOf(
                 0L to LSEffectPayload.Effects.on(Colors.WHITE).toByteArray()
             )
