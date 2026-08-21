@@ -32,17 +32,22 @@ class LightStickMusicApp : Application() {
 
     /**
      * SDK 초기화
-     * - 디바이스 필터 설정: "LS"로 끝나는 디바이스만 허용
+     * - 디바이스 필터 설정: 이름이 "LS"/"GL"/"RL"로 끝나는 디바이스만 허용
+     *   ("LS"는 구 제품군 호환용 — 추후 제거 예정)
      * - name이 null인 디바이스는 SDK 레벨에서 자동 거부
      */
     private fun initializeSDK() {
         LSBluetooth.setDebugLoggingEnabled(true)
 
-        val filter = DeviceFilter.byName(
-            pattern = "LS",
+        fun suffixFilter(suffix: String) = DeviceFilter.byName(
+            pattern = suffix,
             mode = DeviceFilter.MatchMode.ENDS_WITH,
             ignoreCase = true
         )
+
+        val filter = suffixFilter("LS")
+            .or(suffixFilter("GL"))
+            .or(suffixFilter("RL"))
 
         LSBluetooth.initialize(
             context = applicationContext,
