@@ -39,15 +39,11 @@ class LightStickMusicApp : Application() {
     private fun initializeSDK() {
         LSBluetooth.setDebugLoggingEnabled(true)
 
-        fun suffixFilter(suffix: String) = DeviceFilter.byName(
-            pattern = suffix,
-            mode = DeviceFilter.MatchMode.ENDS_WITH,
-            ignoreCase = true
-        )
-
-        val filter = suffixFilter("LS")
-            .or(suffixFilter("GL"))
-            .or(suffixFilter("RL"))
+        val filter = DeviceFilter.Builder()
+            .addName("LS", DeviceFilter.MatchMode.ENDS_WITH, ignoreCase = true)
+            .addName("GL", DeviceFilter.MatchMode.ENDS_WITH, ignoreCase = true)
+            .addName("RL", DeviceFilter.MatchMode.ENDS_WITH, ignoreCase = true)
+            .build()
 
         LSBluetooth.initialize(
             context = applicationContext,
