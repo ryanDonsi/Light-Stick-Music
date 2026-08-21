@@ -106,7 +106,7 @@ class PlayEffectListUseCase @Inject constructor() {
                 // 켜진 순서(그룹1→10) 그대로 한 그룹씩 소등. groupMask=0은 "전체 제어"를
                 // 의미하므로(프로토콜 규약) 마지막 소등도 반드시 그룹10 개별 마스크로 전송.
                 val groupWaveCount = 10
-                val stepMs = 300L
+                val stepMs = 500L
                 val holdMs = 1500L
 
                 val onFrames = (1..groupWaveCount).map { step ->
