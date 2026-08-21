@@ -562,7 +562,6 @@ fun AppNavigation(
                     onGroupCountChange = { deviceViewModel.setGroupCount(it) },
                     onDismiss = { showGroupAssignDialog = false },
                     onConfirm = { groupId ->
-                        showGroupAssignDialog = false
                         deviceViewModel.sendGroupSetting(device, groupId)
                     }
                 )

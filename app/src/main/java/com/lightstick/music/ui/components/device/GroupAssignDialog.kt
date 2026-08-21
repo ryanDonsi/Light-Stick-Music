@@ -15,7 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lightstick.music.core.util.toComposeColor
 import com.lightstick.music.ui.components.common.BaseDialog
@@ -36,7 +36,7 @@ import com.lightstick.types.GroupPalette
 /**
  * 그룹 배정 방송 다이얼로그
  *
- * 이번 행사의 전체 그룹 개수(1~20)를 먼저 정하고, 그중 그룹 하나를 선택해 전송하면
+ * 이번 행사의 전체 그룹 개수(1~20)를 먼저 정하고, 그룹을 탭하면 즉시 전송한다.
  * 연결된 기기(RL 중계기 또는 직접연결된 GL/LS)가 해당 그룹 팔레트 색으로 BLINK
  * 방송(GroupSetup)을 시작한다. 방송을 받는 동안 응원봉에서 지정 버튼을 누르면
  * 그 응원봉이 선택한 그룹으로 저장된다.
@@ -51,27 +51,26 @@ fun GroupAssignDialog(
     onDismiss: () -> Unit,
     onConfirm: (groupId: Int) -> Unit
 ) {
-    var selectedGroupId by remember { mutableStateOf<Int?>(null) }
-
-    // 그룹 개수가 줄어 현재 선택이 범위를 벗어나면 선택 해제
-    LaunchedEffect(groupCount) {
-        if ((selectedGroupId ?: 0) > groupCount) selectedGroupId = null
-    }
+    var lastSentGroupId by remember { mutableStateOf<Int?>(null) }
 
     BaseDialog(
         title = "그룹 배정",
-        subtitle = "그룹을 선택해 전송하면, 방송을 받는 동안\n버튼을 누른 응원봉이 해당 그룹으로 저장됩니다.",
         onDismiss = onDismiss,
-        onConfirm = { selectedGroupId?.let(onConfirm) },
-        confirmText = "전송",
-        dismissText = "취소",
-        confirmEnabled = selectedGroupId != null,
+        confirmText = "닫기",
         scrollable = false
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            Text(
+                text = "그룹을 탭하면 즉시 전송됩니다. 방송을 받는 동안\n버튼을 누른 응원봉이 해당 그룹으로 저장됩니다.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.customColors.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -106,8 +105,11 @@ fun GroupAssignDialog(
                     GroupSwatch(
                         groupId = groupId,
                         color = GroupPalette.colorFor(groupId).toComposeColor(),
-                        isSelected = groupId == selectedGroupId,
-                        onClick = { selectedGroupId = groupId }
+                        isSelected = groupId == lastSentGroupId,
+                        onClick = {
+                            lastSentGroupId = groupId
+                            onConfirm(groupId)
+                        }
                     )
                 }
             }
