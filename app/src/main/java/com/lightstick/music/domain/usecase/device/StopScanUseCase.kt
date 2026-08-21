@@ -1,5 +1,6 @@
 package com.lightstick.music.domain.usecase.device
 
+import android.annotation.SuppressLint
 import android.content.Context
 import com.lightstick.LSBluetooth
 import com.lightstick.music.core.permission.PermissionManager
@@ -23,6 +24,7 @@ class StopScanUseCase @Inject constructor() {
      * @param context Android Context
      * @return Result<Unit> 성공 또는 실패
      */
+    @SuppressLint("MissingPermission")
     operator fun invoke(context: Context): Result<Unit> {
         return try {
             if (!PermissionManager.hasBluetoothScanPermission(context)) {

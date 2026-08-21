@@ -38,8 +38,12 @@ object AutoTimelineConfig {
     /**
      * 파일 캐시 버전 — 생성기·감지기 조합이 바뀔 때마다 증가시켜 기존 캐시를 무효화한다.
      * 이 값이 변경되면 모든 사용자의 기존 타임라인이 재생성된다.
+     *
+     * v0→v1: lightstick-sdk 2.0.0 반영. LSEffectPayload.toByteArray()의 20바이트 레이아웃이
+     * (mode/ledMask/durationMs/syncIndex) → (msgType/groupMask/effectIndex)로 바뀌어,
+     * SDK 1.4.1로 캐싱된 기존 .bin 프레임은 새 응원봉 펌웨어가 오인식한다. 반드시 무효화 필요.
      */
-    const val VERSION = 0
+    const val VERSION = 1
 
     // =========================================================================
     // BEAT_DETECTOR: 비트 감지 엔진 버전

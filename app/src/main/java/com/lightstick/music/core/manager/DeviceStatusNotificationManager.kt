@@ -6,7 +6,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import androidx.annotation.OptIn
 import androidx.core.app.NotificationCompat
+import androidx.media3.common.util.UnstableApi
 import com.lightstick.LSBluetooth
 import com.lightstick.device.ConnectionState
 import com.lightstick.music.R
@@ -135,6 +137,7 @@ object DeviceStatusNotificationManager {
         }
     }
 
+    @OptIn(UnstableApi::class)
     private fun showNotification(context: Context, devices: List<DeviceNotifInfo>) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 

@@ -114,6 +114,7 @@ object DeviceEventEffectSender {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun sendToEnabledDevices(
         context: Context,
         eventTag: String,

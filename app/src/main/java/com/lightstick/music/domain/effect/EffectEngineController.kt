@@ -412,8 +412,7 @@ object EffectEngineController {
                 val intervalMs = currentEntry.timestampMs - prevEntry.timestampMs
                 val prevColor = prevEntry.payload.color
                 val currColor = currentPayload.color
-                val sameColor = (prevColor != null && currColor != null &&
-                        prevColor.r == currColor.r && prevColor.g == currColor.g && prevColor.b == currColor.b)
+                val sameColor = prevColor.r == currColor.r && prevColor.g == currColor.g && prevColor.b == currColor.b
                 Log.d(TAG, "[firmware] idx=${currentEffectIndex}(1-idx=${currentEffectIndex + 1}) " +
                         "t=${currentEntry.timestampMs}ms interval=${intervalMs}ms " +
                         "type=${currentPayload.effectType} color=${currColor} " +

@@ -1830,26 +1830,11 @@ object BeatDetectorV3 {
         // List<Float> → FloatArray 변환
         val minSize = minOf(veryLowEnv.size, lowMidEnv.size, lowEnv.size, midEnv.size, highEnv.size, fullEnv.size)
 
-        val veryLowArr: FloatArray = when (veryLowEnv) {
-            is FloatArray -> veryLowEnv.copyOf(minSize)
-            else -> veryLowEnv.take(minSize).toFloatArray()
-        }
-        val lowMidArr: FloatArray = when (lowMidEnv) {
-            is FloatArray -> lowMidEnv.copyOf(minSize)
-            else -> lowMidEnv.take(minSize).toFloatArray()
-        }
-        val lowArr: FloatArray = when (lowEnv) {
-            is FloatArray -> lowEnv.copyOf(minSize)
-            else -> lowEnv.take(minSize).toFloatArray()
-        }
-        val midArr: FloatArray = when (midEnv) {
-            is FloatArray -> midEnv.copyOf(minSize)
-            else -> midEnv.take(minSize).toFloatArray()
-        }
-        val highArr: FloatArray = when (highEnv) {
-            is FloatArray -> highEnv.copyOf(minSize)
-            else -> highEnv.take(minSize).toFloatArray()
-        }
+        val veryLowArr: FloatArray = veryLowEnv.take(minSize).toFloatArray()
+        val lowMidArr: FloatArray = lowMidEnv.take(minSize).toFloatArray()
+        val lowArr: FloatArray = lowEnv.take(minSize).toFloatArray()
+        val midArr: FloatArray = midEnv.take(minSize).toFloatArray()
+        val highArr: FloatArray = highEnv.take(minSize).toFloatArray()
 
         // 각 대역별 ODF 계산
         val odfVeryLow = computeSingleBandOdf(veryLowArr, params)
@@ -2210,18 +2195,9 @@ object BeatDetectorV3 {
         }
 
         val minSize = minOf(lowEnv.size, midEnv.size, fullEnv.size)
-        val low: FloatArray = when (lowEnv) {
-            is FloatArray -> lowEnv.copyOf(minSize)
-            else -> lowEnv.take(minSize).toFloatArray()
-        }
-        val mid: FloatArray = when (midEnv) {
-            is FloatArray -> midEnv.copyOf(minSize)
-            else -> midEnv.take(minSize).toFloatArray()
-        }
-        val full: FloatArray = when (fullEnv) {
-            is FloatArray -> fullEnv.copyOf(minSize)
-            else -> fullEnv.take(minSize).toFloatArray()
-        }
+        val low: FloatArray = lowEnv.take(minSize).toFloatArray()
+        val mid: FloatArray = midEnv.take(minSize).toFloatArray()
+        val full: FloatArray = fullEnv.take(minSize).toFloatArray()
 
         // ODF 계산 (V1과 동일)
         val globalOdf = computeMultiBandFluxOdf(low, mid, full, params)

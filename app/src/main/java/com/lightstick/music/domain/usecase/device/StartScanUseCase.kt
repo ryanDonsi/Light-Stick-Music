@@ -1,5 +1,6 @@
 package com.lightstick.music.domain.usecase.device
 
+import android.annotation.SuppressLint
 import android.content.Context
 import com.lightstick.LSBluetooth
 import com.lightstick.device.Device
@@ -42,6 +43,7 @@ class StartScanUseCase @Inject constructor() {
      *                   - 신규/기존 디바이스 모두 RSSI 갱신 시 호출됨
      * @return Result<List<Device>> 스캔 완료 후 전체 결과
      */
+    @SuppressLint("MissingPermission")
     suspend operator fun invoke(
         context: Context,
         durationMs: Long = AppConstants.DEVICE_SCAN_DURATION_MS,

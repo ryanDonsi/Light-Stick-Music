@@ -136,7 +136,7 @@ dependencies {
     // Blur (Glide Transformation)
     implementation(libs.glide.transformations)
 
-    implementation(files("libs/lightstick-sdk-1.4.1.aar"))
+    implementation(files("libs/lightstick-sdk-2.0.0.aar"))
 
     // 테스트
     testImplementation(libs.junit)
