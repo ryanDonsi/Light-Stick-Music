@@ -62,6 +62,7 @@ import com.lightstick.music.ui.components.device.DeviceInfoDialog
 import com.lightstick.music.ui.components.device.DisconnectConfirmDialog
 import com.lightstick.music.ui.components.device.EffectFolderGuideDialog
 import com.lightstick.music.ui.components.device.FindEffectConfirmDialog
+import com.lightstick.music.ui.components.device.GroupAssignDialog
 import com.lightstick.music.ui.components.device.OtaUpdateConfirmDialog
 import com.lightstick.music.ui.components.device.OtaVersionInfoDialog
 import com.lightstick.music.ui.components.device.ReconnectConfirmDialog
@@ -445,6 +446,7 @@ fun AppNavigation(
             var showOtaUpdateDialog by remember { mutableStateOf(false) }
             var showOtaLatestDialog by remember { mutableStateOf(false) }
             var showFindDialog by remember { mutableStateOf(false) }
+            var showGroupAssignDialog by remember { mutableStateOf(false) }
 
             var otaDialogCurrentVersion by remember { mutableStateOf("") }
             var otaDialogNewVersion by remember { mutableStateOf("") }
@@ -509,6 +511,9 @@ fun AppNavigation(
                 onFindClick = {
                     showFindDialog = true
                 },
+                onGroupAssignClick = {
+                    showGroupAssignDialog = true
+                },
                 onOtaUpdateClick = {
                     otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
                 },
@@ -546,6 +551,16 @@ fun AppNavigation(
                     onConfirm = {
                         showFindDialog = false
                         deviceViewModel.sendFindEffect(device)
+                    }
+                )
+            }
+
+            if (showGroupAssignDialog) {
+                GroupAssignDialog(
+                    onDismiss = { showGroupAssignDialog = false },
+                    onConfirm = { groupId ->
+                        showGroupAssignDialog = false
+                        deviceViewModel.sendGroupSetting(device, groupId)
                     }
                 )
             }

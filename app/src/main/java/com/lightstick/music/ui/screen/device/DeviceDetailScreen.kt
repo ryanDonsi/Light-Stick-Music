@@ -42,6 +42,7 @@ fun DeviceDetailScreen(
     onSmsEventToggle: (Boolean) -> Unit,
     onBroadcastingToggle: (Boolean) -> Unit,
     onFindClick: () -> Unit,
+    onGroupAssignClick: () -> Unit,
     onOtaUpdateClick: () -> Unit,
     onAbortOta: () -> Unit,
     modifier: Modifier = Modifier
@@ -164,6 +165,18 @@ fun DeviceDetailScreen(
                         label = "FIND",
                         description = "연결한 기기에 특정 이펙트를 전달하여 기기 찾기",
                         onClick = onFindClick
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.fillMaxWidth(),
+                        thickness = 1.dp,
+                        color = MaterialTheme.customColors.divider
+                    )
+
+                    SettingLabel(
+                        label = "그룹 배정",
+                        description = "그룹 색상을 방송하여 응원봉을 그룹에 배정",
+                        onClick = onGroupAssignClick
                     )
 
                     HorizontalDivider(

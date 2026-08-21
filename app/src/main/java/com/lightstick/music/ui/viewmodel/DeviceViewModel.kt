@@ -458,6 +458,27 @@ class DeviceViewModel @Inject constructor(
     }
 
     /**
+     * 그룹 배정 방송 전송 (GroupSetup).
+     * 연결된 기기(RL 중계기 또는 직접연결된 GL/LS)를 통해 groupId 색상 BLINK를 방송한다.
+     */
+    @SuppressLint("MissingPermission")
+    fun sendGroupSetting(device: Device, groupId: Int) {
+        if (!PermissionManager.hasBluetoothConnectPermission(context)) {
+            Log.w(TAG, "BLUETOOTH_CONNECT 권한 없음"); return
+        }
+        if (_connectionStates.value[device.mac] != true) {
+            Log.w(TAG, "Device not connected: ${device.mac}"); return
+        }
+
+        val ok = device.sendGroupSetting(groupId)
+        if (ok) {
+            Log.i(TAG, "Group setting sent: ${device.mac} → group $groupId")
+        } else {
+            Log.e(TAG, "Group setting failed: ${device.mac} → group $groupId")
+        }
+    }
+
+    /**
      * 파일 선택 → 버전 비교 → otaVersionCheck StateFlow 업데이트
      *
      * 흐름:
