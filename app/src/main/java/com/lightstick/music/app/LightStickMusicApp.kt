@@ -36,6 +36,8 @@ class LightStickMusicApp : Application() {
      * - name이 null인 디바이스는 SDK 레벨에서 자동 거부
      */
     private fun initializeSDK() {
+        LSBluetooth.setDebugLoggingEnabled(true)
+
         val filter = DeviceFilter.byName(
             pattern = "LS",
             mode = DeviceFilter.MatchMode.ENDS_WITH,
