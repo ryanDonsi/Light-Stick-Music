@@ -33,6 +33,9 @@ object PrefsKeys {
     /** AutoModePreferences — 수정: "auto_mode_preferences" → "auto_mode_settings" */
     const val PREFS_AUTO_MODE = "auto_mode_settings"
 
+    /** GroupPreferences */
+    const val PREFS_GROUP = "group_settings"
+
     const val KEY_IS_INITIALIZED = "is_initialized"
     const val KEY_MUSIC_COUNT    = "music_count"
     const val KEY_EFFECT_COUNT   = "effect_count"
@@ -67,6 +70,9 @@ object PrefsKeys {
 
     /** 섹션 정보 오버레이 표시 여부 (MusicControlScreen 앨범 이미지 위) */
     const val KEY_SECTION_OVERLAY_ENABLED = "section_overlay_enabled"
+
+    /** 이번 행사의 전체 그룹 개수 (1~20) — GroupPreferences */
+    const val KEY_GROUP_COUNT = "group_count"
 
     /** Foreground 프리셋 색상 key 생성 */
     fun fgPresetKey(index: Int): String = KEY_FG_PRESET_PREFIX + index

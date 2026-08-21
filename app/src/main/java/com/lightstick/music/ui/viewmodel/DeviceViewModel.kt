@@ -21,6 +21,7 @@ import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.core.state.OtaState
 import com.lightstick.music.data.local.preferences.DevicePreferences
+import com.lightstick.music.data.local.preferences.GroupPreferences
 import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.DisconnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.GetCachedDeviceInfoUseCase
@@ -94,6 +95,10 @@ class DeviceViewModel @Inject constructor(
 
     private val _otaVersionCheck = MutableStateFlow<OtaVersionCheck?>(null)
     val otaVersionCheck: StateFlow<OtaVersionCheck?> = _otaVersionCheck.asStateFlow()
+
+    /** 이번 행사의 전체 그룹 개수 (1~20) — GroupAssignDialog에서 사용, GroupPreferences에 영속화 */
+    private val _groupCount = MutableStateFlow(GroupPreferences.getGroupCount(context))
+    val groupCount: StateFlow<Int> = _groupCount.asStateFlow()
 
     /** 버전 확인 후 사용자 승인 시 전달할 펌웨어 바이트 임시 보관 */
     private var pendingOtaFirmware: ByteArray? = null
@@ -455,6 +460,12 @@ class DeviceViewModel @Inject constructor(
                 Log.e(TAG, "FIND effect error: ${e.message}", e)
             }
         }
+    }
+
+    /** 이번 행사의 전체 그룹 개수 변경 (GroupAssignDialog) */
+    fun setGroupCount(count: Int) {
+        GroupPreferences.setGroupCount(context, count)
+        _groupCount.value = GroupPreferences.getGroupCount(context)
     }
 
     /**

@@ -556,7 +556,10 @@ fun AppNavigation(
             }
 
             if (showGroupAssignDialog) {
+                val groupCount by deviceViewModel.groupCount.collectAsState()
                 GroupAssignDialog(
+                    groupCount = groupCount,
+                    onGroupCountChange = { deviceViewModel.setGroupCount(it) },
                     onDismiss = { showGroupAssignDialog = false },
                     onConfirm = { groupId ->
                         showGroupAssignDialog = false
