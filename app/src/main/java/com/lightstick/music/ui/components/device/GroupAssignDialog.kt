@@ -30,6 +30,7 @@ import com.lightstick.music.core.util.toComposeColor
 import com.lightstick.music.ui.components.common.BaseDialog
 import com.lightstick.music.ui.components.common.CustomSlider
 import com.lightstick.music.ui.theme.customColors
+import com.lightstick.music.ui.theme.surfaceGlass
 import com.lightstick.types.GroupPalette
 
 /**
