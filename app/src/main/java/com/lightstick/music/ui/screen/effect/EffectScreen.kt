@@ -215,7 +215,7 @@ fun EffectScreen(
             EffectViewModel.UiEffectType.EffectList(1, "발라드"),
             EffectViewModel.UiEffectType.EffectList(2, "댄스"),
             EffectViewModel.UiEffectType.EffectList(3, "록"),
-            EffectViewModel.UiEffectType.EffectList(4, "힙합"),
+            EffectViewModel.UiEffectType.EffectList(4, "그룹 물결"),
             EffectViewModel.UiEffectType.EffectList(5, "재즈"),
             EffectViewModel.UiEffectType.EffectList(6, "클래식")
         )

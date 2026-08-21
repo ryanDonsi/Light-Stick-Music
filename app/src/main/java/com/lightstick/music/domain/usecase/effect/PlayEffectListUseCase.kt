@@ -101,12 +101,27 @@ class PlayEffectListUseCase @Inject constructor() {
                 2500L to LSEffectPayload.Effects.strobe(8, LightStickColor(255, 165, 0), Colors.BLACK).toByteArray(),
                 4000L to LSEffectPayload.Effects.blink(15, Colors.YELLOW, Colors.BLACK).toByteArray()
             )
-            4 -> listOf(
-                0L    to LSEffectPayload.Effects.blink(12, Colors.YELLOW, Colors.BLACK).toByteArray(),
-                1200L to LSEffectPayload.Effects.strobe(7, LightStickColor(128, 0, 128), Colors.BLACK).toByteArray(),
-                2400L to LSEffectPayload.Effects.blink(10, Colors.CYAN, Colors.BLACK).toByteArray(),
-                3600L to LSEffectPayload.Effects.on(Colors.GREEN, transit = 15).toByteArray()
-            )
+            4 -> {
+                // 그룹 물결: 그룹1부터 그룹10까지 화이트로 한 그룹씩 누적 점등 후,
+                // 켜진 순서(그룹1→10) 그대로 한 그룹씩 소등. groupMask=0은 "전체 제어"를
+                // 의미하므로(프로토콜 규약) 마지막 소등도 반드시 그룹10 개별 마스크로 전송.
+                val groupWaveCount = 10
+                val stepMs = 300L
+                val holdMs = 1500L
+
+                val onFrames = (1..groupWaveCount).map { step ->
+                    val timestamp = (step - 1) * stepMs
+                    val cumulativeMask = (1L shl step) - 1L
+                    timestamp to LSEffectPayload.Effects.on(Colors.WHITE, transit = 15, groupMask = cumulativeMask).toByteArray()
+                }
+                val offStart = (groupWaveCount - 1) * stepMs + holdMs
+                val offFrames = (1..groupWaveCount).map { group ->
+                    val timestamp = offStart + (group - 1) * stepMs
+                    val singleGroupMask = 1L shl (group - 1)
+                    timestamp to LSEffectPayload.Effects.off(transit = 15, groupMask = singleGroupMask).toByteArray()
+                }
+                onFrames + offFrames
+            }
             5 -> listOf(
                 0L    to LSEffectPayload.Effects.breath(50, Colors.CYAN, Colors.BLUE).toByteArray(),
                 2500L to LSEffectPayload.Effects.on(LightStickColor(135, 206, 235), transit = 40).toByteArray(),
