@@ -149,11 +149,9 @@ object EffectEngineController {
     /**
      * 캔드 프레임 시퀀스 재생 (EFFECT LIST용).
      *
-     * SDK의 `play()`는 내부 playJob을 취소할 공개 API가 없어 재생 중 취소가 불가능하다.
-     * 반면 `loadTimeline()`은 동일하게 SDK 자체 시계(10ms 틱)로 자동 재생되면서도
-     * `stopTimeline()`/`pauseEffects()`/`resumeEffects()`가 이미 공개돼 있어 중간에
-     * 멈출 수 있다 — `updatePlaybackPosition()`을 안 불러줘도 자체 진행되므로(그건 외부
-     * 시계와의 재동기화 전용) 캔드 시퀀스에는 그대로 대체 가능하다. [stopPlayFrames] 참고.
+     * SDK 업데이트로 `playTimeline()`/`stopTimeline()`이 정식 공개됨 — 이전에는 `play()`에
+     * 대응하는 취소 API가 없어 `loadTimeline()`으로 우회했었는데, 이제 원래 의도했던
+     * `playTimeline()`을 그대로 쓴다. [stopPlayFrames] 참고.
      */
     fun playFrames(context: Context, frames: List<Pair<Long, ByteArray>>): Device? {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) {
@@ -167,7 +165,7 @@ object EffectEngineController {
         }
 
         return try {
-            device.loadTimeline(frames)
+            device.playTimeline(frames)
             device
         } catch (e: Exception) {
             Log.e(TAG, "Play frames error: ${e.message}")
@@ -175,7 +173,7 @@ object EffectEngineController {
         }
     }
 
-    /** [playFrames]로 재생 중인 캔드 시퀀스를 즉시 중단(같은 대상 기기의 loadTimeline만 정지). */
+    /** [playFrames]로 재생 중인 캔드 시퀀스를 즉시 중단(같은 대상 기기의 playTimeline만 정지). */
     fun stopPlayFrames(context: Context) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
 
@@ -313,14 +311,14 @@ object EffectEngineController {
     fun pauseEffects(context: Context) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
         resolveAllDevices(context).forEach {
-            try { it.pauseEffects() } catch (e: Exception) { Log.e(TAG, "Pause failed ${it.mac}: ${e.message}") }
+            try { it.pauseLoadedTimeline() } catch (e: Exception) { Log.e(TAG, "Pause failed ${it.mac}: ${e.message}") }
         }
     }
 
     fun resumeEffects(context: Context) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
         resolveAllDevices(context).forEach {
-            try { it.resumeEffects() } catch (e: Exception) { Log.e(TAG, "Resume failed ${it.mac}: ${e.message}") }
+            try { it.resumeLoadedTimeline() } catch (e: Exception) { Log.e(TAG, "Resume failed ${it.mac}: ${e.message}") }
         }
     }
 
@@ -331,7 +329,7 @@ object EffectEngineController {
         loadedEffectSource = null
         cachedTimeline = emptyList()
         lastRecordedEffectIndex = -1
-        try { LSBluetooth.connectedDevices().forEach { it.stopTimeline() } } catch (_: Exception) {}
+        try { LSBluetooth.connectedDevices().forEach { it.releaseTimeline() } } catch (_: Exception) {}
         targetDevice = null
     }
 

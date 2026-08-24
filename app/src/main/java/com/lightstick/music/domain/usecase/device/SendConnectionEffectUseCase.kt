@@ -79,7 +79,7 @@ class SendConnectionEffectUseCase @Inject constructor() {
                 delay(16)
             }
 
-            device.stopTimeline()
+            device.releaseTimeline()
 
             val endEvent = BleTransmissionEvent(
                 source = TransmissionSource.PAYLOAD_EFFECT,
