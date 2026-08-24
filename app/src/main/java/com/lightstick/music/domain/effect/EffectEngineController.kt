@@ -146,6 +146,15 @@ object EffectEngineController {
         }
     }
 
+    /**
+     * 캔드 프레임 시퀀스 재생 (EFFECT LIST용).
+     *
+     * SDK의 `play()`는 내부 playJob을 취소할 공개 API가 없어 재생 중 취소가 불가능하다.
+     * 반면 `loadTimeline()`은 동일하게 SDK 자체 시계(10ms 틱)로 자동 재생되면서도
+     * `stopTimeline()`/`pauseEffects()`/`resumeEffects()`가 이미 공개돼 있어 중간에
+     * 멈출 수 있다 — `updatePlaybackPosition()`을 안 불러줘도 자체 진행되므로(그건 외부
+     * 시계와의 재동기화 전용) 캔드 시퀀스에는 그대로 대체 가능하다. [stopPlayFrames] 참고.
+     */
     fun playFrames(context: Context, frames: List<Pair<Long, ByteArray>>): Device? {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) {
             Log.w(TAG, "BLUETOOTH_CONNECT permission required")
@@ -158,11 +167,23 @@ object EffectEngineController {
         }
 
         return try {
-            device.play(frames)
+            device.loadTimeline(frames)
             device
         } catch (e: Exception) {
             Log.e(TAG, "Play frames error: ${e.message}")
             null
+        }
+    }
+
+    /** [playFrames]로 재생 중인 캔드 시퀀스를 즉시 중단(같은 대상 기기의 loadTimeline만 정지). */
+    fun stopPlayFrames(context: Context) {
+        if (!PermissionManager.hasBluetoothConnectPermission(context)) return
+
+        val device = resolveTarget(context) ?: return
+        try {
+            device.stopTimeline()
+        } catch (e: Exception) {
+            Log.e(TAG, "Stop play frames error: ${e.message}")
         }
     }
 
