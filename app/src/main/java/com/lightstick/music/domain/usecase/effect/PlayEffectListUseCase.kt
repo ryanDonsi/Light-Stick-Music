@@ -126,10 +126,17 @@ class PlayEffectListUseCase @Inject constructor() {
                 // 그룹 쌓기: 그룹1에서 출발한 이동 점이 라운드마다 한 칸씩 더 멀리 이동하며,
                 // 도착 지점은 그룹10→그룹1 순으로 쌓여 그대로 켜진 채 남는다(이전 라운드 도착지는
                 // 다음 라운드에서도 계속 점등). 전부 쌓이면 대기 후 그룹1~10 전체를 transit 페이드로 OFF.
+                //
+                // groupMask는 대상 필터일 뿐 — 마스크에서 빠진 그룹이 자동으로 꺼지지 않는다(SDK 그룹
+                // 컨트롤 특성상 OFF는 반드시 별도 명령으로 보내야 함). 그래서 각 스텝에서 직전 이동
+                // 위치를 명시적으로 OFF한다. 같은 타임스탬프에 OFF/ON을 함께 보내면 BLE 쓰기 큐가
+                // 같은 coalesceKey("LCS:PAYLOAD")의 대기 중인 OFF를 ON으로 대체해버려 OFF가 실제로는
+                // 전송되지 않으므로(replaceIfSameKey), offGapMs만큼 타임스탬프를 떼어 각각 별도로 전송한다.
                 val groupWaveCount = 10
                 val stepMs = 500L
                 val holdMs = 1500L
                 val offTransit = 50
+                val offGapMs = 30L
 
                 val frames = mutableListOf<Pair<Long, ByteArray>>()
                 var landedMask = 0L
@@ -137,8 +144,12 @@ class PlayEffectListUseCase @Inject constructor() {
                 for (target in groupWaveCount downTo 1) {
                     for (moving in 1..target) {
                         val timestamp = stepIndex * stepMs
+                        if (moving > 1) {
+                            val prevMovingMask = 1L shl (moving - 2)
+                            frames.add(timestamp to LSEffectPayload.Effects.off(transit = 15, groupMask = prevMovingMask).toByteArray())
+                        }
                         val mask = landedMask or (1L shl (moving - 1))
-                        frames.add(timestamp to LSEffectPayload.Effects.on(Colors.WHITE, transit = 15, groupMask = mask).toByteArray())
+                        frames.add((timestamp + offGapMs) to LSEffectPayload.Effects.on(Colors.WHITE, transit = 15, groupMask = mask).toByteArray())
                         stepIndex++
                     }
                     landedMask = landedMask or (1L shl (target - 1))
@@ -153,8 +164,13 @@ class PlayEffectListUseCase @Inject constructor() {
             6 -> {
                 // 그룹 스캐너: 그룹1~10을 한 줄로 뒀을 때 단일 점이 좌(1)→우(10)→좌(1)로 왕복.
                 // 매 스텝마다 직전 그룹은 OFF, 새 그룹은 ON — 항상 한 그룹만 켜진 채로 이동.
+                //
+                // OFF/ON을 같은 타임스탬프로 보내면 BLE 쓰기 큐가 같은 coalesceKey("LCS:PAYLOAD")의
+                // 대기 중인 OFF를 ON으로 대체해버려 OFF가 실제로 전송되지 않는다(replaceIfSameKey).
+                // offGapMs만큼 떼어 각각 별도 프레임으로 전송한다.
                 val groupWaveCount = 10
                 val stepMs = 200L
+                val offGapMs = 30L
 
                 val path = (1..groupWaveCount).toList() + (groupWaveCount - 1 downTo 2).toList()
 
@@ -166,7 +182,7 @@ class PlayEffectListUseCase @Inject constructor() {
                     val prevMask = 1L shl (path[i - 1] - 1)
                     val currentMask = 1L shl (path[i] - 1)
                     frames.add(timestamp to LSEffectPayload.Effects.off(transit = 0, groupMask = prevMask).toByteArray())
-                    frames.add(timestamp to LSEffectPayload.Effects.on(Colors.WHITE, transit = 0, groupMask = currentMask).toByteArray())
+                    frames.add((timestamp + offGapMs) to LSEffectPayload.Effects.on(Colors.WHITE, transit = 0, groupMask = currentMask).toByteArray())
                 }
 
                 val lastMask = 1L shl (path.last() - 1)
