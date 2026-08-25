@@ -62,6 +62,7 @@ import com.lightstick.music.ui.components.device.DeviceInfoDialog
 import com.lightstick.music.ui.components.device.DisconnectConfirmDialog
 import com.lightstick.music.ui.components.device.EffectFolderGuideDialog
 import com.lightstick.music.ui.components.device.FindEffectConfirmDialog
+import com.lightstick.music.ui.components.device.GroupAssignDialog
 import com.lightstick.music.ui.components.device.OtaUpdateConfirmDialog
 import com.lightstick.music.ui.components.device.OtaVersionInfoDialog
 import com.lightstick.music.ui.components.device.ReconnectConfirmDialog
@@ -401,6 +402,14 @@ fun AppNavigation(
         ) { backStackEntry ->
             val deviceMac = backStackEntry.arguments?.getString("deviceMac") ?: return@composable
 
+            // 상세화면에 머무는 동안 스캔을 멈춰 RSSI 갱신에 따른 불필요한 DIS 재처리를 방지
+            DisposableEffect(Unit) {
+                deviceViewModel.stopScan()
+                onDispose {
+                    deviceViewModel.startScan(context)
+                }
+            }
+
             val devices by deviceViewModel.devices.collectAsState()
             val connectionStates by deviceViewModel.connectionStates.collectAsState()
             val deviceDetails by deviceViewModel.deviceDetails.collectAsState()
@@ -445,6 +454,7 @@ fun AppNavigation(
             var showOtaUpdateDialog by remember { mutableStateOf(false) }
             var showOtaLatestDialog by remember { mutableStateOf(false) }
             var showFindDialog by remember { mutableStateOf(false) }
+            var showGroupAssignDialog by remember { mutableStateOf(false) }
 
             var otaDialogCurrentVersion by remember { mutableStateOf("") }
             var otaDialogNewVersion by remember { mutableStateOf("") }
@@ -509,6 +519,9 @@ fun AppNavigation(
                 onFindClick = {
                     showFindDialog = true
                 },
+                onGroupAssignClick = {
+                    showGroupAssignDialog = true
+                },
                 onOtaUpdateClick = {
                     otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
                 },
@@ -546,6 +559,18 @@ fun AppNavigation(
                     onConfirm = {
                         showFindDialog = false
                         deviceViewModel.sendFindEffect(device)
+                    }
+                )
+            }
+
+            if (showGroupAssignDialog) {
+                val groupCount by deviceViewModel.groupCount.collectAsState()
+                GroupAssignDialog(
+                    groupCount = groupCount,
+                    onGroupCountChange = { deviceViewModel.setGroupCount(it) },
+                    onDismiss = { showGroupAssignDialog = false },
+                    onConfirm = { groupId ->
+                        deviceViewModel.sendGroupSetting(device, groupId)
                     }
                 )
             }

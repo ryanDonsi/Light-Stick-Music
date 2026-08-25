@@ -146,6 +146,12 @@ object EffectEngineController {
         }
     }
 
+    /**
+     * 캔드 프레임 시퀀스 재생 (EFFECT LIST용).
+     *
+     * playJob 계열(자체 시계, 원샷, pause 불가) — `playEffects()`/`stopEffects()`가 정식 페어.
+     * [stopPlayFrames] 참고.
+     */
     fun playFrames(context: Context, frames: List<Pair<Long, ByteArray>>): Device? {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) {
             Log.w(TAG, "BLUETOOTH_CONNECT permission required")
@@ -158,11 +164,23 @@ object EffectEngineController {
         }
 
         return try {
-            device.play(frames)
+            device.playEffects(frames)
             device
         } catch (e: Exception) {
             Log.e(TAG, "Play frames error: ${e.message}")
             null
+        }
+    }
+
+    /** [playFrames]로 재생 중인 캔드 시퀀스를 즉시 중단(같은 대상 기기의 playEffects만 정지). */
+    fun stopPlayFrames(context: Context) {
+        if (!PermissionManager.hasBluetoothConnectPermission(context)) return
+
+        val device = resolveTarget(context) ?: return
+        try {
+            device.stopEffects()
+        } catch (e: Exception) {
+            Log.e(TAG, "Stop play frames error: ${e.message}")
         }
     }
 
@@ -211,8 +229,8 @@ object EffectEngineController {
                 val payload = runCatching { LSEffectPayload.fromByteArray(bytes) }.getOrNull()
                 Log.d(TAG, "[load]   frame[$i] t=${t}ms type=${payload?.effectType} color=${payload?.color}")
             }
-            devices.forEach { it.loadTimeline(frames) }
-            Log.d(TAG, "[load] loadTimeline 완료 devices=${devices.size}")
+            devices.forEach { it.playTimeline(frames) }
+            Log.d(TAG, "[load] playTimeline 완료 devices=${devices.size}")
             isTimelineLoaded = true
             loadedEffectSource = TransmissionSource.TIMELINE_EFFECT
             lastRecordedEffectIndex = -1
@@ -252,7 +270,7 @@ object EffectEngineController {
             lastRecordedEffectIndex = -1
 
             val frames = loadedEffects.map { entry -> entry.timestampMs to entry.payload.toByteArray() }
-            devices.forEach { it.loadTimeline(frames) }
+            devices.forEach { it.playTimeline(frames) }
 
             isTimelineLoaded = true
             loadedEffectSource = TransmissionSource.EFX_EFFECT
@@ -292,14 +310,14 @@ object EffectEngineController {
     fun pauseEffects(context: Context) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
         resolveAllDevices(context).forEach {
-            try { it.pauseEffects() } catch (e: Exception) { Log.e(TAG, "Pause failed ${it.mac}: ${e.message}") }
+            try { it.pauseTimeline() } catch (e: Exception) { Log.e(TAG, "Pause failed ${it.mac}: ${e.message}") }
         }
     }
 
     fun resumeEffects(context: Context) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
         resolveAllDevices(context).forEach {
-            try { it.resumeEffects() } catch (e: Exception) { Log.e(TAG, "Resume failed ${it.mac}: ${e.message}") }
+            try { it.resumeTimeline() } catch (e: Exception) { Log.e(TAG, "Resume failed ${it.mac}: ${e.message}") }
         }
     }
 

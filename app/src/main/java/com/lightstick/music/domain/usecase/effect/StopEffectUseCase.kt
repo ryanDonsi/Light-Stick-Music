@@ -43,6 +43,11 @@ class StopEffectUseCase @Inject constructor() {
                 metadata = mapOf("type" to "manual_stop")
             )
 
+            // EFFECT LIST(그룹 물결 등)는 loadTimeline() 기반이라 stopTimeline()으로
+            // 즉시 중단 가능 — sendEffect()의 자체 stopTimeline() 호출과는 별개로,
+            // playFrames()가 재생을 걸었던 대상 기기 쪽 loadTimeline도 명시적으로 멈춘다.
+            EffectEngineController.stopPlayFrames(context)
+
             Result.success(Unit)
 
         } catch (e: Exception) {

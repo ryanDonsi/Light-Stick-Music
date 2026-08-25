@@ -21,6 +21,7 @@ import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.core.state.OtaState
 import com.lightstick.music.data.local.preferences.DevicePreferences
+import com.lightstick.music.data.local.preferences.GroupPreferences
 import com.lightstick.music.domain.usecase.device.ConnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.DisconnectDeviceUseCase
 import com.lightstick.music.domain.usecase.device.GetCachedDeviceInfoUseCase
@@ -94,6 +95,10 @@ class DeviceViewModel @Inject constructor(
 
     private val _otaVersionCheck = MutableStateFlow<OtaVersionCheck?>(null)
     val otaVersionCheck: StateFlow<OtaVersionCheck?> = _otaVersionCheck.asStateFlow()
+
+    /** 이번 행사의 전체 그룹 개수 (1~20) — GroupAssignDialog에서 사용, GroupPreferences에 영속화 */
+    private val _groupCount = MutableStateFlow(GroupPreferences.getGroupCount(context))
+    val groupCount: StateFlow<Int> = _groupCount.asStateFlow()
 
     /** 버전 확인 후 사용자 승인 시 전달할 펌웨어 바이트 임시 보관 */
     private var pendingOtaFirmware: ByteArray? = null
@@ -186,16 +191,29 @@ class DeviceViewModel @Inject constructor(
 
     /**
      * SDK DeviceState 구독 — DIS 읽기 완료 이벤트 감시
+     *
+     * SDK는 동일한 InternalDeviceInfo가 재생성될 때만 emit을 스킵한다. 스캔 콜백이 RSSI를
+     * 계속 갱신하면서 매번 rssi가 다른 InternalDeviceInfo가 새로 만들어지므로(DeviceStateManager의
+     * equals 비교상 "실변경"), DIS 자체(name/model/firmware/manufacturer)는 그대로여도 emit은
+     * 계속 발생한다. 여기서 DIS 관련 필드만 비교해서 실제로 달라졌을 때만 반영·로깅한다.
      */
     private fun observeDeviceInfoUpdates() {
         Log.d(TAG, "[observeDeviceInfoUpdates] 구독 시작")
         viewModelScope.launch {
             LSBluetooth.observeDeviceStates()
                 .collect { stateMap ->
-                    Log.d(TAG, "[observeDeviceInfoUpdates] 변경사항 수신 - devices=${stateMap.keys} / fw=${stateMap.entries.map { "${it.key}→${it.value.deviceInfo?.firmwareRevision ?: "null"}" }}")
                     stateMap.forEach { (mac, state) ->
                         val info = state.deviceInfo ?: return@forEach
                         if (info.firmwareRevision?.isNotBlank() != true) return@forEach
+
+                        val current = _deviceDetails.value[mac]?.deviceInfo
+                        val unchanged = current != null &&
+                            current.deviceName == info.deviceName &&
+                            current.modelName == info.modelName &&
+                            current.modelNumber == info.modelNumber &&
+                            current.firmwareRevision == info.firmwareRevision &&
+                            current.manufacturer == info.manufacturer
+                        if (unchanged) return@forEach
 
                         Log.d(TAG, "  [$mac] DIS 업데이트: fw=${info.firmwareRevision}")
                         updateDeviceInfoFromCallback(mac, info)
@@ -360,7 +378,6 @@ class DeviceViewModel @Inject constructor(
         }
     }
 
-    @Suppress("unused")
     fun stopScan() {
         if (!_isScanning.value) return
 
@@ -454,6 +471,33 @@ class DeviceViewModel @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "FIND effect error: ${e.message}", e)
             }
+        }
+    }
+
+    /** 이번 행사의 전체 그룹 개수 변경 (GroupAssignDialog) */
+    fun setGroupCount(count: Int) {
+        GroupPreferences.setGroupCount(context, count)
+        _groupCount.value = GroupPreferences.getGroupCount(context)
+    }
+
+    /**
+     * 그룹 배정 방송 전송 (GroupSetup).
+     * 연결된 기기(RL 중계기 또는 직접연결된 GL/LS)를 통해 groupId 색상 BLINK를 방송한다.
+     */
+    @SuppressLint("MissingPermission")
+    fun sendGroupSetting(device: Device, groupId: Int) {
+        if (!PermissionManager.hasBluetoothConnectPermission(context)) {
+            Log.w(TAG, "BLUETOOTH_CONNECT 권한 없음"); return
+        }
+        if (_connectionStates.value[device.mac] != true) {
+            Log.w(TAG, "Device not connected: ${device.mac}"); return
+        }
+
+        val ok = device.sendGroupSetting(groupId)
+        if (ok) {
+            Log.i(TAG, "Group setting sent: ${device.mac} → group $groupId")
+        } else {
+            Log.e(TAG, "Group setting failed: ${device.mac} → group $groupId")
         }
     }
 

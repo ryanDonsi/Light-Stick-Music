@@ -101,24 +101,102 @@ class PlayEffectListUseCase @Inject constructor() {
                 2500L to LSEffectPayload.Effects.strobe(8, LightStickColor(255, 165, 0), Colors.BLACK).toByteArray(),
                 4000L to LSEffectPayload.Effects.blink(15, Colors.YELLOW, Colors.BLACK).toByteArray()
             )
-            4 -> listOf(
-                0L    to LSEffectPayload.Effects.blink(12, Colors.YELLOW, Colors.BLACK).toByteArray(),
-                1200L to LSEffectPayload.Effects.strobe(7, LightStickColor(128, 0, 128), Colors.BLACK).toByteArray(),
-                2400L to LSEffectPayload.Effects.blink(10, Colors.CYAN, Colors.BLACK).toByteArray(),
-                3600L to LSEffectPayload.Effects.on(Colors.GREEN, transit = 15).toByteArray()
-            )
-            5 -> listOf(
-                0L    to LSEffectPayload.Effects.breath(50, Colors.CYAN, Colors.BLUE).toByteArray(),
-                2500L to LSEffectPayload.Effects.on(LightStickColor(135, 206, 235), transit = 40).toByteArray(),
-                5000L to LSEffectPayload.Effects.breath(60, Colors.BLUE, Colors.BLACK).toByteArray(),
-                7500L to LSEffectPayload.Effects.on(Colors.WHITE, transit = 50).toByteArray()
-            )
-            6 -> listOf(
-                0L    to LSEffectPayload.Effects.breath(60, Colors.WHITE, Colors.BLACK).toByteArray(),
-                3000L to LSEffectPayload.Effects.on(LightStickColor(255, 192, 203), transit = 50).toByteArray(),
-                6000L to LSEffectPayload.Effects.breath(70, LightStickColor(135, 206, 235), Colors.BLACK).toByteArray(),
-                9000L to LSEffectPayload.Effects.on(Colors.WHITE, transit = 60).toByteArray()
-            )
+            4 -> {
+                // 그룹 물결: 그룹1부터 그룹10까지 화이트로 한 그룹씩 누적 점등 후,
+                // 켜진 순서(그룹1→10) 그대로 한 그룹씩 소등. groupMask=0은 "전체 제어"를
+                // 의미하므로(프로토콜 규약) 마지막 소등도 반드시 그룹10 개별 마스크로 전송.
+                val groupWaveCount = 10
+                val stepMs = 500L
+                val holdMs = 1500L
+
+                val onFrames = (1..groupWaveCount).map { step ->
+                    val timestamp = (step - 1) * stepMs
+                    val cumulativeMask = (1L shl step) - 1L
+                    timestamp to LSEffectPayload.Effects.on(Colors.WHITE, transit = 15, groupMask = cumulativeMask).toByteArray()
+                }
+                val offStart = (groupWaveCount - 1) * stepMs + holdMs
+                val offFrames = (1..groupWaveCount).map { group ->
+                    val timestamp = offStart + (group - 1) * stepMs
+                    val singleGroupMask = 1L shl (group - 1)
+                    timestamp to LSEffectPayload.Effects.off(transit = 15, groupMask = singleGroupMask).toByteArray()
+                }
+                onFrames + offFrames
+            }
+            5 -> {
+                // 그룹 쌓기: 그룹1에서 출발한 이동 점이 라운드마다 한 칸씩 더 멀리 이동하며,
+                // 도착 지점은 그룹10→그룹1 순으로 쌓여 그대로 켜진 채 남는다(이전 라운드 도착지는
+                // 다음 라운드에서도 계속 점등). 전부 쌓이면 대기 후 그룹1~10 전체를 transit 페이드로 OFF.
+                //
+                // groupMask는 대상 필터일 뿐 — 마스크에서 빠진 그룹이 자동으로 꺼지지 않는다(SDK 그룹
+                // 컨트롤 특성상 OFF는 반드시 별도 명령으로 보내야 함). 그래서 각 스텝에서 직전 이동
+                // 위치를 명시적으로 OFF한다. 같은 타임스탬프에 OFF/ON을 함께 보내면 BLE 쓰기 큐가
+                // 같은 coalesceKey("LCS:PAYLOAD")의 대기 중인 OFF를 ON으로 대체해버려 OFF가 실제로는
+                // 전송되지 않으므로(replaceIfSameKey), offGapMs만큼 타임스탬프를 떼어 각각 별도로 전송한다.
+                val groupWaveCount = 10
+                val stepMs = 500L
+                val holdMs = 1500L
+                val offTransit = 50
+                val offGapMs = 200L
+
+                val frames = mutableListOf<Pair<Long, ByteArray>>()
+                var landedMask = 0L
+                var stepIndex = 0
+                for (target in groupWaveCount downTo 1) {
+                    for (moving in 1..target) {
+                        val timestamp = stepIndex * stepMs
+                        if (moving > 1) {
+                            val prevMovingMask = 1L shl (moving - 2)
+                            frames.add(timestamp to LSEffectPayload.Effects.off(transit = 15, groupMask = prevMovingMask).toByteArray())
+                        }
+                        val mask = landedMask or (1L shl (moving - 1))
+                        frames.add((timestamp + offGapMs) to LSEffectPayload.Effects.on(Colors.WHITE, transit = 15, groupMask = mask).toByteArray())
+                        stepIndex++
+                    }
+                    landedMask = landedMask or (1L shl (target - 1))
+                }
+
+                val allGroupsMask = (1L shl groupWaveCount) - 1L
+                val offTimestamp = stepIndex * stepMs + holdMs
+                frames.add(offTimestamp to LSEffectPayload.Effects.off(transit = offTransit, groupMask = allGroupsMask).toByteArray())
+
+                frames
+            }
+            6 -> {
+                // 그룹 스캐너: 그룹1~10을 한 줄로 뒀을 때 단일 점이 좌(1)→우(10)→좌(1)로 왕복.
+                // 매 스텝마다 직전 그룹은 서서히 OFF, 다음 그룹은 서서히 ON — 스냅 전환 대신
+                // 페이드로 자연스럽게 넘어가도록 크로스페이드.
+                //
+                // OFF/ON을 같은 타임스탬프로 보내면 BLE 쓰기 큐가 같은 coalesceKey("LCS:PAYLOAD")의
+                // 대기 중인 OFF를 ON으로 대체해버려 OFF가 실제로 전송되지 않는다(replaceIfSameKey).
+                // offGapMs만큼 떼어 각각 별도 프레임으로 전송한다.
+                val groupWaveCount = 10
+                // offGapMs만큼 OFF/ON을 떼고도 다음 스텝의 OFF까지 200ms 이상 남도록
+                // stepMs를 offGapMs의 2배로 잡는다(그렇지 않으면 이번 ON과 다음 OFF가
+                // 다시 같은/근접 타임스탬프로 몰려 동일한 coalescing 드롭이 재발한다).
+                val offGapMs = 200L
+                val stepMs = offGapMs * 2
+                // transit 값이 실제로 몇 ms 페이드에 대응하는지는 SDK 코드에 없는 펌웨어 고유 스케일이라
+                // 확인 불가 — 실기기로 보면서 체감상 자연스러운 값으로 보정 필요.
+                val crossfadeTransit = 10
+
+                val path = (1..groupWaveCount).toList() + (groupWaveCount - 1 downTo 2).toList()
+
+                val frames = mutableListOf<Pair<Long, ByteArray>>()
+                frames.add(0L to LSEffectPayload.Effects.on(Colors.WHITE, transit = crossfadeTransit, groupMask = 1L shl (path[0] - 1)).toByteArray())
+
+                for (i in 1 until path.size) {
+                    val timestamp = i * stepMs
+                    val prevMask = 1L shl (path[i - 1] - 1)
+                    val currentMask = 1L shl (path[i] - 1)
+                    frames.add(timestamp to LSEffectPayload.Effects.off(transit = crossfadeTransit, groupMask = prevMask).toByteArray())
+                    frames.add((timestamp + offGapMs) to LSEffectPayload.Effects.on(Colors.WHITE, transit = crossfadeTransit, groupMask = currentMask).toByteArray())
+                }
+
+                val lastMask = 1L shl (path.last() - 1)
+                frames.add(path.size * stepMs to LSEffectPayload.Effects.off(transit = crossfadeTransit, groupMask = lastMask).toByteArray())
+
+                frames
+            }
             else -> listOf(
                 0L to LSEffectPayload.Effects.on(Colors.WHITE).toByteArray()
             )
