@@ -933,11 +933,21 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
         }
         delay(715)
 
-        // ④ 라운드 자동 반복: LED ON + 동시 흔들기 → 합산 → 1초 휴식
+        // ④ 라운드 자동 반복: 라운드 1 → 라운드 2 → 라운드 3(마지막 라운드/결승전)
         var rs = 0; var bs = 0
         for (rnd in 1..totalRounds) {
-            step = 3; subMsg = "라운드 $rnd / $totalRounds"
-            message = "LED ON — 모두 최대한 많이 흔드세요!"
+            val isFinal = rnd == totalRounds
+            step = 3
+
+            message = when (rnd) {
+                1    -> "LED ON — 모두 최대한 많이 흔드세요!"
+                else -> if (isFinal) "마지막 라운드! 역전은 지금!" else "LED ON — 다시 흔드세요!"
+            }
+            subMsg = when {
+                rnd == 1 -> "라운드 1 / $totalRounds — 최대한 많이 흔들기"
+                isFinal  -> "라운드 $rnd / $totalRounds — 모두의 마지막 힘을 쏟아내세요"
+                else     -> "라운드 $rnd / $totalRounds — 역전 기회! 더 세게!"
+            }
             shakeBoth()
             delay(430)
 
@@ -950,9 +960,20 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
 
             redColors[0] = WandOff; redColors[1] = WandOff
             blueColors[0] = WandOff; blueColors[1] = WandOff
-            message = "1초 휴식"; subMsg = "라운드 $rnd / $totalRounds 완료"
-            delay(430)
-            if (rnd < totalRounds) {
+
+            if (isFinal) {
+                // 마지막 라운드는 휴식 없이 곧바로 최종 결과로 이어짐
+                message = "라운드 $rnd 결과 — 최종 집계 중"
+                subMsg = ""
+                delay(430)
+            } else {
+                message = "라운드 $rnd 결과 — 1초 휴식"
+                subMsg = when {
+                    rs > bs -> "홍팀이 앞서고 있어요!"
+                    bs > rs -> "청팀이 앞서고 있어요!"
+                    else    -> "동점! 다음 라운드가 중요해요"
+                }
+                delay(430)
                 redColors[0] = WandRed; redColors[1] = WandRed
                 blueColors[0] = WandBlue; blueColors[1] = WandBlue
             }
