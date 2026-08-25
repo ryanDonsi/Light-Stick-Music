@@ -163,7 +163,8 @@ class PlayEffectListUseCase @Inject constructor() {
             }
             6 -> {
                 // 그룹 스캐너: 그룹1~10을 한 줄로 뒀을 때 단일 점이 좌(1)→우(10)→좌(1)로 왕복.
-                // 매 스텝마다 직전 그룹은 OFF, 새 그룹은 ON — 항상 한 그룹만 켜진 채로 이동.
+                // 매 스텝마다 직전 그룹은 서서히 OFF, 다음 그룹은 서서히 ON — 스냅 전환 대신
+                // 페이드로 자연스럽게 넘어가도록 크로스페이드.
                 //
                 // OFF/ON을 같은 타임스탬프로 보내면 BLE 쓰기 큐가 같은 coalesceKey("LCS:PAYLOAD")의
                 // 대기 중인 OFF를 ON으로 대체해버려 OFF가 실제로 전송되지 않는다(replaceIfSameKey).
@@ -171,22 +172,25 @@ class PlayEffectListUseCase @Inject constructor() {
                 val groupWaveCount = 10
                 val stepMs = 200L
                 val offGapMs = 100L
+                // transit 값이 실제로 몇 ms 페이드에 대응하는지는 SDK 코드에 없는 펌웨어 고유 스케일이라
+                // 확인 불가 — 실기기로 보면서 체감상 자연스러운 값으로 보정 필요.
+                val crossfadeTransit = 10
 
                 val path = (1..groupWaveCount).toList() + (groupWaveCount - 1 downTo 2).toList()
 
                 val frames = mutableListOf<Pair<Long, ByteArray>>()
-                frames.add(0L to LSEffectPayload.Effects.on(Colors.WHITE, transit = 0, groupMask = 1L shl (path[0] - 1)).toByteArray())
+                frames.add(0L to LSEffectPayload.Effects.on(Colors.WHITE, transit = crossfadeTransit, groupMask = 1L shl (path[0] - 1)).toByteArray())
 
                 for (i in 1 until path.size) {
                     val timestamp = i * stepMs
                     val prevMask = 1L shl (path[i - 1] - 1)
                     val currentMask = 1L shl (path[i] - 1)
-                    frames.add(timestamp to LSEffectPayload.Effects.off(transit = 0, groupMask = prevMask).toByteArray())
-                    frames.add((timestamp + offGapMs) to LSEffectPayload.Effects.on(Colors.WHITE, transit = 0, groupMask = currentMask).toByteArray())
+                    frames.add(timestamp to LSEffectPayload.Effects.off(transit = crossfadeTransit, groupMask = prevMask).toByteArray())
+                    frames.add((timestamp + offGapMs) to LSEffectPayload.Effects.on(Colors.WHITE, transit = crossfadeTransit, groupMask = currentMask).toByteArray())
                 }
 
                 val lastMask = 1L shl (path.last() - 1)
-                frames.add(path.size * stepMs to LSEffectPayload.Effects.off(transit = 0, groupMask = lastMask).toByteArray())
+                frames.add(path.size * stepMs to LSEffectPayload.Effects.off(transit = crossfadeTransit, groupMask = lastMask).toByteArray())
 
                 frames
             }
