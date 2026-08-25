@@ -378,7 +378,6 @@ class DeviceViewModel @Inject constructor(
         }
     }
 
-    @Suppress("unused")
     fun stopScan() {
         if (!_isScanning.value) return
 

@@ -402,6 +402,14 @@ fun AppNavigation(
         ) { backStackEntry ->
             val deviceMac = backStackEntry.arguments?.getString("deviceMac") ?: return@composable
 
+            // 상세화면에 머무는 동안 스캔을 멈춰 RSSI 갱신에 따른 불필요한 DIS 재처리를 방지
+            DisposableEffect(Unit) {
+                deviceViewModel.stopScan()
+                onDispose {
+                    deviceViewModel.startScan(context)
+                }
+            }
+
             val devices by deviceViewModel.devices.collectAsState()
             val connectionStates by deviceViewModel.connectionStates.collectAsState()
             val deviceDetails by deviceViewModel.deviceDetails.collectAsState()
