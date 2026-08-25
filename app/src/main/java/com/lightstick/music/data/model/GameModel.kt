@@ -12,29 +12,29 @@ enum class GameMode(
 ) {
     SPEED_REACTION(
         subIndex = 1,
-        nameKr = "Speed Reaction",
+        nameKr = "개인전(Speed)",
         descKr = "LED가 켜지면 빠르게 흔드세요",
         winConditionKr = "제한 시간 내 5회 먼저 성공",
         defaultDifficulty = GameDifficulty.NORMAL
     ),
     TEMPO(
         subIndex = 2,
-        nameKr = "Tempo",
+        nameKr = "개인전(Tempo)",
         descKr = "LED 리듬에 맞춰 흔드세요",
         winConditionKr = "리듬에 맞춰 5회 연속 성공",
         defaultDifficulty = GameDifficulty.NORMAL
     ),
     TEAM_BATTLE(
         subIndex = 3,
-        nameKr = "Team Battle",
+        nameKr = "팀전(Random)",
         descKr = "내 팀 색 신호에 맞춰 흔드세요",
         winConditionKr = "5라운드 팀 점수 합산 승리",
         defaultDifficulty = GameDifficulty.EASY
     ),
     MANUAL_TEAM(
         subIndex = 4,
-        nameKr = "수동팀 동시전",
-        descKr = "팀을 직접 배정하고 다같이 흔드세요",
+        nameKr = "팀전(Speed)",
+        descKr = "팀 배정 후 LED가 켜지면 최대한 많이 흔드세요",
         winConditionKr = "라운드 합산 점수가 높은 팀 승리",
         defaultDifficulty = GameDifficulty.NORMAL
     );

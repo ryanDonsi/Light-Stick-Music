@@ -165,7 +165,7 @@ class GameBgmPlayer {
         GameMode.SPEED_REACTION -> 150f   // fast cyber-march
         GameMode.TEMPO          -> 120f
         GameMode.TEAM_BATTLE    -> 130f
-        GameMode.MANUAL_TEAM    -> 130f   // 팀전 계열 — Team Battle과 동일 그루브
+        GameMode.MANUAL_TEAM    -> 130f   // 팀전 계열 — 팀전(Random)과 동일 그루브
     }
 
     // ── Patterns (8th-note steps) ────────────────────────────────────────────

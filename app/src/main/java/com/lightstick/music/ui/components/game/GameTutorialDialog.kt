@@ -353,7 +353,7 @@ private fun ReplayButton(onClick: () -> Unit) {
     }
 }
 
-// ─── Mode 1: Speed Reaction ──────────────────────────────────────────────────
+// ─── Mode 1: 개인전(Speed) ──────────────────────────────────────────────────
 
 @Composable
 private fun SpeedReactionTutorial(onReplay: () -> Unit) {
@@ -495,7 +495,7 @@ private fun SpeedReactionTutorial(onReplay: () -> Unit) {
     }
 }
 
-// ─── Mode 2: Tempo ────────────────────────────────────────────────────────────
+// ─── Mode 2: 개인전(Tempo) ────────────────────────────────────────────────────
 
 @Composable
 private fun TempoTutorial(onReplay: () -> Unit) {
@@ -624,7 +624,7 @@ private fun TempoTutorial(onReplay: () -> Unit) {
     }
 }
 
-// ─── Mode 3: Team Battle ──────────────────────────────────────────────────────
+// ─── Mode 3: 팀전(Random) ──────────────────────────────────────────────────────
 
 @Composable
 private fun TeamBattleTutorial(onReplay: () -> Unit) {
@@ -851,7 +851,7 @@ private fun TeamBattleTutorial(onReplay: () -> Unit) {
     }
 }
 
-// ─── Mode 4: 수동팀 동시전 ────────────────────────────────────────────────────
+// ─── Mode 4: 팀전(Speed) ────────────────────────────────────────────────────
 
 @Composable
 private fun ManualTeamTutorial(onReplay: () -> Unit) {
@@ -934,7 +934,7 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
         var rs = 0; var bs = 0
         for (rnd in 1..totalRounds) {
             step = 3; subMsg = "라운드 $rnd / $totalRounds"
-            message = "LED ON — 모두 동시에 흔드세요!"
+            message = "LED ON — 모두 최대한 많이 흔드세요!"
             shakeBoth()
             delay(430)
 
@@ -984,7 +984,7 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
-            text = "앱이 홍팀 → 청팀 순서로 배정을 진행합니다. 배정 후 라운드마다 모두 동시에 흔들어 팀 합산 점수를 겨루세요.",
+            text = "앱이 홍팀 → 청팀 순서로 배정을 진행합니다. 배정 후 라운드마다 LED가 켜지면 팀원 모두 최대한 많이 흔들어 팀 합산 점수를 겨루세요.",
             style = MaterialTheme.typography.bodySmall,
             color = colors.onSurfaceVariant
         )
