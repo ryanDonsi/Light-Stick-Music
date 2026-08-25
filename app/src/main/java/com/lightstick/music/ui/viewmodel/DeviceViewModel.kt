@@ -192,11 +192,8 @@ class DeviceViewModel @Inject constructor(
     /**
      * SDK DeviceState 구독 — DIS 읽기 완료 이벤트 감시
      *
-     * observeDeviceStates()는 DIS 외 다른 상태(RSSI 등)가 바뀔 때도 맵 전체를 재방출하는데,
-     * 그때마다 DIS 값 자체는 그대로인 경우가 대부분이라 변경 여부를 직접 비교해서 실제로
-     * 달라졌을 때만 반영·로깅한다. 구독 자체는 계속 살려둔다 — OTA 성공처럼 연결 유지 중
-     * fw가 나중에 바뀌는 이벤트를 여기서만 잡기 때문(다이얼로그를 다시 열어야 반영되는
-     * refreshDeviceInfo()와 달리 백그라운드에서 자동으로 갱신됨).
+     * SDK가 connectionState/deviceInfo 실변경 시에만 emit하도록 고쳐져서(DeviceStateManager
+     * 수정), 여기서 별도로 변경 여부를 재검사할 필요는 없다 — 매 emit을 그대로 반영한다.
      */
     private fun observeDeviceInfoUpdates() {
         Log.d(TAG, "[observeDeviceInfoUpdates] 구독 시작")
@@ -206,15 +203,6 @@ class DeviceViewModel @Inject constructor(
                     stateMap.forEach { (mac, state) ->
                         val info = state.deviceInfo ?: return@forEach
                         if (info.firmwareRevision?.isNotBlank() != true) return@forEach
-
-                        val current = _deviceDetails.value[mac]?.deviceInfo
-                        val unchanged = current != null &&
-                            current.deviceName == info.deviceName &&
-                            current.modelName == info.modelName &&
-                            current.modelNumber == info.modelNumber &&
-                            current.firmwareRevision == info.firmwareRevision &&
-                            current.manufacturer == info.manufacturer
-                        if (unchanged) return@forEach
 
                         Log.d(TAG, "  [$mac] DIS 업데이트: fw=${info.firmwareRevision}")
                         updateDeviceInfoFromCallback(mac, info)
