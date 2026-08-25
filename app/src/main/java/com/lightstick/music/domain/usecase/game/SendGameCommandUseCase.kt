@@ -2,6 +2,7 @@ package com.lightstick.music.domain.usecase.game
 
 import com.lightstick.music.data.model.GameDifficulty
 import com.lightstick.music.data.model.GameMode
+import com.lightstick.music.data.model.Team
 import com.lightstick.music.domain.game.GameBleManager
 import javax.inject.Inject
 
@@ -25,4 +26,16 @@ class SendGameCommandUseCase @Inject constructor(
 
     fun sendClear(): Boolean =
         gameBleManager.clearGame()
+
+    /** Mode 4 팀 배정 시작(cmd=7) */
+    fun sendTeamAssign(team: Team): Boolean =
+        gameBleManager.startTeamAssign(team)
+
+    /** Mode 4 팀 배정 종료(cmd=9) */
+    fun sendTeamAssignEnd(team: Team): Boolean =
+        gameBleManager.endTeamAssign(team)
+
+    /** Mode 4 게임 시작(cmd=1, level=라운드 수, option=측정시간ms) */
+    fun sendTeamReady(rounds: Int, difficulty: GameDifficulty): Boolean =
+        gameBleManager.startTeamGame(rounds, difficulty)
 }

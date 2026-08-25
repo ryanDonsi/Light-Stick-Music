@@ -57,6 +57,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.lightstick.music.data.model.GameMode
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.random.Random
@@ -76,6 +77,7 @@ private val WandStripe = Color(0xFF33334A)
 private val Mode1Steps = listOf("① 대기", "② LED ON", "③ 흔들기", "④ 득점", "우승")
 private val Mode2Steps = listOf("① ON", "② 흔들기", "③ OFF", "④ 반복", "5연속!")
 private val Mode3Steps = listOf("① 팀 배정", "② 신호", "③ 판정", "④ 라운드", "결과")
+private val Mode4Steps = listOf("① 홍팀배정", "② 청팀배정", "③ 대기", "④ 흔들기", "결과")
 
 private val StageBackground = Color(0xFF0D0D1A)
 private val OverlayBackground = Color(0xCC0A0A1A)
@@ -155,6 +157,8 @@ fun GameTutorialDialog(mode: GameMode, onDismiss: () -> Unit) {
                                     TempoTutorial(onReplay = { playKey++ })
                                 GameMode.TEAM_BATTLE ->
                                     TeamBattleTutorial(onReplay = { playKey++ })
+                                GameMode.MANUAL_TEAM ->
+                                    ManualTeamTutorial(onReplay = { playKey++ })
                             }
                         }
                     }
@@ -843,6 +847,267 @@ private fun TeamBattleTutorial(onReplay: () -> Unit) {
             LegendItem(WandRed, "홍팀 신호")
             LegendItem(WandBlue, "청팀 신호")
             LegendItem(WandGreen, "성공")
+        }
+    }
+}
+
+// ─── Mode 4: 수동팀 동시전 ────────────────────────────────────────────────────
+
+@Composable
+private fun ManualTeamTutorial(onReplay: () -> Unit) {
+    val colors = MaterialTheme.customColors
+    val totalRounds = 2
+
+    val redColors   = remember { mutableStateListOf(WandOff, WandOff) }
+    val blueColors  = remember { mutableStateListOf(WandOff, WandOff) }
+    val redChecked  = remember { mutableStateListOf(false, false) }
+    val blueChecked = remember { mutableStateListOf(false, false) }
+    val redRots     = remember { mutableStateListOf(0f, 0f) }
+    val blueRots    = remember { mutableStateListOf(0f, 0f) }
+    var redScore    by remember { mutableIntStateOf(0) }
+    var blueScore   by remember { mutableIntStateOf(0) }
+    var step        by remember { mutableIntStateOf(0) }
+    var message     by remember { mutableStateOf("준비 중...") }
+    var subMsg      by remember { mutableStateOf("") }
+    var winnerText  by remember { mutableStateOf("") }
+    var finished    by remember { mutableStateOf(false) }
+
+    suspend fun blink(target: MutableList<Color>, onColor: Color) {
+        repeat(3) {
+            target[0] = onColor; target[1] = onColor
+            delay(180)
+            target[0] = WandOff; target[1] = WandOff
+            delay(180)
+        }
+    }
+
+    suspend fun shakeBoth() {
+        coroutineScope {
+            launch {
+                listOf(-8f, 8f, -6f, 6f, -3f, 3f, 0f).forEach { r ->
+                    redRots[0] = r; redRots[1] = r; delay(80)
+                }
+            }
+            launch {
+                listOf(-8f, 8f, -6f, 6f, -3f, 3f, 0f).forEach { r ->
+                    blueRots[0] = r; blueRots[1] = r; delay(80)
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        delay(430)
+
+        // ① 홍팀 배정: 블링크 → 버튼1 확정
+        step = 0
+        message = "홍팀 배정 시작"; subMsg = "빨간색 블링크"
+        blink(redColors, WandRed)
+        redColors[0] = WandRed; redColors[1] = WandRed
+        redChecked[0] = true; redChecked[1] = true
+        message = "홍팀 확정!"; subMsg = "버튼1 → 고정 점등"
+        delay(860)
+
+        // ② 청팀 배정: 블링크 → 버튼1 확정
+        step = 1
+        message = "청팀 배정 시작"; subMsg = "파란색 블링크"
+        blink(blueColors, WandBlue)
+        blueColors[0] = WandBlue; blueColors[1] = WandBlue
+        blueChecked[0] = true; blueChecked[1] = true
+        message = "청팀 확정!"; subMsg = "버튼1 → 고정 점등"
+        delay(860)
+
+        // ③ READY: 팀 색 2회 점멸 후 자동 시작
+        step = 2
+        message = "게임 시작 신호"; subMsg = "팀 색 2회 점멸 → 2초 후 Auto-START"
+        repeat(2) {
+            redColors[0] = WandOff; redColors[1] = WandOff
+            blueColors[0] = WandOff; blueColors[1] = WandOff
+            delay(200)
+            redColors[0] = WandRed; redColors[1] = WandRed
+            blueColors[0] = WandBlue; blueColors[1] = WandBlue
+            delay(200)
+        }
+        delay(715)
+
+        // ④ 라운드 자동 반복: LED ON + 동시 흔들기 → 합산 → 1초 휴식
+        var rs = 0; var bs = 0
+        for (rnd in 1..totalRounds) {
+            step = 3; subMsg = "라운드 $rnd / $totalRounds"
+            message = "LED ON — 모두 동시에 흔드세요!"
+            shakeBoth()
+            delay(430)
+
+            val redGain = Random.nextInt(3, 8)
+            val blueGain = Random.nextInt(3, 8)
+            rs += redGain; bs += blueGain
+            redScore = rs; blueScore = bs
+            message = "홍팀 +$redGain  /  청팀 +$blueGain"
+            delay(645)
+
+            redColors[0] = WandOff; redColors[1] = WandOff
+            blueColors[0] = WandOff; blueColors[1] = WandOff
+            message = "1초 휴식"; subMsg = "라운드 $rnd / $totalRounds 완료"
+            delay(430)
+            if (rnd < totalRounds) {
+                redColors[0] = WandRed; redColors[1] = WandRed
+                blueColors[0] = WandBlue; blueColors[1] = WandBlue
+            }
+        }
+
+        // ⑤ 결과 + 우승팀 점멸
+        step = 4
+        winnerText = when {
+            rs > bs -> "홍팀 승리! 🔴"
+            bs > rs -> "청팀 승리! 🔵"
+            else    -> "무승부! 🤝"
+        }
+        message = winnerText
+        subMsg = "홍팀 ${rs}점  vs  청팀 ${bs}점"
+
+        if (rs != bs) {
+            val winnerIsRed = rs > bs
+            repeat(3) {
+                if (winnerIsRed) { redColors[0] = WandOff; redColors[1] = WandOff }
+                else { blueColors[0] = WandOff; blueColors[1] = WandOff }
+                delay(160)
+                if (winnerIsRed) { redColors[0] = WandRed; redColors[1] = WandRed }
+                else { blueColors[0] = WandBlue; blueColors[1] = WandBlue }
+                delay(160)
+            }
+        }
+        finished = true
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = "앱이 홍팀 → 청팀 순서로 배정을 진행합니다. 배정 후 라운드마다 모두 동시에 흔들어 팀 합산 점수를 겨루세요.",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.onSurfaceVariant
+        )
+        TutorialStepBar(Mode4Steps, step, Modifier.fillMaxWidth())
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(StageBackground)
+                .border(1.dp, colors.outline, RoundedCornerShape(14.dp))
+                .padding(horizontal = 16.dp, vertical = 18.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            "홍팀",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WandRed
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TutorialWand(redColors[0], if (redChecked[0]) "R1 ✓" else "R1", rotation = redRots[0])
+                            TutorialWand(redColors[1], if (redChecked[1]) "R2 ✓" else "R2", rotation = redRots[1])
+                        }
+                        Text(
+                            "${redScore}점",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = WandRed
+                        )
+                    }
+                    Text(
+                        "vs",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF444466),
+                        modifier = Modifier.padding(top = 32.dp)
+                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            "청팀",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WandBlue
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TutorialWand(blueColors[0], if (blueChecked[0]) "B1 ✓" else "B1", rotation = blueRots[0])
+                            TutorialWand(blueColors[1], if (blueChecked[1]) "B2 ✓" else "B2", rotation = blueRots[1])
+                        }
+                        Text(
+                            "${blueScore}점",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = WandBlue
+                        )
+                    }
+                }
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = subMsg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textTertiary,
+                    textAlign = TextAlign.Center
+                )
+            }
+            Column(modifier = Modifier.matchParentSize()) {
+                AnimatedVisibility(
+                    visible = finished,
+                    enter = fadeIn(tween(500)),
+                    exit = fadeOut(tween(285)),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(OverlayBackground, RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Text(
+                                text = winnerText,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = colors.onSurface,
+                                textAlign = TextAlign.Center
+                            )
+                            ReplayButton(onReplay)
+                        }
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+        ) {
+            LegendItem(WandOff, "대기/블링크")
+            LegendItem(WandRed, "홍팀 확정")
+            LegendItem(WandBlue, "청팀 확정")
         }
     }
 }

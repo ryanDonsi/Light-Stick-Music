@@ -9,6 +9,7 @@ import com.lightstick.music.data.model.GameDifficulty
 import com.lightstick.music.data.model.GameMode
 import com.lightstick.music.data.model.GameResultSummary
 import com.lightstick.music.data.model.GameState
+import com.lightstick.music.data.model.Team
 import com.lightstick.music.data.model.WandResult
 import com.lightstick.music.domain.game.GameBleManager
 import com.lightstick.music.core.constants.AppConstants
@@ -38,9 +39,15 @@ class GameViewModel @Inject constructor(
         private const val TAG = AppConstants.Feature.VM_GAME
         private const val RESULT_COLLECT_WINDOW_MS = 4_000L
         private const val AUTO_START_DELAY_MS = 2_000L
+        private const val TEAM_CONFIRM_DISPLAY_MS = 1_200L
+        private const val TEAM_ROUND_REST_MS = 1_000L
 
         private fun maxPlaySeconds(mode: GameMode, difficulty: GameDifficulty): Int =
             (mode.toSdkMode().resultTimeoutMs(difficulty.toSdkLevel()) / 1000L).toInt()
+
+        /** Mode 4: 라운드 수 × (측정시간 + 라운드 간 휴식 1초) */
+        private fun maxTeamPlaySeconds(rounds: Int, difficulty: GameDifficulty): Int =
+            rounds * (difficulty.teamMeasureMs / 1000 + (TEAM_ROUND_REST_MS / 1000L).toInt())
     }
 
     private val _selectedMode = MutableStateFlow<GameMode?>(null)
@@ -48,6 +55,10 @@ class GameViewModel @Inject constructor(
 
     private val _selectedDifficulty = MutableStateFlow(GameDifficulty.NORMAL)
     val selectedDifficulty: StateFlow<GameDifficulty> = _selectedDifficulty.asStateFlow()
+
+    /** Mode 4 전용 — 라운드 수(1~3) */
+    private val _selectedRounds = MutableStateFlow(2)
+    val selectedRounds: StateFlow<Int> = _selectedRounds.asStateFlow()
 
     private val _gameState = MutableStateFlow<GameState>(GameState.Idle)
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
@@ -90,41 +101,54 @@ class GameViewModel @Inject constructor(
         _selectedDifficulty.value = difficulty
     }
 
+    fun selectRounds(rounds: Int) {
+        _selectedRounds.value = rounds.coerceIn(1, 3)
+    }
+
     /** BLE 연결 (화면 진입 시 호출) */
     fun connectIfNeeded() {
         val ctx = getApplication<Application>()
         gameBleManager.connect(ctx)
     }
 
-    /** 게임 시작 (READY 전송) */
+    /** 게임 시작. Mode 4는 수동 팀 배정(RED→BLUE)부터, 나머지는 곧바로 READY 전송 */
     fun startGame() {
         val mode = _selectedMode.value ?: return
+
+        resetRoundState()
+
+        if (mode == GameMode.MANUAL_TEAM) {
+            startTeamAssignFlow()
+            return
+        }
+
         val difficulty = _selectedDifficulty.value
-
-        collectedResults.clear()
-        resultCollectJob?.cancel()
-        _partialResults.value = emptyList()
-        bgmSpeedLevel = 0
-
         val ok = sendGameCommandUseCase.sendReady(mode, difficulty)
         if (!ok) {
             _gameState.value = GameState.Error("명령 전송 실패. 기기 연결을 확인하세요.")
             return
         }
+        beginReadyCountdown(mode, maxPlaySeconds(mode, difficulty))
+    }
 
-        _gameState.value = GameState.Ready
+    /** Mode 4 — RED팀 배정 시작(cmd=7, level=0) */
+    private fun startTeamAssignFlow() {
+        val ok = sendGameCommandUseCase.sendTeamAssign(Team.RED)
+        if (!ok) {
+            _gameState.value = GameState.Error("명령 전송 실패. 기기 연결을 확인하세요.")
+            return
+        }
+        _gameState.value = GameState.TeamAssigning(Team.RED)
+    }
 
-        viewModelScope.launch {
-            for (sec in AUTO_START_DELAY_MS.toInt() / 1000 downTo 1) {
-                _countdownSeconds.value = sec
-                countdownSoundPlayer.playShortBeep()
-                delay(1_000L)
-            }
-            _countdownSeconds.value = 0
-            countdownSoundPlayer.playLongBeep()
-            _gameState.value = GameState.Playing
-            gameBgmPlayer.start(mode)
-            startPlayingTimer(mode, difficulty)
+    /** Mode 4 — 현재 팀 배정 종료(cmd=9) 버튼 클릭 시 호출 */
+    fun confirmTeamAssignment() {
+        val state = _gameState.value as? GameState.TeamAssigning ?: return
+        if (state.confirmedCount != null) return // 이미 END 전송 후 집계 대기 중
+
+        val ok = sendGameCommandUseCase.sendTeamAssignEnd(state.team)
+        if (!ok) {
+            _gameState.value = GameState.Error("명령 전송 실패. 기기 연결을 확인하세요.")
         }
     }
 
@@ -149,10 +173,47 @@ class GameViewModel @Inject constructor(
         _gameState.value = GameState.Idle
     }
 
-    private fun startPlayingTimer(mode: GameMode, difficulty: GameDifficulty) {
+    private fun resetRoundState() {
+        collectedResults.clear()
+        resultCollectJob?.cancel()
+        _partialResults.value = emptyList()
+        bgmSpeedLevel = 0
+    }
+
+    /** READY 전송 후 공통 흐름: 2초 카운트다운 → Playing 진입 → BGM/타이머 시작 */
+    private fun beginReadyCountdown(mode: GameMode, maxSecs: Int) {
+        _gameState.value = GameState.Ready
+
+        viewModelScope.launch {
+            for (sec in AUTO_START_DELAY_MS.toInt() / 1000 downTo 1) {
+                _countdownSeconds.value = sec
+                countdownSoundPlayer.playShortBeep()
+                delay(1_000L)
+            }
+            _countdownSeconds.value = 0
+            countdownSoundPlayer.playLongBeep()
+            _gameState.value = GameState.Playing
+            gameBgmPlayer.start(mode)
+            startPlayingTimer(maxSecs)
+        }
+    }
+
+    /** Mode 4 — 양 팀 배정 확정 후 READY(cmd=1) 전송 및 라운드 진행 시작 */
+    private fun beginTeamRounds() {
+        val rounds = _selectedRounds.value
+        val difficulty = _selectedDifficulty.value
+
+        val ok = sendGameCommandUseCase.sendTeamReady(rounds, difficulty)
+        if (!ok) {
+            _gameState.value = GameState.Error("명령 전송 실패. 기기 연결을 확인하세요.")
+            return
+        }
+        beginReadyCountdown(GameMode.MANUAL_TEAM, maxTeamPlaySeconds(rounds, difficulty))
+    }
+
+    private fun startPlayingTimer(maxSecs: Int) {
         timerJob?.cancel()
         _playingElapsedSeconds.value = 0
-        val maxSecs = maxPlaySeconds(mode, difficulty)
         _playingMaxSeconds.value = maxSecs
         timerJob = viewModelScope.launch {
             while (true) {
@@ -208,7 +269,35 @@ class GameViewModel @Inject constructor(
                         onResultReceived(result)
                     state is GameState.Finished && result.isWandIdValid ->
                         onLateResultReceived(result)
+                    state is GameState.TeamAssigning ->
+                        onTeamConfirmReceived(state, result)
                 }
+            }
+        }
+    }
+
+    /** Mode 4 — TEAM_ASSIGN_END 전송 후 도착하는 집계 Notify(cmd=8) 처리 */
+    private fun onTeamConfirmReceived(state: GameState.TeamAssigning, result: GameResult) {
+        if (result.cmdIndex != GameResult.CMD_TEAM_CONFIRM) return
+        if (state.confirmedCount != null) return // 이미 처리된 집계
+
+        // wandId 필드가 팀ID로 재해석됨: 0=RED / 1=BLUE
+        val confirmedTeam = if (result.wandId == Team.BLUE.teamId) Team.BLUE else Team.RED
+        if (confirmedTeam != state.team) return
+
+        _gameState.value = state.copy(confirmedCount = result.totalCount)
+
+        viewModelScope.launch {
+            delay(TEAM_CONFIRM_DISPLAY_MS)
+            if (state.team == Team.RED) {
+                val ok = sendGameCommandUseCase.sendTeamAssign(Team.BLUE)
+                if (!ok) {
+                    _gameState.value = GameState.Error("명령 전송 실패. 기기 연결을 확인하세요.")
+                    return@launch
+                }
+                _gameState.value = GameState.TeamAssigning(Team.BLUE)
+            } else {
+                beginTeamRounds()
             }
         }
     }
@@ -316,7 +405,7 @@ class GameViewModel @Inject constructor(
     }
 
     private fun sendWinnerIfApplicable(mode: GameMode, summary: GameResultSummary) {
-        if (mode == GameMode.TEAM_BATTLE) return
+        if (mode == GameMode.TEAM_BATTLE || mode == GameMode.MANUAL_TEAM) return
         val winner = summary.soloWinner ?: return
         val sent = sendGameCommandUseCase.sendWinner(mode, winner.wandId)
         if (!sent) Log.w(TAG, "sendWinner skipped: mode=$mode, wandId=${winner.wandId}")

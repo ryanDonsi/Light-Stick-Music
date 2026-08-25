@@ -13,6 +13,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.WavingHand
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,6 +66,7 @@ import com.lightstick.music.data.model.GameDifficulty
 import com.lightstick.music.data.model.GameMode
 import com.lightstick.music.data.model.GameResultSummary
 import com.lightstick.music.data.model.GameState
+import com.lightstick.music.data.model.Team
 import com.lightstick.music.data.model.TeamWinner
 import com.lightstick.music.data.model.WandResult
 import com.lightstick.music.domain.game.GameBleManager
@@ -83,6 +86,7 @@ import com.lightstick.music.ui.viewmodel.GameViewModel
 fun GameScreen(viewModel: GameViewModel) {
     val selectedMode          by viewModel.selectedMode.collectAsState()
     val selectedDifficulty    by viewModel.selectedDifficulty.collectAsState()
+    val selectedRounds        by viewModel.selectedRounds.collectAsState()
     val gameState             by viewModel.gameState.collectAsState()
     val bleState              by viewModel.bleConnectionState.collectAsState()
     val isGameModeSupported   by viewModel.isGameModeSupported.collectAsState()
@@ -140,14 +144,21 @@ fun GameScreen(viewModel: GameViewModel) {
                     is GameState.Idle, is GameState.Error -> ModeSelectionContent(
                         selectedMode = selectedMode,
                         selectedDifficulty = selectedDifficulty,
+                        selectedRounds = selectedRounds,
                         onModeSelect = viewModel::selectMode,
                         onDifficultySelect = viewModel::selectDifficulty,
+                        onRoundsSelect = viewModel::selectRounds,
                         onStart = viewModel::startGame,
                         onTutorialClick = { mode -> tutorialMode = mode },
                         bleConnected = bleState is GameBleManager.ConnectionState.Connected,
                         isGameModeSupported = isGameModeSupported
                     )
                     is GameState.Ready  -> CountdownContent(countdownSeconds = countdownSeconds)
+                    is GameState.TeamAssigning -> TeamAssigningContent(
+                        state = state,
+                        onConfirmClick = viewModel::confirmTeamAssignment,
+                        onStopClick = { showStopDialog = true }
+                    )
                     is GameState.Playing -> PlayingContent(
                         mode = selectedMode,
                         partialResults = partialResults,
@@ -195,10 +206,12 @@ fun GameScreen(viewModel: GameViewModel) {
 private fun ModeSelectionContent(
     selectedMode: GameMode?,
     selectedDifficulty: GameDifficulty,
+    selectedRounds: Int,
     bleConnected: Boolean,
     isGameModeSupported: Boolean,
     onModeSelect: (GameMode) -> Unit,
     onDifficultySelect: (GameDifficulty) -> Unit,
+    onRoundsSelect: (Int) -> Unit,
     onTutorialClick: (GameMode) -> Unit,
     onStart: () -> Unit
 ) {
@@ -235,7 +248,7 @@ private fun ModeSelectionContent(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "난이도",
+                            text = if (mode == GameMode.MANUAL_TEAM) "라운드당 측정 시간" else "난이도",
                             style = MaterialTheme.customTextStyles.bodyAccent,
                             color = colors.surfaceVariant
                         )
@@ -243,6 +256,18 @@ private fun ModeSelectionContent(
                             selected = selectedDifficulty,
                             onSelect = onDifficultySelect
                         )
+
+                        if (mode == GameMode.MANUAL_TEAM) {
+                            Text(
+                                text = "라운드 수",
+                                style = MaterialTheme.customTextStyles.bodyAccent,
+                                color = colors.surfaceVariant
+                            )
+                            RoundsRow(
+                                selected = selectedRounds,
+                                onSelect = onRoundsSelect
+                            )
+                        }
                     }
                 }
             }
@@ -378,6 +403,7 @@ private fun GameModeCard(
         GameMode.SPEED_REACTION -> Icons.Filled.Bolt
         GameMode.TEMPO          -> Icons.Filled.MusicNote
         GameMode.TEAM_BATTLE    -> Icons.Filled.Groups
+        GameMode.MANUAL_TEAM    -> Icons.Filled.WavingHand
     }
 
     Card(
@@ -494,6 +520,50 @@ private fun DifficultyRow(
 }
 
 @Composable
+private fun RoundsRow(
+    selected: Int,
+    onSelect: (Int) -> Unit
+) {
+    val colors = MaterialTheme.customColors
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        (1..3).forEach { rounds ->
+            val isSelected  = rounds == selected
+            val bgColor     = if (isSelected) colors.primary.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.05f)
+            val borderColor = if (isSelected) colors.primary else colors.onSurface.copy(alpha = 0.14f)
+            val borderWidth = if (isSelected) 2.dp else 1.dp
+            val textColor   = if (isSelected) colors.onSurface else colors.surfaceVariant
+
+            Card(
+                onClick = { onSelect(rounds) },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(40.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = bgColor),
+                border = BorderStroke(borderWidth, borderColor),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "${rounds}라운드",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = textColor,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CountdownContent(countdownSeconds: Int) {
     val colors = MaterialTheme.customColors
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -522,6 +592,84 @@ private fun CountdownContent(countdownSeconds: Int) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = colors.textTertiary
             )
+        }
+    }
+}
+
+@Composable
+private fun TeamAssigningContent(
+    state: GameState.TeamAssigning,
+    onConfirmClick: () -> Unit,
+    onStopClick: () -> Unit
+) {
+    val colors = MaterialTheme.customColors
+    val teamColor = if (state.team == Team.RED) MaterialTheme.colorScheme.error else Color(0xFF448AFF)
+    val waitingForNotify = state.confirmedCount != null
+
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .background(teamColor.copy(alpha = 0.18f), CircleShape)
+                    .border(2.dp, teamColor, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Groups,
+                    contentDescription = null,
+                    tint = teamColor,
+                    modifier = Modifier.size(44.dp)
+                )
+            }
+
+            Text(
+                text = "${state.team.nameKr} 배정 중",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = colors.onSurface
+            )
+
+            AnimatedContent(
+                targetState = waitingForNotify,
+                transitionSpec = { fadeIn(tween(200)).togetherWith(fadeOut(tween(150))) },
+                label = "team_assign_status"
+            ) { waiting ->
+                if (waiting) {
+                    Text(
+                        text = "${state.team.nameKr} ${state.confirmedCount}명 확정",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = teamColor,
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    Text(
+                        text = "참가자는 배정받을 응원봉의 버튼을 눌러\n${state.team.nameKr}(을)를 확정하세요",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.surfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            BaseButton(
+                text = if (waitingForNotify) "확인 중..." else "${state.team.nameKr} 배정 종료",
+                onClick = onConfirmClick,
+                enabled = !waitingForNotify,
+                modifier = Modifier.width(220.dp).height(52.dp)
+            )
+
+            TextButton(onClick = onStopClick) {
+                Text(
+                    text = "게임 중지",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
         }
     }
 }
@@ -634,8 +782,8 @@ private fun ResultContent(summary: GameResultSummary, onPlayAgain: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         when (summary.mode) {
-            GameMode.SPEED_REACTION, GameMode.TEMPO -> SoloResultContent(summary)
-            GameMode.TEAM_BATTLE                    -> TeamResultContent(summary)
+            GameMode.SPEED_REACTION, GameMode.TEMPO      -> SoloResultContent(summary)
+            GameMode.TEAM_BATTLE, GameMode.MANUAL_TEAM   -> TeamResultContent(summary)
         }
 
         Spacer(modifier = Modifier.height(4.dp))

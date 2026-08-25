@@ -10,6 +10,7 @@ import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.data.model.GameDifficulty
 import com.lightstick.music.data.model.GameMode
+import com.lightstick.music.data.model.Team
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -101,6 +102,53 @@ class GameBleManager @Inject constructor() {
             level  = difficulty.toSdkLevel().value,
             option = option,
             wandId = 0
+        ) { result ->
+            _gameResultFlow.tryEmit(result)
+        }
+    }
+
+    /** Mode 4 팀 배정 시작: TEAM_ASSIGN(cmd=7) 전송 — 미배정 응원봉이 해당 팀 색으로 블링크 */
+    @SuppressLint("MissingPermission")
+    fun startTeamAssign(team: Team): Boolean {
+        val device = activeDevice ?: run {
+            Log.e(TAG, "startTeamAssign() — activeDevice null")
+            return false
+        }
+        return device.sendGameCmd(
+            cmd    = GameCmd.TEAM_ASSIGN,
+            mode   = GameMode.MANUAL_TEAM.toSdkMode(),
+            level  = team.teamId
+        ) { result ->
+            _gameResultFlow.tryEmit(result)
+        }
+    }
+
+    /** Mode 4 팀 배정 종료: TEAM_ASSIGN_END(cmd=9) 전송 — 중계기가 집계 인원수를 FF04로 Notify */
+    @SuppressLint("MissingPermission")
+    fun endTeamAssign(team: Team): Boolean {
+        val device = activeDevice ?: run {
+            Log.e(TAG, "endTeamAssign() — activeDevice null")
+            return false
+        }
+        return device.sendGameCmd(
+            cmd   = GameCmd.TEAM_ASSIGN_END,
+            mode  = GameMode.MANUAL_TEAM.toSdkMode(),
+            level = team.teamId
+        )
+    }
+
+    /** Mode 4 게임 시작: READY(cmd=1) — level=라운드 수, option=라운드당 측정시간(ms) */
+    @SuppressLint("MissingPermission")
+    fun startTeamGame(rounds: Int, difficulty: GameDifficulty): Boolean {
+        val device = activeDevice ?: run {
+            Log.e(TAG, "startTeamGame() — activeDevice null")
+            return false
+        }
+        return device.sendGameCmd(
+            cmd    = GameCmd.START,
+            mode   = GameMode.MANUAL_TEAM.toSdkMode(),
+            level  = rounds,
+            option = difficulty.teamMeasureMs
         ) { result ->
             _gameResultFlow.tryEmit(result)
         }
