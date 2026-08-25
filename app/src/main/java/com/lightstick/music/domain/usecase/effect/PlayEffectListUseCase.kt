@@ -136,7 +136,7 @@ class PlayEffectListUseCase @Inject constructor() {
                 val stepMs = 500L
                 val holdMs = 1500L
                 val offTransit = 50
-                val offGapMs = 100L
+                val offGapMs = 200L
 
                 val frames = mutableListOf<Pair<Long, ByteArray>>()
                 var landedMask = 0L
@@ -170,8 +170,11 @@ class PlayEffectListUseCase @Inject constructor() {
                 // 대기 중인 OFF를 ON으로 대체해버려 OFF가 실제로 전송되지 않는다(replaceIfSameKey).
                 // offGapMs만큼 떼어 각각 별도 프레임으로 전송한다.
                 val groupWaveCount = 10
-                val stepMs = 200L
-                val offGapMs = 100L
+                // offGapMs만큼 OFF/ON을 떼고도 다음 스텝의 OFF까지 200ms 이상 남도록
+                // stepMs를 offGapMs의 2배로 잡는다(그렇지 않으면 이번 ON과 다음 OFF가
+                // 다시 같은/근접 타임스탬프로 몰려 동일한 coalescing 드롭이 재발한다).
+                val offGapMs = 200L
+                val stepMs = offGapMs * 2
                 // transit 값이 실제로 몇 ms 페이드에 대응하는지는 SDK 코드에 없는 펌웨어 고유 스케일이라
                 // 확인 불가 — 실기기로 보면서 체감상 자연스러운 값으로 보정 필요.
                 val crossfadeTransit = 10
