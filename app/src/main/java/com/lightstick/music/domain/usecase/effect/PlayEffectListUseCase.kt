@@ -136,7 +136,7 @@ class PlayEffectListUseCase @Inject constructor() {
                 val stepMs = 500L
                 val holdMs = 1500L
                 val offTransit = 50
-                val offGapMs = 30L
+                val offGapMs = 100L
 
                 val frames = mutableListOf<Pair<Long, ByteArray>>()
                 var landedMask = 0L
@@ -170,7 +170,7 @@ class PlayEffectListUseCase @Inject constructor() {
                 // offGapMs만큼 떼어 각각 별도 프레임으로 전송한다.
                 val groupWaveCount = 10
                 val stepMs = 200L
-                val offGapMs = 30L
+                val offGapMs = 100L
 
                 val path = (1..groupWaveCount).toList() + (groupWaveCount - 1 downTo 2).toList()
 
