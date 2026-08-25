@@ -889,10 +889,10 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
         }
         coroutineScope {
             launch {
-                wiggle.forEach { r -> redRots[0] = r; redRots[1] = r; delay(70) }
+                wiggle.forEach { r -> redRots[0] = r; redRots[1] = r; delay(90) }
             }
             launch {
-                wiggle.forEach { r -> blueRots[0] = r; blueRots[1] = r; delay(70) }
+                wiggle.forEach { r -> blueRots[0] = r; blueRots[1] = r; delay(90) }
             }
         }
     }
@@ -949,14 +949,14 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
                 else     -> "라운드 $rnd / $totalRounds — 역전 기회! 더 세게!"
             }
             shakeBoth()
-            delay(430)
+            delay(600)
 
             val redGain = Random.nextInt(3, 8)
             val blueGain = Random.nextInt(3, 8)
             rs += redGain; bs += blueGain
             redScore = rs; blueScore = bs
             message = "홍팀 +$redGain  /  청팀 +$blueGain"
-            delay(645)
+            delay(900)
 
             redColors[0] = WandOff; redColors[1] = WandOff
             blueColors[0] = WandOff; blueColors[1] = WandOff
@@ -965,7 +965,7 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
                 // 마지막 라운드는 휴식 없이 곧바로 최종 결과로 이어짐
                 message = "라운드 $rnd 결과 — 최종 집계 중"
                 subMsg = ""
-                delay(430)
+                delay(600)
             } else {
                 message = "라운드 $rnd 결과 — 1초 휴식"
                 subMsg = when {
@@ -973,7 +973,7 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
                     bs > rs -> "청팀이 앞서고 있어요!"
                     else    -> "동점! 다음 라운드가 중요해요"
                 }
-                delay(430)
+                delay(700)
                 redColors[0] = WandRed; redColors[1] = WandRed
                 blueColors[0] = WandBlue; blueColors[1] = WandBlue
             }
