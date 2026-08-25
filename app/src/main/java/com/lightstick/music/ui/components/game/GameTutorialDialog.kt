@@ -872,12 +872,12 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
     var winnerText  by remember { mutableStateOf("") }
     var finished    by remember { mutableStateOf(false) }
 
-    suspend fun blink(target: MutableList<Color>, onColor: Color) {
-        repeat(3) {
+    suspend fun blink(target: MutableList<Color>, onColor: Color, repeats: Int = 3, intervalMs: Long = 180) {
+        repeat(repeats) {
             target[0] = onColor; target[1] = onColor
-            delay(180)
+            delay(intervalMs)
             target[0] = WandOff; target[1] = WandOff
-            delay(180)
+            delay(intervalMs)
         }
     }
 
@@ -899,23 +899,25 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
     LaunchedEffect(Unit) {
         delay(430)
 
-        // ① 홍팀 배정: 블링크 → 버튼1 확정
+        // ① 홍팀 배정: 블링크 → 버튼1 확정 (충분히 읽을 수 있도록 느리게 진행)
         step = 0
         message = "홍팀 배정 시작"; subMsg = "빨간색 블링크"
-        blink(redColors, WandRed)
+        delay(650)
+        blink(redColors, WandRed, repeats = 5, intervalMs = 230)
         redColors[0] = WandRed; redColors[1] = WandRed
         redChecked[0] = true; redChecked[1] = true
         message = "홍팀 확정!"; subMsg = "버튼1 → 고정 점등"
-        delay(860)
+        delay(1700)
 
-        // ② 청팀 배정: 블링크 → 버튼1 확정
+        // ② 청팀 배정: 블링크 → 버튼1 확정 (충분히 읽을 수 있도록 느리게 진행)
         step = 1
         message = "청팀 배정 시작"; subMsg = "파란색 블링크"
-        blink(blueColors, WandBlue)
+        delay(650)
+        blink(blueColors, WandBlue, repeats = 5, intervalMs = 230)
         blueColors[0] = WandBlue; blueColors[1] = WandBlue
         blueChecked[0] = true; blueChecked[1] = true
         message = "청팀 확정!"; subMsg = "버튼1 → 고정 점등"
-        delay(860)
+        delay(1700)
 
         // ③ READY: 팀 색 2회 점멸 후 자동 시작
         step = 2
