@@ -856,7 +856,7 @@ private fun TeamBattleTutorial(onReplay: () -> Unit) {
 @Composable
 private fun ManualTeamTutorial(onReplay: () -> Unit) {
     val colors = MaterialTheme.customColors
-    val totalRounds = 2
+    val totalRounds = 3
 
     val redColors   = remember { mutableStateListOf(WandOff, WandOff) }
     val blueColors  = remember { mutableStateListOf(WandOff, WandOff) }
@@ -882,16 +882,17 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
     }
 
     suspend fun shakeBoth() {
+        // 흔드는 좌우 반복 횟수를 늘려 더 많이 흔드는 것처럼 보이게 함
+        val wiggle = buildList {
+            repeat(6) { add(-8f); add(8f) }
+            add(-4f); add(4f); add(0f)
+        }
         coroutineScope {
             launch {
-                listOf(-8f, 8f, -6f, 6f, -3f, 3f, 0f).forEach { r ->
-                    redRots[0] = r; redRots[1] = r; delay(80)
-                }
+                wiggle.forEach { r -> redRots[0] = r; redRots[1] = r; delay(70) }
             }
             launch {
-                listOf(-8f, 8f, -6f, 6f, -3f, 3f, 0f).forEach { r ->
-                    blueRots[0] = r; blueRots[1] = r; delay(80)
-                }
+                wiggle.forEach { r -> blueRots[0] = r; blueRots[1] = r; delay(70) }
             }
         }
     }
