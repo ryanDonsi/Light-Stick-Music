@@ -882,17 +882,17 @@ private fun ManualTeamTutorial(onReplay: () -> Unit) {
     }
 
     suspend fun shakeBoth() {
-        // 흔드는 좌우 반복 횟수를 늘려 더 많이 흔드는 것처럼 보이게 함
+        // 흔드는 속도(딜레이)는 그대로 두고, 좌우 왕복 횟수만 늘려 더 오래/더 많이 흔들게 함
         val wiggle = buildList {
-            repeat(6) { add(-8f); add(8f) }
+            repeat(9) { add(-8f); add(8f) }
             add(-4f); add(4f); add(0f)
         }
         coroutineScope {
             launch {
-                wiggle.forEach { r -> redRots[0] = r; redRots[1] = r; delay(90) }
+                wiggle.forEach { r -> redRots[0] = r; redRots[1] = r; delay(70) }
             }
             launch {
-                wiggle.forEach { r -> blueRots[0] = r; blueRots[1] = r; delay(90) }
+                wiggle.forEach { r -> blueRots[0] = r; blueRots[1] = r; delay(70) }
             }
         }
     }
