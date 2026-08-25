@@ -49,7 +49,7 @@ class SendConnectionEffectUseCase @Inject constructor() {
 
             val frames = createConnectionAnimationFrames()
 
-            if (!device.loadTimeline(frames)) {
+            if (!device.playTimeline(frames)) {
                 Log.w(TAG, "Failed to load connection animation timeline")
                 return Result.failure(Exception("Failed to load timeline"))
             }
@@ -79,7 +79,7 @@ class SendConnectionEffectUseCase @Inject constructor() {
                 delay(16)
             }
 
-            device.releaseTimeline()
+            device.stopTimeline()
 
             val endEvent = BleTransmissionEvent(
                 source = TransmissionSource.PAYLOAD_EFFECT,
