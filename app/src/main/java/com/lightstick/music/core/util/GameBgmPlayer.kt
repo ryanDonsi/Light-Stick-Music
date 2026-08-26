@@ -165,6 +165,7 @@ class GameBgmPlayer {
         GameMode.SPEED_REACTION -> 150f   // fast cyber-march
         GameMode.TEMPO          -> 120f
         GameMode.TEAM_BATTLE    -> 130f
+        GameMode.MANUAL_TEAM    -> 130f   // 팀전 계열 — 팀전(Random)과 동일 그루브
     }
 
     // ── Patterns (8th-note steps) ────────────────────────────────────────────
@@ -175,6 +176,7 @@ class GameBgmPlayer {
         GameMode.SPEED_REACTION -> speedReactionPattern()
         GameMode.TEMPO          -> tempoPattern()
         GameMode.TEAM_BATTLE    -> teamBattlePattern()
+        GameMode.MANUAL_TEAM    -> teamBattlePattern()
     }
 
     // 5 bars × 16 steps @ 150 BPM = 8.0s — C major cyber quick-march (bright, cheerful)

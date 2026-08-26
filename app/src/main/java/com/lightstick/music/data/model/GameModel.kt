@@ -12,30 +12,38 @@ enum class GameMode(
 ) {
     SPEED_REACTION(
         subIndex = 1,
-        nameKr = "Speed Reaction",
+        nameKr = "개인전(Speed)",
         descKr = "LED가 켜지면 빠르게 흔드세요",
         winConditionKr = "제한 시간 내 5회 먼저 성공",
         defaultDifficulty = GameDifficulty.NORMAL
     ),
     TEMPO(
         subIndex = 2,
-        nameKr = "Tempo",
+        nameKr = "개인전(Tempo)",
         descKr = "LED 리듬에 맞춰 흔드세요",
         winConditionKr = "리듬에 맞춰 5회 연속 성공",
         defaultDifficulty = GameDifficulty.NORMAL
     ),
     TEAM_BATTLE(
         subIndex = 3,
-        nameKr = "Team Battle",
+        nameKr = "팀전(Random)",
         descKr = "내 팀 색 신호에 맞춰 흔드세요",
         winConditionKr = "5라운드 팀 점수 합산 승리",
         defaultDifficulty = GameDifficulty.EASY
+    ),
+    MANUAL_TEAM(
+        subIndex = 4,
+        nameKr = "팀전(Speed)",
+        descKr = "팀 배정 후 LED가 켜지면 최대한 많이 흔드세요",
+        winConditionKr = "라운드 합산 점수가 높은 팀 승리",
+        defaultDifficulty = GameDifficulty.NORMAL
     );
 
     fun toSdkMode(): SdkGameMode = when (this) {
         SPEED_REACTION -> SdkGameMode.SPEED_REACTION
         TEMPO          -> SdkGameMode.TEMPO
         TEAM_BATTLE    -> SdkGameMode.TEAM_BATTLE
+        MANUAL_TEAM    -> SdkGameMode.TEAM_SIMULTANEOUS
     }
 
     companion object {
@@ -54,6 +62,20 @@ enum class GameDifficulty(val level: Int, val nameKr: String) {
         NORMAL -> SdkGameLevel.NORMAL
         HARD   -> SdkGameLevel.HARD
     }
+
+    /** Mode 4 라운드당 측정 시간(ms) — easy=8000 / normal=5000 / hard=3000 */
+    val teamMeasureMs: Int
+        get() = when (this) {
+            EASY   -> 8000
+            NORMAL -> 5000
+            HARD   -> 3000
+        }
+}
+
+/** Mode 4 수동 팀 배정 — teamId는 프로토콜 값(0=RED/1=BLUE)과 동일 */
+enum class Team(val teamId: Int, val nameKr: String) {
+    RED(0, "홍팀"),
+    BLUE(1, "청팀")
 }
 
 sealed class GameState {
@@ -67,6 +89,17 @@ sealed class GameState {
     data class Finished(val summary: GameResultSummary) : GameState()
     /** 오류 발생 */
     data class Error(val message: String) : GameState()
+    /**
+     * Mode 4 전용 — [team] 수동 배정 대기 중.
+     * [endSent]가 false면 응원봉 확정을 기다리며 "배정 종료" 버튼 입력 대기 중,
+     * true면 TEAM_ASSIGN_END를 보내고 집계 Notify(cmd=8) 응답을 기다리는 중(재전송 방지).
+     * [confirmedCount]는 집계 Notify 수신 후 확정 인원수.
+     */
+    data class TeamAssigning(
+        val team: Team,
+        val endSent: Boolean = false,
+        val confirmedCount: Int? = null
+    ) : GameState()
 }
 
 data class WandResult(
