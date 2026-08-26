@@ -280,6 +280,12 @@ class GameViewModel @Inject constructor(
         viewModelScope.launch {
             observeGameResultsUseCase().collect { result ->
                 val state = _gameState.value
+                Log.d(
+                    TAG,
+                    "gameResult received: mode=${result.mode} cmdIndex=${result.cmdIndex} " +
+                        "redScore=${result.redScore} blueScore=${result.blueScore} " +
+                        "totalCount=${result.totalCount} wandId=${result.wandId} state=${state::class.simpleName}"
+                )
                 when {
                     state is GameState.Playing || state is GameState.Ready ->
                         onResultReceived(result)
