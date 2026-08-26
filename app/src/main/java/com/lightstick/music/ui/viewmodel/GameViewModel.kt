@@ -41,6 +41,7 @@ class GameViewModel @Inject constructor(
         private const val AUTO_START_DELAY_MS = 2_000L
         private const val TEAM_CONFIRM_DISPLAY_MS = 1_200L
         private const val TEAM_ROUND_REST_MS = 1_000L
+        private const val TEAM_CONFIRM_TIMEOUT_MS = 8_000L
 
         private fun maxPlaySeconds(mode: GameMode, difficulty: GameDifficulty): Int =
             (mode.toSdkMode().resultTimeoutMs(difficulty.toSdkLevel()) / 1000L).toInt()
@@ -77,6 +78,7 @@ class GameViewModel @Inject constructor(
 
     private val collectedResults = mutableListOf<WandResult>()
     private var resultCollectJob: Job? = null
+    private var teamConfirmTimeoutJob: Job? = null
 
     private val _partialResults = MutableStateFlow<List<WandResult>>(emptyList())
     val partialResults: StateFlow<List<WandResult>> = _partialResults.asStateFlow()
@@ -144,11 +146,23 @@ class GameViewModel @Inject constructor(
     /** Mode 4 — 현재 팀 배정 종료(cmd=9) 버튼 클릭 시 호출 */
     fun confirmTeamAssignment() {
         val state = _gameState.value as? GameState.TeamAssigning ?: return
-        if (state.confirmedCount != null) return // 이미 END 전송 후 집계 대기 중
+        if (state.endSent) return // 이미 END 전송 후 집계 Notify 대기 중 — 중복 전송 방지
 
         val ok = sendGameCommandUseCase.sendTeamAssignEnd(state.team)
         if (!ok) {
             _gameState.value = GameState.Error("명령 전송 실패. 기기 연결을 확인하세요.")
+            return
+        }
+        _gameState.value = state.copy(endSent = true)
+
+        // 집계 Notify가 일정 시간 내 오지 않으면 버튼을 다시 활성화해 재시도할 수 있게 함
+        teamConfirmTimeoutJob?.cancel()
+        teamConfirmTimeoutJob = viewModelScope.launch {
+            delay(TEAM_CONFIRM_TIMEOUT_MS)
+            val cur = _gameState.value as? GameState.TeamAssigning ?: return@launch
+            if (cur.team == state.team && cur.endSent && cur.confirmedCount == null) {
+                _gameState.value = cur.copy(endSent = false)
+            }
         }
     }
 
@@ -156,6 +170,7 @@ class GameViewModel @Inject constructor(
     fun stopGame() {
         sendGameCommandUseCase.sendStop()
         resultCollectJob?.cancel()
+        teamConfirmTimeoutJob?.cancel()
         cancelTimer()
         gameBgmPlayer.stop()
         _partialResults.value = emptyList()
@@ -167,6 +182,7 @@ class GameViewModel @Inject constructor(
         sendGameCommandUseCase.sendClear()
         collectedResults.clear()
         resultCollectJob?.cancel()
+        teamConfirmTimeoutJob?.cancel()
         cancelTimer()
         gameBgmPlayer.stop()
         _partialResults.value = emptyList()
@@ -285,6 +301,7 @@ class GameViewModel @Inject constructor(
         val confirmedTeam = if (result.wandId == Team.BLUE.teamId) Team.BLUE else Team.RED
         if (confirmedTeam != state.team) return
 
+        teamConfirmTimeoutJob?.cancel()
         _gameState.value = state.copy(confirmedCount = result.totalCount)
 
         viewModelScope.launch {

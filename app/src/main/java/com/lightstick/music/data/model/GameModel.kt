@@ -91,10 +91,15 @@ sealed class GameState {
     data class Error(val message: String) : GameState()
     /**
      * Mode 4 전용 — [team] 수동 배정 대기 중.
-     * [confirmedCount]가 null이면 응원봉 확정을 기다리는 중, 값이 있으면
-     * TEAM_ASSIGN_END 전송 후 집계 Notify(cmd=8)를 수신해 확정 인원수를 표시하는 중.
+     * [endSent]가 false면 응원봉 확정을 기다리며 "배정 종료" 버튼 입력 대기 중,
+     * true면 TEAM_ASSIGN_END를 보내고 집계 Notify(cmd=8) 응답을 기다리는 중(재전송 방지).
+     * [confirmedCount]는 집계 Notify 수신 후 확정 인원수.
      */
-    data class TeamAssigning(val team: Team, val confirmedCount: Int? = null) : GameState()
+    data class TeamAssigning(
+        val team: Team,
+        val endSent: Boolean = false,
+        val confirmedCount: Int? = null
+    ) : GameState()
 }
 
 data class WandResult(

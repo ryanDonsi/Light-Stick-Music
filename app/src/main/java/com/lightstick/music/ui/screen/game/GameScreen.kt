@@ -604,7 +604,12 @@ private fun TeamAssigningContent(
 ) {
     val colors = MaterialTheme.customColors
     val teamColor = if (state.team == Team.RED) MaterialTheme.colorScheme.error else Color(0xFF448AFF)
-    val waitingForNotify = state.confirmedCount != null
+    // 0=버튼 입력 대기  1=END 전송함, 집계 Notify 응답 대기  2=확정 인원수 수신함
+    val phase = when {
+        state.confirmedCount != null -> 2
+        state.endSent                -> 1
+        else                         -> 0
+    }
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
@@ -635,19 +640,34 @@ private fun TeamAssigningContent(
             )
 
             AnimatedContent(
-                targetState = waitingForNotify,
+                targetState = phase,
                 transitionSpec = { fadeIn(tween(200)).togetherWith(fadeOut(tween(150))) },
                 label = "team_assign_status"
-            ) { waiting ->
-                if (waiting) {
-                    Text(
+            ) { p ->
+                when (p) {
+                    2 -> Text(
                         text = "${state.team.nameKr} ${state.confirmedCount}명 확정",
                         style = MaterialTheme.typography.titleMedium,
                         color = teamColor,
                         textAlign = TextAlign.Center
                     )
-                } else {
-                    Text(
+                    1 -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = teamColor
+                        )
+                        Text(
+                            text = "집계 응답을 기다리는 중...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.surfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    else -> Text(
                         text = "참가자는 배정받을 응원봉의 버튼을 눌러\n${state.team.nameKr}(을)를 확정하세요",
                         style = MaterialTheme.typography.bodyMedium,
                         color = colors.surfaceVariant,
@@ -657,9 +677,9 @@ private fun TeamAssigningContent(
             }
 
             BaseButton(
-                text = if (waitingForNotify) "확인 중..." else "${state.team.nameKr} 배정 종료",
+                text = if (phase >= 1) "확인 중..." else "${state.team.nameKr} 배정 종료",
                 onClick = onConfirmClick,
-                enabled = !waitingForNotify,
+                enabled = phase == 0,
                 modifier = Modifier.width(220.dp).height(52.dp)
             )
 
