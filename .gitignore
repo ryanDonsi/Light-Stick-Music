@@ -13,3 +13,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# External ML reference tool — keep locally, don't commit (large checkpoints/dataset)
+/tools/Beat-Transformer
