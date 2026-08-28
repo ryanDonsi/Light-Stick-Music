@@ -8,7 +8,6 @@ import androidx.activity.compose.BackHandler
 import android.provider.DocumentsContract
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.Toast
 import android.annotation.SuppressLint
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,9 +21,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.annotation.OptIn
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -57,6 +59,9 @@ import com.lightstick.music.ui.screen.music.MusicControlScreen
 import com.lightstick.music.ui.screen.music.MusicListScreen
 import com.lightstick.device.Device
 import com.lightstick.music.ui.components.common.CustomNavigationBar
+import com.lightstick.music.ui.components.common.CustomToast
+import com.lightstick.music.ui.components.common.ToastState
+import com.lightstick.music.ui.components.common.rememberToastState
 import com.lightstick.music.ui.components.device.ConnectConfirmDialog
 import com.lightstick.music.ui.components.device.DeviceInfoDialog
 import com.lightstick.music.ui.components.device.DisconnectConfirmDialog
@@ -77,6 +82,9 @@ class MainActivity : ComponentActivity() {
     private val effectViewModel: EffectViewModel by viewModels()
     private val gameViewModel: GameViewModel by viewModels()
 
+    /** setContent{} 안에서 rememberToastState()로 채워짐. Compose 밖(런처 콜백)에서 토스트를 띄우기 위한 참조. */
+    private var toastState: ToastState? = null
+
     /**
      *  SAF를 통한 Effects 디렉토리 선택 (수동 선택용)
      */
@@ -92,11 +100,7 @@ class MainActivity : ComponentActivity() {
                         MusicEffectManager.initializeFromSAF(this@MainActivity)
                     }
 
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Effects 폴더 설정 완료 (${MusicEffectManager.getLoadedEffectCount()}개 파일)",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    toastState?.show("Effects 폴더 설정 완료 (${MusicEffectManager.getLoadedEffectCount()}개 파일)")
 
                     musicViewModel.loadMusic()
                 }
@@ -187,35 +191,48 @@ class MainActivity : ComponentActivity() {
                 val otaInProgressMap by deviceViewModel.otaInProgress.collectAsState()
                 val isAnyOtaInProgress = otaInProgressMap.values.any { it }
 
-                Scaffold(
-                    contentWindowInsets = WindowInsets(0),
-                    bottomBar = {
-                        if (currentRoute != "musicList" && !currentRoute.startsWith("deviceDetail")) {
-                            CustomNavigationBar(
-                                modifier = Modifier.navigationBarsPadding(),
-                                selectedRoute = currentRoute,
-                                onNavigate = { route ->
-                                    if (!isAnyOtaInProgress) {
-                                        navController.navigate(route) {
-                                            popUpTo("effect") {
-                                                inclusive = false
+                val toast = rememberToastState()
+                toastState = toast
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Scaffold(
+                        contentWindowInsets = WindowInsets(0),
+                        bottomBar = {
+                            if (currentRoute != "musicList" && !currentRoute.startsWith("deviceDetail")) {
+                                CustomNavigationBar(
+                                    modifier = Modifier.navigationBarsPadding(),
+                                    selectedRoute = currentRoute,
+                                    onNavigate = { route ->
+                                        if (!isAnyOtaInProgress) {
+                                            navController.navigate(route) {
+                                                popUpTo("effect") {
+                                                    inclusive = false
+                                                }
+                                                launchSingleTop = true
                                             }
-                                            launchSingleTop = true
                                         }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
+                    ) { padding ->
+                        AppNavigation(
+                            navController = navController,
+                            modifier = Modifier.padding(padding),
+                            deviceViewModel = deviceViewModel,
+                            musicViewModel = musicViewModel,
+                            effectViewModel = effectViewModel,
+                            gameViewModel = gameViewModel,
+                            onRequestEffectsDirectory = { requestEffectsDirectory() },
+                            onShowToast = { message -> toast.show(message) }
+                        )
                     }
-                ) { padding ->
-                    AppNavigation(
-                        navController = navController,
-                        modifier = Modifier.padding(padding),
-                        deviceViewModel = deviceViewModel,
-                        musicViewModel = musicViewModel,
-                        effectViewModel = effectViewModel,
-                        gameViewModel = gameViewModel,
-                        onRequestEffectsDirectory = { requestEffectsDirectory() }
+
+                    CustomToast(
+                        message   = toast.message,
+                        isVisible = toast.isVisible,
+                        onDismiss = { toast.dismiss() },
+                        modifier  = Modifier.align(Alignment.BottomCenter)
                     )
                 }
             }
@@ -254,11 +271,7 @@ class MainActivity : ComponentActivity() {
 
             val allGranted = results.values.all { it }
             if (!allGranted) {
-                Toast.makeText(
-                    this,
-                    "일부 권한이 거부되었습니다. BLE 기능이 제한될 수 있습니다.",
-                    Toast.LENGTH_LONG
-                ).show()
+                toastState?.show("일부 권한이 거부되었습니다. BLE 기능이 제한될 수 있습니다.")
             }
         }
 
@@ -283,7 +296,8 @@ fun AppNavigation(
     musicViewModel: MusicViewModel,
     effectViewModel: EffectViewModel,
     gameViewModel: GameViewModel,
-    onRequestEffectsDirectory: () -> Unit
+    onRequestEffectsDirectory: () -> Unit,
+    onShowToast: (String) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -338,7 +352,7 @@ fun AppNavigation(
                 onRequestEffectsDirectory = onRequestEffectsDirectory,
                 onDeviceSelected = { device: Device ->
                     if (!PermissionManager.hasBluetoothConnectPermission(context)) {
-                        Toast.makeText(context, "BLUETOOTH_CONNECT 권한 없음", Toast.LENGTH_LONG).show()
+                        onShowToast("BLUETOOTH_CONNECT 권한 없음")
                         return@DeviceListScreen
                     }
 
