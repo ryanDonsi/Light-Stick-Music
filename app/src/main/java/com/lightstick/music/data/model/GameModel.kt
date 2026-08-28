@@ -85,8 +85,12 @@ sealed class GameState {
     object Ready : GameState()
     /** 게임 진행 중 */
     object Playing : GameState()
-    /** 결과 수신 완료 */
-    data class Finished(val summary: GameResultSummary) : GameState()
+    /**
+     * 결과 수신 완료.
+     * [isProvisional]이 true면 실제 결과 Notify 없이 클라이언트 타이머 만료로 잠정 마감한
+     * 상태(팀 합산 모드에서 늦게 도착하는 진짜 결과로 교체될 수 있음).
+     */
+    data class Finished(val summary: GameResultSummary, val isProvisional: Boolean = false) : GameState()
     /** 오류 발생 */
     data class Error(val message: String) : GameState()
     /**
