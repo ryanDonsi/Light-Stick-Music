@@ -42,13 +42,16 @@ class GameViewModel @Inject constructor(
         private const val TEAM_CONFIRM_DISPLAY_MS = 1_200L
         private const val TEAM_ROUND_REST_MS = 1_000L
         private const val TEAM_CONFIRM_TIMEOUT_MS = 8_000L
+        // 기기 실측 라운드 진행시간이 클라이언트 추정치보다 조금 길 수 있어, 로컬 타이머가
+        // 실제 결과 Notify보다 먼저 만료돼 0점으로 잘못 마감하지 않도록 여유를 둔다.
+        private const val TEAM_RESULT_GRACE_SEC = 4
 
         private fun maxPlaySeconds(mode: GameMode, difficulty: GameDifficulty): Int =
             (mode.toSdkMode().resultTimeoutMs(difficulty.toSdkLevel()) / 1000L).toInt()
 
-        /** Mode 4: 라운드 수 × (측정시간 + 라운드 간 휴식 1초) */
+        /** Mode 4: 라운드 수 × (측정시간 + 라운드 간 휴식 1초) + 결과 수신 여유시간 */
         private fun maxTeamPlaySeconds(rounds: Int, difficulty: GameDifficulty): Int =
-            rounds * (difficulty.teamMeasureMs / 1000 + (TEAM_ROUND_REST_MS / 1000L).toInt())
+            rounds * (difficulty.teamMeasureMs / 1000 + (TEAM_ROUND_REST_MS / 1000L).toInt()) + TEAM_RESULT_GRACE_SEC
     }
 
     private val _selectedMode = MutableStateFlow<GameMode?>(null)
@@ -268,7 +271,12 @@ class GameViewModel @Inject constructor(
             totalBlueScore = results.sumOf { it.blueScore }
         )
         sendWinnerIfApplicable(mode, summary)
-        _gameState.value = GameState.Finished(summary)
+
+        // TEAM_BATTLE/MANUAL_TEAM은 결과가 단일 합산 Notify로만 오므로, 그게 아직
+        // 안 온 상태에서 로컬 타이머가 먼저 만료된 것 — 실제 결과가 뒤이어 도착하면
+        // 아래 onLateSummaryReceived()가 이 잠정 결과를 교체한다.
+        val isTeamSummaryMode = mode == GameMode.TEAM_BATTLE || mode == GameMode.MANUAL_TEAM
+        _gameState.value = GameState.Finished(summary, isProvisional = isTeamSummaryMode && results.isEmpty())
     }
 
     private fun cancelTimer() {
@@ -291,6 +299,8 @@ class GameViewModel @Inject constructor(
                         onResultReceived(result)
                     state is GameState.Finished && result.isWandIdValid ->
                         onLateResultReceived(result)
+                    state is GameState.Finished && !result.isWandIdValid && state.isProvisional ->
+                        onLateSummaryReceived(result)
                     state is GameState.TeamAssigning ->
                         onTeamConfirmReceived(state, result)
                 }
@@ -372,6 +382,24 @@ class GameViewModel @Inject constructor(
                 totalBlueScore = updated.sumOf { it.blueScore }
             )
         )
+    }
+
+    /**
+     * 로컬 타이머 만료로 잠정(0점) 마감된 뒤, 뒤늦게 도착한 진짜 합산 결과 Notify로
+     * 화면을 교체한다. (TEAM_BATTLE/MANUAL_TEAM처럼 결과가 단일 Notify로만 오는 모드에서
+     * 기기 쪽 실제 라운드 진행 시간이 클라이언트 추정치보다 살짝 길 때 발생)
+     */
+    private fun onLateSummaryReceived(result: GameResult) {
+        val mode = GameMode.fromSdkMode(result.mode) ?: _selectedMode.value ?: return
+        val summary = GameResultSummary(
+            mode           = mode,
+            wandResults    = emptyList(),
+            totalWandCount = result.totalCount,
+            totalRedScore  = result.redScore,
+            totalBlueScore = result.blueScore
+        )
+        sendWinnerIfApplicable(mode, summary)
+        _gameState.value = GameState.Finished(summary, isProvisional = false)
     }
 
     private fun finalizeSummaryPacket(result: GameResult) {
