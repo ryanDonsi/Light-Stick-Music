@@ -1,9 +1,7 @@
 package com.lightstick.music.ui.activity
 
-import android.Manifest
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import androidx.activity.compose.BackHandler
 import android.provider.DocumentsContract
 import android.os.Bundle
@@ -238,34 +236,16 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
-            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
-        } else {
-            permissions.add(Manifest.permission.BLUETOOTH)
-            permissions.add(Manifest.permission.BLUETOOTH_ADMIN)
-            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-            permissions.add(Manifest.permission.READ_MEDIA_AUDIO)
-        } else {
-            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-        }
+        val deniedPermissions = PermissionManager.getDeniedPermissions(
+            this, PermissionManager.getAllRequiredPermissions()
+        )
 
         val permissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
         ) { results ->
             PermissionManager.logPermissionStatus(this, "PermissionResult")
 
-            val storageGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                results[Manifest.permission.READ_MEDIA_AUDIO] == true
-            } else {
-                results[Manifest.permission.READ_EXTERNAL_STORAGE] == true
-            }
-            if (storageGranted) {
+            if (PermissionManager.hasStoragePermission(this)) {
                 musicViewModel.loadMusic()
             }
 
@@ -275,7 +255,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        permissionLauncher.launch(permissions.toTypedArray())
+        if (deniedPermissions.isNotEmpty()) {
+            permissionLauncher.launch(deniedPermissions.toTypedArray())
+        }
     }
 
     /**
