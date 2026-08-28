@@ -1,16 +1,15 @@
 package com.lightstick.music.ui.viewmodel
 
 import android.app.Application
-import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lightstick.music.core.constants.AppConstants
-import com.lightstick.music.core.constants.PrefsKeys
 import com.lightstick.music.core.util.FileHelper
 import com.lightstick.music.core.util.Log
+import com.lightstick.music.data.local.preferences.AppStatePreferences
 import com.lightstick.music.data.local.storage.EffectPathPreferences
 import com.lightstick.music.data.model.InitializationResult
 import com.lightstick.music.data.model.InitializationState
@@ -338,14 +337,11 @@ class SplashViewModel @Inject constructor(
     fun saveInitializationResult() {
         val result = _result.value ?: return
 
-        context.getSharedPreferences(PrefsKeys.PREFS_APP_STATE, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(PrefsKeys.KEY_IS_INITIALIZED, true)
-            .putInt(PrefsKeys.KEY_MUSIC_COUNT, result.musicList.size)
-            .putInt(PrefsKeys.KEY_EFFECT_COUNT, result.effectCount)
-            .putInt(PrefsKeys.KEY_MATCHED_COUNT, result.matchedCount)
-            .putLong(PrefsKeys.KEY_LAST_INIT_TIME, System.currentTimeMillis())
-            .apply()
-
+        AppStatePreferences.saveInitializationResult(
+            context      = context,
+            musicCount   = result.musicList.size,
+            effectCount  = result.effectCount,
+            matchedCount = result.matchedCount
+        )
     }
 }

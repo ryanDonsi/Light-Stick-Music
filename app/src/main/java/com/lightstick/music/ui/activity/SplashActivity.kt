@@ -2,34 +2,44 @@ package com.lightstick.music.ui.activity
 
 import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
 import com.lightstick.music.core.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import com.lightstick.music.core.permission.PermissionManager
 import dagger.hilt.android.AndroidEntryPoint
 import com.lightstick.music.data.model.SplashState
+import com.lightstick.music.ui.components.common.CustomToast
+import com.lightstick.music.ui.components.common.ToastState
+import com.lightstick.music.ui.components.common.rememberToastState
 import com.lightstick.music.ui.screen.splash.SplashScreen
 import com.lightstick.music.ui.theme.LightStickMusicTheme
 import com.lightstick.music.ui.viewmodel.SplashViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 @UnstableApi
 class SplashActivity : ComponentActivity() {
 
     private val viewModel: SplashViewModel by viewModels()
+
+    /** setContent{} 안에서 rememberToastState()로 채워짐. Compose 밖(런처 콜백)에서 토스트를 띄우기 위한 참조. */
+    private var toastState: ToastState? = null
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -48,13 +58,13 @@ class SplashActivity : ComponentActivity() {
             viewModel.onPermissionAllowed()
             initializeStartApp()
         } else {
-            Toast.makeText(
-                this,
-                "필요한 권한이 거부되었습니다: ${deniedCore.joinToString()}",
-                Toast.LENGTH_LONG
-            ).show()
+            toastState?.show("필요한 권한이 거부되었습니다: ${deniedCore.joinToString()}")
             viewModel.onPermissionDenied()
-            finish()
+            // CustomToast는 화면 안에서만 보이므로, 토스트가 다 보일 때까지(자체 2초 노출 시간) 종료를 미룬다.
+            lifecycleScope.launch {
+                delay(2000)
+                finish()
+            }
         }
     }
 
@@ -73,24 +83,36 @@ class SplashActivity : ComponentActivity() {
             }
 
             LightStickMusicTheme {
+                val toast = rememberToastState()
+                toastState = toast
+
                 Surface(
                     modifier = Modifier.Companion.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    SplashScreen(
-                        splashState = splashState,
-                        onLogoTimeout = {
-                            checkPermissionsAndProceed()
-                        },
-                        onPermissionGuideConfirmed = {
-                            viewModel.onPermissionGuideConfirmed()
-                            requestAllPermissions()
-                        },
-                        onInitializationComplete = {
-                            viewModel.saveInitializationResult()
-                            startMainActivity()
-                        }
-                    )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        SplashScreen(
+                            splashState = splashState,
+                            onLogoTimeout = {
+                                checkPermissionsAndProceed()
+                            },
+                            onPermissionGuideConfirmed = {
+                                viewModel.onPermissionGuideConfirmed()
+                                requestAllPermissions()
+                            },
+                            onInitializationComplete = {
+                                viewModel.saveInitializationResult()
+                                startMainActivity()
+                            }
+                        )
+
+                        CustomToast(
+                            message   = toast.message,
+                            isVisible = toast.isVisible,
+                            onDismiss = { toast.dismiss() },
+                            modifier  = Modifier.align(Alignment.BottomCenter)
+                        )
+                    }
                 }
             }
         }
@@ -151,12 +173,11 @@ class SplashActivity : ComponentActivity() {
 
         } catch (e: Exception) {
             Log.e("SplashActivity", "Failed to initialize SDK", e)
-            Toast.makeText(
-                this,
-                "SDK 초기화 실패: ${e.message}",
-                Toast.LENGTH_LONG
-            ).show()
-            finish()
+            toastState?.show("SDK 초기화 실패: ${e.message}")
+            lifecycleScope.launch {
+                delay(2000)
+                finish()
+            }
         }
     }
 

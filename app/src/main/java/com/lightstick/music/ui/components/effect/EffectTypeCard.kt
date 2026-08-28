@@ -15,6 +15,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lightstick.music.R
+import com.lightstick.music.core.util.toComposeColor
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
 import com.lightstick.music.ui.viewmodel.EffectViewModel
@@ -247,7 +248,7 @@ private fun ShowColorChipForEffect(
         val colorSource = if (chipType == "FG") effectSettings.color else effectSettings.backgroundColor
         ColorChip(
             label = chipType,
-            color = if (isSelected) Color(colorSource.r / 255f, colorSource.g / 255f, colorSource.b / 255f) else MaterialTheme.customColors.disable,
+            color = if (isSelected) colorSource.toComposeColor() else MaterialTheme.customColors.disable,
             onClick = onClick,
             enabled = isEnabled,
             isSelected = isSelected
