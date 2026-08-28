@@ -3,7 +3,6 @@ package com.lightstick.music.ui.viewmodel
 import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
-import android.content.SharedPreferences
 import com.lightstick.music.core.util.Log
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
@@ -11,12 +10,12 @@ import androidx.lifecycle.viewModelScope
 import com.lightstick.device.ConnectionState
 import com.lightstick.music.core.ble.ControlMode
 import com.lightstick.music.core.constants.AppConstants
-import com.lightstick.music.core.constants.PrefsKeys
 import com.lightstick.music.core.constants.EffectKeys
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.core.state.MusicPlaybackState
 import com.lightstick.music.core.util.toComposeColor
 import com.lightstick.music.core.util.toLightStickColor
+import com.lightstick.music.data.local.preferences.EffectSettingsPreferences
 import com.lightstick.music.ui.components.effect.PresetColors
 import com.lightstick.device.Device
 import com.lightstick.music.domain.ble.BleTransmissionEvent
@@ -44,7 +43,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
-import androidx.core.content.edit
 
 private val json = Json { ignoreUnknownKeys = true }
 
@@ -79,9 +77,6 @@ class EffectViewModel @Inject constructor(
     companion object {
         private const val TAG = AppConstants.Feature.VM_EFFECT
     }
-
-    private val prefs: SharedPreferences =
-        application.getSharedPreferences(PrefsKeys.PREFS_EFFECT_SETTINGS, Context.MODE_PRIVATE)
 
     private val controlMode: ControlMode = AppConstants.EFFECT_CONTROL_MODE
 
@@ -478,7 +473,7 @@ class EffectViewModel @Inject constructor(
     }
 
     private fun loadCustomEffects() {
-        val jsonStr = prefs.getString(PrefsKeys.KEY_CUSTOM_EFFECTS, null) ?: return
+        val jsonStr = EffectSettingsPreferences.getCustomEffectsJson(getApplication()) ?: return
         try {
             _customEffects.value = json.decodeFromString<List<CustomEffectDto>>(jsonStr).map { dto ->
                 UiEffectType.Custom(
@@ -495,7 +490,7 @@ class EffectViewModel @Inject constructor(
             val list = _customEffects.value.map { c ->
                 CustomEffectDto(id = c.id, baseType = c.baseType.name, name = c.name)
             }
-            prefs.edit { putString(PrefsKeys.KEY_CUSTOM_EFFECTS, json.encodeToString(list)) }
+            EffectSettingsPreferences.saveCustomEffectsJson(getApplication(), json.encodeToString(list))
         } catch (e: Exception) {
             Log.e(TAG, "saveCustomEffects: ${e.message}")
         }
@@ -515,52 +510,39 @@ class EffectViewModel @Inject constructor(
     }
 
     private fun loadFgPresetColors(): List<Color> = (0..9).map { i ->
-        val rgb = prefs.getInt(PrefsKeys.fgPresetKey(i), -1)
+        val rgb = EffectSettingsPreferences.getFgPresetRgb(getApplication(), i)
         if (rgb != -1) rgbToColor(rgb).toComposeColor() else PresetColors.defaultForegroundPresets[i]
     }
 
     private fun loadBgPresetColors(): List<Color> = (0..9).map { i ->
-        val rgb = prefs.getInt(PrefsKeys.bgPresetKey(i), -1)
+        val rgb = EffectSettingsPreferences.getBgPresetRgb(getApplication(), i)
         if (rgb != -1) rgbToColor(rgb).toComposeColor() else PresetColors.defaultBackgroundPresets[i]
     }
 
     private fun saveFgPresetColors(colors: List<Color>) {
-        prefs.edit().apply {
-            colors.forEachIndexed { i, c -> putInt(PrefsKeys.fgPresetKey(i), colorToRgb(c.toLightStickColor())) }
-            apply()
-        }
+        val rgbByIndex = colors.mapIndexed { i, c -> i to colorToRgb(c.toLightStickColor()) }.toMap()
+        EffectSettingsPreferences.saveFgPresetColors(getApplication(), rgbByIndex)
     }
 
     private fun saveBgPresetColors(colors: List<Color>) {
-        prefs.edit().apply {
-            colors.forEachIndexed { i, c -> putInt(PrefsKeys.bgPresetKey(i), colorToRgb(c.toLightStickColor())) }
-            apply()
-        }
+        val rgbByIndex = colors.mapIndexed { i, c -> i to colorToRgb(c.toLightStickColor()) }.toMap()
+        EffectSettingsPreferences.saveBgPresetColors(getApplication(), rgbByIndex)
     }
 
     fun clearToastMessage() { _toastMessage.value = null }
     fun clearError()         { _errorMessage.value = null }
 
     private fun loadAllSettings() {
-        prefs.all.keys
-            .filter {
-                it != PrefsKeys.KEY_CUSTOM_EFFECTS &&
-                        !it.startsWith(PrefsKeys.KEY_FG_PRESET_PREFIX) &&
-                        !it.startsWith(PrefsKeys.KEY_BG_PRESET_PREFIX)
-            }
-            .forEach { key ->
-                try {
-                    effectSettingsMapInternal[key] =
-                        EffectSettings.fromJson(prefs.getString(key, null) ?: return@forEach)
-                } catch (e: Exception) { Log.e(TAG, "loadAllSettings[$key]: ${e.message}") }
-            }
+        EffectSettingsPreferences.getAllEffectSettingsEntries(getApplication()).forEach { (key, jsonStr) ->
+            try {
+                effectSettingsMapInternal[key] = EffectSettings.fromJson(jsonStr)
+            } catch (e: Exception) { Log.e(TAG, "loadAllSettings[$key]: ${e.message}") }
+        }
         _effectSettingsMap.value = effectSettingsMapInternal.toMap()
     }
 
     private fun saveSettings(key: String, settings: EffectSettings) {
-        prefs.edit {
-            putString(key, settings.toJson())
-        }
+        EffectSettingsPreferences.saveEffectSettingsJson(getApplication(), key, settings.toJson())
     }
 
     private fun colorToRgb(color: LightStickColor): Int =
