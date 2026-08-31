@@ -267,7 +267,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
         ).map { ab ->
             if (ab.timeMs >= finalOffMs)
-                SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
+                ab.copy(sectionType = SectionDetector.SectionType.END)
             else ab
         }
         val tSection = System.currentTimeMillis() - t0Section

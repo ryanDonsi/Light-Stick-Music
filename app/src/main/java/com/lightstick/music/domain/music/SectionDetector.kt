@@ -14,12 +14,21 @@ interface SectionDetector {
 
     /**
      * SectionDetector의 1차 반환 타입.
-     * BeatDetector 비트에 섹션 분석 정보(sectionType)만 추가한 형태.
+     * BeatDetector 비트에 섹션 분석 정보(sectionType)와, 비트 순간의 로컬 특성값을 추가한 형태.
+     *
+     * localEnergy/onsetStrength/lowRatio/highRatio/beatInBar는 SectionDetectorV2부터 채워진다
+     * (V0/V1은 섹션 판정에 쓰는 구간 평균값만 갖고 있어 비트 단위 값이 없으므로 기본값 유지).
+     * 섹션 평균과 달리 이 값들은 그 비트 하나의 순간값이라, 같은 섹션 안에서도 비트마다 달라진다.
      */
     data class AnnotatedBeat(
         val timeMs:      Long,
         val confidence:  Float,
-        val sectionType: SectionType
+        val sectionType: SectionType,
+        val localEnergy:   Float = 0f,
+        val onsetStrength: Float = 0f,
+        val lowRatio:      Float = 0f,
+        val highRatio:     Float = 0f,
+        val beatInBar:     Int   = 0
     )
 
     /**

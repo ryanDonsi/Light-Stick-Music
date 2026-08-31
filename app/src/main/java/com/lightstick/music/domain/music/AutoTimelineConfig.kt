@@ -159,9 +159,20 @@ object AutoTimelineConfig {
      *     3. Single-pass feature extraction (계산량 1/3)
      *     4. STRIDE를 2배로 늘려도 정확도 손실 미미
      *
+     * V2: V1 + 비트 단위 특징 보강
+     *     섹션 경계/타입 판정 로직은 V1과 완전히 동일 (buildFeatureWindows ~ applyIntroOutro
+     *     그대로) — 달라지는 건 annotateBeats()뿐이다.
+     *     AnnotatedBeat에 localEnergy/onsetStrength/lowRatio/highRatio/beatInBar를 추가로
+     *     채워서, 같은 섹션 안에서도 비트마다 실제 순간값이 다르게 나오도록 한다 (섹션 구간
+     *     평균을 복사하는 게 아니라 원본 envelope/novelty를 비트 자신의 timeMs로 재인덱싱).
+     *     EffectMatchingEngine이 섹션 타입만으로 뭉뚱그리지 않고 비트별로 다채로운 이펙트를
+     *     매칭할 수 있게 하기 위한 전제 작업 — 이 값들을 실제로 사용하는 매칭 룰 확장은 별도.
+     *     용도: 비트별 이펙트 다양화 준비 (현재 EFFECT_RULE_VERSION은 아직 V1 필드만 사용)
+     *
      * 선택 기준:
      * - V0: 최고 정확도 필요 (느려도 괜찮음)
      * - V1: 일반적인 경우 (추천, 더 빠르고 정확도 비슷)
+     * - V2: 비트 단위 특징이 필요할 때 (V1과 섹션 결과는 동일, AnnotatedBeat 필드만 추가)
      *
      * 섹션 감지 결과 예시 (INTRO -> VERSE -> CHORUS -> BRIDGE -> CLIMAX -> OUTRO):
      *   INTRO(0~5s): 1-2개 비트, 낮은 에너지, 숨쉬기 이펙트
