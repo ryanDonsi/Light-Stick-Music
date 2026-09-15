@@ -534,7 +534,10 @@ fun AppNavigation(
                         showDisconnectDialog = false
                         @SuppressLint("MissingPermission")
                         deviceViewModel.toggleConnection(context, device)
-                        navController.popBackStack()
+                        // 화면 전환은 위 LaunchedEffect(isConnected)가 담당한다(해제 완료
+                        // 이벤트 수신 후 popBackStack). 여기서 추가로 pop하면, 전환 애니메이션
+                        // 중 남아있는 이 컴포저블에서 이중 pop이 발생해 리스트 화면까지 같이
+                        // 닫히며 빈 화면이 나타날 수 있다.
                     }
                 )
             }
