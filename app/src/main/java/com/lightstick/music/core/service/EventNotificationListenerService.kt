@@ -88,6 +88,10 @@ class EventNotificationListenerService : NotificationListenerService() {
             }
             Notification.CATEGORY_MESSAGE -> {
                 Log.i(TAG, "메시지 알림 감지 [${sbn.packageName}]")
+                if (title.isNullOrBlank()) {
+                    Log.d(TAG, "→ title 없음 → 무시")
+                    return
+                }
                 if (!hasAnyEnabledDevice { DevicePreferences.getSmsEventEnabled(it) }) {
                     Log.d(TAG, "→ SMS Event 모두 OFF → 스킵")
                     return
