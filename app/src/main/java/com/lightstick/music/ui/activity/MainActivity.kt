@@ -477,6 +477,7 @@ fun AppNavigation(
 
             val otaInProgressMap by deviceViewModel.otaInProgress.collectAsState()
             val otaProgressMap   by deviceViewModel.otaProgress.collectAsState()
+            val isGroupEffectAllowed by deviceViewModel.isGroupEffectAllowed.collectAsState()
             val isOtaInProgress  = otaInProgressMap[deviceMac] == true
             val otaProgress      = otaProgressMap[deviceMac] ?: 0
 
@@ -515,6 +516,7 @@ fun AppNavigation(
                 onFindClick = {
                     showFindDialog = true
                 },
+                isGroupEffectAllowed = isGroupEffectAllowed,
                 onGroupAssignClick = {
                     showGroupAssignDialog = true
                 },

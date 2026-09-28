@@ -3,6 +3,7 @@ package com.lightstick.music.domain.usecase.effect
 import android.content.Context
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.music.core.state.GroupEffectState
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.BleTransmissionMonitor
 import com.lightstick.music.domain.ble.TransmissionSource
@@ -34,6 +35,9 @@ class PlayEffectListUseCase @Inject constructor() {
 
     companion object {
         private const val TAG = AppConstants.Feature.UC_PLAY_EFFECT_LIST
+
+        /** groupMask를 지정해 그룹 단위로 연출하는 EffectList 번호 (그룹 물결/쌓기/스캐너) */
+        private val GROUP_EFFECT_LIST_NUMBERS = setOf(4, 5, 6)
     }
 
     /**
@@ -49,6 +53,11 @@ class PlayEffectListUseCase @Inject constructor() {
         effectListNumber: Int,
         coroutineScope: CoroutineScope
     ): Result<Job> {
+        if (effectListNumber in GROUP_EFFECT_LIST_NUMBERS && !GroupEffectState.isAllowed.value) {
+            Log.w(TAG, "그룹 EffectList 차단: BLE Only 모드는 그룹 기능을 지원하지 않음 (number=$effectListNumber)")
+            return Result.failure(Exception("BLE Only 모드에서는 그룹 Effect를 지원하지 않습니다"))
+        }
+
         return try {
             val frames = createEffectListSequence(effectListNumber)
 
