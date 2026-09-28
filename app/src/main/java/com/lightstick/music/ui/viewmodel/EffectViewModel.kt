@@ -12,6 +12,7 @@ import com.lightstick.music.core.ble.ControlMode
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.constants.EffectKeys
 import com.lightstick.music.core.permission.PermissionManager
+import com.lightstick.music.core.state.GroupEffectState
 import com.lightstick.music.core.state.MusicPlaybackState
 import com.lightstick.music.core.util.toComposeColor
 import com.lightstick.music.core.util.toLightStickColor
@@ -99,6 +100,9 @@ class EffectViewModel @Inject constructor(
 
     private val _toastMessage = MutableStateFlow<String?>(null)
     val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
+
+    /** FF06(Device Mode) 기준 그룹 Effect(그룹 물결/쌓기/스캐너) 허용 여부 — [DeviceViewModel]이 갱신 */
+    val isGroupEffectAllowed: StateFlow<Boolean> = GroupEffectState.isAllowed
 
     private val _selectedEffectListNumber = MutableStateFlow<Int?>(null)
     val selectedEffectListNumber: StateFlow<Int?> = _selectedEffectListNumber.asStateFlow()

@@ -42,6 +42,7 @@ fun DeviceDetailScreen(
     onSmsEventToggle: (Boolean) -> Unit,
     onBroadcastingToggle: (Boolean) -> Unit,
     onFindClick: () -> Unit,
+    isGroupEffectAllowed: Boolean,
     onGroupAssignClick: () -> Unit,
     onOtaUpdateClick: () -> Unit,
     onAbortOta: () -> Unit,
@@ -175,7 +176,11 @@ fun DeviceDetailScreen(
 
                     SettingLabel(
                         label = "그룹 배정",
-                        description = "그룹 색상을 방송하여 응원봉을 그룹에 배정",
+                        description = if (isGroupEffectAllowed)
+                            "그룹 색상을 방송하여 응원봉을 그룹에 배정"
+                        else
+                            "BLE Only 모드에서는 지원하지 않는 기능입니다",
+                        enabled = isGroupEffectAllowed,
                         onClick = onGroupAssignClick
                     )
 

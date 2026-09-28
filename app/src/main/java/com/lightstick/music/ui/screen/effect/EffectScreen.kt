@@ -67,6 +67,7 @@ fun EffectScreen(
     val latestTransmission       by viewModel.latestTransmission.collectAsState()
     val customEffects            by viewModel.customEffects.collectAsState()
     val selectedEffectListNumber by viewModel.selectedEffectListNumber.collectAsState()
+    val isGroupEffectAllowed     by viewModel.isGroupEffectAllowed.collectAsState()
     val fgPresetColors           by viewModel.fgPresetColors.collectAsState()
     val bgPresetColors           by viewModel.bgPresetColors.collectAsState()
     val selectedFgPreset         by viewModel.selectedFgPreset.collectAsState()
@@ -374,6 +375,7 @@ fun EffectScreen(
             EffectListSheetContent(
                 effectLists              = effectLists,
                 selectedEffectListNumber = selectedEffectListNumber,
+                isGroupEffectAllowed     = isGroupEffectAllowed,
                 onEffectClick            = { effectNumber ->
                     viewModel.selectEffectList(context, effectNumber)
                     showEffectListSheet = false
