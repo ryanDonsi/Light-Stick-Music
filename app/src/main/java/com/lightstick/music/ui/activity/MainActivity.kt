@@ -534,7 +534,6 @@ fun AppNavigation(
                         showDisconnectDialog = false
                         @SuppressLint("MissingPermission")
                         deviceViewModel.toggleConnection(context, device)
-                        navController.popBackStack()
                     }
                 )
             }
