@@ -58,9 +58,7 @@ class GameBleManager @Inject constructor() {
     @SuppressLint("MissingPermission")
     fun connect(context: Context) {
         val current = _connectionState.value
-        if (current is ConnectionState.Connected || current is ConnectionState.Connecting) return
-
-        _connectionState.value = ConnectionState.Connecting
+        if (current is ConnectionState.Connecting) return
 
         val sdkDevices = try {
             LSBluetooth.connectedDevices()
@@ -72,13 +70,24 @@ class GameBleManager @Inject constructor() {
 
         val sdkDevice = sdkDevices.firstOrNull() ?: run {
             Log.e(TAG, "연결된 기기 없음")
+            activeDevice = null
+            _isGameModeSupported.value = false
             _connectionState.value = ConnectionState.Error("연결된 응원봉이 없습니다")
             return
         }
 
+        // 이미 같은 기기에 연결되어 있으면 재조회 불필요. 기기가 바뀐 경우(이전 기기 해제 후
+        // 다른 기기 연결)에는 activeDevice가 갱신되지 않은 채로 상태만 Connected로 남아있을 수
+        // 있으므로, mac이 다르면 반드시 아래에서 다시 판정한다.
+        if (current is ConnectionState.Connected && activeDevice?.mac == sdkDevice.mac) return
+
+        _connectionState.value = ConnectionState.Connecting
+
         val device = Device(mac = sdkDevice.mac, name = sdkDevice.name)
         if (!device.isConnected()) {
             Log.e(TAG, "SDK 기기가 연결 상태가 아님 (mac=${device.mac})")
+            activeDevice = null
+            _isGameModeSupported.value = false
             _connectionState.value = ConnectionState.Error("기기가 연결되어 있지 않습니다")
             return
         }
