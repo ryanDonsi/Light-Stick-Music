@@ -7,6 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lightstick.music.ui.theme.customColors
@@ -16,13 +17,15 @@ fun SettingLabel(
     label: String,
     description: String?,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onClick: (() -> Unit)? = null
 ) {
     Column(
         modifier = modifier
             .then(
-                if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
-            ),
+                if (onClick != null && enabled) Modifier.clickable(onClick = onClick) else Modifier
+            )
+            .alpha(if (enabled) 1f else 0.4f),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(

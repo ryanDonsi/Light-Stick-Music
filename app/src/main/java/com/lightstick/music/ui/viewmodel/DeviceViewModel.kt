@@ -19,6 +19,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.core.permission.PermissionManager
+import com.lightstick.music.core.state.GroupEffectState
 import com.lightstick.music.core.state.OtaState
 import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.music.data.local.preferences.GroupPreferences
@@ -34,6 +35,7 @@ import com.lightstick.LSBluetooth
 import com.lightstick.device.ConnectionState
 import com.lightstick.device.Device
 import com.lightstick.device.DeviceInfo
+import com.lightstick.device.DeviceMode
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,6 +69,18 @@ class DeviceViewModel @Inject constructor(
     val connectionStates: StateFlow<Map<String, Boolean>> = _connectionStates.asStateFlow()
 
     private val connectedDevices = mutableMapOf<String, Device>()
+
+    /** mac → FF06으로 읽은 DeviceMode. 미지원/읽기 전/실패 기기는 넣지 않는다(fail-open). */
+    private val deviceModes = mutableMapOf<String, DeviceMode>()
+
+    /**
+     * 그룹 Effect(그룹 배정, groupMask 지정 Effect) 허용 여부.
+     * 연결된 기기 중 하나라도 BLE Only 모드면 false — 콘서트 규모 그룹 제어가 전제인
+     * 기능이라 일부 기기만 BLE 모드여도 그룹 명령 자체를 막는다.
+     * 구형 펌웨어(FF06 미지원)는 중계기 모드로 간주해 계속 허용한다.
+     */
+    private val _isGroupEffectAllowed = MutableStateFlow(true)
+    val isGroupEffectAllowed: StateFlow<Boolean> = _isGroupEffectAllowed.asStateFlow()
 
     private val _deviceDetails = MutableStateFlow<Map<String, DeviceDetailInfo>>(emptyMap())
     val deviceDetails: StateFlow<Map<String, DeviceDetailInfo>> = _deviceDetails.asStateFlow()
@@ -244,6 +258,7 @@ class DeviceViewModel @Inject constructor(
         Log.d(TAG, "  device name=${device.name}")
 
         connectedDevices[mac] = device
+        refreshDeviceMode(device)
 
         if (_devices.value.none { it.mac == mac }) {
             _devices.value = (_devices.value + device).sortedWith(
@@ -276,12 +291,45 @@ class DeviceViewModel @Inject constructor(
     }
 
     /**
+     * FF06(Device Mode) 1회 읽기 — 연결 직후(GATT 서비스 디스커버리 완료 후)에만 호출.
+     * 재연결마다 다시 읽어야 하므로 캐시하지 않고, 연결 해제 시 [deviceModes]에서 제거한다.
+     */
+    @SuppressLint("MissingPermission")
+    private fun refreshDeviceMode(device: Device) {
+        if (!device.supportsDeviceMode()) {
+            // 구형 펌웨어(FF06 미지원) → 중계기 모드로 간주(fail-open)
+            deviceModes.remove(device.mac)
+            recomputeGroupEffectAllowed()
+            return
+        }
+        device.readDeviceMode { result ->
+            result.onSuccess { mode ->
+                Log.i(TAG, "readDeviceMode: ${device.mac} → $mode")
+                deviceModes[device.mac] = mode
+                recomputeGroupEffectAllowed()
+            }.onFailure { error ->
+                Log.w(TAG, "readDeviceMode 실패: ${device.mac} - ${error.message}")
+            }
+        }
+    }
+
+    /** 연결된 기기 중 BLE Only 모드가 하나라도 있으면 그룹 Effect를 막는다. */
+    private fun recomputeGroupEffectAllowed() {
+        val hasBleModeDevice = connectedDevices.keys.any { deviceModes[it] == DeviceMode.BLE }
+        val allowed = !hasBleModeDevice
+        _isGroupEffectAllowed.value = allowed
+        GroupEffectState.update(allowed)
+    }
+
+    /**
      * SDK에서 연결 해제 이벤트 감지 시 처리.
      */
     private fun onDeviceDisconnectedFromSdk(mac: String) {
         val fwAtDisconnect = _deviceDetails.value[mac]?.deviceInfo?.firmwareRevision
         Log.d(TAG, "onDeviceDisconnectedFromSdk: $mac fwAtDisconnect=$fwAtDisconnect")
         connectedDevices.remove(mac)
+        deviceModes.remove(mac)
+        recomputeGroupEffectAllowed()
         updateConnectionState(mac, false)
         stopBatteryMonitoring(mac)
 
@@ -409,6 +457,7 @@ class DeviceViewModel @Inject constructor(
                     onConnected  = {
                         Log.i(TAG, "onConnected: ${device.mac}")
                         connectedDevices[device.mac] = device
+                        refreshDeviceMode(device)
                         updateConnectionState(device.mac, true)
                         if (!_deviceDetails.value.containsKey(device.mac)) {
                             initializeDeviceDetail(device)
@@ -423,6 +472,8 @@ class DeviceViewModel @Inject constructor(
                     onFailed     = { error ->
                         Log.e(TAG, "Connection failed: ${error.message}")
                         connectedDevices.remove(device.mac)
+                        deviceModes.remove(device.mac)
+                        recomputeGroupEffectAllowed()
                         updateConnectionState(device.mac, false)
                     },
                     onDeviceInfo = { info ->
@@ -491,6 +542,9 @@ class DeviceViewModel @Inject constructor(
         }
         if (_connectionStates.value[device.mac] != true) {
             Log.w(TAG, "Device not connected: ${device.mac}"); return
+        }
+        if (!_isGroupEffectAllowed.value) {
+            Log.w(TAG, "그룹 배정 차단: BLE Only 모드는 그룹 기능을 지원하지 않음 (${device.mac})"); return
         }
 
         val ok = device.sendGroupSetting(groupId)
