@@ -33,21 +33,6 @@ object EffectEngineController {
     @Volatile private var cachedTimeline: List<EfxEntry> = emptyList()
     @Volatile private var lastRecordedEffectIndex: Int = -1
 
-    // device.sendEffect()는 SDK 내부적으로 디바이스에 로드돼 있던 타임라인을 암묵적으로
-    // 정지/초기화한다(pauseTimeline/resumeTimeline은 단순 on/off 플래그만 토글할 뿐 이걸
-    // 복구하지 못함). 그래서 일시정지 중 수동 이펙트를 한 번이라도 보내면, 재생을 재개해도
-    // SDK 쪽 타임라인이 비어 있어 이후 프레임이 조용히 무시된다. 이 플래그로 "재개 시 타임라인을
-    // 다시 로드해야 하는지"를 추적한다 — 평범한 일시정지→재개(수동 이펙트 없음)는 여전히
-    // pauseTimeline/resumeTimeline만으로 충분하므로 매번 다시 로드할 필요는 없다.
-    @Volatile private var timelineNeedsReload: Boolean = false
-
-    /** 재개 시 타임라인 재로드가 필요한지 확인하고, 확인 즉시 플래그를 소비(리셋)한다. */
-    fun consumeTimelineReloadNeeded(): Boolean {
-        val needed = timelineNeedsReload
-        timelineNeedsReload = false
-        return needed
-    }
-
     /** MusicViewModel에서 FFT 차단용으로 사용 */
     fun isTimelineActive(): Boolean = isTimelineLoaded
 
@@ -83,7 +68,6 @@ object EffectEngineController {
             devices.forEach { device ->
                 try {
                     device.sendEffect(payload)
-                    timelineNeedsReload = true
 
                     val transmissionEvent = BleTransmissionEvent(
                         source = source,
@@ -141,7 +125,6 @@ object EffectEngineController {
             }
 
             target.sendEffect(payload)
-            timelineNeedsReload = true
 
             val transmissionEvent = BleTransmissionEvent(
                 source = source,
@@ -363,6 +346,20 @@ object EffectEngineController {
 
         sendColor(context, color, transit = 5, source = TransmissionSource.FFT_EFFECT)
     }
+
+    /**
+     * 재생 재개 시 타임라인을 다시 로드해야 하는지 SDK에 직접 물어본다(device.isTimelineLoaded()).
+     * SDK 업데이트(suspendBackgroundProducers 도입) 이후로는 sendEffect()가
+     * 로드된 타임라인 데이터를 보존한 채 전송만 잠깐 억제하므로, 연결된 기기가 전부
+     * 타임라인을 갖고 있으면 resumeTimeline()만으로 충분하다. 연결된 기기 중 하나라도
+     * 타임라인이 없다고 응답하면(레거시 play() 취소 등 다른 경로로 비워진 경우) 재로드가 필요하다.
+     */
+    fun needsTimelineReload(context: Context): Boolean =
+        resolveAllDevices(context).any { device ->
+            // 조회 자체가 실패하면 상태를 모르는 것이므로, 모른 채로 넘어가 이펙트가
+            // 조용히 안 나가는 것보다는 안전하게 재로드하는 쪽을 택한다.
+            try { !device.isTimelineLoaded() } catch (e: Exception) { true }
+        }
 
     /** 타임라인/재생 제어 대상: 연결된 모든 기기 반환 */
     private fun resolveAllDevices(context: Context): List<Device> {

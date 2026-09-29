@@ -397,12 +397,13 @@ class MusicViewModel @Inject constructor(
             player.play()
             _isPlaying.value = true
             if (_isAutoModeEnabled.value) {
-                // 일시정지 중 Effect 화면 등에서 수동 이펙트를 보냈다면, SDK 내부 타임라인이
-                // 그 전송 때문에 암묵적으로 비워졌을 수 있다 — 그런 경우에만 다시 로드한다.
-                // 수동 이펙트가 없었던 평범한 일시정지→재개는 이 reload 없이 그대로 진행된다.
-                if (EffectEngineController.consumeTimelineReloadNeeded()) {
+                // SDK 업데이트(suspendBackgroundProducers 도입) 이후로는 sendEffect()가 로드된
+                // 타임라인을 보존한 채 전송만 억제하므로 평소엔 resumeTimeline()만으로 충분하다.
+                // 그래도 기기가 실제로 타임라인이 없다고 응답하면(연결 재시도 등 다른 경로로
+                // 비워진 경우) 재로드한다 — 앱이 자체 추론하지 않고 SDK 상태를 직접 확인한다.
+                if (EffectEngineController.needsTimelineReload(context)) {
                     _nowPlaying.value?.let { loadTimelineForCurrentTrack(File(it.filePath)) }
-                    Log.d(TAG, "Resume: timeline reload (manual effect sent while paused)")
+                    Log.d(TAG, "Resume: timeline reload (device reports timeline not loaded)")
                 }
                 EffectEngineController.resumeEffects(context)
                 // 전화 중단 후 재개 등 상황에서 이펙트 재동기화
