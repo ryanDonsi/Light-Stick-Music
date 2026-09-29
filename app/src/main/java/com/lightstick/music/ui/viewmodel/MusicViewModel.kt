@@ -322,6 +322,28 @@ class MusicViewModel @Inject constructor(
         )
     }
 
+    // 자동모드용 타임라인을 musicFile 기준으로 (재)로드한다. playMusic()/toggleAutoMode()/
+    // togglePlayPause() 재개 경로에서 공용으로 쓴다 — 셋 다 "이 곡의 자동 타임라인을 디바이스에
+    // 새로 실어야 한다"는 같은 필요에서 나온 호출이라 로직을 하나로 모았다.
+    private fun loadTimelineForCurrentTrack(musicFile: File) {
+        EffectEngineController.reset()
+
+        if (MusicEffectManager.hasEffectFor(musicFile)) {
+            loadEfxUseCase(context, musicFile)
+        } else {
+            val musicId = MusicId.fromFile(musicFile)
+            val ver     = AutoTimelineConfig.VERSION
+            val storage = AutoTimelineStorage(version = ver)
+            val frames  = storage.load(context, musicId)
+
+            if (!frames.isNullOrEmpty()) {
+                EffectEngineController.loadTimelineFromFrames(context, frames)
+            } else {
+                Log.w(TAG, "자동 타임라인 없음 (v=$ver) → FFT 폴백")
+            }
+        }
+    }
+
     fun playMusic(item: MusicItem) {
         _nowPlaying.value      = item
         _isPlaying.value       = true
@@ -333,20 +355,7 @@ class MusicViewModel @Inject constructor(
         val ver       = AutoTimelineConfig.VERSION
 
         if (_isAutoModeEnabled.value) {
-            EffectEngineController.reset()
-
-            if (MusicEffectManager.hasEffectFor(musicFile)) {
-                loadEfxUseCase(context, musicFile)
-            } else {
-                val storage = AutoTimelineStorage(version = ver)
-                val frames  = storage.load(context, musicId)
-
-                if (!frames.isNullOrEmpty()) {
-                    EffectEngineController.loadTimelineFromFrames(context, frames)
-                } else {
-                    Log.w(TAG, "자동 타임라인 없음 (v=$ver) → FFT 폴백")
-                }
-            }
+            loadTimelineForCurrentTrack(musicFile)
         } else {
             EffectEngineController.reset()
         }
@@ -388,6 +397,13 @@ class MusicViewModel @Inject constructor(
             player.play()
             _isPlaying.value = true
             if (_isAutoModeEnabled.value) {
+                // 일시정지 중 Effect 화면 등에서 수동 이펙트를 보냈다면, SDK 내부 타임라인이
+                // 그 전송 때문에 암묵적으로 비워졌을 수 있다 — 그런 경우에만 다시 로드한다.
+                // 수동 이펙트가 없었던 평범한 일시정지→재개는 이 reload 없이 그대로 진행된다.
+                if (EffectEngineController.consumeTimelineReloadNeeded()) {
+                    _nowPlaying.value?.let { loadTimelineForCurrentTrack(File(it.filePath)) }
+                    Log.d(TAG, "Resume: timeline reload (manual effect sent while paused)")
+                }
                 EffectEngineController.resumeEffects(context)
                 // 전화 중단 후 재개 등 상황에서 이펙트 재동기화
                 // 1. 현재 위치로 Seek 실행 (Timeline 인덱스 초기화)
@@ -428,19 +444,7 @@ class MusicViewModel @Inject constructor(
             val currentMusic = _nowPlaying.value
             if (currentMusic != null) {
                 val musicFile = File(currentMusic.filePath)
-                EffectEngineController.reset()
-
-                if (MusicEffectManager.hasEffectFor(musicFile)) {
-                    loadEfxUseCase(context, musicFile)
-                } else {
-                    val musicId = MusicId.fromFile(musicFile)
-                    val ver     = AutoTimelineConfig.VERSION
-                    val storage = AutoTimelineStorage(version = ver)
-                    val frames  = storage.load(context, musicId)
-                    if (!frames.isNullOrEmpty()) {
-                        EffectEngineController.loadTimelineFromFrames(context, frames)
-                    }
-                }
+                loadTimelineForCurrentTrack(musicFile)
 
                 val currentPos = _currentPosition.value.toLong()
                 try {

@@ -33,6 +33,21 @@ object EffectEngineController {
     @Volatile private var cachedTimeline: List<EfxEntry> = emptyList()
     @Volatile private var lastRecordedEffectIndex: Int = -1
 
+    // device.sendEffect()는 SDK 내부적으로 디바이스에 로드돼 있던 타임라인을 암묵적으로
+    // 정지/초기화한다(pauseTimeline/resumeTimeline은 단순 on/off 플래그만 토글할 뿐 이걸
+    // 복구하지 못함). 그래서 일시정지 중 수동 이펙트를 한 번이라도 보내면, 재생을 재개해도
+    // SDK 쪽 타임라인이 비어 있어 이후 프레임이 조용히 무시된다. 이 플래그로 "재개 시 타임라인을
+    // 다시 로드해야 하는지"를 추적한다 — 평범한 일시정지→재개(수동 이펙트 없음)는 여전히
+    // pauseTimeline/resumeTimeline만으로 충분하므로 매번 다시 로드할 필요는 없다.
+    @Volatile private var timelineNeedsReload: Boolean = false
+
+    /** 재개 시 타임라인 재로드가 필요한지 확인하고, 확인 즉시 플래그를 소비(리셋)한다. */
+    fun consumeTimelineReloadNeeded(): Boolean {
+        val needed = timelineNeedsReload
+        timelineNeedsReload = false
+        return needed
+    }
+
     /** MusicViewModel에서 FFT 차단용으로 사용 */
     fun isTimelineActive(): Boolean = isTimelineLoaded
 
@@ -68,6 +83,7 @@ object EffectEngineController {
             devices.forEach { device ->
                 try {
                     device.sendEffect(payload)
+                    timelineNeedsReload = true
 
                     val transmissionEvent = BleTransmissionEvent(
                         source = source,
@@ -125,6 +141,7 @@ object EffectEngineController {
             }
 
             target.sendEffect(payload)
+            timelineNeedsReload = true
 
             val transmissionEvent = BleTransmissionEvent(
                 source = source,
