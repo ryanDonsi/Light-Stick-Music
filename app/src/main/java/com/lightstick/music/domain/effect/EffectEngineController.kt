@@ -338,6 +338,24 @@ object EffectEngineController {
         }
     }
 
+    /**
+     * Resume 직후, 현재 위치에 해당하는 프레임을 즉시 재전송해 기기 상태를 동기화한다.
+     * BREATH처럼 프레임 간격이 긴 구간에서는 다음 프레임까지 수 초가 남아있을 수 있는데,
+     * 그 사이 pause 중 보낸 수동 이펙트 상태가 기기에 그대로 남아있는 문제를 막기 위함.
+     */
+    fun resyncCurrentFrame(context: Context, currentPositionMs: Long) {
+        if (!PermissionManager.hasBluetoothConnectPermission(context)) return
+        val entry = cachedTimeline.lastOrNull { it.timestampMs <= currentPositionMs } ?: return
+        resolveAllDevices(context).forEach { device ->
+            try {
+                device.sendEffect(entry.payload)
+                Log.d(TAG, "[resync] t=${entry.timestampMs}ms type=${entry.payload.effectType} color=${entry.payload.color} → ${device.mac}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Resync current frame failed ${device.mac}: ${e.message}")
+            }
+        }
+    }
+
     @Synchronized
     fun reset() {
         isTimelineLoaded = false
