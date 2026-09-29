@@ -92,6 +92,17 @@ class SectionDetectorV2 : SectionDetector {
         val lowTh  = if (frameScores.isNotEmpty()) percentile(frameScores, 0.35f) else 0f
         val highTh = if (frameScores.isNotEmpty()) percentile(frameScores, 0.70f) else 1f
         Log.d(TAG, "SectionDetectorV2 thresholds: lowTh=${"%.3f".format(lowTh)} highTh=${"%.3f".format(highTh)}")
+        // INTRO 경계 로직 개선용 진단 로그 — 병합/컴팩션 전 원시 2초 윈도우 단위 특성값.
+        // adb logcat | grep SectionDetectorV2 로 캡처해서 "노래가 실제로 시작되는 지점"에서
+        // energy/onset/activity/periodicity가 어떻게 움직이는지 확인하는 용도. 동작에는 영향 없음.
+        windows.forEachIndexed { idx, w ->
+            Log.d(TAG, "SectionDetectorV2 rawWindow[$idx] ${w.startMs}~${w.endMs} " +
+                "energy=${"%.3f".format(w.energy)} onset=${"%.3f".format(w.onsetDensity)} " +
+                "activity=${"%.3f".format(w.activity)} low=${"%.3f".format(w.lowRatio)} " +
+                "mid=${"%.3f".format(w.midRatio)} high=${"%.3f".format(w.highRatio)} " +
+                "periodicity=${"%.3f".format(w.periodicity)} score=${"%.3f".format(w.score)} " +
+                "type=${classifyType(w.score, lowTh, highTh)} change=${w.changeStrength}")
+        }
 
         val rawSections = buildSectionsFromWindows(windows, durationMs, lowTh, highTh)
 
