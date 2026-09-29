@@ -425,13 +425,6 @@ class MusicViewModel @Inject constructor(
                 } catch (e: Exception) {
                     Log.e(TAG, "Resume position update failed: ${e.message}")
                 }
-                // 3. 현재 프레임 즉시 재전송 — 다음 예정 프레임까지 간격이 긴 구간(BREATH 등)에서
-                //    pause 중 보낸 수동 이펙트 상태가 기기에 그대로 남아있지 않도록 동기화
-                try {
-                    EffectEngineController.resyncCurrentFrame(context, currentPos)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Resume resync failed: ${e.message}")
-                }
             }
         }
         updateNotificationProgress()
