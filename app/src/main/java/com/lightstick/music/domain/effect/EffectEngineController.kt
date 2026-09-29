@@ -289,8 +289,25 @@ object EffectEngineController {
         try {
             devices.forEach { it.updatePlaybackPosition(currentPositionMs) }
             recordCurrentTimelineEffect(devices.first().mac, currentPositionMs)
+            logNextFrameGap(currentPositionMs)
         } catch (e: Exception) {
             Log.e(TAG, "Update playback failed: ${e.message}")
+        }
+    }
+
+    // 진단용 — 재개 직후 이펙트가 1~2초 늦게 나오는 현상의 원인 확인용.
+    // "다음 예정 프레임이 실제로 그만큼 떨어져 있어서(타임라인 자체가 성긴 구간)"인지,
+    // "바로 다음인데 전송이 늦는 것"인지 구분하려고 캐시된 타임라인에서 이 위치 이후
+    // 첫 프레임까지의 거리를 로그로 남긴다. 동작에는 영향 없음 — SDK가 실제로 그 프레임을
+    // 언제 전송하는지는 앱에서 관측할 수 없어서(closed SDK), 이건 "몇 ms 뒤에 프레임이
+    // 예정돼 있다"는 타임라인 데이터 자체만 보여준다.
+    private fun logNextFrameGap(currentPositionMs: Long) {
+        val next = cachedTimeline.firstOrNull { it.timestampMs >= currentPositionMs }
+        if (next == null) {
+            Log.d(TAG, "[gap-check] posMs=$currentPositionMs 이후 예정 프레임 없음 (타임라인 끝)")
+        } else {
+            Log.d(TAG, "[gap-check] posMs=$currentPositionMs nextFrameT=${next.timestampMs}ms " +
+                "gap=${next.timestampMs - currentPositionMs}ms type=${next.payload.effectType} color=${next.payload.color}")
         }
     }
 

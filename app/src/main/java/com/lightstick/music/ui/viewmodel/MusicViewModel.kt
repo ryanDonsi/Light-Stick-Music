@@ -396,12 +396,15 @@ class MusicViewModel @Inject constructor(
         } else {
             player.play()
             _isPlaying.value = true
+            Log.d(TAG, "Resume: begin pos=${player.currentPosition}ms")
             if (_isAutoModeEnabled.value) {
                 // SDK 업데이트(suspendBackgroundProducers 도입) 이후로는 sendEffect()가 로드된
                 // 타임라인을 보존한 채 전송만 억제하므로 평소엔 resumeTimeline()만으로 충분하다.
                 // 그래도 기기가 실제로 타임라인이 없다고 응답하면(연결 재시도 등 다른 경로로
                 // 비워진 경우) 재로드한다 — 앱이 자체 추론하지 않고 SDK 상태를 직접 확인한다.
-                if (EffectEngineController.needsTimelineReload(context)) {
+                val needsReload = EffectEngineController.needsTimelineReload(context)
+                Log.d(TAG, "Resume: needsTimelineReload=$needsReload")
+                if (needsReload) {
                     _nowPlaying.value?.let { loadTimelineForCurrentTrack(File(it.filePath)) }
                     Log.d(TAG, "Resume: timeline reload (device reports timeline not loaded)")
                 }
