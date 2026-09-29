@@ -338,6 +338,32 @@ object EffectEngineController {
         }
     }
 
+    /**
+     * Resume 직후, 현재 위치에 해당하는 프레임을 즉시 재전송해 기기 상태를 동기화한다.
+     * BREATH처럼 프레임 간격이 긴 구간에서는 다음 프레임까지 수 초가 남아있을 수 있는데,
+     * 그 사이 pause 중 보낸 수동 이펙트 상태가 기기에 그대로 남아있는 문제를 막기 위함.
+     *
+     * 주의: SDK의 sendEffect()는 내부적으로 suspendBackgroundProducers()를 호출해
+     * isEffectTransmissionEnabled를 다시 false로 꺼버린다(sendEffectPayload 전송 직전
+     * "백그라운드 프로듀서"를 억제하는 SDK 자체 로직). resumeTimeline()은 이 플래그가 이미
+     * true면 아무것도 안 하므로, sendEffect() 이후 반드시 resumeTimeline()을 한 번 더 호출해
+     * 다시 켜줘야 이후 타임라인 프레임 전송이 정상적으로 이어진다. (이 순서를 빼먹으면
+     * resync 시도 이후로 타임라인 전송이 영구히 멈추는 회귀가 발생함 — 실제로 한 번 겪음.)
+     */
+    fun resyncCurrentFrame(context: Context, currentPositionMs: Long) {
+        if (!PermissionManager.hasBluetoothConnectPermission(context)) return
+        val entry = cachedTimeline.lastOrNull { it.timestampMs <= currentPositionMs } ?: return
+        resolveAllDevices(context).forEach { device ->
+            try {
+                device.sendEffect(entry.payload)
+                device.resumeTimeline()
+                Log.d(TAG, "[resync] t=${entry.timestampMs}ms type=${entry.payload.effectType} color=${entry.payload.color} → ${device.mac}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Resync current frame failed ${device.mac}: ${e.message}")
+            }
+        }
+    }
+
     @Synchronized
     fun reset() {
         isTimelineLoaded = false
