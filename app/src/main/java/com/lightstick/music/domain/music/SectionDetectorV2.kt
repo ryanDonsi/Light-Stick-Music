@@ -8,23 +8,29 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * SectionDetectorV2 — SectionDetectorV1 + 비트 단위 특징 보강 + INTRO 경계 개선
+ * SectionDetectorV2 — SectionDetectorV1 + 비트 단위 특징 보강 + INTRO/OUTRO 경계 개선
  *
  * V1 대비 변경점 ①: annotateBeats()에 비트 단위 특징값 추가 (아래 설명).
  * 섹션 경계 판정/타입 분류/병합·컴팩션 로직(buildFeatureWindows ~ buildSectionsFromWindows)은
  * V1과 완전히 동일하게 유지한다 — "섹션이 어디서 나뉘는가"는 여전히 2초 윈도우 기준의
  * 거시적 판단이 맞고, 비트 단위로 잘게 쪼개면 오히려 섹션이 노이즈에 흔들려 깜빡거리게 된다.
  *
- * V1 대비 변경점 ②: INTRO 경계를 "첫 병합 구간 전체"가 아니라 실제 곡 데이터로 판단한다.
- * V1의 applyIntroOutro()는 위치(첫 구간)만 보고 통째로 INTRO를 씌워서, 반주만 조용히
- * 나오다가 8초쯤 드럼/보컬/밴드가 들어와 "본격적으로 시작"돼도 그 뒤로 한참(수십 초) 동안
- * highTh(코러스 임계값)를 못 넘기면 계속 INTRO로 남는 문제가 있었다(예: aespa Supernova가
- * 63초까지 INTRO로 잡힘 — 실제로는 8초에 이미 후크가 시작됨). detectIntroEnd()가 병합 전
- * 원시 윈도우에서 "저밀도 상태가 끝나고 지속적으로 밀도가 올라간 첫 지점"을 찾아 그 지점까지만
- * INTRO로 보고, 그 뒤는 원래 분류(BRIDGE/VERSE 등)를 그대로 따르게 한다. 처음부터 이미 그
- * 수준이면(Bach 브란덴부르크 협주곡처럼 도입부 없이 풀편성으로 시작하는 곡) INTRO 없음으로
- * 나온다. 장르/악기 종류를 구분하지 않고 그 곡 자신의 lowTh(35퍼센타일) 대비 상대값으로
- * 판단하므로 발라드처럼 실제로 오래 조용한 곡의 인트로는 그대로 길게 유지된다.
+ * V1 대비 변경점 ②: INTRO/OUTRO 경계를 "첫/마지막 병합 구간 전체"가 아니라 실제 곡 데이터로
+ * 판단한다. V1의 applyIntroOutro()는 위치(첫/마지막 구간)만 보고 통째로 INTRO/OUTRO를
+ * 씌워서, 반주만 조용히 나오다가 8초쯤 드럼/보컬/밴드가 들어와 "본격적으로 시작"돼도 그 뒤로
+ * 한참(수십 초) 동안 highTh(코러스 임계값)를 못 넘기면 계속 INTRO로 남는 문제가 있었다(예:
+ * aespa Supernova가 63초까지 INTRO로 잡힘 — 실제로는 8초에 이미 후크가 시작됨). 마지막
+ * 구간도 대칭적인 문제가 있었는데, 이쪽은 반대 방향이었다 — 마지막 병합 구간의 "평균"이
+ * CHORUS 수준이면 그 구간 끝에서 완전히 무음으로 죽어도 OUTRO 자체가 안 생겼다(예: aespa
+ * Supernova/Dynamite/TOMBOY가 실제로는 끝에서 몇 초간 완전히 조용해지는데도 OUTRO 없음).
+ *
+ * detectIntroEnd()/detectOutroStart()가 병합 전 원시 윈도우에서 "밀도가 지속적으로
+ * 올라간/내려간 지점"을 찾아 그 지점 기준으로만 INTRO/OUTRO를 표시하고, 그 안쪽은 원래
+ * 분류(BRIDGE/VERSE/CHORUS 등)를 그대로 따르게 한다. 처음부터 이미 그 수준이면(Bach
+ * 브란덴부르크 협주곡처럼 도입부 없이 풀편성으로 시작하는 곡) INTRO 없음으로, 끝까지 계속
+ * 활발하면 OUTRO 없음으로 나온다. 장르/악기 종류를 구분하지 않고 그 곡 자신의 lowTh(35
+ * 퍼센타일) 대비 상대값으로 판단하므로 발라드처럼 실제로 오래 조용한 곡의 인트로/아웃트로는
+ * 그대로 길게 유지된다.
  *
  * 대신 AnnotatedBeat에 그 비트 "순간"의 로컬 특성값(localEnergy/onsetStrength/
  * lowRatio/highRatio/beatInBar)을 추가로 채운다. 섹션의 구간 평균값(FeatureWindow)을
@@ -126,14 +132,15 @@ class SectionDetectorV2 : SectionDetector {
         }
 
         val introEndMs = detectIntroEnd(windows, lowTh)
-        Log.d(TAG, "SectionDetectorV2 introEndMs=$introEndMs")
+        val outroStartMs = detectOutroStart(windows, lowTh, durationMs)
+        Log.d(TAG, "SectionDetectorV2 introEndMs=$introEndMs outroStartMs=$outroStartMs")
 
         val rawSections = buildSectionsFromWindows(windows, durationMs, lowTh, highTh)
 
         val beatBoundaries = beats.map { it.timeMs }.sorted().toLongArray()
         val alignedSections = alignBoundariesToBars(rawSections, beatBoundaries, durationMs)
         val cappedSections = demoteLongBreaks(alignedSections)
-        val labeledSections = applyIntroOutro(cappedSections, introEndMs)
+        val labeledSections = applyIntroOutro(cappedSections, introEndMs, outroStartMs)
 
         val sections = toSections(labeledSections)
         val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs)
@@ -276,7 +283,8 @@ class SectionDetectorV2 : SectionDetector {
 
     // ──────────────────────────────────────────────────────────────
     // ② Classification & merge — classifyType/병합/컴팩션은 V1과 동일.
-    // detectIntroEnd/markIntroUpTo/applyIntroOutro는 V2에서 새로 추가/변경됨 (클래스 문서 참고).
+    // detectIntroEnd/detectOutroStart/markIntroUpTo/markOutroFrom/applyIntroOutro는
+    // V2에서 새로 추가/변경됨 (클래스 문서 참고).
     // ──────────────────────────────────────────────────────────────
 
     private fun classifyType(score: Float, lowTh: Float, highTh: Float): SectionDetector.SectionType {
@@ -314,6 +322,24 @@ class SectionDetectorV2 : SectionDetector {
         return 0L
     }
 
+    // detectIntroEnd의 대칭 버전 — 뒤에서부터 훑어서 "여기까지는 아직 활발했다"고 볼 수 있는
+    // 마지막 지점을 찾는다. 그 지점 이후로 계속 잠잠해지다 곡이 끝나는 구간이 진짜 OUTRO다.
+    // V1의 기존 로직은 "마지막 병합 구간 전체가 CHORUS로 분류되면 OUTRO 자체를 안 만든다"였는데,
+    // 이게 오히려 문제였다 — 후반부 평균 점수가 CHORUS 문턱을 넘기면, 그 구간 맨 끝에서 완전히
+    // 무음으로 죽어버려도(예: aespa Supernova/Dynamite/TOMBOY 실측) OUTRO가 전혀 안 만들어졌다.
+    // 그래서 여기선 그런 예외를 두지 않고, "마지막까지 계속 활발했다"는 경우엔 이 함수 자체가
+    // durationMs 근처 값을 반환해서(=OUTRO 길이가 자연히 0에 수렴) 결과적으로 같은 효과를 낸다.
+    private fun detectOutroStart(windows: List<FeatureWindow>, lowTh: Float, durationMs: Long): Long {
+        if (windows.size < INTRO_SUSTAIN_WINDOWS) return durationMs
+        val threshold = lowTh * INTRO_SUSTAIN_RATIO
+        for (i in windows.size - INTRO_SUSTAIN_WINDOWS downTo 0) {
+            if ((i until i + INTRO_SUSTAIN_WINDOWS).all { windows[it].score >= threshold }) {
+                return windows[i + INTRO_SUSTAIN_WINDOWS - 1].endMs
+            }
+        }
+        return durationMs
+    }
+
     // introEndMs 이전 구간만 INTRO로 표시한다. introEndMs가 첫 구간 중간에 걸리면 그 지점에서
     // 쪼개서 앞쪽만 INTRO로 바꾸고, 뒤쪽은 원래 분류(classifyType 결과)를 그대로 유지한다 —
     // "노래는 시작됐지만 아직 코러스급은 아닌" 구간을 억지로 INTRO로 우기지 않기 위함.
@@ -334,15 +360,42 @@ class SectionDetectorV2 : SectionDetector {
         return out
     }
 
-    private fun applyIntroOutro(sections: List<FeatureWindow>, introEndMs: Long): List<FeatureWindow> {
+    // outroStartMs 이후 구간만 OUTRO로 표시한다. markIntroUpTo와 대칭이지만 "마지막 구간이
+    // CHORUS면 OUTRO를 안 씌운다"는 예외는 의도적으로 두지 않는다 — 그 예외가 바로 V1의 버그
+    // 원인이었다(마지막 구간 평균이 CHORUS로 잡히면, 그 구간 끝에서 완전히 무음으로 죽어도
+    // OUTRO가 생기지 않았다). outroStartMs 자체가 이미 "끝까지 계속 활발했으면 durationMs 근처
+    // 값을 반환"하므로 별도 예외 없이도 "OUTRO 없음"이 자연히 나온다.
+    private fun markOutroFrom(sections: List<FeatureWindow>, outroStartMs: Long): List<FeatureWindow> {
+        val out = ArrayList<FeatureWindow>(sections.size + 1)
+        var i = 0
+        while (i < sections.size && sections[i].endMs <= outroStartMs) {
+            out += sections[i]
+            i++
+        }
+        if (i < sections.size && sections[i].startMs < outroStartMs) {
+            val s = sections[i]
+            out += s.copy(endMs = outroStartMs)
+            out += s.copy(startMs = outroStartMs, sectionType = SectionDetector.SectionType.OUTRO)
+            i++
+        }
+        while (i < sections.size) {
+            out += sections[i].copy(sectionType = SectionDetector.SectionType.OUTRO)
+            i++
+        }
+        return out
+    }
+
+    private fun applyIntroOutro(sections: List<FeatureWindow>, introEndMs: Long, outroStartMs: Long): List<FeatureWindow> {
         if (sections.size < 2) return sections
         // 코러스로 시작하는 곡(위치보다 내용 우선)은 INTRO를 아예 씌우지 않는다.
         val startsWithChorus = sections.first().sectionType == SectionDetector.SectionType.CHORUS
-        var out = if (introEndMs > 0L && !startsWithChorus) markIntroUpTo(sections, introEndMs) else sections
+        val effectiveIntroEnd = if (introEndMs > 0L && !startsWithChorus) introEndMs else 0L
+        var out = if (effectiveIntroEnd > 0L) markIntroUpTo(sections, effectiveIntroEnd) else sections
 
-        if (out.last().sectionType != SectionDetector.SectionType.CHORUS) {
-            val lastIdx = out.lastIndex
-            out = out.toMutableList().also { it[lastIdx] = it[lastIdx].copy(sectionType = SectionDetector.SectionType.OUTRO) }
+        // INTRO와 겹치지 않도록 하한을 둔다 (아주 짧은 곡에서 두 지점이 뒤섞이는 것 방지).
+        val safeOutroStart = max(outroStartMs, effectiveIntroEnd)
+        if (safeOutroStart < out.last().endMs) {
+            out = markOutroFrom(out, safeOutroStart)
         }
         return out
     }
