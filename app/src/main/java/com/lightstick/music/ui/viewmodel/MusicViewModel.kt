@@ -398,8 +398,9 @@ class MusicViewModel @Inject constructor(
             _isPlaying.value = true
             Log.d(TAG, "Resume: begin pos=${player.currentPosition}ms")
             if (_isAutoModeEnabled.value) {
-                // SDK 업데이트(suspendBackgroundProducers 도입) 이후로는 sendEffect()가 로드된
-                // 타임라인을 보존한 채 전송만 억제하므로 평소엔 resumeTimeline()만으로 충분하다.
+                // SDK 업데이트(pendingResyncAfterManualEffect 도입) 이후로는 sendEffect()가
+                // 로드된 타임라인을 보존한 채 전송만 억제하고, resumeTimeline() 호출 시 SDK가
+                // 내부적으로 현재 프레임을 자동 재전송하므로 앱에서 별도 재동기화가 불필요하다.
                 // 그래도 기기가 실제로 타임라인이 없다고 응답하면(연결 재시도 등 다른 경로로
                 // 비워진 경우) 재로드한다 — 앱이 자체 추론하지 않고 SDK 상태를 직접 확인한다.
                 val needsReload = EffectEngineController.needsTimelineReload(context)
@@ -424,13 +425,6 @@ class MusicViewModel @Inject constructor(
                     Log.d(TAG, "Resume: sync position at $currentPos")
                 } catch (e: Exception) {
                     Log.e(TAG, "Resume position update failed: ${e.message}")
-                }
-                // 3. 현재 프레임 즉시 재전송 — 다음 예정 프레임까지 간격이 긴 구간(BREATH 등)에서
-                //    pause 중 보낸 수동 이펙트 상태가 기기에 그대로 남아있지 않도록 동기화
-                try {
-                    EffectEngineController.resyncCurrentFrame(context, currentPos)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Resume resync failed: ${e.message}")
                 }
             }
         }
