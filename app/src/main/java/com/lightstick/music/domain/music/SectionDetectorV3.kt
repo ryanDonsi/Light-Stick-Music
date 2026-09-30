@@ -260,7 +260,14 @@ class SectionDetectorV3 : SectionDetector {
             val onsetDensity = novAbove.toFloat() / fCount
             val activity  = sumAct / fCount
 
-            val periodicity = globalPeriodicity
+            // 곡 전체 한 번 계산한 globalPeriodicity를 그대로 복사하면 모든 윈도우가
+            // 똑같은 값(예: 0.703)을 갖게 되어 구간별 리듬 규칙성 차이를 전혀 구분 못 한다
+            // (CHORUS는 보통 마디 패턴이 딱 맞게 반복되고, 보컬 위주 VERSE는 상대적으로
+            // 덜 규칙적인 경우가 많은데 이 신호를 못 쓰고 있었다). 이 윈도우 구간만으로
+            // 로컬하게 재계산하고, 윈도우가 너무 짧아 lag만큼 샘플이 안 나오면(마지막
+            // partial 윈도우 등) 곡 전체 값으로 폴백한다.
+            val localPeriodicity = estimatePeriodicityLocal(novelty, startIdx, endIdx, beatMs, hopMs)
+            val periodicity = if (localPeriodicity > 0f) localPeriodicity else globalPeriodicity
 
             val onsetBonus = onsetDensity * 0.12f
             val lowPenalty = (lowRatio * 0.08f).coerceIn(0f, 0.08f)
@@ -789,6 +796,21 @@ class SectionDetectorV3 : SectionDetector {
         var ac = 0f; var raw = 0f
         for (i in lag until novelty.size) ac += novelty[i] * novelty[i - lag]
         for (v in novelty) raw += v * v
+        return if (raw <= 1e-6f) 0f else (ac / raw).coerceIn(0f, 1f)
+    }
+
+    // estimatePeriodicityGlobal과 동일한 beat-lag 자기상관 계산을, 곡 전체가 아니라
+    // startIdx~endIdx 구간(윈도우 하나)의 novelty 샘플만으로 수행한다. 곡 전체 한 번
+    // 계산해서 모든 윈도우에 복사하던 기존 방식은 구간별 리듬 규칙성 차이를 전혀 반영하지
+    // 못했다.
+    private fun estimatePeriodicityLocal(novelty: FloatArray, startIdx: Int, endIdx: Int, beatMs: Long, hopMs: Long): Float {
+        val lag = max(1, (beatMs / hopMs).toInt())
+        val s = max(startIdx, 0)
+        val e = min(endIdx, novelty.size)
+        if (e - s <= lag) return 0f
+        var ac = 0f; var raw = 0f
+        for (i in (s + lag) until e) ac += novelty[i] * novelty[i - lag]
+        for (i in s until e) raw += novelty[i] * novelty[i]
         return if (raw <= 1e-6f) 0f else (ac / raw).coerceIn(0f, 1f)
     }
 
