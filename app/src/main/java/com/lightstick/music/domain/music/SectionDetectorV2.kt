@@ -534,18 +534,28 @@ class SectionDetectorV2 : SectionDetector {
         }
     }
 
-    // BREAK가 너무 길게 이어지면(반주만 계속되는 구간) BRIDGE로 격상한다. 단, 이 곡에서 아직
-    // VERSE/CHORUS가 한 번도 안 나온 시점(=인트로 직후)이면 BRIDGE로 격상하지 않고 VERSE로 둔다
-    // — BRIDGE는 "이미 진행되던 곡 구조를 전환하는 삽입부"라는 의미라, 곡 구조 자체가 아직
-    // 시작 안 한 시점엔 맞지 않는다.
+    // BRIDGE는 "이미 진행되던 곡 구조를 전환하는 삽입부"라는 의미라, VERSE/CHORUS가 한 번도
+    // 나오지 않은 시점(=인트로 직후)엔 맞지 않는다. 이 판정은 합쳐지고(compact) 마디에 맞춰
+    // 정렬된(align) 최종 섹션 단위로 한 번만 수행한다 — 원래 윈도우 단위(2초짜리)로 하면
+    // 인트로 안에서의 순간적인 에너지 튐(예: 훅 한 소절)만으로도 "VERSE 등장"으로 오판되어,
+    // 그 직후 다시 잦아드는 구간이 BRIDGE로 풀려버리는 문제가 있었다 (아모르 파티 실측:
+    // 12~14초의 2초짜리 VERSE급 스파이크 하나 때문에 14~30초 구간 전체가 BRIDGE로 풀림).
+    // 순간적인 스파이크는 compactSections에서 이미 이웃 섹션에 흡수되어 사라지므로, 그 이후에도
+    // 살아남은 VERSE/CHORUS 섹션만 "진짜 곡 구조 시작"으로 인정한다.
+    // 같은 이유로 BREAK가 너무 길게 이어지는 구간(반주만 계속되는 구간)도 이 시점 이전이면
+    // BRIDGE로 격상하지 않고 VERSE로 둔다.
     private fun demoteLongBreaks(sections: List<FeatureWindow>): List<FeatureWindow> {
         var seenVerseOrChorus = false
         return sections.map { s ->
-            val result = if (s.sectionType == SectionDetector.SectionType.BREAK &&
-                (s.endMs - s.startMs) > BREAK_MAX_MS) {
-                if (seenVerseOrChorus) s.copy(sectionType = SectionDetector.SectionType.BRIDGE)
-                else s.copy(sectionType = SectionDetector.SectionType.VERSE)
-            } else s
+            val result = when {
+                s.sectionType == SectionDetector.SectionType.BREAK &&
+                    (s.endMs - s.startMs) > BREAK_MAX_MS ->
+                    if (seenVerseOrChorus) s.copy(sectionType = SectionDetector.SectionType.BRIDGE)
+                    else s.copy(sectionType = SectionDetector.SectionType.VERSE)
+                s.sectionType == SectionDetector.SectionType.BRIDGE && !seenVerseOrChorus ->
+                    s.copy(sectionType = SectionDetector.SectionType.VERSE)
+                else -> s
+            }
             if (result.sectionType == SectionDetector.SectionType.VERSE ||
                 result.sectionType == SectionDetector.SectionType.CHORUS) seenVerseOrChorus = true
             result
@@ -643,21 +653,14 @@ class SectionDetectorV2 : SectionDetector {
         windows: List<FeatureWindow>, durationMs: Long, lowTh: Float, highTh: Float, chorusSpans: List<LongRange>
     ): List<FeatureWindow> {
         if (windows.isEmpty()) return emptyList()
-        var seenVerseOrChorus = false
-        fun classifyGated(w: FeatureWindow): SectionDetector.SectionType {
-            val t = classifyType(w, lowTh, highTh, chorusSpans)
-            val gated = if (t == SectionDetector.SectionType.BRIDGE && !seenVerseOrChorus)
-                SectionDetector.SectionType.VERSE else t
-            if (gated == SectionDetector.SectionType.VERSE || gated == SectionDetector.SectionType.CHORUS)
-                seenVerseOrChorus = true
-            return gated
-        }
-
+        // BRIDGE의 "VERSE/CHORUS 등장 후에만" 위치 제약은 여기(윈도우 단위)가 아니라
+        // demoteLongBreaks()에서 압축·정렬이 끝난 섹션 단위로 한 번만 적용한다. 자세한 이유는
+        // demoteLongBreaks 주석 참고.
         val merged = ArrayList<FeatureWindow>()
-        var cur = windows.first().copy(sectionType = classifyGated(windows.first()))
+        var cur = windows.first().copy(sectionType = classifyType(windows.first(), lowTh, highTh, chorusSpans))
 
         for (i in 1 until windows.size) {
-            val next = windows[i].copy(sectionType = classifyGated(windows[i]))
+            val next = windows[i].copy(sectionType = classifyType(windows[i], lowTh, highTh, chorusSpans))
             val shouldSplit = next.changeStrength == SectionDetector.ChangeStrength.STRONG ||
                               next.sectionType != cur.sectionType
             if (shouldSplit) {
