@@ -72,7 +72,14 @@ class SectionDetectorV2 : SectionDetector {
         private const val BREAK_MAX_MS = 8_000L
 
         private const val INTRO_SUSTAIN_RATIO = 0.8f
-        private const val INTRO_SUSTAIN_WINDOWS = 2
+        // INTRO 종료 판정: 발라드/EDM 등에서 보컬·비트가 이미 시작됐는데도 프레이즈 사이
+        // 숨쉬는 구간(순간적으로 점수가 threshold 아래로 떨어지는 지점) 때문에 "연속 N개 윈도우
+        // 유지" 조건이 한참 뒤에야 만족되어 INTRO가 실제보다 훨씬 길게 잡히는 문제가 있었다
+        // (실측: 사랑 참 21초→48초, 아모르 파티 9초→30초). 그래서 INTRO는 threshold를 넘는
+        // 첫 윈도우 하나로 종료 판정하고, OUTRO는 기존처럼 연속 유지를 요구해 곡 말미의
+        // 일시적 스파이크로 OUTRO가 너무 일찍 시작되지 않게 한다.
+        private const val INTRO_SUSTAIN_WINDOWS = 1
+        private const val OUTRO_SUSTAIN_WINDOWS = 2
 
         // ── 반복 패턴(CHORUS) 탐지 파라미터 ──
         // 청크(비교 단위) 길이: 마디 정보가 있으면 이 마디 수, 없으면 고정 ms로 대체.
@@ -557,11 +564,11 @@ class SectionDetectorV2 : SectionDetector {
     }
 
     private fun detectOutroStart(windows: List<FeatureWindow>, lowTh: Float, durationMs: Long): Long {
-        if (windows.size < INTRO_SUSTAIN_WINDOWS) return durationMs
+        if (windows.size < OUTRO_SUSTAIN_WINDOWS) return durationMs
         val threshold = lowTh * INTRO_SUSTAIN_RATIO
-        for (i in windows.size - INTRO_SUSTAIN_WINDOWS downTo 0) {
-            if ((i until i + INTRO_SUSTAIN_WINDOWS).all { windows[it].score >= threshold }) {
-                return windows[i + INTRO_SUSTAIN_WINDOWS - 1].endMs
+        for (i in windows.size - OUTRO_SUSTAIN_WINDOWS downTo 0) {
+            if ((i until i + OUTRO_SUSTAIN_WINDOWS).all { windows[it].score >= threshold }) {
+                return windows[i + OUTRO_SUSTAIN_WINDOWS - 1].endMs
             }
         }
         return durationMs
