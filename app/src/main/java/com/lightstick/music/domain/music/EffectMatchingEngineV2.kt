@@ -298,8 +298,11 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
             if (isBalladMode) listOf(EffectMatchingEngine.FgEngine.BREATH)
             else listOf(EffectMatchingEngine.FgEngine.ON_PULSE, EffectMatchingEngine.FgEngine.BLINK)
 
+        // STROBE는 CLIMAX 전용 연출로 남긴다 — CHORUS 풀에 섞으면 CLIMAX 여부와 무관하게
+        // CHORUS 전체에서 bar마다 절반씩 STROBE가 나와, CLIMAX가 좁은 한 구간인데도
+        // STROBE는 훨씬 넓게 반복되는 결과가 됐었다.
         SectionDetector.SectionType.CHORUS ->
-            listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE, EffectMatchingEngine.FgEngine.STROBE)
+            listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
 
         SectionDetector.SectionType.INST ->
             when {
