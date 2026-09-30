@@ -76,6 +76,10 @@ class SectionDetectorV3 : SectionDetector {
         // "닮았다"의 기준: 곡 내 상대 percentile과 절대 하한을 동시에 만족해야 한다.
         private const val CHORUS_SIM_ABS_FLOOR = 0.90f
         private const val CHORUS_SIM_PERCENTILE = 0.85f
+        // 반복 그룹에 속한 청크라도, 그 순간 score가 highTh의 이 비율 미만이면 CHORUS로
+        // 확정하지 않는다 — 청크(8마디) 안에 섞인 프리코러스 꼬리 등이 청크 전체를
+        // CHORUS로 물들이는 것을 막기 위함 (아래 classifyType 주석 참고).
+        private const val CHORUS_SPAN_SCORE_FLOOR_RATIO = 0.85f
     }
 
     private data class FeatureWindow(
@@ -429,7 +433,14 @@ class SectionDetectorV3 : SectionDetector {
     ): SectionDetector.SectionType {
         val mid = (w.startMs + w.endMs) / 2
         if (chorusSpans.isNotEmpty()) {
-            if (chorusSpans.any { mid in it }) return SectionDetector.SectionType.CHORUS
+            // 청크(8마디, ~17초)가 반복 그룹에 속해도, 그 청크 안에 프리코러스 꼬리처럼
+            // 아직 덜 올라온 구간이 섞여 있으면 청크 경계 그대로 CHORUS를 칠하는 게 아니라
+            // 그 순간 score가 실제로 충분히 높을 때만 CHORUS로 확정한다 — 청크 경계가 아닌
+            // 실제 음향 전환 지점에서 갈리도록. (LE SSERAFIM 'SPAGHETTI' 실측: 청크는
+            // 35초부터 반복 그룹이지만 실제 score 도약은 42초에 일어남 — 0.178→0.336,
+            // change=MEDIUM)
+            if (chorusSpans.any { mid in it } && w.score >= highTh * CHORUS_SPAN_SCORE_FLOOR_RATIO)
+                return SectionDetector.SectionType.CHORUS
         } else if (w.score >= highTh) {
             return SectionDetector.SectionType.CHORUS
         }
