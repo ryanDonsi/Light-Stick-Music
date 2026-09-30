@@ -645,7 +645,14 @@ class SectionDetectorV3 : SectionDetector {
             var shortIdx = -1; var shortDur = Long.MAX_VALUE
             for (i in list.indices) {
                 val d = list[i].endMs - list[i].startMs
-                if (d < COMPACT_MIN_MS && d < shortDur) { shortDur = d; shortIdx = i }
+                // BREAK_MAX_MS(8초)를 넘는 BREAK는 이미 "끊김이 아니라 구조적으로 의미있다"는
+                // 뜻이라(demoteLongBreaks가 BRIDGE로 승격시킬 대상), COMPACT_MIN_MS(10초) 미만
+                // 이라는 이유만으로 인접 구간에 흡수돼 사라지면 안 된다. demoteLongBreaks는
+                // 이 compactSections보다 나중에(정렬/바 스냅 이후) 실행되므로, 여기서 먼저
+                // 지워지면 그 기회 자체가 없어진다.
+                val protectedLongBreak = list[i].sectionType == SectionDetector.SectionType.BREAK &&
+                    d >= BREAK_MAX_MS
+                if (d < COMPACT_MIN_MS && d < shortDur && !protectedLongBreak) { shortDur = d; shortIdx = i }
             }
             if (shortIdx < 0) break
             val s = list[shortIdx]
