@@ -21,6 +21,7 @@ import com.lightstick.music.data.local.preferences.SectionOverlayPreferences
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.BleTransmissionMonitor
+import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
@@ -34,6 +35,7 @@ import com.lightstick.music.domain.usecase.music.LoadEfxUseCase
 import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
 import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
 import com.lightstick.efx.MusicId
+import com.lightstick.types.LSEffectPayload
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -392,7 +394,16 @@ class MusicViewModel @Inject constructor(
         if (player.isPlaying) {
             player.pause()
             _isPlaying.value = false
-            if (_isAutoModeEnabled.value) EffectEngineController.pauseEffects(context)
+            if (_isAutoModeEnabled.value) {
+                EffectEngineController.pauseEffects(context)
+                // pause 중엔 마지막 이펙트가 기기에 계속 반복 재생되지 않도록 명시적으로 off.
+                // resume 시 SDK의 pendingResyncAfterManualEffect가 현재 위치 프레임으로 자동 복원한다.
+                EffectEngineController.sendEffect(
+                    context = context,
+                    payload = LSEffectPayload.Effects.off(),
+                    source = TransmissionSource.TIMELINE_EFFECT
+                )
+            }
         } else {
             player.play()
             _isPlaying.value = true
