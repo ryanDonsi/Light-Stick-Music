@@ -380,6 +380,18 @@ class SectionDetectorV3 : SectionDetector {
         }
         if (allSims.isEmpty()) return emptyList()
 
+        // 진단용: 모든 청크 쌍의 유사도 원본값 — verse/chorus 클러스터 경계에 걸치는
+        // "다리" 청크가 있는지 확인하는 용도(예: verse2가 chorus 그룹과도, verse1 그룹과도
+        // 애매하게 닮아 union-find가 두 그룹을 잘못 합치는 경우). adb logcat | grep
+        // "chunk-sim"으로 캡처. 동작에는 영향 없음.
+        for (i in 0 until n) {
+            for (j in i + 1 until n) {
+                val sim = sims[i.toLong() * 10000L + j] ?: continue
+                Log.d(TAG, "SectionDetectorV3 chunk-sim [$i]${chunks[i].first}~${chunks[i].last} <-> " +
+                    "[$j]${chunks[j].first}~${chunks[j].last} sim=${"%.4f".format(sim)}")
+            }
+        }
+
         val simThreshold = max(CHORUS_SIM_ABS_FLOOR, percentile(allSims, CHORUS_SIM_PERCENTILE))
         Log.d(TAG, "SectionDetectorV3 chorus-repeat: chunks=$n simThreshold=${"%.3f".format(simThreshold)}")
 
