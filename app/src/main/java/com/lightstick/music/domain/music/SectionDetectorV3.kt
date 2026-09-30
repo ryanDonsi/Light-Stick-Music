@@ -131,7 +131,7 @@ class SectionDetectorV3 : SectionDetector {
         val highTh = if (frameScores.isNotEmpty()) percentile(frameScores, 0.70f) else 1f
         Log.d(TAG, "SectionDetectorV3 thresholds: lowTh=${"%.3f".format(lowTh)} highTh=${"%.3f".format(highTh)}")
 
-        val chorusSpans = detectChorusSpansByRepetition(windows, durationMs, beatMs, beatsPerBar, downbeatMs, highTh)
+        val chorusSpans = detectChorusSpansByRepetition(windows, durationMs, beatMs, beatsPerBar, downbeatMs, highTh, novelty, hopMs)
         Log.d(TAG, "SectionDetectorV3 chorusSpans(repetition)=${chorusSpans.map { "${it.first}~${it.last}" }}")
 
         windows.forEachIndexed { idx, w ->
@@ -314,7 +314,9 @@ class SectionDetectorV3 : SectionDetector {
         beatMs: Long,
         beatsPerBar: Int,
         downbeatMs: Long,
-        highTh: Float
+        highTh: Float,
+        novelty: FloatArray,
+        hopMs: Long
     ): List<LongRange> {
         if (windows.isEmpty()) return emptyList()
 
@@ -399,6 +401,20 @@ class SectionDetectorV3 : SectionDetector {
             }
         }
 
+        // 진단용: 청크 쌍별 onset(어택 타이밍) 패턴 상관계수 — 평균 통계(위 chunk-sim)가
+        // 아니라 novelty 시계열 "모양" 자체가 얼마나 겹치는지 본다. 같은 후크 멜로디/가사
+        // 리듬이 반복되는 진짜 CHORUS라면 onset 타이밍이 거의 그대로 겹칠 것이고, verse2처럼
+        // 평균 에너지만 비슷하고 실제 멜로디/가사가 다르면 타이밍이 어긋나 상관계수가
+        // 낮게 나올 것이라는 가설을 검증하는 용도. adb logcat | grep "onset-corr"으로 캡처.
+        // 동작에는 영향 없음(아직 판정에 반영 안 함).
+        for (i in 0 until n) {
+            for (j in i + 1 until n) {
+                val corr = onsetPatternCorrelation(novelty, hopMs, chunks[i], chunks[j])
+                Log.d(TAG, "SectionDetectorV3 onset-corr [$i]${chunks[i].first}~${chunks[i].last} <-> " +
+                    "[$j]${chunks[j].first}~${chunks[j].last} corr=${"%.4f".format(corr)}")
+            }
+        }
+
         val simThreshold = max(CHORUS_SIM_ABS_FLOOR, percentile(allSims, CHORUS_SIM_PERCENTILE))
         Log.d(TAG, "SectionDetectorV3 chorus-repeat: chunks=$n simThreshold=${"%.3f".format(simThreshold)}")
 
@@ -438,6 +454,37 @@ class SectionDetectorV3 : SectionDetector {
         for (i in a.indices) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i] }
         val denom = sqrt(na) * sqrt(nb)
         return if (denom > 1e-6f) (dot / denom).coerceIn(-1f, 1f) else 0f
+    }
+
+    // 두 구간(rangeA/rangeB)의 novelty(어택 강도) 시계열을 0-lag로 직접 비교한다.
+    // chunk-sim(평균 통계 비교)과 달리, 각 구간을 z-score 정규화해 크기(평균 에너지)
+    // 차이를 지운 뒤 "모양"만 상관계수로 비교한다 — 같은 멜로디/리듬 프레이즈가
+    // 반복되면 onset 타이밍이 거의 그대로 겹칠 것이라는 가설을 검증하기 위함.
+    // 두 구간 길이가 다르면 짧은 쪽에 맞춰 자른다(마디 정렬돼 있어 0-lag 비교로 충분,
+    // 템포가 곡 내내 일정하다고 가정).
+    private fun onsetPatternCorrelation(novelty: FloatArray, hopMs: Long, rangeA: LongRange, rangeB: LongRange): Float {
+        val hop = max(1L, hopMs)
+        val startA = (rangeA.first / hop).toInt().coerceIn(0, novelty.size)
+        val endA   = (rangeA.last  / hop).toInt().coerceIn(0, novelty.size)
+        val startB = (rangeB.first / hop).toInt().coerceIn(0, novelty.size)
+        val endB   = (rangeB.last  / hop).toInt().coerceIn(0, novelty.size)
+        val len = min(endA - startA, endB - startB)
+        if (len <= 1) return 0f
+
+        fun zNorm(start: Int): FloatArray {
+            val x = FloatArray(len) { novelty[start + it] }
+            val mean = x.average().toFloat()
+            var variance = 0f
+            for (v in x) variance += (v - mean) * (v - mean)
+            variance /= x.size
+            val std = sqrt(variance)
+            return if (std > 1e-6f) FloatArray(len) { (x[it] - mean) / std } else FloatArray(len)
+        }
+
+        val za = zNorm(startA); val zb = zNorm(startB)
+        var dot = 0f
+        for (i in za.indices) dot += za[i] * zb[i]
+        return (dot / len).coerceIn(-1f, 1f)
     }
 
     // ──────────────────────────────────────────────────────────────
