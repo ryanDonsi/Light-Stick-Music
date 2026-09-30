@@ -170,8 +170,8 @@ class SectionDetectorV2 : SectionDetector {
         beatsPerBar: Int,
         downbeatMs: Long
     ): List<SectionDetector.AnnotatedBeat> = beats.map { beat ->
-        val sectionType = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
-            ?: SectionDetector.SectionType.VERSE
+        val section = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }
+        val sectionType = section?.type ?: SectionDetector.SectionType.VERSE
         // CLIMAX는 CHORUS 구간 안에서만 적용 — BRIDGE/VERSE 초반 에너지 스파이크 제외
         val type = if (sectionType == SectionDetector.SectionType.CHORUS &&
                        climaxMoments.any { abs(it - beat.timeMs) <= CLIMAX_WINDOW_HALF_MS })
@@ -196,7 +196,14 @@ class SectionDetectorV2 : SectionDetector {
             onsetStrength = onsetStrength,
             lowRatio      = lowRatio,
             highRatio     = highRatio,
-            beatInBar     = beatInBar
+            beatInBar     = beatInBar,
+            sectionEnergy       = section?.energy ?: 0f,
+            sectionPeakEnergy   = section?.peakEnergy ?: 0f,
+            sectionLowRatio     = section?.lowRatio ?: 0f,
+            sectionMidRatio     = section?.midRatio ?: 0f,
+            sectionHighRatio    = section?.highRatio ?: 0f,
+            sectionOnsetDensity = section?.onsetDensity ?: 0f,
+            sectionPeriodicity  = section?.periodicity ?: 0f
         )
     }
 

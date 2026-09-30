@@ -172,8 +172,8 @@ class SectionDetectorV3 : SectionDetector {
         beatsPerBar: Int,
         downbeatMs: Long
     ): List<SectionDetector.AnnotatedBeat> = beats.map { beat ->
-        val sectionType = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }?.type
-            ?: SectionDetector.SectionType.VERSE
+        val section = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }
+        val sectionType = section?.type ?: SectionDetector.SectionType.VERSE
         val type = if (sectionType == SectionDetector.SectionType.CHORUS &&
                        climaxMoments.any { abs(it - beat.timeMs) <= CLIMAX_WINDOW_HALF_MS })
             SectionDetector.SectionType.CLIMAX else sectionType
@@ -197,7 +197,14 @@ class SectionDetectorV3 : SectionDetector {
             onsetStrength = onsetStrength,
             lowRatio      = lowRatio,
             highRatio     = highRatio,
-            beatInBar     = beatInBar
+            beatInBar     = beatInBar,
+            sectionEnergy       = section?.energy ?: 0f,
+            sectionPeakEnergy   = section?.peakEnergy ?: 0f,
+            sectionLowRatio     = section?.lowRatio ?: 0f,
+            sectionMidRatio     = section?.midRatio ?: 0f,
+            sectionHighRatio    = section?.highRatio ?: 0f,
+            sectionOnsetDensity = section?.onsetDensity ?: 0f,
+            sectionPeriodicity  = section?.periodicity ?: 0f
         )
     }
 

@@ -312,10 +312,21 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
                 g.annotatedBeats.size < 8 -> SectionDetector.ChangeStrength.MEDIUM
                 else -> SectionDetector.ChangeStrength.STRONG
             }
+            // 구간 특성값(energy/lowRatio 등)은 SectionDetectorV2+가 AnnotatedBeat에 실어 보낸
+            // section* 필드에서 가져온다 — 한 그룹의 비트는 전부 같은 Section에서 나왔으므로
+            // 대표로 첫 비트 값을 쓴다 (V0/V1은 이 필드가 없어 기본값 0f 그대로 유지됨).
+            val rep = g.annotatedBeats.firstOrNull()
             SectionMeta(
                 startMs = g.startMs, endMs = g.endMs,
                 type = g.type, changeStrength = changeStrength,
                 beatMs = globalBeatMs, beatConfidence = confidence,
+                energy       = rep?.sectionEnergy ?: 0f,
+                peakEnergy   = rep?.sectionPeakEnergy ?: 0f,
+                lowRatio     = rep?.sectionLowRatio ?: 0f,
+                midRatio     = rep?.sectionMidRatio ?: 0f,
+                highRatio    = rep?.sectionHighRatio ?: 0f,
+                onsetDensity = rep?.sectionOnsetDensity ?: 0f,
+                periodicity  = rep?.sectionPeriodicity ?: 0f,
                 musicStyle = if (idx == 0) musicStyle else null,
                 beatTimesMs = g.annotatedBeats.map { it.timeMs }
             )

@@ -19,6 +19,12 @@ interface SectionDetector {
      * localEnergy/onsetStrength/lowRatio/highRatio/beatInBar는 SectionDetectorV2부터 채워진다
      * (V0/V1은 섹션 판정에 쓰는 구간 평균값만 갖고 있어 비트 단위 값이 없으므로 기본값 유지).
      * 섹션 평균과 달리 이 값들은 그 비트 하나의 순간값이라, 같은 섹션 안에서도 비트마다 달라진다.
+     *
+     * section으로 시작하는 필드(sectionEnergy 등)는 이 비트가 속한 "구간 자체"의 집계값
+     * (Section.energy 등을 그대로 복사)이라, 같은 섹션 안에서는 모든 비트가 동일한 값을
+     * 갖는다 — localEnergy(비트 순간값)와는 별개다. SectionMeta 등 구간 단위 특성값이
+     * 필요한 화면에 detect()의 flat AnnotatedBeat 리스트만으로도 전달할 수 있게 하려고
+     * 추가했다 (SectionDetectorV2부터 채워짐).
      */
     data class AnnotatedBeat(
         val timeMs:      Long,
@@ -28,7 +34,14 @@ interface SectionDetector {
         val onsetStrength: Float = 0f,
         val lowRatio:      Float = 0f,
         val highRatio:     Float = 0f,
-        val beatInBar:     Int   = 0
+        val beatInBar:     Int   = 0,
+        val sectionEnergy:       Float = 0f,
+        val sectionPeakEnergy:   Float = 0f,
+        val sectionLowRatio:     Float = 0f,
+        val sectionMidRatio:     Float = 0f,
+        val sectionHighRatio:    Float = 0f,
+        val sectionOnsetDensity: Float = 0f,
+        val sectionPeriodicity:  Float = 0f
     )
 
     /**
