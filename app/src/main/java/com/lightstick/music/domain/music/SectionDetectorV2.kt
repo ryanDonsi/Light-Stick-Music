@@ -8,36 +8,44 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * SectionDetectorV2 — SectionDetectorV1 + 비트 단위 특징 보강 + INTRO/OUTRO 경계 개선
+ * SectionDetectorV2 — CHORUS 판정을 "반복 패턴 탐지" 기반으로 사용.
  *
- * V1 대비 변경점 ①: annotateBeats()에 비트 단위 특징값 추가 (아래 설명).
- * 섹션 경계 판정/타입 분류/병합·컴팩션 로직(buildFeatureWindows ~ buildSectionsFromWindows)은
- * V1과 완전히 동일하게 유지한다 — "섹션이 어디서 나뉘는가"는 여전히 2초 윈도우 기준의
- * 거시적 판단이 맞고, 비트 단위로 잘게 쪼개면 오히려 섹션이 노이즈에 흔들려 깜빡거리게 된다.
+ * 예전(V1) 방식은 CHORUS를 "이 순간이 이 곡 기준으로 얼마나 시끄러운가"(score >= highTh)로만
+ * 판정했다. 이 방식은 "CHORUS = 곡에서 제일 크고 반복되는 후크"라는 실제 음악적 의미를
+ * 반영하지 못한다 — 크기만 보기 때문에, 크지만 반복되지 않는 구간(예: 브릿지 클라이맥스)도
+ * CHORUS로 잡히고, 반대로 진짜 후크인데 다른 구간보다 약간 조용하면 놓칠 수 있다.
  *
- * V1 대비 변경점 ②: INTRO/OUTRO 경계를 "첫/마지막 병합 구간 전체"가 아니라 실제 곡 데이터로
- * 판단한다. V1의 applyIntroOutro()는 위치(첫/마지막 구간)만 보고 통째로 INTRO/OUTRO를
- * 씌워서, 반주만 조용히 나오다가 8초쯤 드럼/보컬/밴드가 들어와 "본격적으로 시작"돼도 그 뒤로
- * 한참(수십 초) 동안 highTh(코러스 임계값)를 못 넘기면 계속 INTRO로 남는 문제가 있었다(예:
- * aespa Supernova가 63초까지 INTRO로 잡힘 — 실제로는 8초에 이미 후크가 시작됨). 마지막
- * 구간도 대칭적인 문제가 있었는데, 이쪽은 반대 방향이었다 — 마지막 병합 구간의 "평균"이
- * CHORUS 수준이면 그 구간 끝에서 완전히 무음으로 죽어도 OUTRO 자체가 안 생겼다(예: aespa
- * Supernova/Dynamite/TOMBOY가 실제로는 끝에서 몇 초간 완전히 조용해지는데도 OUTRO 없음).
+ * 지금은 곡 전체를 마디(bar) 단위 구간(기본 8마디)으로 나눠 구간별 특징 벡터를 뽑고,
+ * 서로 떨어진 구간끼리 얼마나 닮았는지(코사인 유사도)를 전부 비교해서 "반복되는 구간 그룹"을
+ * 찾는다. 그중 평균 에너지가 제일 높은 그룹을 CHORUS로 확정하고, 그 그룹에 속한 모든 구간
+ * (첫 등장 포함)에 CHORUS를 붙인다 — 순차 처리라면 필연적으로 "처음 나올 때는 반복인지 알
+ * 수 없는" 문제가 생기는데, 곡 전체를 미리 다 분석한 뒤 거꾸로 라벨링하는 2-pass 구조라서
+ * 첫 등장부터 CHORUS로 잡힌다.
  *
- * detectIntroEnd()/detectOutroStart()가 병합 전 원시 윈도우에서 "밀도가 지속적으로
- * 올라간/내려간 지점"을 찾아 그 지점 기준으로만 INTRO/OUTRO를 표시하고, 그 안쪽은 원래
- * 분류(BRIDGE/VERSE/CHORUS 등)를 그대로 따르게 한다. 처음부터 이미 그 수준이면(Bach
- * 브란덴부르크 협주곡처럼 도입부 없이 풀편성으로 시작하는 곡) INTRO 없음으로, 끝까지 계속
- * 활발하면 OUTRO 없음으로 나온다. 장르/악기 종류를 구분하지 않고 그 곡 자신의 lowTh(35
- * 퍼센타일) 대비 상대값으로 판단하므로 발라드처럼 실제로 오래 조용한 곡의 인트로/아웃트로는
- * 그대로 길게 유지된다.
+ * 마디 정보(beatMs/beatsPerBar/downbeatMs)가 없거나 신뢰할 수 없으면 고정 길이 청크로
+ * 폴백하고, 그래도 반복 그룹을 하나도 못 찾으면(스루컴포즈드 곡 등) 예전 방식인
+ * loudness percentile(score >= highTh)로 폴백한다 — CHORUS를 아예 못 찾는 것보다
+ * 안전한 기본값이라고 판단했다.
  *
- * 대신 AnnotatedBeat에 그 비트 "순간"의 로컬 특성값(localEnergy/onsetStrength/
- * lowRatio/highRatio/beatInBar)을 추가로 채운다. 섹션의 구간 평균값(FeatureWindow)을
- * 복사하는 게 아니라, 원본 envelope/novelty 배열을 비트 자신의 timeMs로 다시 인덱싱하는
- * 방식이라 같은 섹션 안에서도 비트마다 실제로 다른 값이 나온다 — 이 값들이 있어야
- * EffectMatchingEngine이 섹션 타입 하나로 뭉뚱그리지 않고 비트별로 다채로운 이펙트를
- * 매칭할 수 있다.
+ * 추가로:
+ * - BRIDGE는 "VERSE나 CHORUS가 이 곡에서 한 번이라도 먼저 등장한 뒤"에만 인정한다. BRIDGE는
+ *   음악적으로 "이미 진행되던 곡 구조를 한 번 전환하는 삽입부"라, 인트로 직후 첫 저에너지
+ *   구간(아직 곡의 본 구조 자체가 시작 안 한 시점)까지 BRIDGE로 부르는 건 맞지 않다. 그
+ *   전이라면 BRIDGE 대신 VERSE로 처리한다.
+ * - CLIMAX는 국소적으로 튀는 지점(직전 대비 급상승)만으로 판정하던 기존 방식에 "이 곡
+ *   전체의 절대 피크 대비 일정 비율 이상이어야 한다"는 절대 기준을 추가한다. 곡이 전체적으로
+ *   잦아드는 구간(브릿지/아웃트로 진입부 등)에서 국소적으로만 살짝 튀는 지점이 절대 음량은
+ *   한참 낮은데도 CLIMAX로 잘못 잡히던 문제를 막기 위함.
+ *
+ * INTRO/OUTRO/END 판정(detectIntroEnd/detectOutroStart/markIntroUpTo/markOutroFrom)과
+ * 비트 단위 특징값 보강(annotateBeats)은 이전 버전과 동일하게 유지한다.
+ *
+ * 알려진 한계: 반복 그룹 판정은 에너지/스펙트럼비율/onset밀도/리듬 규칙성(periodicity)
+ * 특징 벡터의 코사인 유사도에만 의존한다. 실제 멜로디/가사 리듬이 다른데도 편성 밀도가
+ * 비슷하게 편곡된 구간(예: 2절을 코러스급으로 키운 곡)은 이 특징들로는 VERSE와 CHORUS가
+ * 구분이 안 될 수 있다 — LE SSERAFIM 'SPAGHETTI' 86~101초 구간에서 score/periodicity/
+ * onset 타이밍 상관계수 전부로 확인. 멜로디/보컬 패턴(피치·크로마) 비교 없이는 원리적
+ * 한계로 보고 있다.
  */
 class SectionDetectorV2 : SectionDetector {
 
@@ -57,18 +65,28 @@ class SectionDetectorV2 : SectionDetector {
         private const val CLIMAX_WINDOW_HALF_MS = 2_000L
         private const val CLIMAX_MIN_CV         = 0.35f
         private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
+        // 국소 스파이크가 아무리 뚜렷해도, 곡 전체 절대 피크의 이 비율 미만이면 CLIMAX 후보에서
+        // 제외한다 — 잦아드는 구간에서 "직전보다 튀었다"만으로 CLIMAX가 잘못 잡히는 걸 방지.
+        private const val CLIMAX_ABS_FLOOR_RATIO = 0.70f
 
         private const val BREAK_MAX_MS = 8_000L
 
-        // INTRO 경계 판정: 원시 윈도우 score가 lowTh의 이 비율 이상으로 연속 2개 윈도우(4초)
-        // 이상 유지되면 "노래가 실제로 시작됐다"고 본다. 1.0이 아니라 0.8인 이유 — lowTh
-        // 자체가 이미 그 곡 전체 윈도우의 35퍼센타일이라, 갓 시작된 직후의 온셋 밀도는
-        // 아직 lowTh에 완전히는 못 미치더라도(Dynamite 실측: lowTh=0.243일 때 시작 직후
-        // 0.213) 이미 이전 저밀도 구간(0.03대) 대비 확연한 전환이기 때문.
         private const val INTRO_SUSTAIN_RATIO = 0.8f
-        // "지속"으로 볼 최소 연속 윈도우 수 (2개 * STRIDE_MS = 4초). 1개만 보면 순간적인
-        // 보컬 애드립 스파이크(예: Spaghetti 2~4초 구간)를 노래 시작으로 오판한다.
         private const val INTRO_SUSTAIN_WINDOWS = 2
+
+        // ── 반복 패턴(CHORUS) 탐지 파라미터 ──
+        // 청크(비교 단위) 길이: 마디 정보가 있으면 이 마디 수, 없으면 고정 ms로 대체.
+        private const val CHORUS_PHRASE_BARS = 8
+        private const val CHORUS_FALLBACK_CHUNK_MS = 8_000L
+        // 반복 탐지를 시도하기 위한 최소 청크 개수 — 너무 적으면 통계적으로 의미가 없어 폴백.
+        private const val CHORUS_MIN_CHUNKS = 4
+        // "닮았다"의 기준: 곡 내 상대 percentile과 절대 하한을 동시에 만족해야 한다.
+        private const val CHORUS_SIM_ABS_FLOOR = 0.90f
+        private const val CHORUS_SIM_PERCENTILE = 0.85f
+        // 반복 그룹에 속한 청크라도, 그 순간 score가 highTh의 이 비율 미만이면 CHORUS로
+        // 확정하지 않는다 — 청크(8마디) 안에 섞인 프리코러스 꼬리 등이 청크 전체를
+        // CHORUS로 물들이는 것을 막기 위함 (아래 classifyType 주석 참고).
+        private const val CHORUS_SPAN_SCORE_FLOOR_RATIO = 0.85f
     }
 
     private data class FeatureWindow(
@@ -119,23 +137,24 @@ class SectionDetectorV2 : SectionDetector {
         val lowTh  = if (frameScores.isNotEmpty()) percentile(frameScores, 0.35f) else 0f
         val highTh = if (frameScores.isNotEmpty()) percentile(frameScores, 0.70f) else 1f
         Log.d(TAG, "SectionDetectorV2 thresholds: lowTh=${"%.3f".format(lowTh)} highTh=${"%.3f".format(highTh)}")
-        // INTRO 경계 로직 개선용 진단 로그 — 병합/컴팩션 전 원시 2초 윈도우 단위 특성값.
-        // adb logcat | grep SectionDetectorV2 로 캡처해서 "노래가 실제로 시작되는 지점"에서
-        // energy/onset/activity/periodicity가 어떻게 움직이는지 확인하는 용도. 동작에는 영향 없음.
+
+        val chorusSpans = detectChorusSpansByRepetition(windows, durationMs, beatMs, beatsPerBar, downbeatMs, highTh, novelty, hopMs)
+        Log.d(TAG, "SectionDetectorV2 chorusSpans(repetition)=${chorusSpans.map { "${it.first}~${it.last}" }}")
+
         windows.forEachIndexed { idx, w ->
             Log.d(TAG, "SectionDetectorV2 rawWindow[$idx] ${w.startMs}~${w.endMs} " +
                 "energy=${"%.3f".format(w.energy)} onset=${"%.3f".format(w.onsetDensity)} " +
                 "activity=${"%.3f".format(w.activity)} low=${"%.3f".format(w.lowRatio)} " +
                 "mid=${"%.3f".format(w.midRatio)} high=${"%.3f".format(w.highRatio)} " +
                 "periodicity=${"%.3f".format(w.periodicity)} score=${"%.3f".format(w.score)} " +
-                "type=${classifyType(w.score, lowTh, highTh)} change=${w.changeStrength}")
+                "type=${classifyType(w, lowTh, highTh, chorusSpans)} change=${w.changeStrength}")
         }
 
         val introEndMs = detectIntroEnd(windows, lowTh)
         val outroStartMs = detectOutroStart(windows, lowTh, durationMs)
         Log.d(TAG, "SectionDetectorV2 introEndMs=$introEndMs outroStartMs=$outroStartMs")
 
-        val rawSections = buildSectionsFromWindows(windows, durationMs, lowTh, highTh)
+        val rawSections = buildSectionsFromWindows(windows, durationMs, lowTh, highTh, chorusSpans)
 
         val beatBoundaries = beats.map { it.timeMs }.sorted().toLongArray()
         val alignedSections = alignBoundariesToBars(rawSections, beatBoundaries, durationMs)
@@ -151,12 +170,6 @@ class SectionDetectorV2 : SectionDetector {
         )
     }
 
-    // 입력 비트에 sectionType + 비트 단위 로컬 특성값을 태깅 후 반환 (순서 유지).
-    // climax peak ±4s 비트는 CLIMAX로 덮어씀 (V1과 동일).
-    //
-    // localEnergy/onsetStrength/lowRatio/highRatio는 섹션의 구간 평균(FeatureWindow)이 아니라
-    // 원본 envelope/novelty 배열을 그 비트의 timeMs로 직접 인덱싱한 값이다 — hopMs(10ms) 해상도라
-    // 섹션 윈도우(2000ms)보다 훨씬 촘촘하므로 같은 섹션 안에서도 비트마다 값이 달라진다.
     private fun annotateBeats(
         beats: List<BeatDetectorRouter.BeatInfo.Beat>,
         sections: List<SectionDetector.Section>,
@@ -172,7 +185,6 @@ class SectionDetectorV2 : SectionDetector {
     ): List<SectionDetector.AnnotatedBeat> = beats.map { beat ->
         val section = sections.find { beat.timeMs >= it.startMs && beat.timeMs < it.endMs }
         val sectionType = section?.type ?: SectionDetector.SectionType.VERSE
-        // CLIMAX는 CHORUS 구간 안에서만 적용 — BRIDGE/VERSE 초반 에너지 스파이크 제외
         val type = if (sectionType == SectionDetector.SectionType.CHORUS &&
                        climaxMoments.any { abs(it - beat.timeMs) <= CLIMAX_WINDOW_HALF_MS })
             SectionDetector.SectionType.CLIMAX else sectionType
@@ -208,7 +220,7 @@ class SectionDetectorV2 : SectionDetector {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // ① Feature windows — V1과 동일 (섹션 경계 판정용 구간 평균)
+    // ① Feature windows — 섹션 경계 판정용 구간 평균
     // ──────────────────────────────────────────────────────────────
 
     private fun buildFeatureWindows(
@@ -255,7 +267,14 @@ class SectionDetectorV2 : SectionDetector {
             val onsetDensity = novAbove.toFloat() / fCount
             val activity  = sumAct / fCount
 
-            val periodicity = globalPeriodicity
+            // 곡 전체 한 번 계산한 globalPeriodicity를 그대로 복사하면 모든 윈도우가
+            // 똑같은 값(예: 0.703)을 갖게 되어 구간별 리듬 규칙성 차이를 전혀 구분 못 한다
+            // (CHORUS는 보통 마디 패턴이 딱 맞게 반복되고, 보컬 위주 VERSE는 상대적으로
+            // 덜 규칙적인 경우가 많은데 이 신호를 못 쓰고 있었다). 이 윈도우 구간만으로
+            // 로컬하게 재계산하고, 윈도우가 너무 짧아 lag만큼 샘플이 안 나오면(마지막
+            // partial 윈도우 등) 곡 전체 값으로 폴백한다.
+            val localPeriodicity = estimatePeriodicityLocal(novelty, startIdx, endIdx, beatMs, hopMs)
+            val periodicity = if (localPeriodicity > 0f) localPeriodicity else globalPeriodicity
 
             val onsetBonus = onsetDensity * 0.12f
             val lowPenalty = (lowRatio * 0.08f).coerceIn(0f, 0.08f)
@@ -289,35 +308,243 @@ class SectionDetectorV2 : SectionDetector {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // ② Classification & merge — classifyType/병합/컴팩션은 V1과 동일.
-    // detectIntroEnd/detectOutroStart/markIntroUpTo/markOutroFrom/applyIntroOutro는
-    // V2에서 새로 추가/변경됨 (클래스 문서 참고).
+    // ② CHORUS 반복 패턴 탐지
     // ──────────────────────────────────────────────────────────────
 
-    private fun classifyType(score: Float, lowTh: Float, highTh: Float): SectionDetector.SectionType {
+    // 곡을 마디(bar) 기준 청크로 나눠 서로 닮은 청크 그룹을 찾고, 그중 평균 에너지가 제일 높은
+    // 그룹을 CHORUS로 확정해 그 그룹에 속한 모든 청크(첫 등장 포함)의 시간 범위를 반환한다.
+    // 반복을 못 찾으면(청크가 너무 적거나, 닮은 쌍이 하나도 없거나) 빈 리스트를 반환하고,
+    // 호출부(classifyType)가 이걸 보고 예전 방식(score >= highTh)으로 폴백한다.
+    private fun detectChorusSpansByRepetition(
+        windows: List<FeatureWindow>,
+        durationMs: Long,
+        beatMs: Long,
+        beatsPerBar: Int,
+        downbeatMs: Long,
+        highTh: Float,
+        novelty: FloatArray,
+        hopMs: Long
+    ): List<LongRange> {
+        if (windows.isEmpty()) return emptyList()
+
+        val barMs = if (beatMs > 0L && beatsPerBar > 0) beatMs * beatsPerBar else 0L
+        val chunkMs = if (barMs > 0L) barMs * CHORUS_PHRASE_BARS else CHORUS_FALLBACK_CHUNK_MS
+        if (chunkMs <= 0L) return emptyList()
+
+        val chunkStartBase = if (barMs > 0L) downbeatMs % barMs.coerceAtLeast(1L) else 0L
+        val chunks = ArrayList<LongRange>()
+        var s = chunkStartBase
+        while (s < durationMs) {
+            val e = min(durationMs, s + chunkMs)
+            if (e > s) chunks += s until e
+            s += chunkMs
+        }
+        if (chunks.size < CHORUS_MIN_CHUNKS) {
+            Log.d(TAG, "SectionDetectorV2 chorus-repeat: 청크 부족(${chunks.size}개) → score 폴백")
+            return emptyList()
+        }
+
+        // 청크별 특징 벡터: 겹치는 2초 윈도우들을 겹침 길이로 가중 평균.
+        val vectors = ArrayList<FloatArray>(chunks.size)
+        val chunkScores = ArrayList<Float>(chunks.size)
+        for (chunk in chunks) {
+            var wEnergy = 0f; var wLow = 0f; var wMid = 0f; var wHigh = 0f
+            var wOnset = 0f; var wPeriod = 0f; var wScore = 0f; var totalOverlap = 0L
+            for (w in windows) {
+                val overlap = min(chunk.last, w.endMs) - max(chunk.first, w.startMs)
+                if (overlap <= 0L) continue
+                val ov = overlap.toFloat()
+                wEnergy += w.energy * ov; wLow += w.lowRatio * ov; wMid += w.midRatio * ov
+                wHigh += w.highRatio * ov; wOnset += w.onsetDensity * ov; wPeriod += w.periodicity * ov
+                wScore += w.score * ov
+                totalOverlap += overlap
+            }
+            if (totalOverlap <= 0L) {
+                vectors += FloatArray(6)
+                chunkScores += 0f
+                continue
+            }
+            val denom = totalOverlap.toFloat()
+            vectors += floatArrayOf(
+                wEnergy / denom, wLow / denom, wMid / denom, wHigh / denom, wOnset / denom, wPeriod / denom
+            )
+            chunkScores += wScore / denom
+        }
+
+        // 차원별 min-max 정규화 — 값 범위가 다른 특징끼리 코사인 유사도에서 공평하게 반영되도록.
+        val dims = 6
+        val mins = FloatArray(dims) { Float.MAX_VALUE }
+        val maxs = FloatArray(dims) { -Float.MAX_VALUE }
+        for (v in vectors) for (d in 0 until dims) { mins[d] = min(mins[d], v[d]); maxs[d] = max(maxs[d], v[d]) }
+        val normVectors = vectors.map { v ->
+            FloatArray(dims) { d ->
+                val range = maxs[d] - mins[d]
+                if (range > 1e-6f) (v[d] - mins[d]) / range else 0f
+            }
+        }
+
+        // 모든 청크 쌍의 코사인 유사도.
+        val n = chunks.size
+        val sims = HashMap<Long, Float>() // key = i*10000L+j (i<j)
+        val allSims = ArrayList<Float>()
+        for (i in 0 until n) {
+            for (j in i + 1 until n) {
+                val sim = cosineSimilarity(normVectors[i], normVectors[j])
+                sims[i.toLong() * 10000L + j] = sim
+                allSims += sim
+            }
+        }
+        if (allSims.isEmpty()) return emptyList()
+
+        // 진단용: 모든 청크 쌍의 유사도 원본값 — verse/chorus 클러스터 경계에 걸치는
+        // "다리" 청크가 있는지 확인하는 용도(예: verse2가 chorus 그룹과도, verse1 그룹과도
+        // 애매하게 닮아 union-find가 두 그룹을 잘못 합치는 경우). adb logcat | grep
+        // "chunk-sim"으로 캡처. 동작에는 영향 없음.
+        for (i in 0 until n) {
+            for (j in i + 1 until n) {
+                val sim = sims[i.toLong() * 10000L + j] ?: continue
+                Log.d(TAG, "SectionDetectorV2 chunk-sim [$i]${chunks[i].first}~${chunks[i].last} <-> " +
+                    "[$j]${chunks[j].first}~${chunks[j].last} sim=${"%.4f".format(sim)}")
+            }
+        }
+
+        // 진단용: 청크 쌍별 onset(어택 타이밍) 패턴 상관계수 — 평균 통계(위 chunk-sim)가
+        // 아니라 novelty 시계열 "모양" 자체가 얼마나 겹치는지 본다. 실측 결과 확실한 반복
+        // 쌍(chunk-sim이 매우 높은 쌍)끼리도 이 상관계수가 낮게 나오는 경우가 있어(0-lag
+        // 비교라 타이밍이 조금만 어긋나도 틀어짐), 현재는 판정에 반영하지 않고 참고용으로만
+        // 남겨둔다. adb logcat | grep "onset-corr"으로 캡처.
+        for (i in 0 until n) {
+            for (j in i + 1 until n) {
+                val corr = onsetPatternCorrelation(novelty, hopMs, chunks[i], chunks[j])
+                Log.d(TAG, "SectionDetectorV2 onset-corr [$i]${chunks[i].first}~${chunks[i].last} <-> " +
+                    "[$j]${chunks[j].first}~${chunks[j].last} corr=${"%.4f".format(corr)}")
+            }
+        }
+
+        val simThreshold = max(CHORUS_SIM_ABS_FLOOR, percentile(allSims, CHORUS_SIM_PERCENTILE))
+        Log.d(TAG, "SectionDetectorV2 chorus-repeat: chunks=$n simThreshold=${"%.3f".format(simThreshold)}")
+
+        // Union-Find로 반복 그룹 묶기.
+        val parent = IntArray(n) { it }
+        fun find(x: Int): Int { var r = x; while (parent[r] != r) r = parent[r]; return r }
+        fun union(a: Int, b: Int) { val ra = find(a); val rb = find(b); if (ra != rb) parent[ra] = rb }
+        for (i in 0 until n) for (j in i + 1 until n) {
+            val sim = sims[i.toLong() * 10000L + j] ?: continue
+            if (sim >= simThreshold) union(i, j)
+        }
+
+        val groups = HashMap<Int, MutableList<Int>>()
+        for (i in 0 until n) groups.getOrPut(find(i)) { mutableListOf() }.add(i)
+        val medianScore = percentile(chunkScores, 0.5f)
+
+        val candidateGroups = groups.values.filter { it.size >= 2 }
+        if (candidateGroups.isEmpty()) {
+            Log.d(TAG, "SectionDetectorV2 chorus-repeat: 반복 그룹 없음 → score 폴백")
+            return emptyList()
+        }
+
+        val best = candidateGroups.maxByOrNull { g -> g.map { chunkScores[it] }.average() } ?: return emptyList()
+        val bestAvgScore = best.map { chunkScores[it] }.average().toFloat()
+        if (bestAvgScore < medianScore) {
+            Log.d(TAG, "SectionDetectorV2 chorus-repeat: 최선 그룹 에너지(${"%.3f".format(bestAvgScore)})가 " +
+                "중앙값(${"%.3f".format(medianScore)})보다 낮음 → score 폴백")
+            return emptyList()
+        }
+
+        Log.d(TAG, "SectionDetectorV2 chorus-repeat: 그룹 선택 idx=${best.sorted()} avgScore=${"%.3f".format(bestAvgScore)}")
+        return best.map { chunks[it] }
+    }
+
+    private fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
+        var dot = 0f; var na = 0f; var nb = 0f
+        for (i in a.indices) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i] }
+        val denom = sqrt(na) * sqrt(nb)
+        return if (denom > 1e-6f) (dot / denom).coerceIn(-1f, 1f) else 0f
+    }
+
+    // 두 구간(rangeA/rangeB)의 novelty(어택 강도) 시계열을 0-lag로 직접 비교한다.
+    // chunk-sim(평균 통계 비교)과 달리, 각 구간을 z-score 정규화해 크기(평균 에너지)
+    // 차이를 지운 뒤 "모양"만 상관계수로 비교한다 — 같은 멜로디/리듬 프레이즈가
+    // 반복되면 onset 타이밍이 거의 그대로 겹칠 것이라는 가설을 검증하기 위함. 다만 실측
+    // 결과 확실한 반복 쌍에서도 낮게 나오는 경우가 있어(타이밍 미세 흔들림에 취약한
+    // 0-lag 비교의 한계) 현재는 참고용 로그로만 사용한다.
+    // 두 구간 길이가 다르면 짧은 쪽에 맞춰 자른다(마디 정렬돼 있어 0-lag 비교로 충분,
+    // 템포가 곡 내내 일정하다고 가정).
+    private fun onsetPatternCorrelation(novelty: FloatArray, hopMs: Long, rangeA: LongRange, rangeB: LongRange): Float {
+        val hop = max(1L, hopMs)
+        val startA = (rangeA.first / hop).toInt().coerceIn(0, novelty.size)
+        val endA   = (rangeA.last  / hop).toInt().coerceIn(0, novelty.size)
+        val startB = (rangeB.first / hop).toInt().coerceIn(0, novelty.size)
+        val endB   = (rangeB.last  / hop).toInt().coerceIn(0, novelty.size)
+        val len = min(endA - startA, endB - startB)
+        if (len <= 1) return 0f
+
+        fun zNorm(start: Int): FloatArray {
+            val x = FloatArray(len) { novelty[start + it] }
+            val mean = x.average().toFloat()
+            var variance = 0f
+            for (v in x) variance += (v - mean) * (v - mean)
+            variance /= x.size
+            val std = sqrt(variance)
+            return if (std > 1e-6f) FloatArray(len) { (x[it] - mean) / std } else FloatArray(len)
+        }
+
+        val za = zNorm(startA); val zb = zNorm(startB)
+        var dot = 0f
+        for (i in za.indices) dot += za[i] * zb[i]
+        return (dot / len).coerceIn(-1f, 1f)
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // ③ Classification & merge
+    // ──────────────────────────────────────────────────────────────
+
+    // chorusSpans가 비어있지 않으면(반복 탐지 성공) CHORUS는 오직 그 스팬 안에 있을 때만 붙는다
+    // (score와 무관). chorusSpans가 비어있으면(반복 탐지 실패) 예전 방식과 동일하게
+    // score >= highTh로 CHORUS를 판정하는 폴백 경로를 탄다.
+    private fun classifyType(
+        w: FeatureWindow, lowTh: Float, highTh: Float, chorusSpans: List<LongRange>
+    ): SectionDetector.SectionType {
+        val mid = (w.startMs + w.endMs) / 2
+        if (chorusSpans.isNotEmpty()) {
+            // 청크(8마디, ~17초)가 반복 그룹에 속해도, 그 청크 안에 프리코러스 꼬리처럼
+            // 아직 덜 올라온 구간이 섞여 있으면 청크 경계 그대로 CHORUS를 칠하는 게 아니라
+            // 그 순간 score가 실제로 충분히 높을 때만 CHORUS로 확정한다 — 청크 경계가 아닌
+            // 실제 음향 전환 지점에서 갈리도록. (LE SSERAFIM 'SPAGHETTI' 실측: 청크는
+            // 35초부터 반복 그룹이지만 실제 score 도약은 42초에 일어남 — 0.178→0.336,
+            // change=MEDIUM)
+            if (chorusSpans.any { mid in it } && w.score >= highTh * CHORUS_SPAN_SCORE_FLOOR_RATIO)
+                return SectionDetector.SectionType.CHORUS
+        } else if (w.score >= highTh) {
+            return SectionDetector.SectionType.CHORUS
+        }
         val bridgeTh = lowTh * 0.85f
         val breakTh  = lowTh * 0.45f
         return when {
-            score >= highTh   -> SectionDetector.SectionType.CHORUS
-            score <= breakTh  -> SectionDetector.SectionType.BREAK
-            score <= bridgeTh -> SectionDetector.SectionType.BRIDGE
-            else              -> SectionDetector.SectionType.VERSE
+            w.score <= breakTh  -> SectionDetector.SectionType.BREAK
+            w.score <= bridgeTh -> SectionDetector.SectionType.BRIDGE
+            else                -> SectionDetector.SectionType.VERSE
         }
     }
 
-    private fun demoteLongBreaks(sections: List<FeatureWindow>): List<FeatureWindow> =
-        sections.map { s ->
-            if (s.sectionType == SectionDetector.SectionType.BREAK &&
-                (s.endMs - s.startMs) > BREAK_MAX_MS)
-                s.copy(sectionType = SectionDetector.SectionType.BRIDGE)
-            else s
+    // BREAK가 너무 길게 이어지면(반주만 계속되는 구간) BRIDGE로 격상한다. 단, 이 곡에서 아직
+    // VERSE/CHORUS가 한 번도 안 나온 시점(=인트로 직후)이면 BRIDGE로 격상하지 않고 VERSE로 둔다
+    // — BRIDGE는 "이미 진행되던 곡 구조를 전환하는 삽입부"라는 의미라, 곡 구조 자체가 아직
+    // 시작 안 한 시점엔 맞지 않는다.
+    private fun demoteLongBreaks(sections: List<FeatureWindow>): List<FeatureWindow> {
+        var seenVerseOrChorus = false
+        return sections.map { s ->
+            val result = if (s.sectionType == SectionDetector.SectionType.BREAK &&
+                (s.endMs - s.startMs) > BREAK_MAX_MS) {
+                if (seenVerseOrChorus) s.copy(sectionType = SectionDetector.SectionType.BRIDGE)
+                else s.copy(sectionType = SectionDetector.SectionType.VERSE)
+            } else s
+            if (result.sectionType == SectionDetector.SectionType.VERSE ||
+                result.sectionType == SectionDetector.SectionType.CHORUS) seenVerseOrChorus = true
+            result
         }
+    }
 
-    // 병합 전 원시 윈도우에서 "노래가 실제로 시작된 지점"을 찾는다 — 조용한 반주만 있다가
-    // 드럼/보컬/밴드가 들어와 편성 밀도(score)가 확 뛰어서 그 뒤로도 계속 유지되는 첫 지점.
-    // 순간적인 스파이크(짧은 애드립 등)와 구분하려고 "연속 2윈도우 이상 유지"를 요구한다.
-    // 그런 지점이 아예 없으면(곡 전체가 계속 조용하거나, 반대로 처음부터 이미 그 수준이면)
-    // 0을 반환해 INTRO를 강제로 만들지 않는다 — "인트로 없음"도 정당한 결과다.
     private fun detectIntroEnd(windows: List<FeatureWindow>, lowTh: Float): Long {
         if (windows.size < INTRO_SUSTAIN_WINDOWS) return 0L
         val threshold = lowTh * INTRO_SUSTAIN_RATIO
@@ -329,13 +556,6 @@ class SectionDetectorV2 : SectionDetector {
         return 0L
     }
 
-    // detectIntroEnd의 대칭 버전 — 뒤에서부터 훑어서 "여기까지는 아직 활발했다"고 볼 수 있는
-    // 마지막 지점을 찾는다. 그 지점 이후로 계속 잠잠해지다 곡이 끝나는 구간이 진짜 OUTRO다.
-    // V1의 기존 로직은 "마지막 병합 구간 전체가 CHORUS로 분류되면 OUTRO 자체를 안 만든다"였는데,
-    // 이게 오히려 문제였다 — 후반부 평균 점수가 CHORUS 문턱을 넘기면, 그 구간 맨 끝에서 완전히
-    // 무음으로 죽어버려도(예: aespa Supernova/Dynamite/TOMBOY 실측) OUTRO가 전혀 안 만들어졌다.
-    // 그래서 여기선 그런 예외를 두지 않고, "마지막까지 계속 활발했다"는 경우엔 이 함수 자체가
-    // durationMs 근처 값을 반환해서(=OUTRO 길이가 자연히 0에 수렴) 결과적으로 같은 효과를 낸다.
     private fun detectOutroStart(windows: List<FeatureWindow>, lowTh: Float, durationMs: Long): Long {
         if (windows.size < INTRO_SUSTAIN_WINDOWS) return durationMs
         val threshold = lowTh * INTRO_SUSTAIN_RATIO
@@ -347,9 +567,6 @@ class SectionDetectorV2 : SectionDetector {
         return durationMs
     }
 
-    // introEndMs 이전 구간만 INTRO로 표시한다. introEndMs가 첫 구간 중간에 걸리면 그 지점에서
-    // 쪼개서 앞쪽만 INTRO로 바꾸고, 뒤쪽은 원래 분류(classifyType 결과)를 그대로 유지한다 —
-    // "노래는 시작됐지만 아직 코러스급은 아닌" 구간을 억지로 INTRO로 우기지 않기 위함.
     private fun markIntroUpTo(sections: List<FeatureWindow>, introEndMs: Long): List<FeatureWindow> {
         val out = ArrayList<FeatureWindow>(sections.size + 1)
         var i = 0
@@ -367,11 +584,6 @@ class SectionDetectorV2 : SectionDetector {
         return out
     }
 
-    // outroStartMs 이후 구간만 OUTRO로 표시한다. markIntroUpTo와 대칭이지만 "마지막 구간이
-    // CHORUS면 OUTRO를 안 씌운다"는 예외는 의도적으로 두지 않는다 — 그 예외가 바로 V1의 버그
-    // 원인이었다(마지막 구간 평균이 CHORUS로 잡히면, 그 구간 끝에서 완전히 무음으로 죽어도
-    // OUTRO가 생기지 않았다). outroStartMs 자체가 이미 "끝까지 계속 활발했으면 durationMs 근처
-    // 값을 반환"하므로 별도 예외 없이도 "OUTRO 없음"이 자연히 나온다.
     private fun markOutroFrom(sections: List<FeatureWindow>, outroStartMs: Long): List<FeatureWindow> {
         val out = ArrayList<FeatureWindow>(sections.size + 1)
         var i = 0
@@ -394,12 +606,10 @@ class SectionDetectorV2 : SectionDetector {
 
     private fun applyIntroOutro(sections: List<FeatureWindow>, introEndMs: Long, outroStartMs: Long): List<FeatureWindow> {
         if (sections.size < 2) return sections
-        // 코러스로 시작하는 곡(위치보다 내용 우선)은 INTRO를 아예 씌우지 않는다.
         val startsWithChorus = sections.first().sectionType == SectionDetector.SectionType.CHORUS
         val effectiveIntroEnd = if (introEndMs > 0L && !startsWithChorus) introEndMs else 0L
         var out = if (effectiveIntroEnd > 0L) markIntroUpTo(sections, effectiveIntroEnd) else sections
 
-        // INTRO와 겹치지 않도록 하한을 둔다 (아주 짧은 곡에서 두 지점이 뒤섞이는 것 방지).
         val safeOutroStart = max(outroStartMs, effectiveIntroEnd)
         if (safeOutroStart < out.last().endMs) {
             out = markOutroFrom(out, safeOutroStart)
@@ -423,14 +633,24 @@ class SectionDetectorV2 : SectionDetector {
     }
 
     private fun buildSectionsFromWindows(
-        windows: List<FeatureWindow>, durationMs: Long, lowTh: Float, highTh: Float
+        windows: List<FeatureWindow>, durationMs: Long, lowTh: Float, highTh: Float, chorusSpans: List<LongRange>
     ): List<FeatureWindow> {
         if (windows.isEmpty()) return emptyList()
+        var seenVerseOrChorus = false
+        fun classifyGated(w: FeatureWindow): SectionDetector.SectionType {
+            val t = classifyType(w, lowTh, highTh, chorusSpans)
+            val gated = if (t == SectionDetector.SectionType.BRIDGE && !seenVerseOrChorus)
+                SectionDetector.SectionType.VERSE else t
+            if (gated == SectionDetector.SectionType.VERSE || gated == SectionDetector.SectionType.CHORUS)
+                seenVerseOrChorus = true
+            return gated
+        }
+
         val merged = ArrayList<FeatureWindow>()
-        var cur = windows.first().copy(sectionType = classifyType(windows.first().score, lowTh, highTh))
+        var cur = windows.first().copy(sectionType = classifyGated(windows.first()))
 
         for (i in 1 until windows.size) {
-            val next = windows[i].copy(sectionType = classifyType(windows[i].score, lowTh, highTh))
+            val next = windows[i].copy(sectionType = classifyGated(windows[i]))
             val shouldSplit = next.changeStrength == SectionDetector.ChangeStrength.STRONG ||
                               next.sectionType != cur.sectionType
             if (shouldSplit) {
@@ -499,7 +719,14 @@ class SectionDetectorV2 : SectionDetector {
             var shortIdx = -1; var shortDur = Long.MAX_VALUE
             for (i in list.indices) {
                 val d = list[i].endMs - list[i].startMs
-                if (d < COMPACT_MIN_MS && d < shortDur) { shortDur = d; shortIdx = i }
+                // BREAK_MAX_MS(8초)를 넘는 BREAK는 이미 "끊김이 아니라 구조적으로 의미있다"는
+                // 뜻이라(demoteLongBreaks가 BRIDGE로 승격시킬 대상), COMPACT_MIN_MS(10초) 미만
+                // 이라는 이유만으로 인접 구간에 흡수돼 사라지면 안 된다. demoteLongBreaks는
+                // 이 compactSections보다 나중에(정렬/바 스냅 이후) 실행되므로, 여기서 먼저
+                // 지워지면 그 기회 자체가 없어진다.
+                val protectedLongBreak = list[i].sectionType == SectionDetector.SectionType.BREAK &&
+                    d >= BREAK_MAX_MS
+                if (d < COMPACT_MIN_MS && d < shortDur && !protectedLongBreak) { shortDur = d; shortIdx = i }
             }
             if (shortIdx < 0) break
             val s = list[shortIdx]
@@ -550,7 +777,7 @@ class SectionDetectorV2 : SectionDetector {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // ③ Align to bar boundaries — V1과 동일
+    // ④ Align to bar boundaries
     // ──────────────────────────────────────────────────────────────
 
     private fun alignBoundariesToBars(
@@ -584,7 +811,7 @@ class SectionDetectorV2 : SectionDetector {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // ④ FeatureWindow → Section — V1과 동일
+    // ⑤ FeatureWindow → Section
     // ──────────────────────────────────────────────────────────────
 
     private fun toSections(windows: List<FeatureWindow>): List<SectionDetector.Section> =
@@ -601,7 +828,7 @@ class SectionDetectorV2 : SectionDetector {
         }
 
     // ──────────────────────────────────────────────────────────────
-    // Signal helpers — V1과 동일
+    // Signal helpers
     // ──────────────────────────────────────────────────────────────
 
     private fun computeNovelty(low: FloatArray, mid: FloatArray, full: FloatArray): FloatArray {
@@ -627,6 +854,21 @@ class SectionDetectorV2 : SectionDetector {
         return if (raw <= 1e-6f) 0f else (ac / raw).coerceIn(0f, 1f)
     }
 
+    // estimatePeriodicityGlobal과 동일한 beat-lag 자기상관 계산을, 곡 전체가 아니라
+    // startIdx~endIdx 구간(윈도우 하나)의 novelty 샘플만으로 수행한다. 곡 전체 한 번
+    // 계산해서 모든 윈도우에 복사하던 기존 방식은 구간별 리듬 규칙성 차이를 전혀 반영하지
+    // 못했다.
+    private fun estimatePeriodicityLocal(novelty: FloatArray, startIdx: Int, endIdx: Int, beatMs: Long, hopMs: Long): Float {
+        val lag = max(1, (beatMs / hopMs).toInt())
+        val s = max(startIdx, 0)
+        val e = min(endIdx, novelty.size)
+        if (e - s <= lag) return 0f
+        var ac = 0f; var raw = 0f
+        for (i in (s + lag) until e) ac += novelty[i] * novelty[i - lag]
+        for (i in s until e) raw += novelty[i] * novelty[i]
+        return if (raw <= 1e-6f) 0f else (ac / raw).coerceIn(0f, 1f)
+    }
+
     private fun normalize01InPlace(x: FloatArray) {
         var mx = 0f
         for (v in x) mx = max(mx, v)
@@ -645,13 +887,16 @@ class SectionDetectorV2 : SectionDetector {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Climax detection — V1과 동일
+    // Climax detection — 절대 피크 하한 포함
     // ──────────────────────────────────────────────────────────────
 
     private fun detectClimaxMoments(
         full: FloatArray, durationMs: Long, hopMs: Long, beatMs: Long
     ): List<Long> {
         if (full.size < 8) return emptyList()
+
+        val globalPeakFull = full.max()
+        val absFloor = globalPeakFull * CLIMAX_ABS_FLOOR_RATIO
 
         val scoreArray = FloatArray(full.size)
         for (i in 2 until full.size - 2) {
@@ -679,6 +924,7 @@ class SectionDetectorV2 : SectionDetector {
             val sc = scoreArray[i]; if (sc <= 0f) continue
             val tMs = i.toLong() * hopMs
             if (tMs < climaxIntroLimit) continue
+            if (full[i] < absFloor) continue
             if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2] &&
                 sc >= p90 * 1.18f && sc >= envMean + envStd * 1.30f) {
                 if (selected.none { abs(it - tMs) < minGapMs }) {
@@ -689,7 +935,7 @@ class SectionDetectorV2 : SectionDetector {
         }
 
         val result = selected.sorted().map { it.coerceIn(0L, durationMs) }
-        Log.d(TAG, "SectionDetectorV2 climax moments=${result.joinToString()}")
+        Log.d(TAG, "SectionDetectorV2 climax moments=${result.joinToString()} (absFloor=${"%.3f".format(absFloor)})")
         return result
     }
 
