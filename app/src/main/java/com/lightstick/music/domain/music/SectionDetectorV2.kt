@@ -691,7 +691,7 @@ class SectionDetectorV2 : SectionDetector {
         }
         merged += cur.copy(endMs = durationMs)
         val normalized = normalizeSections(merged, durationMs)
-        return compactSections(normalized)
+        return compactSections(normalized, chorusSpans)
     }
 
     private fun normalizeSections(sections: List<FeatureWindow>, durationMs: Long): List<FeatureWindow> {
@@ -728,7 +728,7 @@ class SectionDetectorV2 : SectionDetector {
         return out
     }
 
-    private fun compactSections(input: List<FeatureWindow>): List<FeatureWindow> {
+    private fun compactSections(input: List<FeatureWindow>, chorusSpans: List<LongRange>): List<FeatureWindow> {
         if (input.size <= 1) return input
         val list = input.toMutableList()
         var changed = true
@@ -744,15 +744,37 @@ class SectionDetectorV2 : SectionDetector {
                 // 지워지면 그 기회 자체가 없어진다.
                 val protectedLongBreak = list[i].sectionType == SectionDetector.SectionType.BREAK &&
                     d >= BREAK_MAX_MS
-                if (d < COMPACT_MIN_MS && d < shortDur && !protectedLongBreak) { shortDur = d; shortIdx = i }
+                // CHORUS가 아닌 구간이 CHORUS 섹션 양쪽에 끼여 있으면(=반복 탐지가 이미
+                // 비-CHORUS로 판정한 구간이 10초 미만 조각들로 쪼개져 CHORUS 사이에 낀 경우)
+                // 어느 쪽으로도 흡수시킬 수 없다 — 흡수시키면 반복 탐지가 가려낸 CHORUS 경계가
+                // 지워져서 VERSE/BRIDGE 구간이 거대한 CHORUS 한 덩어리로 뭉개진다 (실측:
+                // ILLIT 'It's Me' 40~54초 구간 — chunk 반복 탐지는 이 구간을 CHORUS 그룹에서
+                // 정확히 제외했는데, VERSE(6초)+BRIDGE(6초)+VERSE(2초)로 쪼개져 있다 보니
+                // 하나씩 압축되며 양옆 CHORUS에 흡수되어 사라졌다). 이런 경우는 압축 대상에서
+                // 제외해 그대로 남긴다.
+                val bothNeighborsChorus = i > 0 && i < list.lastIndex &&
+                    list[i - 1].sectionType == SectionDetector.SectionType.CHORUS &&
+                    list[i + 1].sectionType == SectionDetector.SectionType.CHORUS
+                val protectedChorusGap = chorusSpans.isNotEmpty() &&
+                    list[i].sectionType != SectionDetector.SectionType.CHORUS && bothNeighborsChorus
+                if (d < COMPACT_MIN_MS && d < shortDur && !protectedLongBreak && !protectedChorusGap) {
+                    shortDur = d; shortIdx = i
+                }
             }
             if (shortIdx < 0) break
             val s = list[shortIdx]
             val prevOk = shortIdx > 0
             val nextOk = shortIdx < list.lastIndex
+            // 위와 같은 이유로, CHORUS가 아닌 구간은 한쪽 이웃만 CHORUS인 경우에도 그
+            // CHORUS 쪽으로는 흡수되지 않고 반대쪽(비-CHORUS) 이웃으로만 흡수된다.
+            val prevIsChorus = prevOk && list[shortIdx - 1].sectionType == SectionDetector.SectionType.CHORUS
+            val nextIsChorus = nextOk && list[shortIdx + 1].sectionType == SectionDetector.SectionType.CHORUS
+            val avoidChorusAbsorb = chorusSpans.isNotEmpty() && s.sectionType != SectionDetector.SectionType.CHORUS
             val absorberIdx = when {
                 !prevOk  -> shortIdx + 1
                 !nextOk  -> shortIdx - 1
+                avoidChorusAbsorb && prevIsChorus && !nextIsChorus -> shortIdx + 1
+                avoidChorusAbsorb && nextIsChorus && !prevIsChorus -> shortIdx - 1
                 list[shortIdx - 1].sectionType == s.sectionType -> shortIdx - 1
                 list[shortIdx + 1].sectionType == s.sectionType -> shortIdx + 1
                 else     -> {
