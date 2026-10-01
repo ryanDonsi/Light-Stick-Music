@@ -172,13 +172,13 @@ class SectionDetectorV2 : SectionDetector {
 
         val beatBoundaries = beats.map { it.timeMs }.sorted().toLongArray()
         val alignedSections = alignBoundariesToBars(rawSections, beatBoundaries, durationMs)
-        // BRIDGE 위치 제약(demoteLongBreaks)보다 INTRO/OUTRO 낙인(applyIntroOutro)을 먼저 적용한다.
-        // 순서가 반대면 demoteLongBreaks가 "VERSE/CHORUS 등장 여부"를 셀 때 아직 INTRO로
+        // BRIDGE 위치 제약(gatePrematureBridge)보다 INTRO/OUTRO 낙인(applyIntroOutro)을 먼저 적용한다.
+        // 순서가 반대면 gatePrematureBridge가 "VERSE/CHORUS 등장 여부"를 셀 때 아직 INTRO로
         // 지워지기 전인 인트로 구간 내부의 원시 분류(예: 인트로 막판의 짧은 VERSE/CHORUS 구간)
         // 까지 "곡 구조 시작"으로 잘못 세어버려서, INTRO 바로 뒤에 오는 첫 섹션이 BRIDGE로
         // 남는 문제가 있었다 (실측: 사랑 참/아모르 파티/TOMBOY 등 다수 곡에서 재현).
         val introLabeledSections = applyIntroOutro(alignedSections, introEndMs, outroStartMs)
-        val labeledSections = demoteLongBreaks(introLabeledSections)
+        val labeledSections = gatePrematureBridge(introLabeledSections)
 
         val sections = toSections(labeledSections)
         val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs)
@@ -562,20 +562,15 @@ class SectionDetectorV2 : SectionDetector {
     // (실측: 사랑 참/아모르 파티/TOMBOY 등). INTRO 낙인을 먼저 적용해두면 인트로 구간은
     // 전부 타입이 INTRO로 바뀌어 있어 VERSE/CHORUS로 집계되지 않으므로, 진짜 인트로 이후에
     // 살아남은 VERSE/CHORUS만 "곡 구조 시작"으로 인정하게 된다.
-    // 같은 이유로 BREAK가 너무 길게 이어지는 구간(반주만 계속되는 구간)도 이 시점 이전이면
-    // BRIDGE로 격상하지 않고 VERSE로 둔다.
-    private fun demoteLongBreaks(sections: List<FeatureWindow>): List<FeatureWindow> {
+    // (예전엔 BREAK가 BREAK_MAX_MS를 넘게 길어지면 BRIDGE/VERSE로 승격시켰는데, BREAK가
+    // "완전 무음 구간"으로 재정의되면서 그 규칙은 더 이상 필요 없다 — 길게 이어지는 무음도
+    // 그냥 무음이므로 길이와 무관하게 BREAK로 둔다.)
+    private fun gatePrematureBridge(sections: List<FeatureWindow>): List<FeatureWindow> {
         var seenVerseOrChorus = false
         return sections.map { s ->
-            val result = when {
-                s.sectionType == SectionDetector.SectionType.BREAK &&
-                    (s.endMs - s.startMs) > BREAK_MAX_MS ->
-                    if (seenVerseOrChorus) s.copy(sectionType = SectionDetector.SectionType.BRIDGE)
-                    else s.copy(sectionType = SectionDetector.SectionType.VERSE)
-                s.sectionType == SectionDetector.SectionType.BRIDGE && !seenVerseOrChorus ->
-                    s.copy(sectionType = SectionDetector.SectionType.VERSE)
-                else -> s
-            }
+            val result = if (s.sectionType == SectionDetector.SectionType.BRIDGE && !seenVerseOrChorus)
+                s.copy(sectionType = SectionDetector.SectionType.VERSE)
+            else s
             if (result.sectionType == SectionDetector.SectionType.VERSE ||
                 result.sectionType == SectionDetector.SectionType.CHORUS) seenVerseOrChorus = true
             result
@@ -675,8 +670,8 @@ class SectionDetectorV2 : SectionDetector {
     ): List<FeatureWindow> {
         if (windows.isEmpty()) return emptyList()
         // BRIDGE의 "VERSE/CHORUS 등장 후에만" 위치 제약은 여기(윈도우 단위)가 아니라
-        // demoteLongBreaks()에서 압축·정렬이 끝난 섹션 단위로 한 번만 적용한다. 자세한 이유는
-        // demoteLongBreaks 주석 참고.
+        // gatePrematureBridge()에서 압축·정렬이 끝난 섹션 단위로 한 번만 적용한다. 자세한
+        // 이유는 gatePrematureBridge 주석 참고.
         val merged = ArrayList<FeatureWindow>()
         var cur = windows.first().copy(sectionType = classifyType(windows.first(), lowTh, highTh, chorusSpans, globalPeakFull))
 
@@ -750,11 +745,9 @@ class SectionDetectorV2 : SectionDetector {
             var shortIdx = -1; var shortDur = Long.MAX_VALUE
             for (i in list.indices) {
                 val d = list[i].endMs - list[i].startMs
-                // BREAK_MAX_MS(8초)를 넘는 BREAK는 이미 "끊김이 아니라 구조적으로 의미있다"는
-                // 뜻이라(demoteLongBreaks가 BRIDGE로 승격시킬 대상), COMPACT_MIN_MS(10초) 미만
-                // 이라는 이유만으로 인접 구간에 흡수돼 사라지면 안 된다. demoteLongBreaks는
-                // 이 compactSections보다 나중에(정렬/바 스냅 이후) 실행되므로, 여기서 먼저
-                // 지워지면 그 기회 자체가 없어진다.
+                // BREAK_MAX_MS(8초)를 넘는 BREAK는 일시적인 끊김이 아니라 실제로 길게 이어지는
+                // 무음 구간이므로, COMPACT_MIN_MS(10초) 미만이라는 이유만으로 인접 구간에
+                // 흡수돼 사라지면 안 된다 — 흡수되면 그 구간의 FREEZE 이펙트 자체가 없어진다.
                 val protectedLongBreak = list[i].sectionType == SectionDetector.SectionType.BREAK &&
                     d >= BREAK_MAX_MS
                 // CHORUS가 아닌 구간이 CHORUS 섹션 양쪽에 끼여 있으면(=반복 탐지가 이미
