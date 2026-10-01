@@ -165,8 +165,13 @@ class SectionDetectorV2 : SectionDetector {
 
         val beatBoundaries = beats.map { it.timeMs }.sorted().toLongArray()
         val alignedSections = alignBoundariesToBars(rawSections, beatBoundaries, durationMs)
-        val cappedSections = demoteLongBreaks(alignedSections)
-        val labeledSections = applyIntroOutro(cappedSections, introEndMs, outroStartMs)
+        // BRIDGE 위치 제약(demoteLongBreaks)보다 INTRO/OUTRO 낙인(applyIntroOutro)을 먼저 적용한다.
+        // 순서가 반대면 demoteLongBreaks가 "VERSE/CHORUS 등장 여부"를 셀 때 아직 INTRO로
+        // 지워지기 전인 인트로 구간 내부의 원시 분류(예: 인트로 막판의 짧은 VERSE/CHORUS 구간)
+        // 까지 "곡 구조 시작"으로 잘못 세어버려서, INTRO 바로 뒤에 오는 첫 섹션이 BRIDGE로
+        // 남는 문제가 있었다 (실측: 사랑 참/아모르 파티/TOMBOY 등 다수 곡에서 재현).
+        val introLabeledSections = applyIntroOutro(alignedSections, introEndMs, outroStartMs)
+        val labeledSections = demoteLongBreaks(introLabeledSections)
 
         val sections = toSections(labeledSections)
         val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs)
@@ -536,12 +541,15 @@ class SectionDetectorV2 : SectionDetector {
 
     // BRIDGE는 "이미 진행되던 곡 구조를 전환하는 삽입부"라는 의미라, VERSE/CHORUS가 한 번도
     // 나오지 않은 시점(=인트로 직후)엔 맞지 않는다. 이 판정은 합쳐지고(compact) 마디에 맞춰
-    // 정렬된(align) 최종 섹션 단위로 한 번만 수행한다 — 원래 윈도우 단위(2초짜리)로 하면
-    // 인트로 안에서의 순간적인 에너지 튐(예: 훅 한 소절)만으로도 "VERSE 등장"으로 오판되어,
-    // 그 직후 다시 잦아드는 구간이 BRIDGE로 풀려버리는 문제가 있었다 (아모르 파티 실측:
-    // 12~14초의 2초짜리 VERSE급 스파이크 하나 때문에 14~30초 구간 전체가 BRIDGE로 풀림).
-    // 순간적인 스파이크는 compactSections에서 이미 이웃 섹션에 흡수되어 사라지므로, 그 이후에도
-    // 살아남은 VERSE/CHORUS 섹션만 "진짜 곡 구조 시작"으로 인정한다.
+    // 정렬된(align) 최종 섹션 단위로, 그리고 반드시 applyIntroOutro로 INTRO 구간이 이미
+    // 낙인찍힌 뒤에 수행한다. 원래 윈도우 단위(2초짜리)로 하면 인트로 안에서의 순간적인
+    // 에너지 튐(예: 훅 한 소절)만으로도 "VERSE 등장"으로 오판되어 그 직후 다시 잦아드는
+    // 구간이 BRIDGE로 풀려버리는 문제가 있었다. 섹션 단위로 옮긴 뒤에도 INTRO 낙인을 나중에
+    // 적용하면, 아직 INTRO로 지워지기 전인 인트로 구간 내부에 살아남은 VERSE/CHORUS 섹션이
+    // "곡 구조 시작"으로 잘못 세어져 INTRO 바로 다음 섹션이 BRIDGE로 남는 문제가 재발했다
+    // (실측: 사랑 참/아모르 파티/TOMBOY 등). INTRO 낙인을 먼저 적용해두면 인트로 구간은
+    // 전부 타입이 INTRO로 바뀌어 있어 VERSE/CHORUS로 집계되지 않으므로, 진짜 인트로 이후에
+    // 살아남은 VERSE/CHORUS만 "곡 구조 시작"으로 인정하게 된다.
     // 같은 이유로 BREAK가 너무 길게 이어지는 구간(반주만 계속되는 구간)도 이 시점 이전이면
     // BRIDGE로 격상하지 않고 VERSE로 둔다.
     private fun demoteLongBreaks(sections: List<FeatureWindow>): List<FeatureWindow> {
