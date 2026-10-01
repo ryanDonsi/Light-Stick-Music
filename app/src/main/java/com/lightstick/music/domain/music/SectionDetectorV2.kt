@@ -70,6 +70,12 @@ class SectionDetectorV2 : SectionDetector {
         private const val CLIMAX_ABS_FLOOR_RATIO = 0.70f
 
         private const val BREAK_MAX_MS = 8_000L
+        // BREAK는 "상대적으로 조용한 구간"이 아니라 "곡 전체 피크 대비 거의 무음인 구간"만
+        // 가리키도록 제한한다 — 이펙트 쪽에서 BREAK를 BREATH(은은하게 깜빡임) 대신
+        // 특정 색을 켠 채 고정(freeze)하는 용도로 쓰기 때문에, 단순히 조용한 VERSE/BRIDGE
+        // 까지 여기 걸리면 안 된다. 윈도우 안에서 가장 큰 순간(peakEnergy)조차 곡 전체
+        // 절대 피크의 이 비율 미만이어야 "완전 무음"으로 인정한다.
+        private const val BREAK_SILENCE_RATIO = 0.05f
 
         private const val INTRO_SUSTAIN_RATIO = 0.8f
         // INTRO 종료 판정: 발라드/EDM 등에서 보컬·비트가 이미 시작됐는데도 프레이즈 사이
@@ -137,6 +143,7 @@ class SectionDetectorV2 : SectionDetector {
 
         val novelty = computeNovelty(low, mid, full)
         val globalPeriodicity = estimatePeriodicityGlobal(novelty, beatMs, hopMs)
+        val globalPeakFull = full.max()
 
         val windows = buildFeatureWindows(low, mid, full, high, novelty, globalPeriodicity, durationMs, hopMs, beatMs)
 
@@ -154,14 +161,14 @@ class SectionDetectorV2 : SectionDetector {
                 "activity=${"%.3f".format(w.activity)} low=${"%.3f".format(w.lowRatio)} " +
                 "mid=${"%.3f".format(w.midRatio)} high=${"%.3f".format(w.highRatio)} " +
                 "periodicity=${"%.3f".format(w.periodicity)} score=${"%.3f".format(w.score)} " +
-                "type=${classifyType(w, lowTh, highTh, chorusSpans)} change=${w.changeStrength}")
+                "type=${classifyType(w, lowTh, highTh, chorusSpans, globalPeakFull)} change=${w.changeStrength}")
         }
 
         val introEndMs = detectIntroEnd(windows, lowTh)
         val outroStartMs = detectOutroStart(windows, lowTh, durationMs)
         Log.d(TAG, "SectionDetectorV2 introEndMs=$introEndMs outroStartMs=$outroStartMs")
 
-        val rawSections = buildSectionsFromWindows(windows, durationMs, lowTh, highTh, chorusSpans)
+        val rawSections = buildSectionsFromWindows(windows, durationMs, lowTh, highTh, chorusSpans, globalPeakFull)
 
         val beatBoundaries = beats.map { it.timeMs }.sorted().toLongArray()
         val alignedSections = alignBoundariesToBars(rawSections, beatBoundaries, durationMs)
@@ -515,7 +522,7 @@ class SectionDetectorV2 : SectionDetector {
     // (score와 무관). chorusSpans가 비어있으면(반복 탐지 실패) 예전 방식과 동일하게
     // score >= highTh로 CHORUS를 판정하는 폴백 경로를 탄다.
     private fun classifyType(
-        w: FeatureWindow, lowTh: Float, highTh: Float, chorusSpans: List<LongRange>
+        w: FeatureWindow, lowTh: Float, highTh: Float, chorusSpans: List<LongRange>, globalPeakFull: Float
     ): SectionDetector.SectionType {
         val mid = (w.startMs + w.endMs) / 2
         if (chorusSpans.isNotEmpty()) {
@@ -532,8 +539,13 @@ class SectionDetectorV2 : SectionDetector {
         }
         val bridgeTh = lowTh * 0.85f
         val breakTh  = lowTh * 0.45f
+        // score가 낮다고 전부 BREAK는 아니다 — BREAK는 "거의 무음"인 구간만 가리켜야 하므로
+        // 윈도우 안의 최대 순간 에너지(peakEnergy)가 곡 전체 절대 피크 대비 BREAK_SILENCE_RATIO
+        // 미만일 때만 인정한다. 이 조건을 못 넘으면(= score는 낮지만 소리는 나는 구간) BRIDGE로
+        // 떨어진다.
+        val isNearSilent = w.peakEnergy <= globalPeakFull * BREAK_SILENCE_RATIO
         return when {
-            w.score <= breakTh  -> SectionDetector.SectionType.BREAK
+            w.score <= breakTh && isNearSilent -> SectionDetector.SectionType.BREAK
             w.score <= bridgeTh -> SectionDetector.SectionType.BRIDGE
             else                -> SectionDetector.SectionType.VERSE
         }
@@ -658,17 +670,18 @@ class SectionDetectorV2 : SectionDetector {
     }
 
     private fun buildSectionsFromWindows(
-        windows: List<FeatureWindow>, durationMs: Long, lowTh: Float, highTh: Float, chorusSpans: List<LongRange>
+        windows: List<FeatureWindow>, durationMs: Long, lowTh: Float, highTh: Float, chorusSpans: List<LongRange>,
+        globalPeakFull: Float
     ): List<FeatureWindow> {
         if (windows.isEmpty()) return emptyList()
         // BRIDGE의 "VERSE/CHORUS 등장 후에만" 위치 제약은 여기(윈도우 단위)가 아니라
         // demoteLongBreaks()에서 압축·정렬이 끝난 섹션 단위로 한 번만 적용한다. 자세한 이유는
         // demoteLongBreaks 주석 참고.
         val merged = ArrayList<FeatureWindow>()
-        var cur = windows.first().copy(sectionType = classifyType(windows.first(), lowTh, highTh, chorusSpans))
+        var cur = windows.first().copy(sectionType = classifyType(windows.first(), lowTh, highTh, chorusSpans, globalPeakFull))
 
         for (i in 1 until windows.size) {
-            val next = windows[i].copy(sectionType = classifyType(windows[i], lowTh, highTh, chorusSpans))
+            val next = windows[i].copy(sectionType = classifyType(windows[i], lowTh, highTh, chorusSpans, globalPeakFull))
             val shouldSplit = next.changeStrength == SectionDetector.ChangeStrength.STRONG ||
                               next.sectionType != cur.sectionType
             if (shouldSplit) {

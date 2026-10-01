@@ -206,7 +206,8 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
                     true
                 } else if (effectiveEngine == EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
                     || effectiveEngine == EffectMatchingEngine.FgEngine.STROBE
-                    || effectiveEngine == EffectMatchingEngine.FgEngine.BREATH) {
+                    || effectiveEngine == EffectMatchingEngine.FgEngine.BREATH
+                    || effectiveEngine == EffectMatchingEngine.FgEngine.FREEZE) {
                     val key = RepeatKey(effectiveEngine,
                         fg.r, fg.g, fg.b, bgNonNull.r, bgNonNull.g, bgNonNull.b,
                         beatPeriod ?: 0, beatRandomDelay ?: 0)
@@ -250,7 +251,9 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
     ): EffectMatchingEngine.FgEngine = when (type) {
         SectionDetector.SectionType.INTRO  -> EffectMatchingEngine.FgEngine.BREATH
         SectionDetector.SectionType.OUTRO  -> EffectMatchingEngine.FgEngine.OFF_TRANSIT
-        SectionDetector.SectionType.BREAK  -> EffectMatchingEngine.FgEngine.BREATH
+        // BREAK는 이제 "완전 무음" 구간만 가리키므로(SectionDetectorV2 참고), 숨쉬듯
+        // 깜빡이는 BREATH 대신 특정 색을 켠 채 그대로 고정(freeze)해 정적을 표현한다.
+        SectionDetector.SectionType.BREAK  -> EffectMatchingEngine.FgEngine.FREEZE
 
         SectionDetector.SectionType.CLIMAX -> when {
             globalBeatMs <= 300L -> EffectMatchingEngine.FgEngine.STROBE
@@ -284,7 +287,7 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
     ): List<EffectMatchingEngine.FgEngine> = when (type) {
         SectionDetector.SectionType.INTRO  -> listOf(EffectMatchingEngine.FgEngine.BREATH)
         SectionDetector.SectionType.OUTRO  -> listOf(EffectMatchingEngine.FgEngine.OFF_TRANSIT)
-        SectionDetector.SectionType.BREAK  -> listOf(EffectMatchingEngine.FgEngine.BREATH)
+        SectionDetector.SectionType.BREAK  -> listOf(EffectMatchingEngine.FgEngine.FREEZE)
         SectionDetector.SectionType.END    -> listOf(EffectMatchingEngine.FgEngine.OFF_TRANSIT)
         SectionDetector.SectionType.BRIDGE -> listOf(EffectMatchingEngine.FgEngine.BREATH)
 
@@ -332,7 +335,7 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         when (type) {
             SectionDetector.SectionType.INTRO  -> "intro-breath"
             SectionDetector.SectionType.OUTRO  -> "outro-off"
-            SectionDetector.SectionType.BREAK  -> "break-breath"
+            SectionDetector.SectionType.BREAK  -> "break-freeze"
             SectionDetector.SectionType.CLIMAX -> if (engine == EffectMatchingEngine.FgEngine.STROBE) "climax-strobe" else "climax-rotate"
             SectionDetector.SectionType.VERSE  -> "verse-on-pulse"
             SectionDetector.SectionType.CHORUS -> "chorus-rotate"
@@ -395,6 +398,9 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
                 set.fg to set.bg
             }
             EffectMatchingEngine.FgEngine.BREATH -> palette.breathSet.fg to palette.breathSet.bg
+            // FREEZE(BREAK): 깜빡임/회전 없이 한 가지 색을 고정해서 보여준다. BREATH와 같은
+            // 색을 쓰되 배경은 완전히 꺼서(black) 정적인 느낌을 준다.
+            EffectMatchingEngine.FgEngine.FREEZE -> palette.breathSet.fg to palette.black
             // OFF_TRANSIT 섹션은 buildFramesFromSections에서 이미 continue로 걸러져 여기 도달하지 않음
             EffectMatchingEngine.FgEngine.OFF_TRANSIT -> palette.black to palette.black
         }
@@ -420,6 +426,9 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
                     randomDelay = randomDelay ?: msToBreathRandomDelay(beatMs)).toByteArray()
             EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE ->
                 LSEffectPayload.Effects.on(color = fg, transit = rotateTransit).toByteArray()
+            // FREEZE: 애니메이션 없이 한 번 켜서 그대로 유지한다(transit=0, 이후 재전송 없음).
+            EffectMatchingEngine.FgEngine.FREEZE ->
+                LSEffectPayload.Effects.on(color = fg, transit = 0).toByteArray()
             EffectMatchingEngine.FgEngine.OFF_TRANSIT -> buildOffPayload()
         }
     }
