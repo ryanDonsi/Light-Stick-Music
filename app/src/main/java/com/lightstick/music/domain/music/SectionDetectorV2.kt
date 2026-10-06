@@ -750,20 +750,24 @@ class SectionDetectorV2 : SectionDetector {
                 // 흡수돼 사라지면 안 된다 — 흡수되면 그 구간의 FREEZE 이펙트 자체가 없어진다.
                 val protectedLongBreak = list[i].sectionType == SectionDetector.SectionType.BREAK &&
                     d >= BREAK_MAX_MS
-                // CHORUS가 아닌 구간이 CHORUS 섹션 양쪽에 끼여 있으면(=반복 탐지가 이미
-                // 비-CHORUS로 판정한 구간이 10초 미만 조각들로 쪼개져 CHORUS 사이에 낀 경우)
-                // 어느 쪽으로도 흡수시킬 수 없다 — 흡수시키면 반복 탐지가 가려낸 CHORUS 경계가
-                // 지워져서 VERSE/BRIDGE 구간이 거대한 CHORUS 한 덩어리로 뭉개진다 (실측:
-                // ILLIT 'It's Me' 40~54초 구간 — chunk 반복 탐지는 이 구간을 CHORUS 그룹에서
-                // 정확히 제외했는데, VERSE(6초)+BRIDGE(6초)+VERSE(2초)로 쪼개져 있다 보니
-                // 하나씩 압축되며 양옆 CHORUS에 흡수되어 사라졌다). 이런 경우는 압축 대상에서
-                // 제외해 그대로 남긴다.
-                val bothNeighborsChorus = i > 0 && i < list.lastIndex &&
-                    list[i - 1].sectionType == SectionDetector.SectionType.CHORUS &&
-                    list[i + 1].sectionType == SectionDetector.SectionType.CHORUS
-                val protectedChorusGap = chorusSpans.isNotEmpty() &&
-                    list[i].sectionType != SectionDetector.SectionType.CHORUS && bothNeighborsChorus
-                if (d < COMPACT_MIN_MS && d < shortDur && !protectedLongBreak && !protectedChorusGap) {
+                // CHORUS가 아닌 구간이 CHORUS 섹션과 맞닿아 있으면 함부로 압축하지 않는다.
+                // CHORUS 쪽으로 흡수시키면 반복 탐지가 가려낸 CHORUS 경계가 지워지고(실측:
+                // ILLIT 'It's Me' 40~54초), 그렇다고 무조건 반대쪽으로 떠밀면 반대쪽이 다른
+                // 타입일 때 이 구간 고유의 타입(BRIDGE 등) 자체가 조용히 지워진다 (실측:
+                // Magnetic 0:30~0:36, 1:28~1:35 — 둘 다 CHORUS-BRIDGE-VERSE 순서라 BRIDGE가
+                // CHORUS 쪽으로 못 가고 VERSE로 떠밀려 사라졌다). 반대쪽이 같은 타입일 때만
+                // (타입 손실 없이) 그쪽으로의 흡수를 허용하고, 아니면 압축 대상에서 제외해
+                // 그대로 남긴다.
+                val prevType = if (i > 0) list[i - 1].sectionType else null
+                val nextType = if (i < list.lastIndex) list[i + 1].sectionType else null
+                val prevIsChorus = prevType == SectionDetector.SectionType.CHORUS
+                val nextIsChorus = nextType == SectionDetector.SectionType.CHORUS
+                val safeNonChorusMerge = (prevIsChorus && nextType == list[i].sectionType) ||
+                    (nextIsChorus && prevType == list[i].sectionType)
+                val protectedChorusAdjacent = chorusSpans.isNotEmpty() &&
+                    list[i].sectionType != SectionDetector.SectionType.CHORUS &&
+                    (prevIsChorus || nextIsChorus) && !safeNonChorusMerge
+                if (d < COMPACT_MIN_MS && d < shortDur && !protectedLongBreak && !protectedChorusAdjacent) {
                     shortDur = d; shortIdx = i
                 }
             }
@@ -771,16 +775,12 @@ class SectionDetectorV2 : SectionDetector {
             val s = list[shortIdx]
             val prevOk = shortIdx > 0
             val nextOk = shortIdx < list.lastIndex
-            // 위와 같은 이유로, CHORUS가 아닌 구간은 한쪽 이웃만 CHORUS인 경우에도 그
-            // CHORUS 쪽으로는 흡수되지 않고 반대쪽(비-CHORUS) 이웃으로만 흡수된다.
-            val prevIsChorus = prevOk && list[shortIdx - 1].sectionType == SectionDetector.SectionType.CHORUS
-            val nextIsChorus = nextOk && list[shortIdx + 1].sectionType == SectionDetector.SectionType.CHORUS
-            val avoidChorusAbsorb = chorusSpans.isNotEmpty() && s.sectionType != SectionDetector.SectionType.CHORUS
+            // shortIdx로 뽑힌 시점에 이미 위 필터를 통과했으므로(CHORUS 이웃이 있다면 반대쪽이
+            // 반드시 같은 타입), 아래 "같은 타입 이웃" 분기가 CHORUS를 흡수자로 고르는 일은
+            // 없다 — 별도 분기 없이 기존 로직 그대로 둬도 안전하다.
             val absorberIdx = when {
                 !prevOk  -> shortIdx + 1
                 !nextOk  -> shortIdx - 1
-                avoidChorusAbsorb && prevIsChorus && !nextIsChorus -> shortIdx + 1
-                avoidChorusAbsorb && nextIsChorus && !prevIsChorus -> shortIdx - 1
                 list[shortIdx - 1].sectionType == s.sectionType -> shortIdx - 1
                 list[shortIdx + 1].sectionType == s.sectionType -> shortIdx + 1
                 else     -> {
