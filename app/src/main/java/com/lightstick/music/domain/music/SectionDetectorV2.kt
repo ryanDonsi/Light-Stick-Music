@@ -736,6 +736,23 @@ class SectionDetectorV2 : SectionDetector {
         return out
     }
 
+    // list[startIdx]부터 step 방향으로, COMPACT_MIN_MS 미만인(아직 정리 안 된 완충용) 구간들을
+    // 건너뛰면서 그 너머에 CHORUS가 있는지 찾는다. 바로 옆 이웃만 보면, 그 사이에 점수가
+    // threshold 경계에 걸쳐 어쩌다 CHORUS로 안 붙은 2초짜리 VERSE 한 조각만 끼어도 "CHORUS와
+    // 맞닿아 있다"는 판정을 놓쳐버린다 — 실측: 같은 곡의 다른 마스터 버전에서 28~30초 윈도우
+    // 점수가 0.344 vs 0.342로 CHORUS 판정 임계값(0.3434)을 사이에 두고 갈려서, 한쪽은
+    // BRIDGE(30~36초)가 살아남고 다른 쪽은 통째로 지워지는 결과가 나왔다.
+    private fun chorusReachableThroughShortBuffer(list: List<FeatureWindow>, startIdx: Int, step: Int): Boolean {
+        var j = startIdx
+        while (j in list.indices) {
+            val t = list[j].sectionType
+            if (t == SectionDetector.SectionType.CHORUS) return true
+            if (list[j].endMs - list[j].startMs >= COMPACT_MIN_MS) return false
+            j += step
+        }
+        return false
+    }
+
     private fun compactSections(input: List<FeatureWindow>, chorusSpans: List<LongRange>): List<FeatureWindow> {
         if (input.size <= 1) return input
         val list = input.toMutableList()
@@ -750,18 +767,17 @@ class SectionDetectorV2 : SectionDetector {
                 // 흡수돼 사라지면 안 된다 — 흡수되면 그 구간의 FREEZE 이펙트 자체가 없어진다.
                 val protectedLongBreak = list[i].sectionType == SectionDetector.SectionType.BREAK &&
                     d >= BREAK_MAX_MS
-                // CHORUS가 아닌 구간이 CHORUS 섹션과 맞닿아 있으면 함부로 압축하지 않는다.
-                // CHORUS 쪽으로 흡수시키면 반복 탐지가 가려낸 CHORUS 경계가 지워지고(실측:
-                // ILLIT 'It's Me' 40~54초), 그렇다고 무조건 반대쪽으로 떠밀면 반대쪽이 다른
-                // 타입일 때 이 구간 고유의 타입(BRIDGE 등) 자체가 조용히 지워진다 (실측:
-                // Magnetic 0:30~0:36, 1:28~1:35 — 둘 다 CHORUS-BRIDGE-VERSE 순서라 BRIDGE가
-                // CHORUS 쪽으로 못 가고 VERSE로 떠밀려 사라졌다). 반대쪽이 같은 타입일 때만
-                // (타입 손실 없이) 그쪽으로의 흡수를 허용하고, 아니면 압축 대상에서 제외해
-                // 그대로 남긴다.
+                // CHORUS가 아닌 구간이 CHORUS와 맞닿아 있으면(직접 이웃이거나, 짧은 완충
+                // 구간 너머에 있거나) 함부로 압축하지 않는다. CHORUS 쪽으로 흡수시키면
+                // 반복 탐지가 가려낸 CHORUS 경계가 지워지고(실측: ILLIT 'It's Me' 40~54초),
+                // 그렇다고 무조건 반대쪽으로 떠밀면 반대쪽이 다른 타입일 때 이 구간 고유의
+                // 타입(BRIDGE 등) 자체가 조용히 지워진다 (실측: Magnetic 0:30~0:36 등).
+                // 반대쪽(직접 이웃)이 같은 타입일 때만(타입 손실 없이) 그쪽으로의 흡수를
+                // 허용하고, 아니면 압축 대상에서 제외해 그대로 남긴다.
                 val prevType = if (i > 0) list[i - 1].sectionType else null
                 val nextType = if (i < list.lastIndex) list[i + 1].sectionType else null
-                val prevIsChorus = prevType == SectionDetector.SectionType.CHORUS
-                val nextIsChorus = nextType == SectionDetector.SectionType.CHORUS
+                val prevIsChorus = chorusReachableThroughShortBuffer(list, i - 1, -1)
+                val nextIsChorus = chorusReachableThroughShortBuffer(list, i + 1, 1)
                 val safeNonChorusMerge = (prevIsChorus && nextType == list[i].sectionType) ||
                     (nextIsChorus && prevType == list[i].sectionType)
                 val protectedChorusAdjacent = chorusSpans.isNotEmpty() &&
