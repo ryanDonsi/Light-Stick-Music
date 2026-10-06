@@ -642,6 +642,12 @@ class SectionDetectorV3 : SectionDetector {
     // 순간 피크가 곡 전체 절대 피크 대비 BREAK_SILENCE_RATIO 미만인 구간만 찾는다. 연속된
     // 무음 비트는 하나의 구간으로 합친다. beatMs가 없으면(비트 감지 실패) 빈 리스트를
     // 반환하고, 그 경우 BREAK 판정은 마디 단위 classifyType 결과 그대로 쓴다.
+    //
+    // 재개(무음→유음) 판정은 비트 1개가 플로어를 넘는 즉시 확정하지 않고, 연속 2개 비트가
+    // 모두 넘어야 확정한다 — 실측(aespa 'Supernova' 3:06.48 부근): 진짜 비트가 터지기 직전
+    // 어택/잔향 성분만 묻은 애매한 비트 1개가 먼저 플로어를 넘어버려서 BREAK가 실제보다
+    // 한 비트(약 500ms) 일찍 끝나는 문제가 있었다. 그 애매한 비트는 BREAK에 흡수하고,
+    // 두 번째 비트(연속으로 확인된 진짜 재개 지점)에서 BREAK를 끝낸다.
     private fun detectBreakSpansByBeat(
         full: FloatArray, hopMs: Long, beatMs: Long, globalPeakFull: Float, durationMs: Long
     ): List<LongRange> {
@@ -650,6 +656,7 @@ class SectionDetectorV3 : SectionDetector {
         val spans = ArrayList<LongRange>()
         var t = 0L
         var spanStart = -1L
+        var pendingResume = false
         while (t < durationMs) {
             val endT = min(durationMs, t + beatMs)
             val startIdx = (t / hopMs).toInt().coerceIn(0, full.size)
@@ -658,9 +665,15 @@ class SectionDetectorV3 : SectionDetector {
             for (i in startIdx until endIdx) if (full[i] > peak) peak = full[i]
             if (peak <= silenceFloor) {
                 if (spanStart < 0L) spanStart = t
+                pendingResume = false
             } else if (spanStart >= 0L) {
-                spans += spanStart until t
-                spanStart = -1L
+                if (!pendingResume) {
+                    pendingResume = true
+                } else {
+                    spans += spanStart until t
+                    spanStart = -1L
+                    pendingResume = false
+                }
             }
             t = endT
         }
