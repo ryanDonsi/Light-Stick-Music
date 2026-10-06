@@ -200,7 +200,18 @@ class SectionDetectorV3 : SectionDetector {
         // 까지 "곡 구조 시작"으로 잘못 세어버려서, INTRO 바로 뒤에 오는 첫 섹션이 BRIDGE로
         // 남는 문제가 있었다 (실측: 사랑 참/아모르 파티/TOMBOY 등 다수 곡에서 재현).
         val introLabeledSections = applyIntroOutro(alignedSections, introEndMs, outroStartMs)
-        val labeledSections = gatePrematureBridge(introLabeledSections)
+        val gatedSections = gatePrematureBridge(introLabeledSections)
+
+        // BREAK만 마디 단위가 아니라 비트 단위로 다시 확인한다. 마디(보통 4비트) 평균으로
+        // 보면, 그 마디 안 비트 1~2개만 조용하고 나머지가 시끄러우면 평균/피크가 묻혀서
+        // "완전 무음"을 놓친다 (실측: aespa 'Supernova' 2:59~3:01, 3:09~3:12 — 비트
+        // 평균 energy가 0.009/0.028로 사실상 무음인데 마디 윈도우 판정에선 BRIDGE로 남음).
+        // BREAK는 다른 타입과 달리 스펙트럼비율/onset 같은 복잡한 특징이 필요 없어서
+        // 마디로 뭉쳐서 볼 이유가 없다 — 원본 신호를 비트 단위로 직접 스캔해 찾은 무음
+        // 구간을, 마디 단위 판정이 다 끝난 최종 섹션 위에 사후로 잘라 붙인다(INTRO/OUTRO/
+        // CHORUS는 건드리지 않는다).
+        val breakSpans = detectBreakSpansByBeat(full, hopMs, beatMs, globalPeakFull, durationMs)
+        val labeledSections = markBreakSpans(gatedSections, breakSpans)
 
         val sections = toSections(labeledSections)
         val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs)
@@ -625,6 +636,67 @@ class SectionDetectorV3 : SectionDetector {
                 result.sectionType == SectionDetector.SectionType.CHORUS) seenVerseOrChorus = true
             result
         }
+    }
+
+    // BREAK 전용 — 원본 신호(full)를 마디가 아니라 비트 하나 단위로 직접 스캔해서, 그 비트의
+    // 순간 피크가 곡 전체 절대 피크 대비 BREAK_SILENCE_RATIO 미만인 구간만 찾는다. 연속된
+    // 무음 비트는 하나의 구간으로 합친다. beatMs가 없으면(비트 감지 실패) 빈 리스트를
+    // 반환하고, 그 경우 BREAK 판정은 마디 단위 classifyType 결과 그대로 쓴다.
+    private fun detectBreakSpansByBeat(
+        full: FloatArray, hopMs: Long, beatMs: Long, globalPeakFull: Float, durationMs: Long
+    ): List<LongRange> {
+        if (beatMs <= 0L || full.isEmpty()) return emptyList()
+        val silenceFloor = globalPeakFull * BREAK_SILENCE_RATIO
+        val spans = ArrayList<LongRange>()
+        var t = 0L
+        var spanStart = -1L
+        while (t < durationMs) {
+            val endT = min(durationMs, t + beatMs)
+            val startIdx = (t / hopMs).toInt().coerceIn(0, full.size)
+            val endIdx = (endT / hopMs).toInt().coerceIn(startIdx, full.size)
+            var peak = 0f
+            for (i in startIdx until endIdx) if (full[i] > peak) peak = full[i]
+            if (peak <= silenceFloor) {
+                if (spanStart < 0L) spanStart = t
+            } else if (spanStart >= 0L) {
+                spans += spanStart until t
+                spanStart = -1L
+            }
+            t = endT
+        }
+        if (spanStart >= 0L) spans += spanStart until durationMs
+        return spans
+    }
+
+    // detectBreakSpansByBeat가 찾은 비트 단위 무음 구간을, 마디 단위 섹션 판정이 전부 끝난
+    // 최종 섹션 목록 위에 사후로 잘라 붙인다 — markIntroUpTo/markOutroFrom과 같은 방식.
+    // INTRO/OUTRO/CHORUS/이미 BREAK인 구간은 건드리지 않는다: INTRO/OUTRO는 별도 판정
+    // 의미가 있고, CHORUS는 반복 탐지가 확정한 경계라 다른 사유로 쪼개면 안 된다.
+    private fun markBreakSpans(sections: List<FeatureWindow>, breakSpans: List<LongRange>): List<FeatureWindow> {
+        if (breakSpans.isEmpty() || sections.isEmpty()) return sections
+        var result = sections
+        for (span in breakSpans) {
+            result = carveBreakSpan(result, span.first, span.last + 1)
+        }
+        return result
+    }
+
+    private fun carveBreakSpan(sections: List<FeatureWindow>, spanStart: Long, spanEnd: Long): List<FeatureWindow> {
+        val out = ArrayList<FeatureWindow>(sections.size + 2)
+        for (s in sections) {
+            val overlapStart = max(s.startMs, spanStart)
+            val overlapEnd = min(s.endMs, spanEnd)
+            val carvable = s.sectionType == SectionDetector.SectionType.VERSE ||
+                s.sectionType == SectionDetector.SectionType.BRIDGE
+            if (overlapEnd <= overlapStart || !carvable) {
+                out += s
+                continue
+            }
+            if (s.startMs < overlapStart) out += s.copy(endMs = overlapStart)
+            out += s.copy(startMs = overlapStart, endMs = overlapEnd, sectionType = SectionDetector.SectionType.BREAK)
+            if (overlapEnd < s.endMs) out += s.copy(startMs = overlapEnd)
+        }
+        return out
     }
 
     private fun detectIntroEnd(windows: List<FeatureWindow>, lowTh: Float): Long {
