@@ -783,7 +783,17 @@ class SectionDetectorV2 : SectionDetector {
                 val protectedChorusAdjacent = chorusSpans.isNotEmpty() &&
                     list[i].sectionType != SectionDetector.SectionType.CHORUS &&
                     (prevIsChorus || nextIsChorus) && !safeNonChorusMerge
-                if (d < COMPACT_MIN_MS && d < shortDur && !protectedLongBreak && !protectedChorusAdjacent) {
+                // 위 규칙들은 전부 "CHORUS가 아닌 구간이 CHORUS 옆에서 흡수되는" 경우만
+                // 막는다 — CHORUS 자체가 COMPACT_MIN_MS 미만으로 짧으면 똑같이 압축 후보가
+                // 되어 옆 VERSE/BRIDGE에 흡수될 수 있다는 걸 놓치고 있었다. 반복 탐지가
+                // 확정한 CHORUS를 길이만으로 지우면 안 되므로, CHORUS 자체도 보호한다
+                // (실측: ILLIT 'It's Me' 124~132초 — chorusSpans에 포함된 8초짜리 CHORUS가
+                // 옆 VERSE에 흡수되면서, 거기 이어지던 BRIDGE/BREAK까지 같이 거대한 VERSE
+                // 한 덩어리로 뭉개졌다).
+                val protectedShortChorus = chorusSpans.isNotEmpty() &&
+                    list[i].sectionType == SectionDetector.SectionType.CHORUS
+                if (d < COMPACT_MIN_MS && d < shortDur && !protectedLongBreak &&
+                    !protectedChorusAdjacent && !protectedShortChorus) {
                     shortDur = d; shortIdx = i
                 }
             }
