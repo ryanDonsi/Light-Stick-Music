@@ -8,6 +8,7 @@ package com.lightstick.music.domain.music
  *  0 : SectionDetectorV0 (슬라이딩 윈도우 + 비트 경계 정렬, STRIDE=1000ms, per-window autocorr)
  *  1 : SectionDetectorV1 (속도 최적화: STRIDE=2000ms, global periodicity, single-pass feature)
  *  2 : SectionDetectorV2 (CHORUS를 반복 패턴 탐지 기반으로 판정, BRIDGE 위치 제약, CLIMAX 절대 피크 하한)
+ *  3 : SectionDetectorV3 (V2와 동일 + 특징 윈도우를 고정 2초 대신 마디(bar) 단위 가변 길이로 분석)
  */
 object SectionDetectorRouter {
 
@@ -24,6 +25,13 @@ object SectionDetectorRouter {
         beatsPerBar: Int = 4,
         downbeatMs: Long = 0L
     ): List<SectionDetector.AnnotatedBeat> = when (version) {
+        3    -> SectionDetectorV3().detect(
+            lowEnv     = lowEnv, midEnv     = midEnv,
+            fullEnv    = fullEnv, highEnv   = highEnv,
+            beats      = beats,  beatMs     = beatMs,
+            durationMs = durationMs,  hopMs = hopMs,
+            beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
+        )
         2    -> SectionDetectorV2().detect(
             lowEnv     = lowEnv, midEnv     = midEnv,
             fullEnv    = fullEnv, highEnv   = highEnv,
