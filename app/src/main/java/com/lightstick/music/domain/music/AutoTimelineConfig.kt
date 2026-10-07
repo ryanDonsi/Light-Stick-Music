@@ -207,23 +207,10 @@ object AutoTimelineConfig {
      *     - 팔레트 색상 없음 (고정 색상)
      *     - 계산 오버헤드 거의 없음
      *
-     * V1: 단일 색상 비트 이펙트 (섹션 기반)
-     *     이펙트 타입: ON (각 비트마다)
-     *     색상 규칙:
-     *       - 각 비트마다 ON 이펙트 (색상: 팔레트 기반)
-     *       - downbeat 규칙 (beatInBar)과 동일하지만 팔레트 활용
-     *     섹션 정보: 사용 (섹션별 다른 색상 조합)
-     *     복잡도: 낮음, 속도: 빠름
-     *     이펙트 품질: 중간, 팔레트 활용으로 조화로운 색상
-     *     메모리: 낮음
-     *     용도: 일반적인 음악 재생, 색상 다양성 원할 때
+     * (예전에는 "단일 색상 비트 이펙트" V1이 따로 있었으나 미완성 스켈레톤으로 실사용된
+     *  적이 없어 제거했다. 아래 V1은 그 자리를 이어받은, 실제로 쓰이는 V8 기반 구현이다.)
      *
-     *     특징:
-     *     - 팔레트: baseHue 기반 4색 생성 (complementary color)
-     *     - 섹션별 색상 로테이션
-     *     - 단순하지만 시각적 만족도 높음
-     *
-     * V2: 다양한 이펙트 규칙 (고급, 섹션 기반)
+     * V1: 다양한 이펙트 규칙 (고급, 섹션 기반)
      *     이펙트 타입: ON_PULSE, STROBE, BREATH, ON_TRANSIT_ROTATE, BLINK, OFF_TRANSIT
      *     섹션별 엔진 할당 (FgEngine):
      *       - INTRO/OUTRO: BREATH (부드러운 호흡 효과)
@@ -259,10 +246,9 @@ object AutoTimelineConfig {
      *
      * 선택 기준:
      * - V0: 비트확인 테스트용
-     * - V1: 이펙트 테스트용
-     * - V2: 일반적인 사용(권장, 속도와 품질 균형)
+     * - V1: 일반적인 사용(권장)
      */
-    const val EFFECT_RULE_VERSION = 2
+    const val EFFECT_RULE_VERSION = 1
 
     const val PALETTE_SIZE = 4
 

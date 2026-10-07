@@ -7,10 +7,10 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * EffectMatchingEngineV2 - V3의 이펙트 매칭 룰
+ * EffectMatchingEngineV1 - V3의 이펙트 매칭 룰
  * 섹션 타입별 이펙트 엔진 할당 (ON_PULSE / STROBE / BREATH / ON_TRANSIT_ROTATE 등)
  */
-class EffectMatchingEngineV2 : EffectMatchingEngine {
+class EffectMatchingEngineV1 : EffectMatchingEngine {
 
     companion object {
         private const val ON_TRANSIT = 2
