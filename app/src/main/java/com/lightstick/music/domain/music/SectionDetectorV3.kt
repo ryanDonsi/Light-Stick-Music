@@ -1154,11 +1154,18 @@ class SectionDetectorV3 : SectionDetector {
         val minGapMs = max(800L, beatMs * 4L)
         val selected = ArrayList<Long>()
 
-        val climaxIntroLimit = (durationMs * 0.30f).toLong()
+        // 곡 길이의 30%를 절대 시간으로 끊어 그 이전을 전부 제외하던 climaxIntroLimit은
+        // 제거했다 — CHORUS 시작 시점은 곡마다 다른데, 길이 기준 30% 컷이 공교롭게 첫
+        // CHORUS 한가운데를 잘라버리면 그 CHORUS의 진짜 피크(컷 이전)가 통째로 배제되고
+        // 꼬리의 약한 구간에서만 클라이맥스가 뽑히는 문제가 있었다(실측: BLACKPINK
+        // '뛰어(JUMP)' — durationMs=193220이라 climaxIntroLimit≈57966ms인데, 첫 CHORUS
+        // (44380~67130)의 최고 피크(score 0.490, 44200~57390 구간)가 컷 이전이라 전부
+        // 배제되고, 그보다 약한 꼬리(score 0.456~0.473)에서 58170/59840/61490이 선택됨).
+        // 이제 CHORUS 구간 안에서만 뽑도록 이미 제한했으므로 별도의 절대 시간 컷은
+        // 불필요하다.
         for (i in 2 until scoreArray.size - 2) {
             val sc = scoreArray[i]; if (sc <= 0f) continue
             val tMs = i.toLong() * hopMs
-            if (tMs < climaxIntroLimit) continue
             if (full[i] < absFloor) continue
             if (chorusRanges.none { tMs in it }) continue
             if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2] &&
