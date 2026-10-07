@@ -648,34 +648,56 @@ class SectionDetectorV3 : SectionDetector {
     // 어택/잔향 성분만 묻은 애매한 비트 1개가 먼저 플로어를 넘어버려서 BREAK가 실제보다
     // 한 비트(약 500ms) 일찍 끝나는 문제가 있었다. 그 애매한 비트는 BREAK에 흡수하고,
     // 두 번째 비트(연속으로 확인된 진짜 재개 지점)에서 BREAK를 끝낸다.
+    //
+    // 반대로 BREAK 시작 쪽도 비-무음 비트 1개 때문에 한 비트 늦게 시작하는 문제가 있었다 —
+    // 실측(LE SSERAFIM 'SPAGHETTI' 2:16.5 부근): CHORUS가 끝나는 순간의 잔향/감쇠 꼬리
+    // 비트 1개만 플로어를 살짝 넘어서, 그 바로 다음부터 진짜 무음이 쭉 이어지는데도 그
+    // 꼬리 비트 하나가 BRIDGE로 남았다(바 단위 classifyType에서도 score=0.005로 사실상
+    // 0인데 peakEnergy만 플로어를 넘어 BRIDGE로 떨어진 것과 동일한 현상). 비-무음 비트
+    // 바로 다음 비트가 무음으로 확정되면, 그 비-무음 비트는 감쇠 꼬리로 보고 BREAK에
+    // 흡수한다.
     private fun detectBreakSpansByBeat(
         full: FloatArray, hopMs: Long, beatMs: Long, globalPeakFull: Float, durationMs: Long
     ): List<LongRange> {
         if (beatMs <= 0L || full.isEmpty()) return emptyList()
         val silenceFloor = globalPeakFull * BREAK_SILENCE_RATIO
-        val spans = ArrayList<LongRange>()
+
+        val beatStarts = ArrayList<Long>()
+        val rawSilent = ArrayList<Boolean>()
         var t = 0L
-        var spanStart = -1L
-        var pendingResume = false
         while (t < durationMs) {
             val endT = min(durationMs, t + beatMs)
             val startIdx = (t / hopMs).toInt().coerceIn(0, full.size)
             val endIdx = (endT / hopMs).toInt().coerceIn(startIdx, full.size)
             var peak = 0f
             for (i in startIdx until endIdx) if (full[i] > peak) peak = full[i]
-            if (peak <= silenceFloor) {
-                if (spanStart < 0L) spanStart = t
+            beatStarts += t
+            rawSilent += (peak <= silenceFloor)
+            t = endT
+        }
+
+        val silent = BooleanArray(rawSilent.size) { rawSilent[it] }
+        for (i in 0 until rawSilent.size - 1) {
+            if (!rawSilent[i] && rawSilent[i + 1]) silent[i] = true
+        }
+
+        val spans = ArrayList<LongRange>()
+        var spanStart = -1L
+        var pendingResume = false
+        for (i in silent.indices) {
+            val tCur = beatStarts[i]
+            if (silent[i]) {
+                if (spanStart < 0L) spanStart = tCur
                 pendingResume = false
             } else if (spanStart >= 0L) {
                 if (!pendingResume) {
                     pendingResume = true
                 } else {
-                    spans += spanStart until t
+                    spans += spanStart until tCur
                     spanStart = -1L
                     pendingResume = false
                 }
             }
-            t = endT
         }
         if (spanStart >= 0L) spans += spanStart until durationMs
         return spans
