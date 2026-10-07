@@ -63,7 +63,9 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         isBalladMode: Boolean,
         finalOffMs: Long,
         downbeatMs: Long,
-        beatsPerBar: Int
+        beatsPerBar: Int,
+        fullEnv: List<Float>,
+        hopMs: Long
     ): List<Pair<Long, ByteArray>> {
         if (sectionGroups.isEmpty()) return emptyList()
 
@@ -71,10 +73,12 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         val globalBeatMs = if (beatTimesMs.size > 1)
             beatTimesMs[1] - beatTimesMs[0] else 500L
 
-        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode, emptyList(), durationMs, 10L)
+        val effectiveHopMs = if (hopMs > 0L) hopMs else 10L
+        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode, fullEnv, durationMs, effectiveHopMs)
 
         // V8 섹션으로부터 프레임 빌드
-        return buildFramesFromSections(palette, v8Sections, beatTimesMs, durationMs, isBalladMode, finalOffMs, downbeatMs, beatsPerBar)
+        return buildFramesFromSections(palette, v8Sections, beatTimesMs, durationMs, isBalladMode, finalOffMs,
+            downbeatMs, beatsPerBar, fullEnv, effectiveHopMs)
     }
 
     private fun convertToV8Sections(
@@ -134,7 +138,9 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
         isBalladMode: Boolean,
         finalOffMs: Long,
         downbeatMs: Long,
-        beatsPerBar: Int
+        beatsPerBar: Int,
+        fullEnv: List<Float>,
+        hopMs: Long
     ): List<Pair<Long, ByteArray>> {
         val frameMap = LinkedHashMap<Long, ByteArray>(beatTimesMs.size * 4 + sections.size + 8)
 
@@ -163,11 +169,34 @@ class EffectMatchingEngineV2 : EffectMatchingEngine {
 
             val enginePool  = sectionEnginePool(section.type, section.relScore, section.beatMs, isBalladMode)
             val barBlockLen = sectionBarBlockLen(section)
+            val barMs = if (section.beatMs > 0L && beatsPerBar > 0) section.beatMs * beatsPerBar else 0L
+
+            // VERSE(비발라드, enginePool=[ON_PULSE, BLINK])는 해시 기반 bar 블록 순환 대신,
+            // 그 bar의 실제 에너지가 섹션 내 중앙값보다 높은지로 ON_PULSE/BLINK를 고른다.
+            // 그루브처럼 리듬은 이어지는데 내부 에너지 기복이 큰 곡은, 해시 순환으로는 그 기복과
+            // 무관하게 아무 때나 전환돼서 긴 VERSE 구간이 단조롭게 느껴졌다(실측: 사용자가 긴
+            // VERSE 블록이 이어지는 그루브 곡에서 연출이 안 맞는다고 보고).
+            val verseBarEnergy: Map<Int, Float> =
+                if (section.type == SectionDetector.SectionType.VERSE && enginePool.size > 1 && barMs > 0L) {
+                    effectiveBeats.map { barIndexAt(it, downbeatMs, section.beatMs, beatsPerBar) }.distinct()
+                        .associateWith { barIdx ->
+                            val barStartMs = downbeatMs + barIdx.toLong() * barMs
+                            computeGroupEnergy(barStartMs, barStartMs + barMs, fullEnv, durationMs, hopMs)
+                        }
+                } else emptyMap()
+            val verseEnergyMedian =
+                if (verseBarEnergy.isNotEmpty()) percentile(verseBarEnergy.values.toList(), 0.5f) else 0f
 
             for ((beatIndex, t) in effectiveBeats.withIndex()) {
                 val beatEngine = when {
                     section.type == SectionDetector.SectionType.BRIDGE ->
                         bridgePhaseEngine(beatIndex, effectiveBeats.size, section.beatMs, section.relScore, isBalladMode)
+                    section.type == SectionDetector.SectionType.VERSE && verseBarEnergy.isNotEmpty() -> {
+                        val barIdx = barIndexAt(t, downbeatMs, section.beatMs, beatsPerBar)
+                        val energy = verseBarEnergy[barIdx] ?: 0f
+                        if (energy >= verseEnergyMedian) EffectMatchingEngine.FgEngine.BLINK
+                        else EffectMatchingEngine.FgEngine.ON_PULSE
+                    }
                     enginePool.size > 1 -> {
                         val barIdx  = barIndexAt(t, downbeatMs, section.beatMs, beatsPerBar)
                         val blockIdx = Math.floorDiv(barIdx, barBlockLen)

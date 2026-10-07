@@ -300,7 +300,9 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             isBalladMode = isBalladMode,
             finalOffMs = finalOffMs,
             downbeatMs = downbeatMs,
-            beatsPerBar = beatsPerBar
+            beatsPerBar = beatsPerBar,
+            fullEnv = fullEnv,
+            hopMs = effectiveHopMs
         )
         val tEffect = System.currentTimeMillis() - t0Effect
 

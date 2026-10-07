@@ -60,7 +60,9 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
         isBalladMode: Boolean,
         finalOffMs: Long,
         downbeatMs: Long,
-        beatsPerBar: Int
+        beatsPerBar: Int,
+        fullEnv: List<Float>,
+        hopMs: Long
     ): List<Pair<Long, ByteArray>> {
         val frames = ArrayList<Pair<Long, ByteArray>>(beatTimesMs.size)
 

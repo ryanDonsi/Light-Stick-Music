@@ -69,6 +69,8 @@ interface EffectMatchingEngine {
      * @param finalOffMs 마지막 음악 위치 (종료 후 묵음 제거)
      * @param downbeatMs 강박 위치
      * @param beatsPerBar 마디당 비트 수 (예: 4/4박자 → 4)
+     * @param fullEnv 원본 전체 에너지 envelope (섹션 내부 bar 단위 에너지 변화를 보는 용도, 미사용 구현체는 무시해도 됨)
+     * @param hopMs fullEnv 한 칸이 나타내는 시간(ms)
      * @return 타임스탐프→페이로드 쌍 리스트
      */
     fun buildFrames(
@@ -79,7 +81,9 @@ interface EffectMatchingEngine {
         isBalladMode: Boolean,
         finalOffMs: Long,
         downbeatMs: Long = 0L,
-        beatsPerBar: Int = 4
+        beatsPerBar: Int = 4,
+        fullEnv: List<Float> = emptyList(),
+        hopMs: Long = 10L
     ): List<Pair<Long, ByteArray>>
 }
 
