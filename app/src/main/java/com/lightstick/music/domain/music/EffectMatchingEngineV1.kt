@@ -472,7 +472,11 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
     private fun buildOffPayload(): ByteArray = LSEffectPayload.Effects.off(transit = ON_TRANSIT).toByteArray()
 
-    private fun msToBlinkPeriod(beatMs: Long)        = (beatMs / 10L).toInt().coerceIn(1, 255)
+    // period는 10ms 단위고 FG+BG를 합친 한 사이클 전체 길이다(예: period=50 → 250ms FG +
+    // 250ms BG = 500ms). beatMs/10이면 "1비트 = 1사이클"인데, VERSE 고에너지 강조용으로는
+    // 느리게 느껴진다는 실기 테스트 피드백으로 4배 단축(beatMs/40, 즉 반 비트의 절반마다
+    // 한 사이클)한다.
+    private fun msToBlinkPeriod(beatMs: Long)        = (beatMs / 40L).toInt().coerceIn(1, 255)
     private fun msToStrobePeriod(beatMs: Long)       = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToBreathPeriod(beatMs: Long)       = (beatMs / 20L).toInt().coerceIn(1, 255)
     private fun msToBreathRandomDelay(beatMs: Long)  = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
