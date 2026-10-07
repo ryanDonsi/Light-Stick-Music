@@ -214,7 +214,9 @@ class SectionDetectorV3 : SectionDetector {
         val labeledSections = markBreakSpans(gatedSections, breakSpans)
 
         val sections = toSections(labeledSections)
-        val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs)
+        val chorusRanges = sections.filter { it.type == SectionDetector.SectionType.CHORUS }
+            .map { it.startMs until it.endMs }
+        val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs, chorusRanges)
         return annotateBeats(
             beats, sections, climaxMoments,
             novelty = novelty, low = low, full = full, high = high, hopMs = hopMs,
@@ -1119,10 +1121,14 @@ class SectionDetectorV3 : SectionDetector {
     // Climax detection — 절대 피크 하한 포함
     // ──────────────────────────────────────────────────────────────
 
+    // CLIMAX는 "하이라이트 순간"이어야 하므로, CHORUS로 판정된 구간 안에서만 뽑는다.
+    // 원본 신호(full)에서 순수 피크/어택만 보면 BRIDGE/VERSE 안의 날카로운 트랜지언트
+    // (드럼 필, 심벌 크래시 등)도 조건을 통과해버려서 CHORUS 밖에서 터지는 문제가 있었다
+    // (실측: aespa 'Supernova' — climax moments 3개 중 2개가 VERSE/BRIDGE 구간이었음).
     private fun detectClimaxMoments(
-        full: FloatArray, durationMs: Long, hopMs: Long, beatMs: Long
+        full: FloatArray, durationMs: Long, hopMs: Long, beatMs: Long, chorusRanges: List<LongRange>
     ): List<Long> {
-        if (full.size < 8) return emptyList()
+        if (full.size < 8 || chorusRanges.isEmpty()) return emptyList()
 
         val globalPeakFull = full.max()
         val absFloor = globalPeakFull * CLIMAX_ABS_FLOOR_RATIO
@@ -1154,6 +1160,7 @@ class SectionDetectorV3 : SectionDetector {
             val tMs = i.toLong() * hopMs
             if (tMs < climaxIntroLimit) continue
             if (full[i] < absFloor) continue
+            if (chorusRanges.none { tMs in it }) continue
             if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2] &&
                 sc >= p90 * 1.18f && sc >= envMean + envStd * 1.30f) {
                 if (selected.none { abs(it - tMs) < minGapMs }) {
