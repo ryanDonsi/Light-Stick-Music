@@ -411,8 +411,16 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 set.fg to set.bg
             }
             EffectMatchingEngine.FgEngine.BLINK -> {
-                val set = palette.blinkSets[beatIndex % palette.blinkSets.size]
-                set.fg to set.bg
+                // VERSE의 BLINK는 "그 bar가 섹션 내에서 에너지가 높은 구간"일 때만 쓰인다
+                // (buildFramesFromSections의 verseBarEnergy 참고) — 흰색 FG에 팔레트에서
+                // 가장 붉은 색조에 가까운 색을 BG로 써서 ON_PULSE(낮은 에너지)와 또렷이
+                // 구분되는 강조색을 준다.
+                if (sectionType == SectionDetector.SectionType.VERSE) {
+                    palette.white to closestToRed(palette.colorGroup)
+                } else {
+                    val set = palette.blinkSets[beatIndex % palette.blinkSets.size]
+                    set.fg to set.bg
+                }
             }
             EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE ->
                 if (sectionType == SectionDetector.SectionType.BRIDGE) {
@@ -476,6 +484,28 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     }
 
     private fun wrap360(h: Float) = ((h % 360f) + 360f) % 360f
+
+    private fun hueOf(c: LSColor): Float {
+        val r = c.r / 255f; val g = c.g / 255f; val b = c.b / 255f
+        val maxC = max(r, max(g, b)); val minC = min(r, min(g, b))
+        val d = maxC - minC
+        if (d < 1e-6f) return 0f
+        val h = when (maxC) {
+            r    -> (((g - b) / d) % 6f + 6f) % 6f
+            g    -> (b - r) / d + 2f
+            else -> (r - g) / d + 4f
+        }
+        return wrap360(h * 60f)
+    }
+
+    /** 팔레트 색상들 중 색상환에서 빨강(hue 0)에 가장 가까운 것을 고른다. */
+    private fun closestToRed(colors: List<LSColor>): LSColor {
+        if (colors.isEmpty()) return LSColor(255, 0, 0)
+        return colors.minBy { c ->
+            val h = hueOf(c)
+            min(h, 360f - h)
+        }
+    }
 
     private fun hsvToColor(h: Float, s: Float, v: Float): LSColor {
         val hh = ((h % 360f) + 360f) % 360f
