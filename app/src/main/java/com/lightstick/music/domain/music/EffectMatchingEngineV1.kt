@@ -416,7 +416,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 // 가장 붉은 색조에 가까운 색을 BG로 써서 ON_PULSE(낮은 에너지)와 또렷이
                 // 구분되는 강조색을 준다.
                 if (sectionType == SectionDetector.SectionType.VERSE) {
-                    palette.white to closestToRed(palette.colorGroup)
+                    palette.white to palette.black
                 } else {
                     val set = palette.blinkSets[beatIndex % palette.blinkSets.size]
                     set.fg to set.bg
