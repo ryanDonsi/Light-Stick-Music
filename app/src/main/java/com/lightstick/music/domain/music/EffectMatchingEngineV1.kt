@@ -16,6 +16,13 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         private const val ON_TRANSIT = 2
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
+        // OUTRO 마지막 OFF의 transit(페이드 길이)을 OUTRO 섹션 길이에 비례시킨다.
+        // transit 1 unit이 실제 몇 ms인지는 SDK/문서 어디에도 안 나와 있어(실기로만 확인
+        // 가능) 초기 근사치로 outroLenMs/100을 쓰고, [MIN,MAX]로 눌러둔다 — 실기 테스트
+        // 후 배율 재조정 필요.
+        private const val OUTRO_TRANSIT_DIVISOR = 100L
+        private const val OUTRO_TRANSIT_MIN = 2
+        private const val OUTRO_TRANSIT_MAX = 60
     }
 
     data class V8Section(
@@ -260,7 +267,10 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         }
 
         frameMap.keys.filter { it >= finalOffMs }.forEach { frameMap.remove(it) }
-        frameMap[finalOffMs] = buildOffPayload()
+        val outroStartMs = sections.firstOrNull { it.type == SectionDetector.SectionType.OUTRO }?.startMs
+        val outroLenMs = outroStartMs?.let { (finalOffMs - it).coerceAtLeast(0L) } ?: 0L
+        val outroTransit = (outroLenMs / OUTRO_TRANSIT_DIVISOR).toInt().coerceIn(OUTRO_TRANSIT_MIN, OUTRO_TRANSIT_MAX)
+        frameMap[finalOffMs] = buildOffPayload(outroTransit)
 
         return frameMap.entries.sortedBy { it.key }.map { it.key to it.value }
     }
@@ -470,7 +480,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         }
     }
 
-    private fun buildOffPayload(): ByteArray = LSEffectPayload.Effects.off(transit = ON_TRANSIT).toByteArray()
+    private fun buildOffPayload(transit: Int = ON_TRANSIT): ByteArray = LSEffectPayload.Effects.off(transit = transit).toByteArray()
 
     // period는 10ms 단위고 FG+BG를 합친 한 사이클 전체 길이다(예: period=50 → 250ms FG +
     // 250ms BG = 500ms). beatMs/10("1비트=1사이클")은 느리고, beatMs/40도 실기 테스트로는
