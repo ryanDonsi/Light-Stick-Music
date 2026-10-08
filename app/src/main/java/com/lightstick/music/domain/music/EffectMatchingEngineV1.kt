@@ -194,9 +194,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             // 중앙값(0.5)을 기준으로 쓰면 "energy >= 기준값"일 때 BLINK라서 기준값과 같은
             // bar까지 BLINK로 들어가 ON_PULSE가 구조적으로 덜 나왔다(특히 distinct bar 수가
             // 적은 짧은 VERSE일수록 쏠림이 커짐). ON_PULSE가 너무 안 보인다는 실기 피드백으로
-            // 기준을 상위 40%(0.6 percentile)로 올려 ON_PULSE 쪽 비중을 늘렸다.
+            // 기준을 상위 35%(0.65 percentile)로 올려 ON_PULSE 쪽 비중을 늘렸다.
             val verseEnergyBlinkCutoff =
-                if (verseBarEnergy.isNotEmpty()) percentile(verseBarEnergy.values.toList(), 0.6f) else 0f
+                if (verseBarEnergy.isNotEmpty()) percentile(verseBarEnergy.values.toList(), 0.65f) else 0f
 
             for ((beatIndex, t) in effectiveBeats.withIndex()) {
                 val beatEngine = when {
