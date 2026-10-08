@@ -416,7 +416,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 // 가장 붉은 색조에 가까운 색을 BG로 써서 ON_PULSE(낮은 에너지)와 또렷이
                 // 구분되는 강조색을 준다.
                 if (sectionType == SectionDetector.SectionType.VERSE) {
-                    palette.white to palette.black
+                    palette.white to closestToRed(palette.colorGroup)
                 } else {
                     val set = palette.blinkSets[beatIndex % palette.blinkSets.size]
                     set.fg to set.bg
@@ -473,10 +473,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     private fun buildOffPayload(): ByteArray = LSEffectPayload.Effects.off(transit = ON_TRANSIT).toByteArray()
 
     // period는 10ms 단위고 FG+BG를 합친 한 사이클 전체 길이다(예: period=50 → 250ms FG +
-    // 250ms BG = 500ms). beatMs/10이면 "1비트 = 1사이클"인데, VERSE 고에너지 강조용으로는
-    // 느리게 느껴진다는 실기 테스트 피드백으로 4배 단축(beatMs/40, 즉 반 비트의 절반마다
-    // 한 사이클)한다.
-    private fun msToBlinkPeriod(beatMs: Long)        = (beatMs / 40L).toInt().coerceIn(1, 255)
+    // 250ms BG = 500ms). beatMs/10("1비트=1사이클")은 느리고, beatMs/40도 실기 테스트로는
+    // 박자가 안 맞았다 — beatMs/100이 체감상 박자에 얼추 맞는다는 실기 피드백으로 조정.
+    private fun msToBlinkPeriod(beatMs: Long)        = (beatMs / 100L).toInt().coerceIn(1, 255)
     private fun msToStrobePeriod(beatMs: Long)       = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToBreathPeriod(beatMs: Long)       = (beatMs / 20L).toInt().coerceIn(1, 255)
     private fun msToBreathRandomDelay(beatMs: Long)  = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
