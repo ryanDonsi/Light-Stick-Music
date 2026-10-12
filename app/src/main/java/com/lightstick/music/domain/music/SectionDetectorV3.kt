@@ -85,33 +85,12 @@ class SectionDetectorV3 : SectionDetector {
         private const val ALIGN_SNAP_MS = 500L
 
         private const val CLIMAX_WINDOW_HALF_MS = 2_000L
-        // 국소 스파이크가 아무리 뚜렷해도, 그 CHORUS 내부 최고치의 이 비율 미만이면 CLIMAX
-        // 후보에서 제외한다 — 잦아드는 구간에서 "직전보다 튀었다"만으로 CLIMAX가 잘못
-        // 잡히는 걸 방지. 곡 전체 피크가 아니라 "CHORUS 내부" 최고치 기준으로 삼아서(아래
-        // detectClimaxMoments 참고), 곡 전체 최고 순간이 BRIDGE/OUTRO 등 CHORUS 밖에
-        // 있는 곡에서도 그 곡의 CHORUS 안에서 상대적으로 가장 두드러진 지점은 항상 통과한다.
+        private const val CLIMAX_MIN_CV         = 0.35f
+        private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
+        // 국소 스파이크가 아무리 뚜렷해도, 곡 전체 절대 피크의 이 비율 미만이면 CLIMAX 후보에서
+        // 제외한다 — 잦아드는 구간에서 "직전보다 튀었다"만으로 CLIMAX가 잘못 잡히는 걸 방지.
         private const val CLIMAX_ABS_FLOOR_RATIO = 0.70f
         private const val CLIMAX_MAX_COUNT = 5
-        // 윈도우 레벨 onsetDensity(computeWindowFeature)와 climax 로컬 onset rate가 같은
-        // "어택으로 간주할 novelty 하한"을 공유하도록 이름 붙인 상수로 뺐다.
-        private const val ONSET_THRESHOLD = 0.12f
-        // climax 후보 프레임을 중심으로 이 폭(ms) 안에서 onset이 얼마나 촘촘한지를 본다 —
-        // 너무 좁으면 단발성 어택도 "빽빽함"으로 오인하고, 너무 넓으면 섹션 평균과 다를 게
-        // 없어져서 로컬 밀도 정보가 사라진다. 대략 2마디(4/4, 120BPM 기준 약 2000ms) 규모로 잡았다.
-        private const val CLIMAX_ONSET_WINDOW_MS = 1_600L
-        // scoreArray = ampScore * densityFactor로 곱한다(덧셈 블렌딩 아님). onset rate=0이면
-        // CLIMAX_DENSITY_MIN_FACTOR, onset rate=1이면 CLIMAX_DENSITY_MAX_FACTOR까지 선형
-        // 보간 — "에너지는 높은데 빡빡하지 않은" 순간은 절반으로 깎이고, "빡빡한" 순간은
-        // 최대 2배로 끌어올려서, 감지되는 위치 자체가 에너지+빡빡함 쪽으로 옮겨가도록 한다.
-        // 처음엔 onset rate를 ampScore와 덧셈으로 블렌딩했는데, onset rate는 busy한 구간
-        // 내내 고르게 높아 분산이 작은 값이라 덧셈 블렌딩은 전체 분포를 납작하게 만들어
-        // (당시엔 있던) 곡 단위 cv/peakRatio 통계 게이트를 거의 통과 못 하는 회귀가
-        // 있었다(실측: climax가 거의 감지 안 됨). 곱셈은 ampScore의 상대적 스파이크
-        // 구조(분산)를 유지하면서도 어느 위치가 선택되는지는 바꿔준다 — densityFactor의
-        // 변동 폭(0.5~2x)이 ampScore 자체의 변동 폭(무음~피크, 수십 배)보다 훨씬 작아서
-        // 분포가 뭉개지지 않는다.
-        private const val CLIMAX_DENSITY_MIN_FACTOR = 0.5f
-        private const val CLIMAX_DENSITY_MAX_FACTOR = 2.0f
 
         private const val BREAK_MAX_MS = 8_000L
         // BREAK는 "상대적으로 조용한 구간"이 아니라 "곡 전체 피크 대비 거의 무음인 구간"만
@@ -238,7 +217,7 @@ class SectionDetectorV3 : SectionDetector {
         val sections = toSections(labeledSections)
         val chorusRanges = sections.filter { it.type == SectionDetector.SectionType.CHORUS }
             .map { it.startMs until it.endMs }
-        val climaxMoments = detectClimaxMoments(full, novelty, durationMs, hopMs, beatMs, chorusRanges)
+        val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs, chorusRanges)
         return annotateBeats(
             beats, sections, climaxMoments,
             novelty = novelty, low = low, full = full, high = high, hopMs = hopMs,
@@ -363,7 +342,7 @@ class SectionDetectorV3 : SectionDetector {
             sumFull += f; sumLow += l; sumMid += m
             if (high.size > i) sumHigh += high[i]
             sumNov += novelty[i]
-            if (novelty[i] >= ONSET_THRESHOLD) novAbove++
+            if (novelty[i] >= 0.12f) novAbove++
             if (f > peakFull) peakFull = f
             sumAct += abs(f - prevV); prevV = f
         }
@@ -1148,65 +1127,31 @@ class SectionDetectorV3 : SectionDetector {
     // (드럼 필, 심벌 크래시 등)도 조건을 통과해버려서 CHORUS 밖에서 터지는 문제가 있었다
     // (실측: aespa 'Supernova' — climax moments 3개 중 2개가 VERSE/BRIDGE 구간이었음).
     private fun detectClimaxMoments(
-        full: FloatArray, novelty: FloatArray, durationMs: Long, hopMs: Long, beatMs: Long,
-        chorusRanges: List<LongRange>
+        full: FloatArray, durationMs: Long, hopMs: Long, beatMs: Long, chorusRanges: List<LongRange>
     ): List<Long> {
         if (full.size < 8 || chorusRanges.isEmpty()) return emptyList()
 
-        // absFloor는 곡 전체(full.max())가 아니라 CHORUS 구간 안에서의 최고치를 기준으로
-        // 삼는다 — 곡 전체 피크 기준으로 두면, 정작 가장 큰 순간이 BRIDGE/OUTRO 등
-        // CHORUS 밖에 있는 곡에서는 모든 CHORUS 구간이 통째로 절대 하한에 못 미쳐
-        // climax가 하나도 안 뽑히는 문제가 생긴다. CHORUS 내부 최고치를 기준으로 삼으면
-        // 그 곡의 CHORUS가 (다른 곡과 비교해) 조용하든 시끄럽든 상관없이, 그 곡 자신의
-        // CHORUS 안에서 상대적으로 가장 두드러진 지점은 항상 하한을 통과한다.
-        val chorusPeakFull = chorusRanges.maxOf { range ->
-            val loIdx = (range.first / hopMs).toInt().coerceIn(0, full.lastIndex)
-            val hiIdx = (range.last  / hopMs).toInt().coerceIn(0, full.lastIndex)
-            var m = 0f
-            for (idx in loIdx..hiIdx) if (full[idx] > m) m = full[idx]
-            m
-        }
-        val absFloor = chorusPeakFull * CLIMAX_ABS_FLOOR_RATIO
+        val globalPeakFull = full.max()
+        val absFloor = globalPeakFull * CLIMAX_ABS_FLOOR_RATIO
 
-        // 프레임별 "빽빽함(onset rate)" — 그 프레임을 중심으로 CLIMAX_ONSET_WINDOW_MS 폭
-        // 안에서 novelty(어택 강도)가 ONSET_THRESHOLD를 넘는 프레임의 비율. 구간 합을
-        // 매 프레임마다 다시 더하면 O(n·window)라 접두합(prefix sum)으로 O(n)에 구한다.
-        val onsetWindowFrames = max(1, (CLIMAX_ONSET_WINDOW_MS / 2 / hopMs).toInt())
-        val onsetAbovePrefix = IntArray(novelty.size + 1)
-        for (i in novelty.indices) {
-            onsetAbovePrefix[i + 1] = onsetAbovePrefix[i] + if (novelty[i] >= ONSET_THRESHOLD) 1 else 0
-        }
-        fun onsetRateAt(i: Int): Float {
-            val lo = max(0, i - onsetWindowFrames)
-            val hi = min(novelty.size, i + onsetWindowFrames + 1)
-            val span = hi - lo
-            if (span <= 0) return 0f
-            return (onsetAbovePrefix[hi] - onsetAbovePrefix[lo]).toFloat() / span
-        }
-
-        // ampScore(순수 진폭)에 densityFactor(빽빽함에 따라 0.5~2x)를 곱해 scoreArray를
-        // 만든다 — 에너지는 높지만 onset이 뜸한 순간은 깎이고, 에너지+빽빽함이 둘 다 있는
-        // 순간은 끌어올려져서, 아래의 로컬-맥스 선택 자체가 에너지 높고 빽빽한 쪽으로
-        // 이동한다.
         val scoreArray = FloatArray(full.size)
         for (i in 2 until full.size - 2) {
             val e = full[i]
             val localAvg = (full[i-2] + full[i-1] + full[i+1] + full[i+2]) * 0.25f
-            val ampScore = e * 0.50f + max(0f, e - full[i-1]) * 0.30f + max(0f, e - localAvg) * 0.20f
-            val densityFactor = CLIMAX_DENSITY_MIN_FACTOR +
-                (CLIMAX_DENSITY_MAX_FACTOR - CLIMAX_DENSITY_MIN_FACTOR) * onsetRateAt(i)
-            scoreArray[i] = ampScore * densityFactor
+            scoreArray[i] = e * 0.50f + max(0f, e - full[i-1]) * 0.30f + max(0f, e - localAvg) * 0.20f
         }
 
         val scoreList = scoreArray.filter { it > 0f }
         if (scoreList.isEmpty()) return emptyList()
 
-        // 전에는 "곡 전체가 통계적으로 충분히 다이내믹한가"를 cv/peakRatio로 먼저 걸러서,
-        // 그 기준에 못 미치는 곡은 climax를 통째로 0개로 만들었다. 다이내믹 레인지가 작은
-        // 곡(다 고르게 세게 밀어붙이는 EDM/댄스 등)은 절대적으로는 안 튀어도, 그 곡 안에서는
-        // 분명히 "상대적으로 더 두드러지는" 지점이 있다 — 그래서 곡 단위 절대 게이트는
-        // 없애고, absFloor(CHORUS 내부 최고치 기준)만 최소 하한으로 남긴 뒤, 아래에서
-        // CHORUS별 로컬 맥스를 그 곡 자신의 점수 분포 안에서 상대적으로 뽑는다.
+        val envMean  = scoreList.average().toFloat()
+        val envStd   = sqrt(scoreList.fold(0f) { acc, v -> acc + (v - envMean) * (v - envMean) } / scoreList.size)
+        val cv       = if (envMean > 0f) envStd / envMean else 0f
+        val peakRatio = if (envMean > 0f) scoreList.max() / envMean else 0f
+
+        if (cv < CLIMAX_MIN_CV || peakRatio < CLIMAX_MIN_PEAK_RATIO) return emptyList()
+
+        val p90 = scoreList.sorted().let { it[(it.lastIndex * 0.90f).toInt().coerceIn(0, it.lastIndex)] }
         val minGapMs = max(800L, beatMs * 4L)
 
         // 곡 길이의 30%를 절대 시간으로 끊어 그 이전을 전부 제외하던 climaxIntroLimit은
@@ -1233,7 +1178,8 @@ class SectionDetectorV3 : SectionDetector {
             if (full[i] < absFloor) continue
             val chorusIdx = chorusRanges.indexOfFirst { tMs in it }
             if (chorusIdx < 0) continue
-            if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2]) {
+            if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2] &&
+                sc >= p90 * 1.18f && sc >= envMean + envStd * 1.30f) {
                 candidates += Candidate(tMs, sc, chorusIdx)
             }
         }
