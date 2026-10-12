@@ -42,11 +42,8 @@ object AutoTimelineConfig {
      * v0→v1: lightstick-sdk 2.0.0 반영. LSEffectPayload.toByteArray()의 20바이트 레이아웃이
      * (mode/ledMask/durationMs/syncIndex) → (msgType/groupMask/effectIndex)로 바뀌어,
      * SDK 1.4.1로 캐싱된 기존 .bin 프레임은 새 응원봉 펌웨어가 오인식한다. 반드시 무효화 필요.
-     *
-     * v1→v2: SectionDetector.SectionType에서 어떤 감지기도 생성하지 않던 죽은 타입
-     * INST/SOLO를 제거. 기존 캐시의 type ordinal 해석이 달라지는 걸 막기 위해 무효화.
      */
-    const val VERSION = 2
+    const val VERSION = 1
 
     // =========================================================================
     // BEAT_DETECTOR: 비트 감지 엔진 버전
@@ -183,7 +180,7 @@ object AutoTimelineConfig {
      *   CHORUS(15~25s): 8-16개 비트, 높은 에너지, 로테이션 이펙트
      *   등등...
      */
-    const val SECTION_DETECTOR_VERSION = 1
+    const val SECTION_DETECTOR_VERSION = 3
 
     // =========================================================================
     // EFFECT_RULE: 이펙트 생성 규칙 버전
