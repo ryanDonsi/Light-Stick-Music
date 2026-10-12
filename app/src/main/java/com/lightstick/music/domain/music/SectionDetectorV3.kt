@@ -90,6 +90,7 @@ class SectionDetectorV3 : SectionDetector {
         // 국소 스파이크가 아무리 뚜렷해도, 곡 전체 절대 피크의 이 비율 미만이면 CLIMAX 후보에서
         // 제외한다 — 잦아드는 구간에서 "직전보다 튀었다"만으로 CLIMAX가 잘못 잡히는 걸 방지.
         private const val CLIMAX_ABS_FLOOR_RATIO = 0.70f
+        private const val CLIMAX_MAX_COUNT = 3
 
         private const val BREAK_MAX_MS = 8_000L
         // BREAK는 "상대적으로 조용한 구간"이 아니라 "곡 전체 피크 대비 거의 무음인 구간"만
@@ -1152,7 +1153,6 @@ class SectionDetectorV3 : SectionDetector {
 
         val p90 = scoreList.sorted().let { it[(it.lastIndex * 0.90f).toInt().coerceIn(0, it.lastIndex)] }
         val minGapMs = max(800L, beatMs * 4L)
-        val selected = ArrayList<Long>()
 
         // 곡 길이의 30%를 절대 시간으로 끊어 그 이전을 전부 제외하던 climaxIntroLimit은
         // 제거했다 — CHORUS 시작 시점은 곡마다 다른데, 길이 기준 30% 컷이 공교롭게 첫
@@ -1163,21 +1163,55 @@ class SectionDetectorV3 : SectionDetector {
         // 배제되고, 그보다 약한 꼬리(score 0.456~0.473)에서 58170/59840/61490이 선택됨).
         // 이제 CHORUS 구간 안에서만 뽑도록 이미 제한했으므로 별도의 절대 시간 컷은
         // 불필요하다.
+        //
+        // 후보를 앞에서부터 찾다가 CLIMAX_MAX_COUNT개 채우면 바로 멈추던 방식은, 후보가
+        // minGapMs 간격으로 촘촘히 몰려 있으면 첫 CHORUS 하나에서 슬롯을 다 써버려서 뒤에
+        // 나오는(흔히 더 임팩트 있는 마지막) CHORUS는 더 센 피크가 있어도 후보에 오르지도
+        // 못했다(실측: BLACKPINK '뛰어(JUMP)' — 3개가 전부 같은 CHORUS 구간에 몰림).
+        // 그래서 먼저 CHORUS별로 가장 센 후보를 하나씩(등장 순서대로) 뽑아 모든 CHORUS가
+        // 최소 1개는 대표를 갖게 하고, 남는 슬롯만 전체 후보 중 점수 높은 순으로 채운다.
+        data class Candidate(val tMs: Long, val score: Float, val chorusIdx: Int)
+        val candidates = ArrayList<Candidate>()
         for (i in 2 until scoreArray.size - 2) {
             val sc = scoreArray[i]; if (sc <= 0f) continue
             val tMs = i.toLong() * hopMs
             if (full[i] < absFloor) continue
-            if (chorusRanges.none { tMs in it }) continue
+            val chorusIdx = chorusRanges.indexOfFirst { tMs in it }
+            if (chorusIdx < 0) continue
             if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2] &&
                 sc >= p90 * 1.18f && sc >= envMean + envStd * 1.30f) {
-                if (selected.none { abs(it - tMs) < minGapMs }) {
-                    selected += tMs
-                    if (selected.size >= 3) break
-                }
+                candidates += Candidate(tMs, sc, chorusIdx)
             }
         }
 
-        val result = selected.sorted().map { it.coerceIn(0L, durationMs) }
+        // minGapMs 이내로 붙은 후보는 점수가 가장 높은 것만 남긴다(국소 중복 제거).
+        val deduped = ArrayList<Candidate>()
+        for (c in candidates.sortedBy { it.tMs }) {
+            val last = deduped.lastOrNull()
+            if (last != null && c.tMs - last.tMs < minGapMs) {
+                if (c.score > last.score) deduped[deduped.lastIndex] = c
+            } else {
+                deduped += c
+            }
+        }
+
+        val selected = ArrayList<Candidate>()
+        val perChorusBest = deduped.groupBy { it.chorusIdx }.toSortedMap().values
+            .mapNotNull { group -> group.maxByOrNull { it.score } }
+        for (c in perChorusBest) {
+            if (selected.size >= CLIMAX_MAX_COUNT) break
+            selected += c
+        }
+        if (selected.size < CLIMAX_MAX_COUNT) {
+            val remaining = deduped.filter { cand -> selected.none { it.tMs == cand.tMs } }
+                .sortedByDescending { it.score }
+            for (c in remaining) {
+                if (selected.size >= CLIMAX_MAX_COUNT) break
+                if (selected.none { abs(it.tMs - c.tMs) < minGapMs }) selected += c
+            }
+        }
+
+        val result = selected.map { it.tMs }.sorted().map { it.coerceIn(0L, durationMs) }
         Log.d(TAG, "SectionDetectorV3 climax moments=${result.joinToString()} (absFloor=${"%.3f".format(absFloor)})")
         return result
     }
