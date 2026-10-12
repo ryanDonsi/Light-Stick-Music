@@ -480,11 +480,13 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 set.fg to set.bg
             }
             // BRIDGE의 BREATH는 (비발라드 포함) VERSE의 BREATH와 같은 breathSet 색을 그대로
-            // 썼었다(sectionType 구분이 없었음) — 발라드에서만 BRIDGE를 조용히 꺼져 있는
-            // 느낌을 주려고 검정으로 바꿨다. 비발라드 BRIDGE(원래 로직 복원 시 STROBE/
-            // ON_TRANSIT_ROTATE도 섞이는 구간)는 기존 breathSet 색을 그대로 유지한다.
+            // 썼었다(sectionType 구분이 없었음) — 발라드에서만 BG를 검정으로 바꿔 더 조용한
+            // 느낌을 주려 했는데, FG까지 검정으로 하면 breath가 검정↔검정이 돼서 사실상
+            // 완전히 꺼진 것처럼 보이는 문제가 있었다(실측: "BRIDGE가 OFF 상태로만 나옴").
+            // FG는 breathSet.fg(색상 있는 값)를 유지하고 BG만 검정으로 바꿔서, FREEZE와
+            // 같은 패턴(색상 있는 FG + 검정 BG)으로 맞췄다.
             EffectMatchingEngine.FgEngine.BREATH ->
-                if (sectionType == SectionDetector.SectionType.BRIDGE && isBalladMode) palette.black to palette.black
+                if (sectionType == SectionDetector.SectionType.BRIDGE && isBalladMode) palette.breathSet.fg to palette.black
                 else palette.breathSet.fg to palette.breathSet.bg
             // FREEZE(BREAK): 깜빡임/회전 없이 한 가지 색을 고정해서 보여준다. BREATH와 같은
             // 색을 쓰되 배경은 완전히 꺼서(black) 정적인 느낌을 준다.
