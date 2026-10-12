@@ -91,6 +91,19 @@ class SectionDetectorV3 : SectionDetector {
         // 제외한다 — 잦아드는 구간에서 "직전보다 튀었다"만으로 CLIMAX가 잘못 잡히는 걸 방지.
         private const val CLIMAX_ABS_FLOOR_RATIO = 0.70f
         private const val CLIMAX_MAX_COUNT = 5
+        // 윈도우 레벨 onsetDensity(computeWindowFeature)와 climax 로컬 onset rate가 같은
+        // "어택으로 간주할 novelty 하한"을 공유하도록 이름 붙인 상수로 뺐다.
+        private const val ONSET_THRESHOLD = 0.12f
+        // climax 후보 프레임을 중심으로 이 폭(ms) 안에서 onset이 얼마나 촘촘한지를 본다 —
+        // 너무 좁으면 단발성 어택도 "빽빽함"으로 오인하고, 너무 넓으면 섹션 평균과 다를 게
+        // 없어져서 로컬 밀도 정보가 사라진다. 대략 2마디(4/4, 120BPM 기준 약 2000ms) 규모로 잡았다.
+        private const val CLIMAX_ONSET_WINDOW_MS = 1_600L
+        // 기존엔 scoreArray가 순수 진폭(e/attack/localContrast)만 반영해서, "한 음이 세게
+        // 지속되는" 구간과 "파형이 빽빽하게 몰아치는" 구간을 구분하지 못했다 — 사용자가 직접
+        // "파형이 빽빽한 부분"에서만 클라이맥스가 터졌으면 한다고 지적한 문제. 음악 쪽에서
+        // 흔히 쓰는 방식대로, 로컬 onset rate(=얼마나 촘촘하게 어택이 몰리는지)를 진폭
+        // 기반 점수와 섞어서 최종 climax 점수를 만든다.
+        private const val CLIMAX_ONSET_WEIGHT = 0.35f
 
         private const val BREAK_MAX_MS = 8_000L
         // BREAK는 "상대적으로 조용한 구간"이 아니라 "곡 전체 피크 대비 거의 무음인 구간"만
@@ -217,7 +230,7 @@ class SectionDetectorV3 : SectionDetector {
         val sections = toSections(labeledSections)
         val chorusRanges = sections.filter { it.type == SectionDetector.SectionType.CHORUS }
             .map { it.startMs until it.endMs }
-        val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs, chorusRanges)
+        val climaxMoments = detectClimaxMoments(full, novelty, durationMs, hopMs, beatMs, chorusRanges)
         return annotateBeats(
             beats, sections, climaxMoments,
             novelty = novelty, low = low, full = full, high = high, hopMs = hopMs,
@@ -342,7 +355,7 @@ class SectionDetectorV3 : SectionDetector {
             sumFull += f; sumLow += l; sumMid += m
             if (high.size > i) sumHigh += high[i]
             sumNov += novelty[i]
-            if (novelty[i] >= 0.12f) novAbove++
+            if (novelty[i] >= ONSET_THRESHOLD) novAbove++
             if (f > peakFull) peakFull = f
             sumAct += abs(f - prevV); prevV = f
         }
@@ -1127,18 +1140,43 @@ class SectionDetectorV3 : SectionDetector {
     // (드럼 필, 심벌 크래시 등)도 조건을 통과해버려서 CHORUS 밖에서 터지는 문제가 있었다
     // (실측: aespa 'Supernova' — climax moments 3개 중 2개가 VERSE/BRIDGE 구간이었음).
     private fun detectClimaxMoments(
-        full: FloatArray, durationMs: Long, hopMs: Long, beatMs: Long, chorusRanges: List<LongRange>
+        full: FloatArray, novelty: FloatArray, durationMs: Long, hopMs: Long, beatMs: Long,
+        chorusRanges: List<LongRange>
     ): List<Long> {
         if (full.size < 8 || chorusRanges.isEmpty()) return emptyList()
 
         val globalPeakFull = full.max()
         val absFloor = globalPeakFull * CLIMAX_ABS_FLOOR_RATIO
 
+        // 프레임별 "빽빽함(onset rate)" — 그 프레임을 중심으로 CLIMAX_ONSET_WINDOW_MS 폭
+        // 안에서 novelty(어택 강도)가 ONSET_THRESHOLD를 넘는 프레임의 비율. 구간 합을
+        // 매 프레임마다 다시 더하면 O(n·window)라 접두합(prefix sum)으로 O(n)에 구한다.
+        val onsetWindowFrames = max(1, (CLIMAX_ONSET_WINDOW_MS / 2 / hopMs).toInt())
+        val onsetAbovePrefix = IntArray(novelty.size + 1)
+        for (i in novelty.indices) {
+            onsetAbovePrefix[i + 1] = onsetAbovePrefix[i] + if (novelty[i] >= ONSET_THRESHOLD) 1 else 0
+        }
+        fun onsetRateAt(i: Int): Float {
+            val lo = max(0, i - onsetWindowFrames)
+            val hi = min(novelty.size, i + onsetWindowFrames + 1)
+            val span = hi - lo
+            if (span <= 0) return 0f
+            return (onsetAbovePrefix[hi] - onsetAbovePrefix[lo]).toFloat() / span
+        }
+
+        // 기존엔 scoreArray가 순수 진폭(e/attack/localContrast)만 반영했다 — "한 음이 세게
+        // 지속되는" 구간과 "파형이 빽빽하게 몰아치는" 구간을 구분 못 해, 사용자가 지적한
+        // "파형이 빽빽한 부분"이 아닌 곳에서도 climax가 잡히는 문제가 있었다. 음악 쪽에서
+        // 흔히 쓰는 방식대로 진폭 기반 점수(globalPeakFull로 정규화)와 로컬 onset rate를
+        // 섞어서 최종 climax 점수를 만든다 — "크고 동시에 빽빽한" 지점만 살아남는다.
         val scoreArray = FloatArray(full.size)
         for (i in 2 until full.size - 2) {
             val e = full[i]
             val localAvg = (full[i-2] + full[i-1] + full[i+1] + full[i+2]) * 0.25f
-            scoreArray[i] = e * 0.50f + max(0f, e - full[i-1]) * 0.30f + max(0f, e - localAvg) * 0.20f
+            val ampScore = e * 0.50f + max(0f, e - full[i-1]) * 0.30f + max(0f, e - localAvg) * 0.20f
+            val ampNorm = ampScore / globalPeakFull
+            val onsetRate = onsetRateAt(i)
+            scoreArray[i] = ampNorm * (1f - CLIMAX_ONSET_WEIGHT) + onsetRate * CLIMAX_ONSET_WEIGHT
         }
 
         val scoreList = scoreArray.filter { it > 0f }
