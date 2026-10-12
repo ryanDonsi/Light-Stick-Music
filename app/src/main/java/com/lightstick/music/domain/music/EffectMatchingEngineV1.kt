@@ -202,17 +202,16 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 if (verseBarEnergy.isNotEmpty()) percentile(verseBarEnergy.values.toList(), 0.70f) else 0f
 
             for ((beatIndex, t) in effectiveBeats.withIndex()) {
+                val barIdx = barIndexAt(t, downbeatMs, section.beatMs, beatsPerBar)
                 val beatEngine = when {
                     section.type == SectionDetector.SectionType.BRIDGE ->
                         bridgePhaseEngine(beatIndex, effectiveBeats.size, section.beatMs, section.relScore, isBalladMode)
                     section.type == SectionDetector.SectionType.VERSE && verseBarEnergy.isNotEmpty() -> {
-                        val barIdx = barIndexAt(t, downbeatMs, section.beatMs, beatsPerBar)
                         val energy = verseBarEnergy[barIdx] ?: 0f
                         if (energy >= verseEnergyBlinkCutoff) EffectMatchingEngine.FgEngine.BLINK
                         else EffectMatchingEngine.FgEngine.ON_PULSE
                     }
                     enginePool.size > 1 -> {
-                        val barIdx  = barIndexAt(t, downbeatMs, section.beatMs, beatsPerBar)
                         val blockIdx = Math.floorDiv(barIdx, barBlockLen)
                         enginePool[Math.floorMod(blockIdx, enginePool.size)]
                     }
@@ -221,7 +220,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
                 val effectiveEngine = beatEngine
 
-                val (fg, bg) = colorsForEngine(palette, effectiveEngine, sameTypeIdx, beatIndex, section.type)
+                val (fg, bg) = colorsForEngine(palette, effectiveEngine, sameTypeIdx, beatIndex, section.type, barIdx)
                 val bgNonNull = bg ?: LSColor(0, 0, 0)
 
                 val beatPeriod = when (effectiveEngine) {
@@ -394,7 +393,8 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
     private fun colorsForEngine(
         palette: EffectMatchingEngine.Palette, engine: EffectMatchingEngine.FgEngine, sectionIndex: Int,
-        beatIndex: Int = 0, sectionType: SectionDetector.SectionType = SectionDetector.SectionType.VERSE
+        beatIndex: Int = 0, sectionType: SectionDetector.SectionType = SectionDetector.SectionType.VERSE,
+        barIdx: Int = 0
     ): Pair<LSColor, LSColor?> {
         val isPatternA = (sectionIndex % 2 == 0)
         val effectiveColors: List<LSColor> = when (sectionType) {
@@ -405,8 +405,12 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val groupColor = effectiveColors[beatIndex % effectiveColors.size]
         return when (engine) {
             EffectMatchingEngine.FgEngine.ON_PULSE -> {
+                // FG를 bar 단위로 팔레트 색상(effectiveColors) 중에서 순환시킨다 — 기존엔
+                // 섹션 전체가 sectionIndex 기반 고정 한 색이라 같은 VERSE 안에서는 ON_PULSE
+                // FG가 안 바뀌었다. BG는 기존처럼 섹션 단위 패턴(A/B)을 그대로 유지.
                 val set = if (isPatternA) palette.onPulseSets[0] else palette.onPulseSets[1]
-                set.fg to set.bg
+                val fg = effectiveColors[Math.floorMod(barIdx, effectiveColors.size)]
+                fg to set.bg
             }
             EffectMatchingEngine.FgEngine.BLINK -> {
                 // VERSE의 BLINK는 "그 bar가 섹션 내에서 에너지가 높은 구간"일 때만 쓰인다
