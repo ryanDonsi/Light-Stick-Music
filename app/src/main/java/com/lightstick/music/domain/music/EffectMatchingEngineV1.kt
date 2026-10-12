@@ -23,13 +23,18 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 130 BPM = beatMs 461.5. beatMs가 이보다 작으면(=BPM이 더 높으면) STROBE,
         // 크면(BPM이 더 낮으면) ON_TRANSIT_ROTATE.
         private const val CLIMAX_STROBE_MAX_BEAT_MS = 461L
-        // OUTRO 마지막 OFF의 transit(페이드 길이)을 OUTRO 섹션 길이에 비례시킨다.
-        // transit 1 unit이 실제 몇 ms인지는 SDK/문서 어디에도 안 나와 있어(실기로만 확인
-        // 가능) 초기 근사치로 outroLenMs/100을 쓰고, [MIN,MAX]로 눌러둔다 — 실기 테스트
-        // 후 배율 재조정 필요.
+        // OUTRO 전체에 걸쳐 서서히 꺼지도록, outroStartMs~finalOffMs 구간을 여러 스텝으로
+        // 나눠 각 스텝마다 밝기를 낮춘 fg색을 on(transit=...)으로 보낸다(마지막 스텝만
+        // 실제 off). 한 스텝의 transit(페이드 길이)이 실제 몇 ms인지는 SDK/문서 어디에도
+        // 안 나와 있어(실기로만 확인 가능) 초기 근사치로 스텝 길이(ms)/100을 쓰고,
+        // [MIN,MAX]로 눌러둔다 — 실기 테스트 후 배율 재조정 필요.
         private const val OUTRO_TRANSIT_DIVISOR = 100L
         private const val OUTRO_TRANSIT_MIN = 2
         private const val OUTRO_TRANSIT_MAX = 60
+        // 대략 1초에 한 스텝 꼴로 밝기를 낮춘다 — 너무 잦으면 BLE 트래픽이 커지고, 너무
+        // 뜸하면 "서서히"가 아니라 계단식으로 뚝뚝 떨어지는 느낌이 된다.
+        private const val OUTRO_FADE_STEP_MS = 1_000L
+        private const val OUTRO_FADE_MAX_STEPS = 8
     }
 
     data class V8Section(
@@ -170,6 +175,12 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         )
         var lastRepeatKey: RepeatKey? = null
 
+        // OUTRO 페이드(아래 tail 블록)가 "지금 기기에 실제로 떠 있는 색"에서부터 서서히
+        // 꺼지도록, 마지막으로 선택된 fg를 추적해 둔다 — OUTRO 자신은 engine==OFF_TRANSIT
+        // 이라 아래 루프에서 continue로 건너뛰므로, 이 값은 항상 OUTRO 바로 이전 섹션의
+        // 마지막 fg로 남는다.
+        var lastFg: LSColor = palette.white
+
         val sameTypeCountMap = mutableMapOf<SectionDetector.SectionType, Int>()
 
         for ((index, section) in sections.withIndex()) {
@@ -226,6 +237,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
                 val (fg, bg) = colorsForEngine(palette, effectiveEngine, sameTypeIdx, beatIndex, section.type, barIdx)
                 val bgNonNull = bg ?: LSColor(0, 0, 0)
+                lastFg = fg
 
                 val beatPeriod = when (effectiveEngine) {
                     EffectMatchingEngine.FgEngine.STROBE -> 1
@@ -279,12 +291,36 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         frameMap.keys.filter { it >= finalOffMs }.forEach { frameMap.remove(it) }
         val outroStartMs = sections.firstOrNull { it.type == SectionDetector.SectionType.OUTRO }?.startMs
         val outroLenMs = outroStartMs?.let { (finalOffMs - it).coerceAtLeast(0L) } ?: 0L
-        val outroTransit = (outroLenMs / OUTRO_TRANSIT_DIVISOR).toInt().coerceIn(OUTRO_TRANSIT_MIN, OUTRO_TRANSIT_MAX)
-        Log.d(TAG, "EffectMatchingEngineV1 outro transit: outroStartMs=$outroStartMs finalOffMs=$finalOffMs " +
-            "outroLenMs=$outroLenMs transit=$outroTransit")
-        frameMap[finalOffMs] = buildOffPayload(outroTransit)
+
+        // OUTRO 전체 구간을 여러 스텝으로 나눠 lastFg(OUTRO 직전까지 실제로 떠 있던 색)를
+        // 점점 어둡게 만들어 보낸다 — 예전엔 finalOffMs 한 지점에서만 off(transit)이 한 번
+        // 발생해서, OUTRO 시작부터 그 순간까지는 화면이 그대로 멈춰 있다가 끝에만 훅 꺼지는
+        // 느낌이었다. 마지막 스텝은 on(검정)이 아니라 실제 off 명령을 쓴다.
+        if (outroStartMs != null && outroLenMs > 0L) {
+            val stepCount = (outroLenMs / OUTRO_FADE_STEP_MS).toInt().coerceIn(1, OUTRO_FADE_MAX_STEPS)
+            val stepLenMs = outroLenMs / stepCount
+            val stepTransit = (stepLenMs / OUTRO_TRANSIT_DIVISOR).toInt().coerceIn(OUTRO_TRANSIT_MIN, OUTRO_TRANSIT_MAX)
+            Log.d(TAG, "EffectMatchingEngineV1 outro fade: outroStartMs=$outroStartMs finalOffMs=$finalOffMs " +
+                "outroLenMs=$outroLenMs stepCount=$stepCount stepTransit=$stepTransit")
+            for (i in 1..stepCount) {
+                val tStep = outroStartMs + outroLenMs * i / stepCount
+                if (i == stepCount) {
+                    frameMap[tStep] = buildOffPayload(stepTransit)
+                } else {
+                    val fraction = 1f - i.toFloat() / stepCount
+                    frameMap[tStep] = LSEffectPayload.Effects.on(color = scaleColor(lastFg, fraction), transit = stepTransit).toByteArray()
+                }
+            }
+        } else {
+            frameMap[finalOffMs] = buildOffPayload(OUTRO_TRANSIT_MIN)
+        }
 
         return frameMap.entries.sortedBy { it.key }.map { it.key to it.value }
+    }
+
+    private fun scaleColor(c: LSColor, factor: Float): LSColor {
+        val f = factor.coerceIn(0f, 1f)
+        return LSColor((c.r * f).toInt().coerceIn(0, 255), (c.g * f).toInt().coerceIn(0, 255), (c.b * f).toInt().coerceIn(0, 255))
     }
 
     private fun computeGroupEnergy(startMs: Long, endMs: Long, fullEnv: List<Float>, durationMs: Long, hopMs: Long): Float {
