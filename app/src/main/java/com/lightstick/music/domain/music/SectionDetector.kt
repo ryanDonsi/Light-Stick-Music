@@ -8,8 +8,8 @@ interface SectionDetector {
     // 체크). 그래서 이 enum 순서를 바꿀 때는 반드시 AutoTimelineConfig.VERSION을
     // 올려서 예전 ordinal로 저장된 파일이 새 순서로 잘못 해석되지 않도록 한다.
     // VOCAL/BEAT/BUILD는 어떤 SectionDetector도 실제로 생성하지 않는 죽은 타입이라
-    // 제거했다 (2026-07: VERSION 0 → 1).
-    enum class SectionType { INTRO, VERSE, CHORUS, BRIDGE, END, CLIMAX, BREAK, OUTRO, INST, SOLO }
+    // 제거했다 (2026-07: VERSION 0 → 1). INST/SOLO도 같은 이유로 제거 (2026-10: VERSION 1 → 2).
+    enum class SectionType { INTRO, VERSE, CHORUS, BRIDGE, END, CLIMAX, BREAK, OUTRO }
     enum class ChangeStrength { NONE, MEDIUM, STRONG }
 
     /**

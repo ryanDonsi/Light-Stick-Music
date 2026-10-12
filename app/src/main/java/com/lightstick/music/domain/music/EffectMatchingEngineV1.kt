@@ -313,15 +313,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         SectionDetector.SectionType.CHORUS -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
         SectionDetector.SectionType.BRIDGE -> EffectMatchingEngine.FgEngine.BREATH
         SectionDetector.SectionType.END    -> EffectMatchingEngine.FgEngine.OFF_TRANSIT
-
-        // INST: 무보컬 반주 — VOCAL과 동일하게 에너지 기반으로 판단(보컬만 없을 뿐 편성은 비슷)
-        SectionDetector.SectionType.INST   -> when {
-            isBalladMode         -> EffectMatchingEngine.FgEngine.BREATH
-            rel >= 0.55f         -> EffectMatchingEngine.FgEngine.ON_PULSE
-            else                 -> EffectMatchingEngine.FgEngine.BREATH
-        }
-        // SOLO: 리드 악기가 도드라지는 하이라이트 구간 — CHORUS와 같은 강조 이펙트
-        SectionDetector.SectionType.SOLO   -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
     }
 
     /**
@@ -354,16 +345,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // STROBE는 훨씬 넓게 반복되는 결과가 됐었다.
         SectionDetector.SectionType.CHORUS ->
             listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
-
-        SectionDetector.SectionType.INST ->
-            when {
-                isBalladMode -> listOf(EffectMatchingEngine.FgEngine.BREATH)
-                rel >= 0.55f -> listOf(EffectMatchingEngine.FgEngine.ON_PULSE, EffectMatchingEngine.FgEngine.BREATH)
-                else         -> listOf(EffectMatchingEngine.FgEngine.BREATH, EffectMatchingEngine.FgEngine.ON_PULSE)
-            }
-
-        SectionDetector.SectionType.SOLO ->
-            listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE, EffectMatchingEngine.FgEngine.STROBE)
     }
 
     /** 섹션마다 결정론적으로 2~5 사이의 bar 블록 길이를 고른다 (같은 곡이면 항상 같은 결과). */
@@ -389,8 +370,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             SectionDetector.SectionType.CHORUS -> "chorus-rotate"
             SectionDetector.SectionType.BRIDGE -> "bridge-breath"
             SectionDetector.SectionType.END    -> "end-off"
-            SectionDetector.SectionType.INST   -> if (engine == EffectMatchingEngine.FgEngine.BREATH) "inst-breath" else "inst-pulse"
-            SectionDetector.SectionType.SOLO   -> "solo-rotate"
         }
 
     private fun bridgePhaseEngine(
