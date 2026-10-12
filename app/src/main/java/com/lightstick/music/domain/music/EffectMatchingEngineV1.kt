@@ -371,25 +371,27 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             SectionDetector.SectionType.END    -> "end-off"
         }
 
+    // 테스트용: BRIDGE는 임시로 BREATH만 쓰도록 단순화했다(원래는 phase/relScore에 따라
+    // STROBE/ON_TRANSIT_ROTATE도 섞였음 — 아래 원본 로직 주석 참고).
     private fun bridgePhaseEngine(
         beatIndex: Int, totalBeats: Int, beatMs: Long, relScore: Float, isBalladMode: Boolean
-    ): EffectMatchingEngine.FgEngine {
-        if (isBalladMode || relScore < 0.1f) return EffectMatchingEngine.FgEngine.BREATH
-        if (totalBeats <= 0) return EffectMatchingEngine.FgEngine.STROBE
-        val strobeEntry = (0.80f - relScore * 0.55f).coerceIn(0.20f, 0.85f)
-        return when {
-            totalBeats < 8  -> EffectMatchingEngine.FgEngine.STROBE
-            totalBeats < 16 -> {
-                val phase = beatIndex.toFloat() / totalBeats
-                if (phase < strobeEntry) EffectMatchingEngine.FgEngine.BREATH else EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-            }
-            else -> {
-                val phase      = beatIndex.toFloat() / totalBeats
-                val rotateEntry = (strobeEntry - 0.25f - relScore * 0.10f).coerceIn(0.10f, strobeEntry - 0.10f)
-                if (phase < rotateEntry) EffectMatchingEngine.FgEngine.BREATH else EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-            }
-        }
-    }
+    ): EffectMatchingEngine.FgEngine = EffectMatchingEngine.FgEngine.BREATH
+    // 원본 로직(복원 시 위 한 줄을 지우고 이 블록 주석 해제):
+    // if (isBalladMode || relScore < 0.1f) return EffectMatchingEngine.FgEngine.BREATH
+    // if (totalBeats <= 0) return EffectMatchingEngine.FgEngine.STROBE
+    // val strobeEntry = (0.80f - relScore * 0.55f).coerceIn(0.20f, 0.85f)
+    // return when {
+    //     totalBeats < 8  -> EffectMatchingEngine.FgEngine.STROBE
+    //     totalBeats < 16 -> {
+    //         val phase = beatIndex.toFloat() / totalBeats
+    //         if (phase < strobeEntry) EffectMatchingEngine.FgEngine.BREATH else EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
+    //     }
+    //     else -> {
+    //         val phase      = beatIndex.toFloat() / totalBeats
+    //         val rotateEntry = (strobeEntry - 0.25f - relScore * 0.10f).coerceIn(0.10f, strobeEntry - 0.10f)
+    //         if (phase < rotateEntry) EffectMatchingEngine.FgEngine.BREATH else EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
+    //     }
+    // }
 
     private fun colorsForEngine(
         palette: EffectMatchingEngine.Palette, engine: EffectMatchingEngine.FgEngine, sectionIndex: Int,
