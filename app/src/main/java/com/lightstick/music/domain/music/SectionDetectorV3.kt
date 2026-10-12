@@ -98,11 +98,13 @@ class SectionDetectorV3 : SectionDetector {
         // 너무 좁으면 단발성 어택도 "빽빽함"으로 오인하고, 너무 넓으면 섹션 평균과 다를 게
         // 없어져서 로컬 밀도 정보가 사라진다. 대략 2마디(4/4, 120BPM 기준 약 2000ms) 규모로 잡았다.
         private const val CLIMAX_ONSET_WINDOW_MS = 1_600L
-        // 기존엔 scoreArray가 순수 진폭(e/attack/localContrast)만 반영해서, "한 음이 세게
-        // 지속되는" 구간과 "파형이 빽빽하게 몰아치는" 구간을 구분하지 못했다 — 사용자가 직접
-        // "파형이 빽빽한 부분"에서만 클라이맥스가 터졌으면 한다고 지적한 문제. 음악 쪽에서
-        // 흔히 쓰는 방식대로, 로컬 onset rate(=얼마나 촘촘하게 어택이 몰리는지)를 진폭
-        // 기반 점수와 섞어서 최종 climax 점수를 만든다.
+        // 진폭 게이트를 통과한 후보들 사이에서 onset rate가 높을수록(더 빽빽할수록) 랭킹
+        // 점수에 보너스를 준다(최대 +35%) — 감지 여부 자체(게이트)는 건드리지 않는다.
+        // 처음엔 이 값을 scoreArray 자체에 블렌딩했는데, onset rate는 busy한 구간 내내
+        // 고르게 높아 분산이 작아서 전역 분포가 납작해지고, 그 결과 CLIMAX_MIN_CV/
+        // CLIMAX_MIN_PEAK_RATIO 게이트를 통과하는 곡이 거의 없어지는 회귀가 있었다
+        // (실측: climax가 거의 감지 안 됨). 그래서 게이트는 순수 진폭(sc)으로 유지하고,
+        // onset rate는 통과한 후보들의 "순위"에만 반영하도록 바꿨다.
         private const val CLIMAX_ONSET_WEIGHT = 0.35f
 
         private const val BREAK_MAX_MS = 8_000L
@@ -1164,19 +1166,18 @@ class SectionDetectorV3 : SectionDetector {
             return (onsetAbovePrefix[hi] - onsetAbovePrefix[lo]).toFloat() / span
         }
 
-        // 기존엔 scoreArray가 순수 진폭(e/attack/localContrast)만 반영했다 — "한 음이 세게
-        // 지속되는" 구간과 "파형이 빽빽하게 몰아치는" 구간을 구분 못 해, 사용자가 지적한
-        // "파형이 빽빽한 부분"이 아닌 곳에서도 climax가 잡히는 문제가 있었다. 음악 쪽에서
-        // 흔히 쓰는 방식대로 진폭 기반 점수(globalPeakFull로 정규화)와 로컬 onset rate를
-        // 섞어서 최종 climax 점수를 만든다 — "크고 동시에 빽빽한" 지점만 살아남는다.
+        // scoreArray(진폭 기반)는 cv/peakRatio/p90 같은 전역 게이트와 로컬-맥스 판정의
+        // 기준이라 그대로 둔다 — 여기에 onset rate를 직접 섞었더니 분포가 납작해지면서
+        // (onset rate는 busy한 구간 전체에서 고르게 높아 분산이 작음) CLIMAX_MIN_CV/
+        // CLIMAX_MIN_PEAK_RATIO/p90*1.18 게이트를 통과하는 곡이 거의 없어지는 회귀가
+        // 있었다(실측: climax가 거의 감지 안 됨). 대신 onset rate는 아래 candidate
+        // 생성 시 "순위 점수(rankScore)"에만 가중해, 진폭으로 이미 통과한 후보들 중에서
+        // 빽빽한 쪽을 우선 선택하는 용도로만 쓴다 — 감지 여부(게이트) 자체는 그대로 둔다.
         val scoreArray = FloatArray(full.size)
         for (i in 2 until full.size - 2) {
             val e = full[i]
             val localAvg = (full[i-2] + full[i-1] + full[i+1] + full[i+2]) * 0.25f
-            val ampScore = e * 0.50f + max(0f, e - full[i-1]) * 0.30f + max(0f, e - localAvg) * 0.20f
-            val ampNorm = ampScore / globalPeakFull
-            val onsetRate = onsetRateAt(i)
-            scoreArray[i] = ampNorm * (1f - CLIMAX_ONSET_WEIGHT) + onsetRate * CLIMAX_ONSET_WEIGHT
+            scoreArray[i] = e * 0.50f + max(0f, e - full[i-1]) * 0.30f + max(0f, e - localAvg) * 0.20f
         }
 
         val scoreList = scoreArray.filter { it > 0f }
@@ -1208,6 +1209,9 @@ class SectionDetectorV3 : SectionDetector {
         // 못했다(실측: BLACKPINK '뛰어(JUMP)' — 3개가 전부 같은 CHORUS 구간에 몰림).
         // 그래서 먼저 CHORUS별로 가장 센 후보를 하나씩(등장 순서대로) 뽑아 모든 CHORUS가
         // 최소 1개는 대표를 갖게 하고, 남는 슬롯만 전체 후보 중 점수 높은 순으로 채운다.
+        // score는 진폭 기반 sc에 로컬 onset rate를 보너스로 얹은 랭킹용 점수다 — 게이트
+        // (아래 if문)는 sc(순수 진폭) 기준으로 그대로 평가하고, 통과한 후보들 사이에서만
+        // "더 빽빽한" 쪽이 dedup/선택 단계에서 우선권을 갖도록 한다.
         data class Candidate(val tMs: Long, val score: Float, val chorusIdx: Int)
         val candidates = ArrayList<Candidate>()
         for (i in 2 until scoreArray.size - 2) {
@@ -1218,7 +1222,8 @@ class SectionDetectorV3 : SectionDetector {
             if (chorusIdx < 0) continue
             if (sc >= scoreArray[i-1] && sc >= scoreArray[i-2] && sc >= scoreArray[i+1] && sc >= scoreArray[i+2] &&
                 sc >= p90 * 1.18f && sc >= envMean + envStd * 1.30f) {
-                candidates += Candidate(tMs, sc, chorusIdx)
+                val rankScore = sc * (1f + onsetRateAt(i) * CLIMAX_ONSET_WEIGHT)
+                candidates += Candidate(tMs, rankScore, chorusIdx)
             }
         }
 
