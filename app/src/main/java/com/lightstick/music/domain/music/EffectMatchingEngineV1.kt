@@ -235,7 +235,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
                 val effectiveEngine = beatEngine
 
-                val (fg, bg) = colorsForEngine(palette, effectiveEngine, sameTypeIdx, beatIndex, section.type, barIdx)
+                val (fg, bg) = colorsForEngine(palette, effectiveEngine, sameTypeIdx, beatIndex, section.type, barIdx, isBalladMode)
                 val bgNonNull = bg ?: LSColor(0, 0, 0)
                 lastFg = fg
 
@@ -437,7 +437,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     private fun colorsForEngine(
         palette: EffectMatchingEngine.Palette, engine: EffectMatchingEngine.FgEngine, sectionIndex: Int,
         beatIndex: Int = 0, sectionType: SectionDetector.SectionType = SectionDetector.SectionType.VERSE,
-        barIdx: Int = 0
+        barIdx: Int = 0, isBalladMode: Boolean = false
     ): Pair<LSColor, LSColor?> {
         val isPatternA = (sectionIndex % 2 == 0)
         val effectiveColors: List<LSColor> = when (sectionType) {
@@ -479,7 +479,13 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 val set = palette.strokeSets[beatIndex % palette.strokeSets.size]
                 set.fg to set.bg
             }
-            EffectMatchingEngine.FgEngine.BREATH -> palette.breathSet.fg to palette.breathSet.bg
+            // BRIDGE의 BREATH는 (비발라드 포함) VERSE의 BREATH와 같은 breathSet 색을 그대로
+            // 썼었다(sectionType 구분이 없었음) — 발라드에서만 BRIDGE를 조용히 꺼져 있는
+            // 느낌을 주려고 검정으로 바꿨다. 비발라드 BRIDGE(원래 로직 복원 시 STROBE/
+            // ON_TRANSIT_ROTATE도 섞이는 구간)는 기존 breathSet 색을 그대로 유지한다.
+            EffectMatchingEngine.FgEngine.BREATH ->
+                if (sectionType == SectionDetector.SectionType.BRIDGE && isBalladMode) palette.black to palette.black
+                else palette.breathSet.fg to palette.breathSet.bg
             // FREEZE(BREAK): 깜빡임/회전 없이 한 가지 색을 고정해서 보여준다. BREATH와 같은
             // 색을 쓰되 배경은 완전히 꺼서(black) 정적인 느낌을 준다.
             EffectMatchingEngine.FgEngine.FREEZE -> palette.breathSet.fg to palette.black
