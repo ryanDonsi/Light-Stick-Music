@@ -93,7 +93,8 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         downbeatMs: Long,
         beatsPerBar: Int,
         fullEnv: List<Float>,
-        hopMs: Long
+        hopMs: Long,
+        isDancePopMode: Boolean
     ): List<Pair<Long, ByteArray>> {
         if (sectionGroups.isEmpty()) return emptyList()
 
@@ -102,11 +103,11 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             beatTimesMs[1] - beatTimesMs[0] else 500L
 
         val effectiveHopMs = if (hopMs > 0L) hopMs else 10L
-        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode, fullEnv, durationMs, effectiveHopMs)
+        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode, fullEnv, durationMs, effectiveHopMs, isDancePopMode)
 
         // V8 섹션으로부터 프레임 빌드
         return buildFramesFromSections(palette, v8Sections, beatTimesMs, durationMs, isBalladMode, finalOffMs,
-            downbeatMs, beatsPerBar, fullEnv, effectiveHopMs)
+            downbeatMs, beatsPerBar, fullEnv, effectiveHopMs, isDancePopMode)
     }
 
     private fun convertToV8Sections(
@@ -115,7 +116,8 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         isBalladMode: Boolean,
         fullEnv: List<Float>,
         durationMs: Long,
-        hopMs: Long
+        hopMs: Long,
+        isDancePopMode: Boolean
     ): List<V8Section> {
         if (groups.isEmpty()) return emptyList()
 
@@ -136,7 +138,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             }
 
             val engine = assignFgEngine(normalizedType, relScore, beats, globalBeatMs = beatMs,
-                isBalladMode = isBalladMode)
+                isBalladMode = isBalladMode, isDancePopMode = isDancePopMode)
 
             val source = buildSourceName(normalizedType, engine, beats)
 
@@ -168,7 +170,8 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         downbeatMs: Long,
         beatsPerBar: Int,
         fullEnv: List<Float>,
-        hopMs: Long
+        hopMs: Long,
+        isDancePopMode: Boolean
     ): List<Pair<Long, ByteArray>> {
         val frameMap = LinkedHashMap<Long, ByteArray>(beatTimesMs.size * 4 + sections.size + 8)
 
@@ -201,7 +204,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
             if (section.engine == EffectMatchingEngine.FgEngine.OFF_TRANSIT) continue
 
-            val enginePool  = sectionEnginePool(section.type, section.relScore, section.beatMs, isBalladMode)
+            val enginePool  = sectionEnginePool(section.type, section.relScore, section.beatMs, isBalladMode, isDancePopMode)
             val barBlockLen = sectionBarBlockLen(section)
             val barMs = if (section.beatMs > 0L && beatsPerBar > 0) section.beatMs * beatsPerBar else 0L
 
@@ -343,7 +346,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     private fun assignFgEngine(
         type: SectionDetector.SectionType,
         rel: Float, beats: Int, globalBeatMs: Long,
-        isBalladMode: Boolean
+        isBalladMode: Boolean, isDancePopMode: Boolean = false
     ): EffectMatchingEngine.FgEngine = when (type) {
         SectionDetector.SectionType.INTRO  -> EffectMatchingEngine.FgEngine.BREATH
         SectionDetector.SectionType.OUTRO  -> EffectMatchingEngine.FgEngine.OFF_TRANSIT
@@ -351,8 +354,10 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 깜빡이는 BREATH 대신 특정 색을 켠 채 그대로 고정(freeze)해 정적을 표현한다.
         SectionDetector.SectionType.BREAK  -> EffectMatchingEngine.FgEngine.FREEZE
 
+        // BPM 130 이상이면 STROBE, 아니면 ON_TRANSIT_ROTATE — 단, DANCE_POP 장르는 BPM과
+        // 무관하게 항상 STROBE를 쓴다(요청: "장르가 DANCE_POP일 때도 STROBE로").
         SectionDetector.SectionType.CLIMAX ->
-            if (globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
+            if (isDancePopMode || globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
                 EffectMatchingEngine.FgEngine.STROBE
             else
                 EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
@@ -370,7 +375,8 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
      * BRIDGE는 bridgePhaseEngine이 별도로 처리하므로 여기서는 사용되지 않는다.
      */
     private fun sectionEnginePool(
-        type: SectionDetector.SectionType, rel: Float, globalBeatMs: Long, isBalladMode: Boolean
+        type: SectionDetector.SectionType, rel: Float, globalBeatMs: Long, isBalladMode: Boolean,
+        isDancePopMode: Boolean = false
     ): List<EffectMatchingEngine.FgEngine> = when (type) {
         SectionDetector.SectionType.INTRO  -> listOf(EffectMatchingEngine.FgEngine.BREATH)
         SectionDetector.SectionType.OUTRO  -> listOf(EffectMatchingEngine.FgEngine.OFF_TRANSIT)
@@ -379,8 +385,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         SectionDetector.SectionType.BRIDGE -> listOf(EffectMatchingEngine.FgEngine.BREATH)
 
         // BPM 130 기준으로 섹션 전체에 하나의 엔진만 쓴다(더 이상 bar 블록으로 번갈아 쓰지 않음).
+        // DANCE_POP 장르는 BPM과 무관하게 항상 STROBE(assignFgEngine과 동일 규칙).
         SectionDetector.SectionType.CLIMAX ->
-            if (globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
+            if (isDancePopMode || globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
                 listOf(EffectMatchingEngine.FgEngine.STROBE)
             else
                 listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)

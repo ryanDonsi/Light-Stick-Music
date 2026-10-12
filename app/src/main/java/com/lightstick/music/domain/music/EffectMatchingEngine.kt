@@ -87,7 +87,8 @@ interface EffectMatchingEngine {
         downbeatMs: Long = 0L,
         beatsPerBar: Int = 4,
         fullEnv: List<Float> = emptyList(),
-        hopMs: Long = 10L
+        hopMs: Long = 10L,
+        isDancePopMode: Boolean = false
     ): List<Pair<Long, ByteArray>>
 }
 

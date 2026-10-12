@@ -64,7 +64,8 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
         downbeatMs: Long,
         beatsPerBar: Int,
         fullEnv: List<Float>,
-        hopMs: Long
+        hopMs: Long,
+        isDancePopMode: Boolean
     ): List<Pair<Long, ByteArray>> {
         val frames = ArrayList<Pair<Long, ByteArray>>(beatTimesMs.size)
 

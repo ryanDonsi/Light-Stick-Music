@@ -285,6 +285,8 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
 
         val isBalladMode = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
                         || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
+        // CLIMAX 이펙트: DANCE_POP 장르는 BPM과 무관하게 STROBE를 쓰도록 EffectMatchingEngine에 전달.
+        val isDancePopMode = musicStyle == MusicStyleClassifier.MusicStyle.DANCE_POP
 
         val t0Effect = System.currentTimeMillis()
         val frames = engine.buildFrames(
@@ -302,7 +304,8 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             downbeatMs = downbeatMs,
             beatsPerBar = beatsPerBar,
             fullEnv = fullEnv,
-            hopMs = effectiveHopMs
+            hopMs = effectiveHopMs,
+            isDancePopMode = isDancePopMode
         )
         val tEffect = System.currentTimeMillis() - t0Effect
 
