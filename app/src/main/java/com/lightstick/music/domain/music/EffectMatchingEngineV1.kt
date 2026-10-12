@@ -1,5 +1,7 @@
 package com.lightstick.music.domain.music
 
+import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.LSEffectPayload
 import kotlin.math.abs
@@ -13,6 +15,7 @@ import kotlin.math.min
 class EffectMatchingEngineV1 : EffectMatchingEngine {
 
     companion object {
+        private const val TAG = AppConstants.Feature.AUTO_TIMELINE
         private const val ON_TRANSIT = 2
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
@@ -274,6 +277,8 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val outroStartMs = sections.firstOrNull { it.type == SectionDetector.SectionType.OUTRO }?.startMs
         val outroLenMs = outroStartMs?.let { (finalOffMs - it).coerceAtLeast(0L) } ?: 0L
         val outroTransit = (outroLenMs / OUTRO_TRANSIT_DIVISOR).toInt().coerceIn(OUTRO_TRANSIT_MIN, OUTRO_TRANSIT_MAX)
+        Log.d(TAG, "EffectMatchingEngineV1 outro transit: outroStartMs=$outroStartMs finalOffMs=$finalOffMs " +
+            "outroLenMs=$outroLenMs transit=$outroTransit")
         frameMap[finalOffMs] = buildOffPayload(outroTransit)
 
         return frameMap.entries.sortedBy { it.key }.map { it.key to it.value }
