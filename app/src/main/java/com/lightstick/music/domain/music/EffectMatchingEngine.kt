@@ -36,7 +36,11 @@ interface EffectMatchingEngine {
         val breathSet: ColorSet,
         val bridgeSets: List<ColorSet>,
         val chorusBg: LSColor,
-        val colorGroup: List<LSColor>
+        val colorGroup: List<LSColor>,
+        // VERSE의 BLINK(고에너지 bar) 전용 색상 — BG는 고정(cStep6을 cDeep처럼 밝기만
+        // 낮춘 값), FG는 bar마다 verseBlinkFgCycle을 순환한다.
+        val verseBlinkBg: LSColor,
+        val verseBlinkFgCycle: List<LSColor>
     )
 
     data class ColorSet(val fg: LSColor, val bg: LSColor)

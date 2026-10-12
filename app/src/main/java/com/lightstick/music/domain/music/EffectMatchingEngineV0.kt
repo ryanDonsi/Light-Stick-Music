@@ -44,7 +44,9 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
             breathSet = empty,
             bridgeSets = listOf(empty),
             chorusBg = black,
-            colorGroup = listOf(white, white, white, white)
+            colorGroup = listOf(white, white, white, white),
+            verseBlinkBg = black,
+            verseBlinkFgCycle = listOf(white)
         )
     }
 
