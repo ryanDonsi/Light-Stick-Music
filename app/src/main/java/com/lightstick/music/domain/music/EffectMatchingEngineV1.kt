@@ -5,6 +5,8 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.LSEffectPayload
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * EffectMatchingEngineV1 - V3의 이펙트 매칭 룰
@@ -56,15 +58,18 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val cStep5 = hsvToColor(wrap360(baseHue + 120f), 1.00f, 1.00f)
         val cStep6 = hsvToColor(wrap360(baseHue - 120f), 1.00f, 1.00f)
         val cDeep  = hsvToColor(baseHue,                 1.00f, 0.48f)
-        // cDeep(=cMain을 어둡게)과 같은 방식으로, cStep6의 hue를 유지하고 밝기만 낮춘
-        // BG 전용 색 — VERSE BLINK가 ON_PULSE(낮은 에너지)와 또렷이 구분되는 어두운
-        // 배경을 갖게 한다.
-        val cStep6Deep = hsvToColor(wrap360(baseHue - 120f), 1.00f, 0.48f)
         val black  = LSColor(0, 0, 0)
         val white = LSColor(255, 255, 255)
         val colorGroup = listOf(cMain, cStep3, cStep4, cStep5)
         val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
         val patternABg = if (cMainLuma >= 128f) cDeep else cMain
+        // VERSE BLINK: BG는 빨강에 가장 가까운 색(closestToRed)으로 고정하고, FG는 BG와
+        // 겹치지 않는 나머지 색 중 4개를 bar마다 순환시킨다. cStep1~4를 우선 순서로 두되,
+        // 그중 하나가 공교롭게 BG로 선택된 경우(예: cStep3/cStep4가 빨강에 가장 가까울 때)
+        // cMain/cStep5/cStep6으로 대체해 FG가 항상 BG와 다른 색이 되도록 한다.
+        val verseBlinkBg = closestToRed(colorGroup)
+        val verseBlinkFgCycle = listOf(cStep1, cStep2, cStep3, cStep4, cMain, cStep5, cStep6)
+            .filterNot { it == verseBlinkBg }.take(4)
         return EffectMatchingEngine.Palette(
             black       = black, white = white,
             onPulseSets = listOf(EffectMatchingEngine.ColorSet(cMain, patternABg), EffectMatchingEngine.ColorSet(cStep1, black)),
@@ -73,8 +78,8 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             breathSet   = EffectMatchingEngine.ColorSet(cStep4, patternABg),
             bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep6, black), EffectMatchingEngine.ColorSet(cMain, black)),
             chorusBg    = cDeep, colorGroup = colorGroup,
-            verseBlinkBg = cStep6Deep,
-            verseBlinkFgCycle = listOf(cStep1, cStep2, cStep3, cStep4)
+            verseBlinkBg = verseBlinkBg,
+            verseBlinkFgCycle = verseBlinkFgCycle
         )
     }
 
@@ -462,9 +467,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             EffectMatchingEngine.FgEngine.BLINK -> {
                 // VERSE의 BLINK는 "그 bar가 섹션 내에서 에너지가 높은 구간"일 때만 쓰인다
                 // (buildFramesFromSections의 verseBarEnergy 참고). BG는 verseBlinkBg(고정,
-                // cStep6을 어둡게 한 값)로 ON_PULSE(낮은 에너지)와 또렷이 구분하고, FG는
-                // ON_PULSE처럼 bar마다 verseBlinkFgCycle(cStep1~4)을 순환시켜 bar가 바뀔
-                // 때마다 다른 색으로 연출한다.
+                // 팔레트에서 빨강에 가장 가까운 색)로 ON_PULSE(낮은 에너지)와 또렷이
+                // 구분하고, FG는 ON_PULSE처럼 bar마다 verseBlinkFgCycle(BG와 겹치지 않는
+                // 4색)을 순환시켜 bar가 바뀔 때마다 다른 색으로 연출한다.
                 if (sectionType == SectionDetector.SectionType.VERSE) {
                     val fg = palette.verseBlinkFgCycle[Math.floorMod(barIdx, palette.verseBlinkFgCycle.size)]
                     fg to palette.verseBlinkBg
@@ -546,6 +551,28 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     }
 
     private fun wrap360(h: Float) = ((h % 360f) + 360f) % 360f
+
+    private fun hueOf(c: LSColor): Float {
+        val r = c.r / 255f; val g = c.g / 255f; val b = c.b / 255f
+        val maxC = max(r, max(g, b)); val minC = min(r, min(g, b))
+        val d = maxC - minC
+        if (d < 1e-6f) return 0f
+        val h = when (maxC) {
+            r    -> (((g - b) / d) % 6f + 6f) % 6f
+            g    -> (b - r) / d + 2f
+            else -> (r - g) / d + 4f
+        }
+        return wrap360(h * 60f)
+    }
+
+    /** 색상 목록 중 색상환에서 빨강(hue 0)에 가장 가까운 것을 고른다. */
+    private fun closestToRed(colors: List<LSColor>): LSColor {
+        if (colors.isEmpty()) return LSColor(255, 0, 0)
+        return colors.minBy { c ->
+            val h = hueOf(c)
+            min(h, 360f - h)
+        }
+    }
 
     private fun hsvToColor(h: Float, s: Float, v: Float): LSColor {
         val hh = ((h % 360f) + 360f) % 360f
