@@ -90,7 +90,7 @@ class SectionDetectorV3 : SectionDetector {
         // 국소 스파이크가 아무리 뚜렷해도, 곡 전체 절대 피크의 이 비율 미만이면 CLIMAX 후보에서
         // 제외한다 — 잦아드는 구간에서 "직전보다 튀었다"만으로 CLIMAX가 잘못 잡히는 걸 방지.
         private const val CLIMAX_ABS_FLOOR_RATIO = 0.70f
-        private const val CLIMAX_MAX_COUNT = 3
+        private const val CLIMAX_MAX_COUNT = 5
 
         private const val BREAK_MAX_MS = 8_000L
         // BREAK는 "상대적으로 조용한 구간"이 아니라 "곡 전체 피크 대비 거의 무음인 구간"만
