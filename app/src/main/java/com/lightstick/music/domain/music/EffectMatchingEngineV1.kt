@@ -19,6 +19,10 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         private const val ON_TRANSIT = 2
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
+        // CLIMAX 엔진을 BPM 130 기준으로 양분한다(번갈아 쓰지 않고 섹션 전체에 하나만) —
+        // 130 BPM = beatMs 461.5. beatMs가 이보다 작으면(=BPM이 더 높으면) STROBE,
+        // 크면(BPM이 더 낮으면) ON_TRANSIT_ROTATE.
+        private const val CLIMAX_STROBE_MAX_BEAT_MS = 461L
         // OUTRO 마지막 OFF의 transit(페이드 길이)을 OUTRO 섹션 길이에 비례시킨다.
         // transit 1 unit이 실제 몇 ms인지는 SDK/문서 어디에도 안 나와 있어(실기로만 확인
         // 가능) 초기 근사치로 outroLenMs/100을 쓰고, [MIN,MAX]로 눌러둔다 — 실기 테스트
@@ -302,11 +306,11 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 깜빡이는 BREATH 대신 특정 색을 켠 채 그대로 고정(freeze)해 정적을 표현한다.
         SectionDetector.SectionType.BREAK  -> EffectMatchingEngine.FgEngine.FREEZE
 
-        SectionDetector.SectionType.CLIMAX -> when {
-            globalBeatMs <= 300L -> EffectMatchingEngine.FgEngine.STROBE
-            rel >= 0.60f         -> EffectMatchingEngine.FgEngine.STROBE
-            else                 -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-        }
+        SectionDetector.SectionType.CLIMAX ->
+            if (globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
+                EffectMatchingEngine.FgEngine.STROBE
+            else
+                EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
 
         SectionDetector.SectionType.VERSE  -> if (isBalladMode) EffectMatchingEngine.FgEngine.BREATH else EffectMatchingEngine.FgEngine.ON_PULSE
         SectionDetector.SectionType.CHORUS -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
@@ -329,11 +333,12 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         SectionDetector.SectionType.END    -> listOf(EffectMatchingEngine.FgEngine.OFF_TRANSIT)
         SectionDetector.SectionType.BRIDGE -> listOf(EffectMatchingEngine.FgEngine.BREATH)
 
+        // BPM 130 기준으로 섹션 전체에 하나의 엔진만 쓴다(더 이상 bar 블록으로 번갈아 쓰지 않음).
         SectionDetector.SectionType.CLIMAX ->
-            if (globalBeatMs <= 300L || rel >= 0.60f)
-                listOf(EffectMatchingEngine.FgEngine.STROBE, EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
+            if (globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
+                listOf(EffectMatchingEngine.FgEngine.STROBE)
             else
-                listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE, EffectMatchingEngine.FgEngine.STROBE)
+                listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
 
         SectionDetector.SectionType.VERSE ->
             if (isBalladMode) listOf(EffectMatchingEngine.FgEngine.BREATH)
