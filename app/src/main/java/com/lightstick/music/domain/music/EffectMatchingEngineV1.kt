@@ -265,11 +265,21 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                     effectiveEngine == EffectMatchingEngine.FgEngine.ON_PULSE           -> null
                     effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
                         section.type == SectionDetector.SectionType.VERSE -> 0
+                    // 발라드 BRIDGE는 실제 SDK 랜덤딜레이를 줘서 기기마다 호흡 타이밍이
+                    // 어긋나는 파도 효과를 낸다(INTRO 등 기존 BREATH와 동일 공식).
+                    // 비발라드 BRIDGE는 기존처럼 beatPeriod(결정적, 파도 없음)를 유지한다.
+                    effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
+                        section.type == SectionDetector.SectionType.BRIDGE && isBalladMode ->
+                        msToBreathRandomDelay(section.beatMs)
                     effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
                         section.type == SectionDetector.SectionType.BRIDGE -> beatPeriod
                     effectiveEngine == EffectMatchingEngine.FgEngine.BREATH             -> msToBreathRandomDelay(section.beatMs)
                     else                                           -> null
                 }
+                // 발라드 BRIDGE는 SDK의 randomColor 플래그를 켜서 기기가 직접 색을 무작위로
+                // 고르게 한다 — VERSE는 앱이 고른 컬러셋을 그대로 쓰므로 여기선 끈다.
+                val beatRandomColor = if (effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
+                    section.type == SectionDetector.SectionType.BRIDGE && isBalladMode) 1 else 0
                 val beatRotateTransit = if (effectiveEngine == EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
                     ON_ROTATE_BALLAD_TRANSIT else 0
 
@@ -291,7 +301,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
                 if (!skipRepeat) {
                     put(t, buildPayload(effectiveEngine, fg, bg, section.beatMs, beatPeriod,
-                        beatRandomDelay, rotateTransit = beatRotateTransit))
+                        beatRandomDelay, rotateTransit = beatRotateTransit, randomColor = beatRandomColor))
                 }
 
                 if (beatEngine == EffectMatchingEngine.FgEngine.ON_PULSE && !skipOnPulseOdd) {
@@ -508,9 +518,16 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             // 완전히 꺼진 것처럼 보이는 문제가 있었다(실측: "BRIDGE가 OFF 상태로만 나옴").
             // FG는 breathSet.fg(색상 있는 값)를 유지하고 BG만 검정으로 바꿔서, FREEZE와
             // 같은 패턴(색상 있는 FG + 검정 BG)으로 맞췄다.
-            EffectMatchingEngine.FgEngine.BREATH ->
-                if (sectionType == SectionDetector.SectionType.BRIDGE && isBalladMode) palette.breathSet.fg to palette.black
-                else palette.breathSet.fg to palette.breathSet.bg
+            // 발라드 VERSE의 BREATH는 breathSet 고정 1색 대신 컬러셋(effectiveColors)을
+            // bar마다 순환시킨다 — ON_PULSE가 FG를 bar 단위로 순환시키는 것과 같은 방식.
+            // RANDOM DELAY=0(buildFramesFromSections)이라 모든 기기가 같은 타이밍으로
+            // 숨쉬므로, 색만 bar마다 바뀌어도 기기 간 어긋남 없이 또렷하게 보인다.
+            EffectMatchingEngine.FgEngine.BREATH -> when {
+                sectionType == SectionDetector.SectionType.BRIDGE && isBalladMode -> palette.breathSet.fg to palette.black
+                sectionType == SectionDetector.SectionType.VERSE ->
+                    effectiveColors[Math.floorMod(barIdx, effectiveColors.size)] to palette.breathSet.bg
+                else -> palette.breathSet.fg to palette.breathSet.bg
+            }
             // FREEZE(BREAK): 깜빡임/회전 없이 한 가지 색을 고정해서 보여준다. BREATH와 같은
             // 색을 쓰되 배경은 완전히 꺼서(black) 정적인 느낌을 준다.
             EffectMatchingEngine.FgEngine.FREEZE -> palette.breathSet.fg to palette.black
@@ -521,7 +538,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
     private fun buildPayload(
         engine: EffectMatchingEngine.FgEngine, fg: LSColor, bg: LSColor?, beatMs: Long,
-        period: Int? = null, randomDelay: Int? = null, rotateTransit: Int = 0
+        period: Int? = null, randomDelay: Int? = null, rotateTransit: Int = 0, randomColor: Int = 0
     ): ByteArray {
         val bgColor = bg ?: LSColor(0, 0, 0)
         return when (engine) {
@@ -535,7 +552,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                     color = fg, backgroundColor = bgColor, randomDelay = randomDelay ?: 0).toByteArray()
             EffectMatchingEngine.FgEngine.BREATH ->
                 LSEffectPayload.Effects.breath(period = period ?: msToBreathPeriod(beatMs),
-                    color = fg, backgroundColor = bgColor,
+                    color = fg, backgroundColor = bgColor, randomColor = randomColor,
                     randomDelay = randomDelay ?: msToBreathRandomDelay(beatMs)).toByteArray()
             EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE ->
                 LSEffectPayload.Effects.on(color = fg, transit = rotateTransit).toByteArray()
