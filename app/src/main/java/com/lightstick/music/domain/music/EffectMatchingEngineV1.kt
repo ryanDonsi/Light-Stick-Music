@@ -131,19 +131,19 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             val beats    = g.annotatedBeats.size
             val relScore = ((energy - lowTh) / range).coerceIn(0f, 1f)
 
-            val normalizedType = when {
-                g.type == SectionDetector.SectionType.BRIDGE && beats < 6 ->
-                    SectionDetector.SectionType.VERSE
-                else -> g.type
-            }
-
-            val engine = assignFgEngine(normalizedType, relScore, beats, globalBeatMs = beatMs,
+            // 예전엔 6비트 미만 BRIDGE를 V8Section.type 단계에서 VERSE로 재분류했는데,
+            // 이게 EffectMatchingEngineV1 내부에서만 일어나는 변환이라 SectionDetectorV3가
+            // 내보내는 실제 섹션 타입(Beat Accuracy Checker 등에 표시되는 값)과 어긋나는
+            // 문제가 있었다 — 체커에는 BRIDGE로 보이는데 실제 이펙트는 VERSE의 BLINK로
+            // 나가서 혼동을 줌(실측 피드백). 타입은 항상 g.type 그대로 두고, 짧은 BRIDGE도
+            // bridgePhaseEngine을 그대로 거치게 한다.
+            val engine = assignFgEngine(g.type, relScore, beats, globalBeatMs = beatMs,
                 isBalladMode = isBalladMode, isDancePopMode = isDancePopMode)
 
-            val source = buildSourceName(normalizedType, engine, beats)
+            val source = buildSourceName(g.type, engine, beats)
 
             val change = when {
-                normalizedType == SectionDetector.SectionType.BRIDGE && beats < 20 ->
+                g.type == SectionDetector.SectionType.BRIDGE && beats < 20 ->
                     EffectMatchingEngine.ChangeLevel.STRONG
                 beats < 8 -> EffectMatchingEngine.ChangeLevel.MEDIUM
                 else      -> EffectMatchingEngine.ChangeLevel.STRONG
@@ -151,7 +151,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
             V8Section(
                 startMs     = g.startMs,      endMs       = g.endMs,
-                type        = normalizedType,  engine      = engine,
+                type        = g.type,          engine      = engine,
                 beatMs      = beatMs,          beats       = beats,
                 source      = source,          change      = change,
                 energyScore = energy,          relScore    = relScore,
