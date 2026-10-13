@@ -2777,13 +2777,28 @@ class App(tk.Tk):
         tk.Label(right_ctrl, textvariable=self.v_zoom_pos,
                  bg="#1a1a2e", fg="#546e7a", font=("", 8)).pack(side="left", padx=4)
 
-        # 캔버스 높이: TICK_H(16) + BEAT_H*3(132) + SEC_H*2(44) = 192px (공백 없음)
-        self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=192, highlightthickness=0)
+        tk.Label(right_ctrl, text="  |", bg="#1a1a2e", fg="#37474f",
+                 font=("", 8)).pack(side="left", padx=2)
+
+        # 마우스로 타임라인 위를 가리키면 정확한 시간(+ 그 지점의 섹션)을 여기 표시한다 —
+        # 예전엔 눈금자 숫자와 픽셀 위치를 눈대중으로 맞춰야 해서 정확한 mm:ss를 읽기
+        # 어렵다는 피드백이 있었다. 커서를 올리기만 해도 바로 보이도록 크고 밝은 색으로.
+        self.v_hover_pos = tk.StringVar(value="커서를 타임라인 위에 올리면 정확한 시간이 표시됩니다")
+        tk.Label(right_ctrl, textvariable=self.v_hover_pos,
+                 bg="#1a1a2e", fg="#ffd54f", font=("", 9, "bold")).pack(side="left", padx=4)
+
+        # 캔버스 높이: TICK_H(20) + BEAT_H*3(132) + SEC_H*2(44) = 196px (공백 없음)
+        self.tl_canvas = tk.Canvas(tl_frame, bg="#0d1117", height=196, highlightthickness=0)
         self.tl_canvas.pack(fill="x", padx=4, pady=(0, 4))
         self.tl_canvas.bind("<Configure>", lambda e: self._redraw_timeline())
         self.tl_canvas.bind("<MouseWheel>",  self._on_tl_scroll)
         self.tl_canvas.bind("<Button-4>",    self._on_tl_scroll)
         self.tl_canvas.bind("<Button-5>",    self._on_tl_scroll)
+        self.tl_canvas.bind("<Motion>",      self._on_tl_motion)
+        self.tl_canvas.bind("<Leave>",       self._on_tl_leave)
+        self.tl_canvas.bind("<Button-1>",    self._on_tl_click)
+        # _draw_beat_timeline이 매번 채워 넣는, 호버/클릭 계산에 필요한 좌표·섹션 정보.
+        self._tl_layout = None
 
         # ── 2열 메인 영역 ──────────────────────────
         main = tk.Frame(self)
@@ -3962,6 +3977,71 @@ class App(tk.Tk):
         else:
             self._apply_zoom(self.zoom_s_var.get() + w * 0.5)
 
+    def _tl_x_to_sec(self, x):
+        """캔버스 x좌표 → 초. 레인 라벨 영역(LABEL_W) 안쪽이면 None."""
+        layout = self._tl_layout
+        if not layout or x < layout["LABEL_W"]:
+            return None
+        span = max(layout["z_end"] - layout["z_start"], 0.001)
+        draw_w = max(1, layout["W"] - layout["LABEL_W"])
+        t = layout["z_start"] + (x - layout["LABEL_W"]) / draw_w * span
+        return max(0.0, t)
+
+    @staticmethod
+    def _tl_fmt(sec):
+        m, s = divmod(max(0.0, sec), 60)
+        return f"{int(m)}:{s:05.2f}"
+
+    def _tl_section_at(self, secs, t):
+        for sec in secs or []:
+            if sec["start_ms"] / 1000.0 <= t <= sec["end_ms"] / 1000.0:
+                return sec
+        return None
+
+    def _tl_describe(self, t):
+        """시각 t(초)에 대한 "▶ 시간  앱=TYPE 시작~끝  GT=TYPE 시작~끝" 문자열."""
+        layout = self._tl_layout
+        parts = [self._tl_fmt(t)]
+        app_sec = self._tl_section_at(layout["sections"], t)
+        gt_sec  = self._tl_section_at(layout["librosa_sections"], t)
+        if app_sec:
+            parts.append(f"앱={app_sec.get('type', '?')} "
+                          f"{self._tl_fmt(app_sec['start_ms']/1000)}~{self._tl_fmt(app_sec['end_ms']/1000)}")
+        if gt_sec:
+            parts.append(f"GT={gt_sec.get('type', '?')} "
+                          f"{self._tl_fmt(gt_sec['start_ms']/1000)}~{self._tl_fmt(gt_sec['end_ms']/1000)}")
+        return parts
+
+    def _on_tl_motion(self, event):
+        """타임라인 위에서 마우스가 움직일 때마다 정확한 시간(+그 지점 섹션)을
+        크로스헤어와 상단 라벨로 보여준다 — 눈금자 숫자와 픽셀 위치를 눈대중으로 맞출
+        필요 없이, 보고 싶은 지점에 커서만 올리면 바로 정확한 mm:ss.ss가 나온다."""
+        layout = self._tl_layout
+        if not layout:
+            return
+        t = self._tl_x_to_sec(event.x)
+        if t is None:
+            self._on_tl_leave(event)
+            return
+        c = self.tl_canvas
+        c.delete("hover_cross")
+        c.create_line(event.x, layout["TICK_H"], event.x, layout["APP_SEC_BOT"],
+                      fill="#ffd54f", width=1, tags="hover_cross")
+        self.v_hover_pos.set("   ".join(["▶"] + self._tl_describe(t)))
+
+    def _on_tl_leave(self, event):
+        self.tl_canvas.delete("hover_cross")
+        self.v_hover_pos.set("커서를 타임라인 위에 올리면 정확한 시간이 표시됩니다")
+
+    def _on_tl_click(self, event):
+        """클릭한 지점의 정확한 시간을 분석 로그 패널에도 남긴다 — 스크롤해서 비교하거나
+        복사해서 공유하기 쉽도록."""
+        self._on_tl_motion(event)
+        t = self._tl_x_to_sec(event.x)
+        if t is None:
+            return
+        self._log("[클릭] " + "  |  ".join(self._tl_describe(t)), "yellow")
+
     # ─────────────────────────────────────────────
 
     def _redraw_timeline(self):
@@ -4028,7 +4108,7 @@ class App(tk.Tk):
         span = max(z_end - z_start, 0.001)
 
         LABEL_W = 110   # 좌측 레인 라벨 영역 너비
-        TICK_H  = 16    # 상단 시간 눈금 영역 높이
+        TICK_H  = 20    # 상단 시간 눈금 영역 높이 (라벨을 9pt bold로 키우면서 16→20 확장)
         PAD     = 4
 
         # 5-레인 고정 픽셀 분할 (하단 공백 없음)
@@ -4101,11 +4181,15 @@ class App(tk.Tk):
             x = tx(t)
             if x < LABEL_W:
                 t += tick_interval; continue
-            c.create_line(x, TICK_H, x, APP_SEC_BOT, fill="#1a2a38", width=1)
+            # 눈금선/라벨을 기존보다 밝게 해서(예전엔 #1a2a38/#455a64로 너무 어두워서
+            # 픽셀 위치와 숫자를 눈대중으로 맞추기 어렵다는 피드백이 있었다) 전체 구간을
+            # 봐도 어느 세로선이 몇 초인지 바로 보이게 한다. 분:초 표기도 "0:05"처럼
+            # 항상 m:ss 형식으로 통일(기존엔 분이 0이면 "5s"로 다르게 표기해 헷갈렸다).
+            c.create_line(x, TICK_H, x, APP_SEC_BOT, fill="#2d4254", width=1)
             mins, secs = divmod(int(t), 60)
-            label = f"{mins}:{secs:02d}" if mins else f"{secs}s"
+            label = f"{mins}:{secs:02d}"
             c.create_text(x + 2, 2, anchor="nw", text=label,
-                          fill="#455a64", font=("", 7))
+                          fill="#b0bec5", font=("", 9, "bold"))
             t += tick_interval
 
         # ── 파형 레인 — 픽셀 컬럼당 min/max 수직선 방식 ──
@@ -4214,6 +4298,15 @@ class App(tk.Tk):
             if z_start <= playback_sec <= z_end:
                 x = tx(playback_sec)
                 c.create_line(x, TICK_H, x, APP_SEC_BOT, fill="white", width=2)
+
+        # 마우스 호버/클릭 핸들러가 "이 x좌표는 몇 초인지", "그 지점이 어느 섹션인지"를
+        # 다시 계산하려면 이번에 그릴 때 쓴 좌표 변환식과 섹션 목록이 필요하다 — 매번
+        # 전체를 다시 그리지 않고도 핸들러에서 바로 쓸 수 있도록 여기 저장해 둔다.
+        self._tl_layout = dict(
+            z_start=z_start, z_end=z_end, W=W, LABEL_W=LABEL_W, TICK_H=TICK_H,
+            APP_SEC_BOT=APP_SEC_BOT,
+            sections=sections, librosa_sections=librosa_sections,
+        )
 
     # ── 분석 ──────────────────────────────────────
 
