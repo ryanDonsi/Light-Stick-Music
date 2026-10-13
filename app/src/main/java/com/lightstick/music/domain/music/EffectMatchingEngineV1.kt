@@ -356,9 +356,8 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
         // CLIMAX 전용 연출(STROBE/BPM-DANCE_POP 분기)이 실기로는 너무 안 어울린다는
         // 피드백으로 당분간 막아둔다 — CHORUS와 동일하게 ON_TRANSIT_ROTATE만 쓴다.
-        // CLIMAX 자체(SectionDetectorV3의 감지/라벨링)는 그대로 둬서 Beat Accuracy
-        // Checker 등 디버그 도구에서는 여전히 CLIMAX 경계를 확인할 수 있다 — 막힌 건
-        // "이펙트 연출"뿐이다. 복원 시 아래 주석을 해제.
+        // (이후 SectionDetectorV3 쪽에서 CLIMAX 검출 자체도 막아서, 지금은 이 분기가
+        // 사실상 도달하지 않는다 — 두 레벨 다 복원 시 각자의 주석을 해제하면 된다.)
         SectionDetector.SectionType.CLIMAX -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
         // if (isDancePopMode || globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
         //     EffectMatchingEngine.FgEngine.STROBE

@@ -217,7 +217,12 @@ class SectionDetectorV3 : SectionDetector {
         val sections = toSections(labeledSections)
         val chorusRanges = sections.filter { it.type == SectionDetector.SectionType.CHORUS }
             .map { it.startMs until it.endMs }
-        val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs, chorusRanges)
+        // CLIMAX 검출 자체를 당분간 막아둔다 — 실기 테스트 결과 CLIMAX 경계/연출이
+        // 곡과 너무 안 어울린다는 피드백으로, 이펙트 연출만 막는 것(EffectMatchingEngineV1)
+        // 으로는 부족하고 섹션 검출 단계에서부터 꺼야 한다는 요청. detectClimaxMoments
+        // 함수 자체는 복원을 대비해 그대로 남겨두고 호출만 비활성화한다.
+        val climaxMoments = emptyList<Long>()
+        // val climaxMoments = detectClimaxMoments(full, durationMs, hopMs, beatMs, chorusRanges)
         return annotateBeats(
             beats, sections, climaxMoments,
             novelty = novelty, low = low, full = full, high = high, hopMs = hopMs,
