@@ -4921,8 +4921,24 @@ class App(tk.Tk):
                         self.after(0, lambda: self._log("[ 2/6 ]  음악 스타일 분류…", "gray"))
 
                 if not cached_style:
+                    # "librosa_style"이라는 이름과 달리, 예전엔 ref_sec/ref_bpm(그 호출
+                    # 시점에 실행 중이던 engine의 GT 검출 결과)을 그대로 썼다 — "전체분석"은
+                    # beat_transformer → madmom → librosa 순으로 돌고 스타일은 곡당 한 번만
+                    # 계산/캐싱되므로, beat_transformer가 먼저 돌면 그 엔진의 BPM이 (설령
+                    # 오검출이어도) "librosa_style"로 캐싱돼버렸다(실측: 장윤정 '사랑 참' —
+                    # BT만 71.8 BPM으로 절반 템포 오검출, madmom/librosa는 142.9~143.6으로
+                    # 일치했는데 BT가 먼저 돌아 그 71.8이 BALLAD로 잘못 캐싱됨). 이름 그대로
+                    # 항상 librosa 자신의 검출 결과를 쓰도록, engine 무관하게 별도로 가져온다
+                    # (detect_gt_beats가 "{music_id}_librosa" 캐시 키로 이미 저장해두므로
+                    # librosa 패스가 아니어도 비용이 크지 않다).
+                    try:
+                        _lib_ms, _lib_bpm, _ = detect_gt_beats(
+                            "librosa", audio_path, bpm_hint, music_id=music_id_display)
+                        _lib_sec = [t / 1000.0 for t in _lib_ms]
+                    except Exception:
+                        _lib_sec, _lib_bpm = ref_sec, ref_bpm
                     librosa_style, librosa_style_features = compute_music_style_librosa(
-                        audio_path, ref_sec, ref_bpm)
+                        audio_path, _lib_sec, _lib_bpm)
 
                 _steps_timing['style'] = time.time() - _step2_start
                 if not self._shared_analysis_logged:
