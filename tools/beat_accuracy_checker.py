@@ -3116,7 +3116,14 @@ class App(tk.Tk):
         # ══════════════════════════════════════════
         # 2열 2행: 분석 로그
         # ══════════════════════════════════════════
-        log_frame = tk.LabelFrame(col2, text="분석 로그", bg="#1a1a2e", fg="#90a4ae")
+        log_frame = tk.LabelFrame(col2, bg="#1a1a2e", fg="#90a4ae")
+        log_title = tk.Frame(log_frame, bg="#1a1a2e")
+        tk.Label(log_title, text="분석 로그", bg="#1a1a2e", fg="#90a4ae").pack(side="left")
+        # 타임라인 클릭 로그가 분석할 때마다만 지워지고 계속 누적돼서, 새로 몇 군데
+        # 클릭해 비교하려 할 때 이전 기록과 섞인다는 피드백으로 수동 지우기 버튼을 추가.
+        tk.Button(log_title, text="지우기", command=self._clear_log,
+                  **btn_cfg).pack(side="left", padx=(8, 0))
+        log_frame.config(labelwidget=log_title)
         log_frame.grid(row=1, column=0, sticky="nsew", pady=(3, 0))
         log_frame.rowconfigure(0, weight=1)
         log_frame.columnconfigure(0, weight=1)
