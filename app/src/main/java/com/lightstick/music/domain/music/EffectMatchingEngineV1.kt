@@ -354,13 +354,16 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 깜빡이는 BREATH 대신 특정 색을 켠 채 그대로 고정(freeze)해 정적을 표현한다.
         SectionDetector.SectionType.BREAK  -> EffectMatchingEngine.FgEngine.FREEZE
 
-        // BPM 130 이상이면 STROBE, 아니면 ON_TRANSIT_ROTATE — 단, DANCE_POP 장르는 BPM과
-        // 무관하게 항상 STROBE를 쓴다(요청: "장르가 DANCE_POP일 때도 STROBE로").
-        SectionDetector.SectionType.CLIMAX ->
-            if (isDancePopMode || globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
-                EffectMatchingEngine.FgEngine.STROBE
-            else
-                EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
+        // CLIMAX 전용 연출(STROBE/BPM-DANCE_POP 분기)이 실기로는 너무 안 어울린다는
+        // 피드백으로 당분간 막아둔다 — CHORUS와 동일하게 ON_TRANSIT_ROTATE만 쓴다.
+        // CLIMAX 자체(SectionDetectorV3의 감지/라벨링)는 그대로 둬서 Beat Accuracy
+        // Checker 등 디버그 도구에서는 여전히 CLIMAX 경계를 확인할 수 있다 — 막힌 건
+        // "이펙트 연출"뿐이다. 복원 시 아래 주석을 해제.
+        SectionDetector.SectionType.CLIMAX -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
+        // if (isDancePopMode || globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
+        //     EffectMatchingEngine.FgEngine.STROBE
+        // else
+        //     EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
 
         SectionDetector.SectionType.VERSE  -> if (isBalladMode) EffectMatchingEngine.FgEngine.BREATH else EffectMatchingEngine.FgEngine.ON_PULSE
         SectionDetector.SectionType.CHORUS -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
@@ -384,13 +387,13 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         SectionDetector.SectionType.END    -> listOf(EffectMatchingEngine.FgEngine.OFF_TRANSIT)
         SectionDetector.SectionType.BRIDGE -> listOf(EffectMatchingEngine.FgEngine.BREATH)
 
-        // BPM 130 기준으로 섹션 전체에 하나의 엔진만 쓴다(더 이상 bar 블록으로 번갈아 쓰지 않음).
-        // DANCE_POP 장르는 BPM과 무관하게 항상 STROBE(assignFgEngine과 동일 규칙).
-        SectionDetector.SectionType.CLIMAX ->
-            if (isDancePopMode || globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
-                listOf(EffectMatchingEngine.FgEngine.STROBE)
-            else
-                listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
+        // assignFgEngine과 동일하게 당분간 막아둠 — CHORUS와 같은 ON_TRANSIT_ROTATE만.
+        // 복원 시 아래 주석을 해제(BPM 130 기준 STROBE/ON_TRANSIT_ROTATE, DANCE_POP은 항상 STROBE).
+        SectionDetector.SectionType.CLIMAX -> listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
+        // if (isDancePopMode || globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
+        //     listOf(EffectMatchingEngine.FgEngine.STROBE)
+        // else
+        //     listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
 
         SectionDetector.SectionType.VERSE ->
             if (isBalladMode) listOf(EffectMatchingEngine.FgEngine.BREATH)
