@@ -214,7 +214,14 @@ class SectionDetectorV3 : SectionDetector {
         val breakSpans = detectBreakSpansByBeat(full, hopMs, beatMs, globalPeakFull, durationMs)
         val labeledSections = markBreakSpans(gatedSections, breakSpans)
 
-        val sections = toSections(labeledSections)
+        val rawTypedSections = toSections(labeledSections)
+        // 비트 수가 너무 적은 BRIDGE는 VERSE로 재분류한다. 원래는 EffectMatchingEngineV1
+        // 내부에서만(V8Section 변환 시) 일어나던 변환이라 SectionDetectorV3가 실제로
+        // 내보내는 SectionType과 어긋나는 문제가 있었다 — Beat Accuracy Checker 등에는
+        // BRIDGE로 표시되는데 실제 이펙트는 VERSE용 BLINK로 나가서 혼동을 줌(실측 피드백).
+        // 재분류 자체는 음악적으로도 타당하다는 판단이라, 판정 결과가 모든 소비자(디버그
+        // 툴 포함)에 동일하게 보이도록 검출 단계(소스)로 옮긴다.
+        val sections = reclassifyShortBridgeAsVerse(rawTypedSections, beatBoundaries)
         val chorusRanges = sections.filter { it.type == SectionDetector.SectionType.CHORUS }
             .map { it.startMs until it.endMs }
         // CLIMAX 검출 자체를 당분간 막아둔다 — 실기 테스트 결과 CLIMAX 경계/연출이
@@ -1063,6 +1070,29 @@ class SectionDetectorV3 : SectionDetector {
                 periodicity    = s.periodicity
             )
         }
+
+    /**
+     * BRIDGE로 분류된 구간 중 포함된 비트 수가 6개 미만인 짧은 구간을 VERSE로 재분류한다.
+     * (과거 EffectMatchingEngineV1.convertToV8Sections()의 normalizedType 로직과 동일한 기준)
+     */
+    private fun reclassifyShortBridgeAsVerse(
+        sections: List<SectionDetector.Section>,
+        sortedBeatBoundaries: LongArray
+    ): List<SectionDetector.Section> = sections.map { s ->
+        if (s.type != SectionDetector.SectionType.BRIDGE) return@map s
+        var lo = 0; var hi = sortedBeatBoundaries.size
+        while (lo < hi) {
+            val m = (lo + hi) ushr 1
+            if (sortedBeatBoundaries[m] < s.startMs) lo = m + 1 else hi = m
+        }
+        var count = 0
+        var i = lo
+        while (i < sortedBeatBoundaries.size && sortedBeatBoundaries[i] < s.endMs) { count++; i++ }
+        if (count < 6) {
+            Log.d(TAG, "SectionDetectorV3 짧은 BRIDGE→VERSE 재분류: ${s.startMs}~${s.endMs} beats=$count")
+            s.copy(type = SectionDetector.SectionType.VERSE)
+        } else s
+    }
 
     // ──────────────────────────────────────────────────────────────
     // Signal helpers
