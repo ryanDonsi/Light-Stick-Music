@@ -145,7 +145,12 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val cDeep  = hsvToColor(rawHues[rolePerm[0]], 1.00f, 0.48f)
         val black  = LSColor(0, 0, 0)
         val white = LSColor(255, 255, 255)
-        val colorGroup = listOf(cMain, cStep3, cStep4, cStep1)
+        // 예전엔 colorGroup이 [cMain, cStep3, cStep4, cStep1] 4개뿐이었고, VERSE/CHORUS의
+        // effectiveColors가 그중 앞 3개(.take(3))만 가져다 썼다 — 그러면 cStep1은 애초에
+        // 그 take(3)에 안 들어가고, cStep2는 colorGroup에 아예 없어서, 실제로 순환되는 색은
+        // 항상 cMain/cStep3/cStep4뿐이었다(실측 피드백: "cStep3,4의 출현 비중이 높다").
+        // cMain+cStep1~4 5개 전부를 담아 균등하게 순환시킨다.
+        val colorGroup = listOf(cMain, cStep1, cStep2, cStep3, cStep4)
         val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
         val patternABg = if (cMainLuma >= 128f) cDeep else cMain
         // VERSE BLINK: BG는 빨강에 가장 가까운 색(closestToRed)으로 고정하고, FG는 BG와
@@ -555,9 +560,10 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         barIdx: Int = 0, isBalladMode: Boolean = false
     ): Pair<LSColor, LSColor?> {
         val isPatternA = (sectionIndex % 2 == 0)
+        // colorGroup이 이제 cMain+cStep1~4 5개 전부라, VERSE/CHORUS 모두 잘라내지 않고
+        // 그대로(+ CHORUS는 white 추가) 순환시켜서 cStep1~4가 고르게 노출되게 한다.
         val effectiveColors: List<LSColor> = when (sectionType) {
-            SectionDetector.SectionType.CHORUS -> listOf(palette.white) + palette.colorGroup.take(3)
-            SectionDetector.SectionType.VERSE  -> palette.colorGroup.take(3)
+            SectionDetector.SectionType.CHORUS -> listOf(palette.white) + palette.colorGroup
             else -> palette.colorGroup
         }
         val groupColor = effectiveColors[beatIndex % effectiveColors.size]
