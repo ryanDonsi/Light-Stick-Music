@@ -49,7 +49,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         private val GENRE_PALETTE_FAMILIES: Map<MusicStyleClassifier.MusicStyle, List<PaletteFamily>> = mapOf(
             MusicStyleClassifier.MusicStyle.BALLAD     to listOf(PaletteFamily.TEAL, PaletteFamily.PURPLE, PaletteFamily.BLUE),
             MusicStyleClassifier.MusicStyle.EDM        to listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD, PaletteFamily.PURPLE),
-            MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(PaletteFamily.ORANGE_GOLD, PaletteFamily.RED, PaletteFamily.BLUE),
+            MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(PaletteFamily.PURPLE, PaletteFamily.RED, PaletteFamily.BLUE),
             MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(PaletteFamily.PURPLE, PaletteFamily.BLUE, PaletteFamily.TEAL),
             MusicStyleClassifier.MusicStyle.ROCK       to listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD),
             MusicStyleClassifier.MusicStyle.POP        to PaletteFamily.values().toList()
