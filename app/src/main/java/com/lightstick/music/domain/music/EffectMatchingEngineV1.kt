@@ -137,20 +137,35 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             wrap360(baseHue + family.step4)
         )
         val rolePerm = GENRE_ROLE_PERMUTATION[musicStyle] ?: listOf(0, 1, 2, 3, 4)
-        val cMain  = hsvToColor(rawHues[rolePerm[0]], 1.00f, 1.00f)
-        val cStep1 = hsvToColor(rawHues[rolePerm[1]], 1.00f, 1.00f)
-        val cStep2 = hsvToColor(rawHues[rolePerm[2]], 1.00f, 1.00f)
-        val cStep3 = hsvToColor(rawHues[rolePerm[3]], 1.00f, 1.00f)
-        val cStep4 = hsvToColor(rawHues[rolePerm[4]], 1.00f, 1.00f)
-        val cDeep  = hsvToColor(rawHues[rolePerm[0]], 1.00f, 0.48f)
+        val mainHue  = rawHues[rolePerm[0]]
+        val step1Hue = rawHues[rolePerm[1]]
+        val step2Hue = rawHues[rolePerm[2]]
+        val step3Hue = rawHues[rolePerm[3]]
+        val step4Hue = rawHues[rolePerm[4]]
+        val cMain  = hsvToColor(mainHue,  1.00f, 1.00f)
+        val cStep1 = hsvToColor(step1Hue, 1.00f, 1.00f)
+        val cStep2 = hsvToColor(step2Hue, 1.00f, 1.00f)
+        val cStep3 = hsvToColor(step3Hue, 1.00f, 1.00f)
+        val cStep4 = hsvToColor(step4Hue, 1.00f, 1.00f)
+        val cDeep  = hsvToColor(mainHue,  1.00f, 0.48f)
         val black  = LSColor(0, 0, 0)
         val white = LSColor(255, 255, 255)
         // 예전엔 colorGroup이 [cMain, cStep3, cStep4, cStep1] 4개뿐이었고, VERSE/CHORUS의
         // effectiveColors가 그중 앞 3개(.take(3))만 가져다 썼다 — 그러면 cStep1은 애초에
         // 그 take(3)에 안 들어가고, cStep2는 colorGroup에 아예 없어서, 실제로 순환되는 색은
         // 항상 cMain/cStep3/cStep4뿐이었다(실측 피드백: "cStep3,4의 출현 비중이 높다").
-        // cMain+cStep1~4 5개 전부를 담아 균등하게 순환시킨다.
-        val colorGroup = listOf(cMain, cStep1, cStep2, cStep3, cStep4)
+        // cMain+cStep1~4 5개 전부를 담되, hue 순서 그대로 나열하면 바로 옆 hue끼리(예:
+        // cStep1→cStep2가 ±15도 근방) 붙어서 순환할 때 색이 비슷해 보인다(실측 피드백:
+        // "CHORUS 순환 시 색상 구분이 잘 되도록"). baseHue 기준 signed offset으로 정렬한
+        // 뒤, (0,2,4,1,3) 순서로 번갈아 배치해서 순환 시 인접 색끼리 hue 차이가 최대가
+        // 되도록 한다 — RED처럼 hue가 0/360 경계를 넘나드는 계열도 baseHue 기준 signed
+        // offset이라 올바르게 정렬된다.
+        fun signedOffsetFromBase(h: Float) = wrap360(h - baseHue + 180f) - 180f
+        val sortedByOffset = listOf(
+            mainHue to cMain, step1Hue to cStep1, step2Hue to cStep2,
+            step3Hue to cStep3, step4Hue to cStep4
+        ).sortedBy { signedOffsetFromBase(it.first) }
+        val colorGroup = listOf(0, 2, 4, 1, 3).map { sortedByOffset[it].second }
         val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
         val patternABg = if (cMainLuma >= 128f) cDeep else cMain
         // VERSE BLINK: BG는 빨강에 가장 가까운 색(closestToRed)으로 고정하고, FG는 BG와
