@@ -40,6 +40,14 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 하나로 고정한다. 계열 안에서도 곡마다 살짝 다르게 보이도록 ±지터를 준다.
         private const val PALETTE_FAMILY_HUE_JITTER = 15f
 
+        // cStep1~6의 hue 오프셋. 예전엔 +30/-30/+60/-60/+120/-120(최대 120도)였는데, 이러면
+        // 계열(PaletteFamily) 자체를 벗어나 보였다 — 예: PURPLE(275도)+120=35도(주황)는 더
+        // 이상 보라 계열로 안 보임. 단계끼리는 또렷이 구분되면서도 계열 정체성은 유지하도록
+        // 최대 폭을 45도로 좁힌다.
+        private const val PALETTE_STEP_SMALL  = 15f
+        private const val PALETTE_STEP_MEDIUM = 30f
+        private const val PALETTE_STEP_LARGE  = 45f
+
         // 장르(MusicStyle)별로 어울리는 색 계열 후보군. 후보가 여럿이면 seed(musicId)로
         // 그중 하나를 결정론적으로 고른다 — 같은 장르 곡들이 전부 똑같은 색은 아니게 하되,
         // 분위기(계열)는 장르에 맞춘다.
@@ -85,13 +93,13 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val jitter = Math.floorMod(rawHue / candidates.size, jitterRange) - PALETTE_FAMILY_HUE_JITTER
         val baseHue = wrap360(family.hue + jitter)
         Log.d(TAG, "[Palette] style=$musicStyle family=$family baseHue=${"%.1f".format(baseHue)}")
-        val cMain  = hsvToColor(baseHue,                 1.00f, 1.00f)
-        val cStep1 = hsvToColor(wrap360(baseHue +  30f), 1.00f, 1.00f)
-        val cStep2 = hsvToColor(wrap360(baseHue -  30f), 1.00f, 1.00f)
-        val cStep3 = hsvToColor(wrap360(baseHue +  60f), 1.00f, 1.00f)
-        val cStep4 = hsvToColor(wrap360(baseHue -  60f), 1.00f, 1.00f)
-        val cStep5 = hsvToColor(wrap360(baseHue + 120f), 1.00f, 1.00f)
-        val cStep6 = hsvToColor(wrap360(baseHue - 120f), 1.00f, 1.00f)
+        val cMain  = hsvToColor(baseHue,                                   1.00f, 1.00f)
+        val cStep1 = hsvToColor(wrap360(baseHue + PALETTE_STEP_SMALL),     1.00f, 1.00f)
+        val cStep2 = hsvToColor(wrap360(baseHue - PALETTE_STEP_SMALL),     1.00f, 1.00f)
+        val cStep3 = hsvToColor(wrap360(baseHue + PALETTE_STEP_MEDIUM),    1.00f, 1.00f)
+        val cStep4 = hsvToColor(wrap360(baseHue - PALETTE_STEP_MEDIUM),    1.00f, 1.00f)
+        val cStep5 = hsvToColor(wrap360(baseHue + PALETTE_STEP_LARGE),     1.00f, 1.00f)
+        val cStep6 = hsvToColor(wrap360(baseHue - PALETTE_STEP_LARGE),     1.00f, 1.00f)
         val cDeep  = hsvToColor(baseHue,                 1.00f, 0.48f)
         val black  = LSColor(0, 0, 0)
         val white = LSColor(255, 255, 255)
