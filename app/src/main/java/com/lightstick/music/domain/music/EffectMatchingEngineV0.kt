@@ -46,7 +46,8 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
             chorusBg = black,
             colorGroup = listOf(white, white, white, white),
             verseBlinkBg = black,
-            verseBlinkFgCycle = listOf(white)
+            verseBlinkFgCycle = listOf(white),
+            chorusColors = listOf(white)
         )
     }
 

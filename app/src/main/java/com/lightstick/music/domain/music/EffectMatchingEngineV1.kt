@@ -43,39 +43,56 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 주황 경계를 넘김) 5도로 작게 둔다.
         private const val PALETTE_FAMILY_HUE_JITTER = 5f
 
-        // 장르(MusicStyle)별로 어울리는 색 계열 후보군. 후보가 여럿이면 seed(musicId)로
-        // 그중 하나를 결정론적으로 고른다 — 같은 장르 곡들이 전부 똑같은 색은 아니게 하되,
-        // 분위기(계열)는 장르에 맞춘다.
-        private val GENRE_PALETTE_FAMILIES: Map<MusicStyleClassifier.MusicStyle, List<PaletteFamily>> = mapOf(
-            MusicStyleClassifier.MusicStyle.BALLAD     to listOf(PaletteFamily.TEAL, PaletteFamily.PURPLE, PaletteFamily.BLUE),
-            MusicStyleClassifier.MusicStyle.EDM        to listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD, PaletteFamily.PURPLE),
-            MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(PaletteFamily.RED, PaletteFamily.TEAL, PaletteFamily.BLUE),
-            MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(PaletteFamily.PURPLE, PaletteFamily.BLUE, PaletteFamily.TEAL),
-            MusicStyleClassifier.MusicStyle.ROCK       to listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD),
-            MusicStyleClassifier.MusicStyle.POP        to PaletteFamily.values().toList()
-        )
+        // 장르(MusicStyle)별 팔레트 설정을 GenreTheme 하나로 묶는다 — 예전엔
+        // GENRE_PALETTE_FAMILIES(계열 후보군)와 GENRE_ROLE_PERMUTATION(역할 배치)이
+        // 장르별로 따로따로 Map에 떨어져 있어서, 장르를 추가/수정할 때 둘을 따로 맞춰야
+        // 했고 서로 안 맞게 어긋날 위험이 있었다.
+        //
+        // families: 장르에 어울리는 색 계열 후보군. 후보가 여럿이면 seed(musicId)로 그중
+        //   하나를 결정론적으로 고른다 — 같은 장르 곡들이 전부 똑같은 색은 아니게 하되,
+        //   분위기(계열)는 장르에 맞춘다.
+        // rolePermutation: 한 계열(PaletteFamily)은 center(=hue)와 step1~4, 총 5개의
+        //   고정된 색 후보를 갖는다(raw[0]=center, raw[1..4]=+step1~4). 이 5개 중 "어느
+        //   것을 cMain으로 쓸지" + 나머지를 cStep1~4에 어떤 순서로 배치할지를 장르마다
+        //   다르게 둬서, 같은 계열(예: PURPLE)이 걸려도 발라드는 raw[0](원래 중심색)을
+        //   cMain으로, EDM은 raw[3](더 멀리 떨어진 색, 예: 핫핑크 쪽)을 cMain으로 쓰는
+        //   식으로 "같은 계열인데 장르마다 대표색이 달라 보이는" 효과를 낸다. hue 자체를
+        //   새로 만드는 게 아니라 이미 안전하게 계산된 5개 색의 역할만 바꾸는 거라 계열
+        //   경계를 넘을 위험이 전혀 없다.
+        //   rolePermutation[0](=cMain으로 쓸 raw 인덱스)은 임의로 고른 게 아니라, 실사용
+        //   비중이 큰 BALLAD/EDM/DANCE_POP/POP이 공유하는 계열(TEAL/PURPLE/BLUE/RED/
+        //   ORANGE_GOLD)별로 "그 계열을 쓰는 장르들의 cMain끼리 최대한 멀어지도록"
+        //   전수 탐색(5^4=625 조합)으로 찾은 값이다. TEAL만 전체 안전 영역이 22도로 좁아
+        //   최소 간격이 8도에 그치고(물리적 한계), 나머지는 15~45도씩 벌어진다.
+        //   ROCK/HIPHOP_RNB는 실사용 비중이 낮아 이 최적화에서 제외하고 기존 값을
+        //   그대로 둔다.
+        data class GenreTheme(val families: List<PaletteFamily>, val rolePermutation: List<Int>)
 
-        // 한 계열(PaletteFamily)은 center(=hue)와 step1~4, 총 5개의 고정된 색 후보를 갖는다
-        // (raw[0]=center, raw[1]=+step1, raw[2]=+step2, raw[3]=+step3, raw[4]=+step4).
-        // 장르별로 이 5개 중 "어느 것을 cMain으로 쓸지" + 나머지를 cStep1~4에 어떤 순서로
-        // 배치할지를 다르게 둔다 — 같은 계열(예: PURPLE)이 걸려도 발라드는 raw[0](원래
-        // 중심색)을 cMain으로 쓰고, EDM은 raw[3](더 멀리 떨어진 색, 예: 핫핑크 쪽)을 cMain
-        // 으로 쓰는 식이라 "같은 계열인데 장르마다 대표색이 달라 보이는" 효과를 낸다. hue
-        // 자체를 새로 만드는 게 아니라 이미 안전하게 계산된 5개 색의 역할만 바꾸는 거라
-        // 계열 경계를 넘을 위험이 전혀 없다.
-        // rolePerm[0](=cMain으로 쓸 raw 인덱스)은 임의로 고른 게 아니라, 실사용 비중이
-        // 큰 BALLAD/EDM/DANCE_POP/POP이 공유하는 계열(TEAL/PURPLE/BLUE/RED/ORANGE_GOLD)
-        // 별로 "그 계열을 쓰는 장르들의 cMain끼리 최대한 멀어지도록" 전수 탐색(5^4=625
-        // 조합)으로 찾은 값이다. TEAL만 전체 안전 영역이 22도로 좁아 최소 간격이 8도에
-        // 그치고(물리적 한계), 나머지는 15~45도씩 벌어진다. ROCK/HIPHOP_RNB는 실사용
-        // 비중이 낮아 이 최적화에서 제외하고 기존 값을 그대로 둔다.
-        private val GENRE_ROLE_PERMUTATION: Map<MusicStyleClassifier.MusicStyle, List<Int>> = mapOf(
-            MusicStyleClassifier.MusicStyle.POP        to listOf(3, 0, 2, 4, 1),
-            MusicStyleClassifier.MusicStyle.BALLAD     to listOf(4, 0, 2, 1, 3),
-            MusicStyleClassifier.MusicStyle.EDM        to listOf(1, 3, 4, 2, 0),
-            MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(0, 2, 4, 1, 3),
-            MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(4, 0, 2, 1, 3),
-            MusicStyleClassifier.MusicStyle.ROCK       to listOf(1, 3, 0, 4, 2)
+        private val GENRE_THEMES: Map<MusicStyleClassifier.MusicStyle, GenreTheme> = mapOf(
+            MusicStyleClassifier.MusicStyle.BALLAD to GenreTheme(
+                families = listOf(PaletteFamily.TEAL, PaletteFamily.PURPLE, PaletteFamily.BLUE),
+                rolePermutation = listOf(4, 0, 2, 1, 3)
+            ),
+            MusicStyleClassifier.MusicStyle.EDM to GenreTheme(
+                families = listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD, PaletteFamily.PURPLE),
+                rolePermutation = listOf(1, 3, 4, 2, 0)
+            ),
+            MusicStyleClassifier.MusicStyle.DANCE_POP to GenreTheme(
+                families = listOf(PaletteFamily.RED, PaletteFamily.TEAL, PaletteFamily.BLUE),
+                rolePermutation = listOf(0, 2, 4, 1, 3)
+            ),
+            MusicStyleClassifier.MusicStyle.HIPHOP_RNB to GenreTheme(
+                families = listOf(PaletteFamily.PURPLE, PaletteFamily.BLUE, PaletteFamily.TEAL),
+                rolePermutation = listOf(4, 0, 2, 1, 3)
+            ),
+            MusicStyleClassifier.MusicStyle.ROCK to GenreTheme(
+                families = listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD),
+                rolePermutation = listOf(1, 3, 0, 4, 2)
+            ),
+            MusicStyleClassifier.MusicStyle.POP to GenreTheme(
+                families = PaletteFamily.values().toList(),
+                rolePermutation = listOf(3, 0, 2, 4, 1)
+            )
         )
     }
 
@@ -119,7 +136,8 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 예전엔 rawHue를 그대로 0~360 아무 색상에나 매핑했는데, 이러면 곡마다 색이
         // 완전히 들쭉날쭉해서 장르별 분위기가 전혀 안 느껴졌다. 장르에 어울리는 색 계열
         // 후보군 중 하나를 seed로 결정론적으로 고르고, 그 계열 안에서만 약간의 지터를 준다.
-        val candidates = GENRE_PALETTE_FAMILIES[musicStyle] ?: PaletteFamily.values().toList()
+        val theme = GENRE_THEMES[musicStyle]
+        val candidates = theme?.families ?: PaletteFamily.values().toList()
         val family = candidates[Math.floorMod(rawHue, candidates.size)]
         val jitterRange = (PALETTE_FAMILY_HUE_JITTER * 2).toInt() + 1
         val jitter = Math.floorMod(rawHue / candidates.size, jitterRange) - PALETTE_FAMILY_HUE_JITTER
@@ -128,7 +146,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // cStep5/6(가장 넓은 오프셋)은 쓰지 않는다 — cStep1~4(계열별 비대칭 오프셋, 위
         // PaletteFamily 참고)까지만으로 색을 구성해 계열 경계를 확실하게 지킨다.
         // raw[0]=center, raw[1..4]=+step1~4 — 이 5개의 안전한 hue를, 장르별 역할 배치
-        // (GENRE_ROLE_PERMUTATION)에 따라 cMain/cStep1~4로 재배정한다.
+        // (GenreTheme.rolePermutation)에 따라 cMain/cStep1~4로 재배정한다.
         val rawHues = listOf(
             baseHue,
             wrap360(baseHue + family.step1),
@@ -136,7 +154,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             wrap360(baseHue + family.step3),
             wrap360(baseHue + family.step4)
         )
-        val rolePerm = GENRE_ROLE_PERMUTATION[musicStyle] ?: listOf(0, 1, 2, 3, 4)
+        val rolePerm = theme?.rolePermutation ?: listOf(0, 1, 2, 3, 4)
         val mainHue  = rawHues[rolePerm[0]]
         val step1Hue = rawHues[rolePerm[1]]
         val step2Hue = rawHues[rolePerm[2]]
@@ -166,6 +184,20 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             step3Hue to cStep3, step4Hue to cStep4
         ).sortedBy { signedOffsetFromBase(it.first) }
         val colorGroup = listOf(0, 2, 4, 1, 3).map { sortedByOffset[it].second }
+        // CHORUS는 "탁탁 튀는" 전환이 핵심인데, colorGroup(5개, 빈도 균등화용)을 그대로
+        // 쓰면 사이사이 간격이 좁은 색도 섞여서 전환이 조금씩 바뀌는 것처럼 보인다(실측
+        // 피드백). 양끝(low/high)과 중간(mid) 3개만 골라서 white와 함께 4개로 순환시키고,
+        // mid는 low/high 중 간격이 더 큰 쪽 옆에 둬서(둘 다 붙여놔도) 최소 전환 폭이
+        // 작아지지 않게 배치한다.
+        val (lowHue, lowColor)   = sortedByOffset[0]
+        val (midHue, midColor)  = sortedByOffset[2]
+        val (highHue, highColor) = sortedByOffset[4]
+        val gapLowMid  = signedOffsetFromBase(midHue)  - signedOffsetFromBase(lowHue)
+        val gapHighMid = signedOffsetFromBase(highHue) - signedOffsetFromBase(midHue)
+        val chorusColors = if (gapHighMid >= gapLowMid)
+            listOf(white, lowColor, highColor, midColor)
+        else
+            listOf(white, highColor, lowColor, midColor)
         val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
         val patternABg = if (cMainLuma >= 128f) cDeep else cMain
         // VERSE BLINK: BG는 빨강에 가장 가까운 색(closestToRed)으로 고정하고, FG는 BG와
@@ -186,7 +218,8 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cMain, black)),
             chorusBg    = cDeep, colorGroup = colorGroup,
             verseBlinkBg = verseBlinkBg,
-            verseBlinkFgCycle = verseBlinkFgCycle
+            verseBlinkFgCycle = verseBlinkFgCycle,
+            chorusColors = chorusColors
         )
     }
 
@@ -577,8 +610,10 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val isPatternA = (sectionIndex % 2 == 0)
         // colorGroup이 이제 cMain+cStep1~4 5개 전부라, VERSE/CHORUS 모두 잘라내지 않고
         // 그대로(+ CHORUS는 white 추가) 순환시켜서 cStep1~4가 고르게 노출되게 한다.
+        // CHORUS는 간격이 큰 색만 골라둔 palette.chorusColors를 쓰고(전환마다 또렷이
+        // 달라지도록), VERSE/그 외는 빈도 균등화된 colorGroup(5개) 전부를 순환한다.
         val effectiveColors: List<LSColor> = when (sectionType) {
-            SectionDetector.SectionType.CHORUS -> listOf(palette.white) + palette.colorGroup
+            SectionDetector.SectionType.CHORUS -> palette.chorusColors
             else -> palette.colorGroup
         }
         val groupColor = effectiveColors[beatIndex % effectiveColors.size]
