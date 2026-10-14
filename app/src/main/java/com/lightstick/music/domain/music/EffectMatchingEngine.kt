@@ -58,9 +58,13 @@ interface EffectMatchingEngine {
     /**
      * 팔레트 생성
      * @param seed musicId 또는 임의의 시드값
+     * @param musicStyle 음악 스타일(장르) — 장르에 어울리는 색 계열(팔레트 세트) 후보군을
+     *                   고르는 데 쓰인다. 같은 장르 후보군 안에서는 seed로 결정론적으로 하나를
+     *                   고르므로, 같은 곡은 항상 같은 팔레트가 나오지만 장르가 다르면 분위기도
+     *                   달라진다. 미사용 구현체(V0)는 무시해도 된다.
      * @return 4색 팔레트 (흰색 포함)
      */
-    fun buildPalette(seed: Int): Palette
+    fun buildPalette(seed: Int, musicStyle: MusicStyleClassifier.MusicStyle = MusicStyleClassifier.MusicStyle.POP): Palette
 
     /**
      * 섹션 그룹으로부터 이펙트 프레임 생성

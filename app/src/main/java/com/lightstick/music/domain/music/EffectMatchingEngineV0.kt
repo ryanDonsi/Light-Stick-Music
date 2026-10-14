@@ -32,7 +32,7 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
      * V0은 팔레트를 사용하지 않으므로 빈 팔레트 반환
      * (하위 호환성 유지)
      */
-    override fun buildPalette(seed: Int): EffectMatchingEngine.Palette {
+    override fun buildPalette(seed: Int, musicStyle: MusicStyleClassifier.MusicStyle): EffectMatchingEngine.Palette {
         val white = LSColor(255, 255, 255)
         val black = LSColor(0, 0, 0)
         val empty = EffectMatchingEngine.ColorSet(white, black)

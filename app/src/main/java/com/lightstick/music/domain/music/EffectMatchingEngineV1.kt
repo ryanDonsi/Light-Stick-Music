@@ -35,6 +35,31 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 뜸하면 "서서히"가 아니라 계단식으로 뚝뚝 떨어지는 느낌이 된다.
         private const val OUTRO_FADE_STEP_MS = 1_000L
         private const val OUTRO_FADE_MAX_STEPS = 8
+
+        // 팔레트 색 계열(세트) — 곡의 baseHue를 "아무 색상"이 아니라 미리 정해둔 계열 중
+        // 하나로 고정한다. 계열 안에서도 곡마다 살짝 다르게 보이도록 ±지터를 준다.
+        private const val PALETTE_FAMILY_HUE_JITTER = 15f
+
+        // 장르(MusicStyle)별로 어울리는 색 계열 후보군. 후보가 여럿이면 seed(musicId)로
+        // 그중 하나를 결정론적으로 고른다 — 같은 장르 곡들이 전부 똑같은 색은 아니게 하되,
+        // 분위기(계열)는 장르에 맞춘다.
+        private val GENRE_PALETTE_FAMILIES: Map<MusicStyleClassifier.MusicStyle, List<PaletteFamily>> = mapOf(
+            MusicStyleClassifier.MusicStyle.BALLAD     to listOf(PaletteFamily.TEAL, PaletteFamily.PURPLE, PaletteFamily.BLUE),
+            MusicStyleClassifier.MusicStyle.EDM        to listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD, PaletteFamily.PURPLE),
+            MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(PaletteFamily.ORANGE_GOLD, PaletteFamily.RED, PaletteFamily.BLUE),
+            MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(PaletteFamily.PURPLE, PaletteFamily.BLUE, PaletteFamily.TEAL),
+            MusicStyleClassifier.MusicStyle.ROCK       to listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD),
+            MusicStyleClassifier.MusicStyle.POP        to PaletteFamily.values().toList()
+        )
+    }
+
+    /** 팔레트 색 계열 — hue는 그 계열을 대표하는 중심 색상(도 단위). */
+    private enum class PaletteFamily(val hue: Float) {
+        PURPLE(275f),
+        RED(355f),
+        TEAL(175f),
+        ORANGE_GOLD(38f),
+        BLUE(215f)
     }
 
     data class V8Section(
@@ -47,9 +72,19 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val beatTimesMs: List<Long> = emptyList()
     )
 
-    override fun buildPalette(seed: Int): EffectMatchingEngine.Palette {
+    override fun buildPalette(
+        seed: Int, musicStyle: MusicStyleClassifier.MusicStyle
+    ): EffectMatchingEngine.Palette {
         val rawHue  = (((seed.toLong() * 2654435761L) ushr 8) and 0x7FFFFFFFL).toInt()
-        val baseHue = (((rawHue % 360) + 360) % 360).toFloat()
+        // 예전엔 rawHue를 그대로 0~360 아무 색상에나 매핑했는데, 이러면 곡마다 색이
+        // 완전히 들쭉날쭉해서 장르별 분위기가 전혀 안 느껴졌다. 장르에 어울리는 색 계열
+        // 후보군 중 하나를 seed로 결정론적으로 고르고, 그 계열 안에서만 약간의 지터를 준다.
+        val candidates = GENRE_PALETTE_FAMILIES[musicStyle] ?: PaletteFamily.values().toList()
+        val family = candidates[Math.floorMod(rawHue, candidates.size)]
+        val jitterRange = (PALETTE_FAMILY_HUE_JITTER * 2).toInt() + 1
+        val jitter = Math.floorMod(rawHue / candidates.size, jitterRange) - PALETTE_FAMILY_HUE_JITTER
+        val baseHue = wrap360(family.hue + jitter)
+        Log.d(TAG, "[Palette] style=$musicStyle family=$family baseHue=${"%.1f".format(baseHue)}")
         val cMain  = hsvToColor(baseHue,                 1.00f, 1.00f)
         val cStep1 = hsvToColor(wrap360(baseHue +  30f), 1.00f, 1.00f)
         val cStep2 = hsvToColor(wrap360(baseHue -  30f), 1.00f, 1.00f)

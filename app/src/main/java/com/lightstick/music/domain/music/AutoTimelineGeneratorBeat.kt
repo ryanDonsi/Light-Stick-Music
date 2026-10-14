@@ -281,7 +281,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
 
         // 이펙트 엔진 선택 및 실행
         val engine = EffectMatchingEngineRouter.createEngine()
-        val palette = engine.buildPalette(musicId)
+        val palette = engine.buildPalette(musicId, musicStyle)
 
         val isBalladMode = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
                         || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
