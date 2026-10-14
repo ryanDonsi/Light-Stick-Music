@@ -55,16 +55,21 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             MusicStyleClassifier.MusicStyle.POP        to PaletteFamily.values().toList()
         )
 
-        // 장르별로 colorGroup(=cMain 다음에 cStep 몇 번을 어떤 순서로 쓸지)을 다르게 가져간다.
-        // 계열(색상)이 달라도 순환 순서가 항상 cStep3→4→1로 똑같으면 체감 패턴이 비슷하게
-        // 느껴질 수 있어서, 장르마다 cStep1~4 중 3개를 고르는 순서 자체를 다르게 둔다.
-        private val GENRE_STEP_ORDER: Map<MusicStyleClassifier.MusicStyle, List<Int>> = mapOf(
-            MusicStyleClassifier.MusicStyle.BALLAD     to listOf(3, 4, 1),
-            MusicStyleClassifier.MusicStyle.EDM        to listOf(1, 4, 3),
-            MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(4, 1, 3),
-            MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(2, 1, 4),
-            MusicStyleClassifier.MusicStyle.ROCK       to listOf(1, 3, 2),
-            MusicStyleClassifier.MusicStyle.POP        to listOf(3, 1, 4)
+        // 한 계열(PaletteFamily)은 center(=hue)와 step1~4, 총 5개의 고정된 색 후보를 갖는다
+        // (raw[0]=center, raw[1]=+step1, raw[2]=+step2, raw[3]=+step3, raw[4]=+step4).
+        // 장르별로 이 5개 중 "어느 것을 cMain으로 쓸지" + 나머지를 cStep1~4에 어떤 순서로
+        // 배치할지를 다르게 둔다 — 같은 계열(예: PURPLE)이 걸려도 발라드는 raw[0](원래
+        // 중심색)을 cMain으로 쓰고, EDM은 raw[3](더 멀리 떨어진 색, 예: 핫핑크 쪽)을 cMain
+        // 으로 쓰는 식이라 "같은 계열인데 장르마다 대표색이 달라 보이는" 효과를 낸다. hue
+        // 자체를 새로 만드는 게 아니라 이미 안전하게 계산된 5개 색의 역할만 바꾸는 거라
+        // 계열 경계를 넘을 위험이 전혀 없다.
+        private val GENRE_ROLE_PERMUTATION: Map<MusicStyleClassifier.MusicStyle, List<Int>> = mapOf(
+            MusicStyleClassifier.MusicStyle.POP        to listOf(0, 1, 2, 3, 4),
+            MusicStyleClassifier.MusicStyle.BALLAD     to listOf(0, 2, 1, 4, 3),
+            MusicStyleClassifier.MusicStyle.EDM        to listOf(3, 4, 1, 2, 0),
+            MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(2, 3, 4, 0, 1),
+            MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(4, 0, 2, 1, 3),
+            MusicStyleClassifier.MusicStyle.ROCK       to listOf(1, 3, 0, 4, 2)
         )
     }
 
@@ -116,19 +121,25 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         Log.d(TAG, "[Palette] style=$musicStyle family=$family baseHue=${"%.1f".format(baseHue)}")
         // cStep5/6(가장 넓은 오프셋)은 쓰지 않는다 — cStep1~4(계열별 비대칭 오프셋, 위
         // PaletteFamily 참고)까지만으로 색을 구성해 계열 경계를 확실하게 지킨다.
-        val cMain  = hsvToColor(baseHue,                               1.00f, 1.00f)
-        val cStep1 = hsvToColor(wrap360(baseHue + family.step1),       1.00f, 1.00f)
-        val cStep2 = hsvToColor(wrap360(baseHue + family.step2),       1.00f, 1.00f)
-        val cStep3 = hsvToColor(wrap360(baseHue + family.step3),       1.00f, 1.00f)
-        val cStep4 = hsvToColor(wrap360(baseHue + family.step4),       1.00f, 1.00f)
-        val cDeep  = hsvToColor(baseHue,                 1.00f, 0.48f)
+        // raw[0]=center, raw[1..4]=+step1~4 — 이 5개의 안전한 hue를, 장르별 역할 배치
+        // (GENRE_ROLE_PERMUTATION)에 따라 cMain/cStep1~4로 재배정한다.
+        val rawHues = listOf(
+            baseHue,
+            wrap360(baseHue + family.step1),
+            wrap360(baseHue + family.step2),
+            wrap360(baseHue + family.step3),
+            wrap360(baseHue + family.step4)
+        )
+        val rolePerm = GENRE_ROLE_PERMUTATION[musicStyle] ?: listOf(0, 1, 2, 3, 4)
+        val cMain  = hsvToColor(rawHues[rolePerm[0]], 1.00f, 1.00f)
+        val cStep1 = hsvToColor(rawHues[rolePerm[1]], 1.00f, 1.00f)
+        val cStep2 = hsvToColor(rawHues[rolePerm[2]], 1.00f, 1.00f)
+        val cStep3 = hsvToColor(rawHues[rolePerm[3]], 1.00f, 1.00f)
+        val cStep4 = hsvToColor(rawHues[rolePerm[4]], 1.00f, 1.00f)
+        val cDeep  = hsvToColor(rawHues[rolePerm[0]], 1.00f, 0.48f)
         val black  = LSColor(0, 0, 0)
         val white = LSColor(255, 255, 255)
-        // colorGroup의 cMain 이후 순서(=VERSE/CHORUS에서 색이 cStep 몇 번 → 몇 번으로
-        // 넘어가는지)는 장르별로 다르게 둔다(GENRE_STEP_ORDER).
-        val stepByIndex = mapOf(1 to cStep1, 2 to cStep2, 3 to cStep3, 4 to cStep4)
-        val stepOrder = GENRE_STEP_ORDER[musicStyle] ?: listOf(3, 4, 1)
-        val colorGroup = listOf(cMain) + stepOrder.map { stepByIndex.getValue(it) }
+        val colorGroup = listOf(cMain, cStep3, cStep4, cStep1)
         val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
         val patternABg = if (cMainLuma >= 128f) cDeep else cMain
         // VERSE BLINK: BG는 빨강에 가장 가까운 색(closestToRed)으로 고정하고, FG는 BG와
