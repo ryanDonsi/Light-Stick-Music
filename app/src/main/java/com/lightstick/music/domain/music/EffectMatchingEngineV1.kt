@@ -37,9 +37,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         private const val OUTRO_FADE_MAX_STEPS = 8
 
         // 팔레트 색 계열(세트) — 곡의 hue를 "아무 색상"이 아니라 미리 정해둔 계열
-        // (PaletteFamily의 hueStart~hueEnd 구간) 중 하나로 고정한다. 계열 안에서도
-        // 곡마다 살짝 다르게 보이도록 hueStart/hueEnd 양쪽에 같은 ±지터를 준다(구간
-        // 폭은 그대로 두고 통째로 살짝 회전시키는 효과).
+        // (PaletteFamily의 hues 4개) 중 하나로 고정한다. 계열 안에서도 곡마다 살짝
+        // 다르게 보이도록 hues 4개 전부에 같은 ±지터를 준다(포인트 간 간격은 그대로
+        // 두고 통째로 살짝 회전시키는 효과).
         private const val PALETTE_FAMILY_HUE_JITTER = 5f
 
         // 장르(MusicStyle)별 팔레트 설정을 GenreTheme 하나로 묶는다 — 예전엔
@@ -50,27 +50,28 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // families: 장르에 어울리는 색 계열 후보군. 후보가 여럿이면 seed(musicId)로 그중
         //   하나를 결정론적으로 고른다 — 같은 장르 곡들이 전부 똑같은 색은 아니게 하되,
         //   분위기(계열)는 장르에 맞춘다.
-        // rolePermutation: 한 계열(PaletteFamily)은 hueStart~hueEnd 구간을 3등분한 4개의
-        //   고정된 색 후보를 갖는다(raw[0]=hueStart, raw[1]=1/3지점, raw[2]=2/3지점,
-        //   raw[3]=hueEnd). 이 4개 중 "어느 것을 cMain으로 쓸지" + 나머지를 cStep1~3에
+        // rolePermutation: 한 계열(PaletteFamily)은 hues 4개의 고정된 색 후보를 갖는다.
+        //   이 4개 중 "어느 것을 cMain으로 쓸지" + 나머지를 cStep1~3에
         //   어떤 순서로 배치할지를 장르마다 다르게 둬서, 같은 계열이 걸려도 장르마다
         //   대표색(cMain)이 달라 보이는 효과를 낸다(cStep4는 역할 배치에 안 들고 항상
         //   cMain과 같은 hue의 옅은 포인트색 — buildPalette 참고).
         //   rolePermutation[0](=cMain으로 쓸 raw 인덱스)은 임의로 고른 게 아니라, 실사용
         //   비중이 큰 BALLAD/EDM/DANCE_POP/POP이 공유하는 계열별로 "그 계열을 쓰는
         //   장르들의 cMain끼리 최대한 멀어지도록" 전수 탐색(4^4=256 조합)으로 찾은 값이다
-        //   (최소 간격 11.3도). ROCK/HIPHOP_RNB는 실사용 비중이 낮아 이 최적화에서 제외하고
-        //   같은 계열을 쓰는 장르(ROCK→EDM, HIPHOP_RNB→BALLAD)의 값을 그대로 가져다 쓴다.
+        //   (최소 간격 11.3도). 이 조건을 만족하는 조합이 여러 개라 그중 DANCE_POP의
+        //   cMain이 RED의 순수 빨강(hues[2]=0도)이 되는 조합을 택했다. ROCK/HIPHOP_RNB는
+        //   실사용 비중이 낮아 이 최적화에서 제외하고 같은 계열을 쓰는 장르(ROCK→EDM,
+        //   HIPHOP_RNB→BALLAD)의 값을 그대로 가져다 쓴다.
         data class GenreTheme(val families: List<PaletteFamily>, val rolePermutation: List<Int>)
 
         private val GENRE_THEMES: Map<MusicStyleClassifier.MusicStyle, GenreTheme> = mapOf(
             MusicStyleClassifier.MusicStyle.BALLAD to GenreTheme(
                 families = listOf(PaletteFamily.TEAL, PaletteFamily.PURPLE, PaletteFamily.BLUE),
-                rolePermutation = listOf(0, 1, 2, 3)
+                rolePermutation = listOf(3, 0, 1, 2)
             ),
             MusicStyleClassifier.MusicStyle.EDM to GenreTheme(
                 families = listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD, PaletteFamily.PURPLE),
-                rolePermutation = listOf(1, 0, 2, 3)
+                rolePermutation = listOf(0, 1, 2, 3)
             ),
             MusicStyleClassifier.MusicStyle.DANCE_POP to GenreTheme(
                 families = listOf(PaletteFamily.RED, PaletteFamily.TEAL, PaletteFamily.BLUE),
@@ -78,38 +79,40 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             ),
             MusicStyleClassifier.MusicStyle.HIPHOP_RNB to GenreTheme(
                 families = listOf(PaletteFamily.PURPLE, PaletteFamily.BLUE, PaletteFamily.TEAL),
-                rolePermutation = listOf(0, 1, 2, 3)
+                rolePermutation = listOf(3, 0, 1, 2)
             ),
             MusicStyleClassifier.MusicStyle.ROCK to GenreTheme(
                 families = listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD),
-                rolePermutation = listOf(1, 0, 2, 3)
+                rolePermutation = listOf(0, 1, 2, 3)
             ),
             MusicStyleClassifier.MusicStyle.POP to GenreTheme(
                 families = PaletteFamily.values().toList(),
-                rolePermutation = listOf(3, 0, 1, 2)
+                rolePermutation = listOf(1, 0, 2, 3)
             )
         )
     }
 
     /**
-     * 팔레트 색 계열 — hueStart→hueEnd는 실제 응원봉 펌웨어 색상표(기존에 쓰던
-     * RGB 상수들: PURE_PINK/BLUEGREEN/SKYBLUE/ICE 등, 전부 S=100%·V=100%의 순수
-     * hue였음을 실측으로 확인)를 참조해 고른 두 "끝점" 색상의 hue다. 계열 하나당
-     * hueStart~hueEnd 구간을 3등분해 cMain/cStep1~3 네 개의 hue를 뽑는다(아래
-     * buildPalette 참고). RED/ORANGE_GOLD 경계처럼 한두 계열은 끝점이 살짝 겹치는
-     * 것도 실측 확인 후 허용한 값이다(겹쳐도 색 1개 정도라 문제 없음).
+     * 팔레트 색 계열 — hues는 cMain/cStep1~3 후보가 될 4개의 hue(아래 buildPalette
+     * 참고). 실제 응원봉 펌웨어 색상표(기존에 쓰던 RGB 상수들: PURE_PINK/BLUEGREEN/
+     * SKYBLUE/ICE 등, 전부 S=100%·V=100%의 순수 hue였음을 실측으로 확인)에서 고른 두
+     * "끝점" 색상(hues[0], hues[3])을 3등분한 값이 기본이다. RED만 3등분 보간 그대로
+     * 쓰면 정작 순수 RED(255,0,0, hue 0)가 네 포인트 중 어디에도 걸리지 않아서(실측
+     * 피드백) hues[2]를 보간값 대신 0도(순수 빨강)로 고정해뒀다. RED/ORANGE_GOLD
+     * 경계처럼 한두 계열은 끝점이 살짝 겹치는 것도 실측 확인 후 허용한 값이다(겹쳐도
+     * 색 1개 정도라 문제 없음).
      */
-    private enum class PaletteFamily(val hueStart: Float, val hueEnd: Float) {
-        // (212,0,255)~(68,0,255)
-        PURPLE(289.9f, 256.0f),
-        // (255,0,250)~(255,33,0) — 0/360도 경계를 넘어간다.
-        RED(301.2f, 7.8f),
-        // (255,51,0)~(255,250,0)
-        ORANGE_GOLD(12.0f, 58.8f),
-        // (72,255,0)~(0,255,255)
-        TEAL(103.1f, 180.0f),
-        // (0,255,161)~(0,0,255)
-        BLUE(157.9f, 240.0f)
+    private enum class PaletteFamily(val hues: List<Float>) {
+        // (212,0,255)~(68,0,255) 3등분
+        PURPLE(listOf(289.9f, 278.6f, 267.3f, 256.0f)),
+        // (255,0,250)~(255,33,0) — 0/360도 경계를 넘어간다. hues[2]=0도(순수 빨강) 고정.
+        RED(listOf(301.2f, 323.4f, 0.0f, 7.8f)),
+        // (255,51,0)~(255,250,0) 3등분
+        ORANGE_GOLD(listOf(12.0f, 27.6f, 43.2f, 58.8f)),
+        // (72,255,0)~(0,255,255) 3등분
+        TEAL(listOf(103.1f, 128.7f, 154.4f, 180.0f)),
+        // (0,255,161)~(0,0,255) 3등분 — hues[3]=240도가 이미 순수 파랑(0,0,255).
+        BLUE(listOf(157.9f, 185.3f, 212.6f, 240.0f))
     }
 
     data class V8Section(
@@ -134,19 +137,12 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val family = candidates[Math.floorMod(rawHue, candidates.size)]
         val jitterRange = (PALETTE_FAMILY_HUE_JITTER * 2).toInt() + 1
         val jitter = Math.floorMod(rawHue / candidates.size, jitterRange) - PALETTE_FAMILY_HUE_JITTER
-        val hueStart = wrap360(family.hueStart + jitter)
-        val hueEnd   = wrap360(family.hueEnd + jitter)
-        Log.d(TAG, "[Palette] style=$musicStyle family=$family hueStart=${"%.1f".format(hueStart)} hueEnd=${"%.1f".format(hueEnd)}")
-        // 계열의 hueStart~hueEnd 구간을 3등분해 4개의 hue를 뽑는다(raw[0]=hueStart,
-        // raw[3]=hueEnd). 이 4개를, 장르별 역할 배치(GenreTheme.rolePermutation)에 따라
-        // cMain/cStep1~3으로 재배정한다 — hue 자체는 항상 이 4개 중 하나라 계열 경계를
-        // 넘을 위험이 없다.
-        val arcHues = listOf(
-            hueStart,
-            lerpHueShort(hueStart, hueEnd, 1f / 3f),
-            lerpHueShort(hueStart, hueEnd, 2f / 3f),
-            hueEnd
-        )
+        // family.hues(4개 고정 hue)를 통째로 jitter만큼 회전시킨다 — 포인트 간 간격은
+        // 그대로 유지한 채 곡마다 살짝 다르게 보이게 한다.
+        val arcHues = family.hues.map { wrap360(it + jitter) }
+        Log.d(TAG, "[Palette] style=$musicStyle family=$family arcHues=${arcHues.joinToString { "%.1f".format(it) }}")
+        // 장르별 역할 배치(GenreTheme.rolePermutation)에 따라 이 4개를 cMain/cStep1~3으로
+        // 재배정한다 — hue 자체는 항상 이 4개 중 하나라 계열 경계를 넘을 위험이 없다.
         val rolePerm = theme?.rolePermutation ?: listOf(0, 1, 2, 3)
         val mainHue  = arcHues[rolePerm[0]]
         val step1Hue = arcHues[rolePerm[1]]
@@ -169,7 +165,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 간격이 이미 고르게 벌어져 있어 hue 정렬만 하면 되고(예전 TEAL/PURPLE처럼
         // 비대칭 오프셋이 아니라 zigzag 재배치가 더 이상 필요 없다), cStep4(포인트색)는
         // 맨 뒤에 추가한다.
-        fun signedOffsetFromBase(h: Float) = wrap360(h - hueStart + 180f) - 180f
+        fun signedOffsetFromBase(h: Float) = wrap360(h - arcHues[0] + 180f) - 180f
         val sortedArc = listOf(
             mainHue to cMain, step1Hue to cStep1, step2Hue to cStep2, step3Hue to cStep3
         ).sortedBy { signedOffsetFromBase(it.first) }
@@ -713,14 +709,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     }
 
     private fun wrap360(h: Float) = ((h % 360f) + 360f) % 360f
-
-    /** h1→h2를 hue 색상환에서 더 가까운 방향(최단 경로)으로 t(0~1) 지점만큼 보간한다. */
-    private fun lerpHueShort(h1: Float, h2: Float, t: Float): Float {
-        var diff = h2 - h1
-        if (diff > 180f) diff -= 360f
-        if (diff < -180f) diff += 360f
-        return wrap360(h1 + diff * t)
-    }
 
     private fun hueOf(c: LSColor): Float {
         val r = c.r / 255f; val g = c.g / 255f; val b = c.b / 255f
