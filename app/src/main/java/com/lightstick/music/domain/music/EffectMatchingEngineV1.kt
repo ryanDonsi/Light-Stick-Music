@@ -63,11 +63,17 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 으로 쓰는 식이라 "같은 계열인데 장르마다 대표색이 달라 보이는" 효과를 낸다. hue
         // 자체를 새로 만드는 게 아니라 이미 안전하게 계산된 5개 색의 역할만 바꾸는 거라
         // 계열 경계를 넘을 위험이 전혀 없다.
+        // rolePerm[0](=cMain으로 쓸 raw 인덱스)은 임의로 고른 게 아니라, 실사용 비중이
+        // 큰 BALLAD/EDM/DANCE_POP/POP이 공유하는 계열(TEAL/PURPLE/BLUE/RED/ORANGE_GOLD)
+        // 별로 "그 계열을 쓰는 장르들의 cMain끼리 최대한 멀어지도록" 전수 탐색(5^4=625
+        // 조합)으로 찾은 값이다. TEAL만 전체 안전 영역이 22도로 좁아 최소 간격이 8도에
+        // 그치고(물리적 한계), 나머지는 15~45도씩 벌어진다. ROCK/HIPHOP_RNB는 실사용
+        // 비중이 낮아 이 최적화에서 제외하고 기존 값을 그대로 둔다.
         private val GENRE_ROLE_PERMUTATION: Map<MusicStyleClassifier.MusicStyle, List<Int>> = mapOf(
-            MusicStyleClassifier.MusicStyle.POP        to listOf(0, 1, 2, 3, 4),
-            MusicStyleClassifier.MusicStyle.BALLAD     to listOf(0, 2, 1, 4, 3),
-            MusicStyleClassifier.MusicStyle.EDM        to listOf(3, 4, 1, 2, 0),
-            MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(2, 3, 4, 0, 1),
+            MusicStyleClassifier.MusicStyle.POP        to listOf(3, 0, 2, 4, 1),
+            MusicStyleClassifier.MusicStyle.BALLAD     to listOf(4, 0, 2, 1, 3),
+            MusicStyleClassifier.MusicStyle.EDM        to listOf(1, 3, 4, 2, 0),
+            MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(0, 2, 4, 1, 3),
             MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(4, 0, 2, 1, 3),
             MusicStyleClassifier.MusicStyle.ROCK       to listOf(1, 3, 0, 4, 2)
         )
