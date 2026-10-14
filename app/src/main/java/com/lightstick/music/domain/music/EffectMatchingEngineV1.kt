@@ -54,6 +54,18 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             MusicStyleClassifier.MusicStyle.ROCK       to listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD),
             MusicStyleClassifier.MusicStyle.POP        to PaletteFamily.values().toList()
         )
+
+        // 장르별로 colorGroup(=cMain 다음에 cStep 몇 번을 어떤 순서로 쓸지)을 다르게 가져간다.
+        // 계열(색상)이 달라도 순환 순서가 항상 cStep3→4→1로 똑같으면 체감 패턴이 비슷하게
+        // 느껴질 수 있어서, 장르마다 cStep1~4 중 3개를 고르는 순서 자체를 다르게 둔다.
+        private val GENRE_STEP_ORDER: Map<MusicStyleClassifier.MusicStyle, List<Int>> = mapOf(
+            MusicStyleClassifier.MusicStyle.BALLAD     to listOf(3, 4, 1),
+            MusicStyleClassifier.MusicStyle.EDM        to listOf(1, 4, 3),
+            MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(4, 1, 3),
+            MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(2, 1, 4),
+            MusicStyleClassifier.MusicStyle.ROCK       to listOf(1, 3, 2),
+            MusicStyleClassifier.MusicStyle.POP        to listOf(3, 1, 4)
+        )
     }
 
     /**
@@ -112,7 +124,11 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val cDeep  = hsvToColor(baseHue,                 1.00f, 0.48f)
         val black  = LSColor(0, 0, 0)
         val white = LSColor(255, 255, 255)
-        val colorGroup = listOf(cMain, cStep3, cStep4, cStep1)
+        // colorGroup의 cMain 이후 순서(=VERSE/CHORUS에서 색이 cStep 몇 번 → 몇 번으로
+        // 넘어가는지)는 장르별로 다르게 둔다(GENRE_STEP_ORDER).
+        val stepByIndex = mapOf(1 to cStep1, 2 to cStep2, 3 to cStep3, 4 to cStep4)
+        val stepOrder = GENRE_STEP_ORDER[musicStyle] ?: listOf(3, 4, 1)
+        val colorGroup = listOf(cMain) + stepOrder.map { stepByIndex.getValue(it) }
         val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
         val patternABg = if (cMainLuma >= 128f) cDeep else cMain
         // VERSE BLINK: BG는 빨강에 가장 가까운 색(closestToRed)으로 고정하고, FG는 BG와
