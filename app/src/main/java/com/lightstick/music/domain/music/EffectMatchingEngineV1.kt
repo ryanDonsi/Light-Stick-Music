@@ -38,15 +38,10 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
         // 팔레트 색 계열(세트) — 곡의 baseHue를 "아무 색상"이 아니라 미리 정해둔 계열 중
         // 하나로 고정한다. 계열 안에서도 곡마다 살짝 다르게 보이도록 ±지터를 준다.
-        private const val PALETTE_FAMILY_HUE_JITTER = 15f
-
-        // cStep1~6의 hue 오프셋. 예전엔 +30/-30/+60/-60/+120/-120(최대 120도)였는데, 이러면
-        // 계열(PaletteFamily) 자체를 벗어나 보였다 — 예: PURPLE(275도)+120=35도(주황)는 더
-        // 이상 보라 계열로 안 보임. 단계끼리는 또렷이 구분되면서도 계열 정체성은 유지하도록
-        // 최대 폭을 45도로 좁힌다.
-        private const val PALETTE_STEP_SMALL  = 15f
-        private const val PALETTE_STEP_MEDIUM = 30f
-        private const val PALETTE_STEP_LARGE  = 45f
+        // 지터가 크면 PaletteFamily의 step1~4 오프셋(아래)과 합쳐졌을 때 이웃 계열 경계를
+        // 넘어갈 수 있어서(예: RED의 risky 쪽 최대 오프셋 10도 + 지터 15도 = 25도로, 다시
+        // 주황 경계를 넘김) 5도로 작게 둔다.
+        private const val PALETTE_FAMILY_HUE_JITTER = 5f
 
         // 장르(MusicStyle)별로 어울리는 색 계열 후보군. 후보가 여럿이면 seed(musicId)로
         // 그중 하나를 결정론적으로 고른다 — 같은 장르 곡들이 전부 똑같은 색은 아니게 하되,
@@ -61,13 +56,27 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         )
     }
 
-    /** 팔레트 색 계열 — hue는 그 계열을 대표하는 중심 색상(도 단위). */
-    private enum class PaletteFamily(val hue: Float) {
-        PURPLE(275f),
-        RED(355f),
-        TEAL(175f),
-        ORANGE_GOLD(38f),
-        BLUE(215f)
+    /**
+     * 팔레트 색 계열 — hue는 그 계열을 대표하는 중심 색상(도 단위).
+     * step1~4는 cMain(=hue) 기준 오프셋인데, 계열마다 비대칭이다 — 이웃 계열과 멀어서
+     * 안전한 방향은 넓게(최대 30도), 이웃 계열과 가까운 "위험한" 방향은 좁게(최대 10~12도)
+     * 둬서, cStep이 다른 계열 영역으로 넘어가지 않으면서도 단계끼리는 또렷이 구분되게 한다.
+     * (실측 피드백: RED/ORANGE_GOLD/TEAL이 예전 대칭 오프셋(±15/±30/±45)에서 서로의
+     * 영역을 침범해 "오렌지·녹색이 모든 곡에서 다 보인다"는 문제가 있었다.)
+     */
+    private enum class PaletteFamily(
+        val hue: Float, val step1: Float, val step2: Float, val step3: Float, val step4: Float
+    ) {
+        // 양쪽 다 이웃(빨강 80도, 파랑 60도)까지 여유 있어 대칭 그대로 둔다.
+        PURPLE(275f, 15f, -15f, 30f, -30f),
+        // 안전: − 쪽(마젠타, 80도 여유). 위험: + 쪽(주황까지 43도) → 최대 +8도로 제한.
+        RED(355f, -15f, 4f, -30f, 8f),
+        // 안전: + 쪽(노랑/라임, 137도 여유). 위험: − 쪽(빨강까지 43도) → 최대 −8도로 제한.
+        ORANGE_GOLD(38f, 15f, -4f, 30f, -8f),
+        // 초록(−25도)·파랑(+40도) 사이에 끼어있어 양쪽 다 좁게.
+        TEAL(175f, 7f, -4f, 14f, -8f),
+        // 안전: + 쪽(보라, 60도 여유, 다만 TEAL과 너무 안 겹치게 보수적으로). 위험: − 쪽(청록까지 40도).
+        BLUE(215f, 8f, -5f, 17f, -10f)
     }
 
     data class V8Section(
@@ -93,25 +102,24 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val jitter = Math.floorMod(rawHue / candidates.size, jitterRange) - PALETTE_FAMILY_HUE_JITTER
         val baseHue = wrap360(family.hue + jitter)
         Log.d(TAG, "[Palette] style=$musicStyle family=$family baseHue=${"%.1f".format(baseHue)}")
-        val cMain  = hsvToColor(baseHue,                                   1.00f, 1.00f)
-        val cStep1 = hsvToColor(wrap360(baseHue + PALETTE_STEP_SMALL),     1.00f, 1.00f)
-        val cStep2 = hsvToColor(wrap360(baseHue - PALETTE_STEP_SMALL),     1.00f, 1.00f)
-        val cStep3 = hsvToColor(wrap360(baseHue + PALETTE_STEP_MEDIUM),    1.00f, 1.00f)
-        val cStep4 = hsvToColor(wrap360(baseHue - PALETTE_STEP_MEDIUM),    1.00f, 1.00f)
-        val cStep5 = hsvToColor(wrap360(baseHue + PALETTE_STEP_LARGE),     1.00f, 1.00f)
-        val cStep6 = hsvToColor(wrap360(baseHue - PALETTE_STEP_LARGE),     1.00f, 1.00f)
+        // cStep5/6(가장 넓은 오프셋)은 쓰지 않는다 — cStep1~4(계열별 비대칭 오프셋, 위
+        // PaletteFamily 참고)까지만으로 색을 구성해 계열 경계를 확실하게 지킨다.
+        val cMain  = hsvToColor(baseHue,                               1.00f, 1.00f)
+        val cStep1 = hsvToColor(wrap360(baseHue + family.step1),       1.00f, 1.00f)
+        val cStep2 = hsvToColor(wrap360(baseHue + family.step2),       1.00f, 1.00f)
+        val cStep3 = hsvToColor(wrap360(baseHue + family.step3),       1.00f, 1.00f)
+        val cStep4 = hsvToColor(wrap360(baseHue + family.step4),       1.00f, 1.00f)
         val cDeep  = hsvToColor(baseHue,                 1.00f, 0.48f)
         val black  = LSColor(0, 0, 0)
         val white = LSColor(255, 255, 255)
-        val colorGroup = listOf(cMain, cStep3, cStep4, cStep5)
+        val colorGroup = listOf(cMain, cStep3, cStep4, cStep1)
         val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
         val patternABg = if (cMainLuma >= 128f) cDeep else cMain
         // VERSE BLINK: BG는 빨강에 가장 가까운 색(closestToRed)으로 고정하고, FG는 BG와
-        // 겹치지 않는 나머지 색 중 4개를 bar마다 순환시킨다. cStep1~4를 우선 순서로 두되,
-        // 그중 하나가 공교롭게 BG로 선택된 경우(예: cStep3/cStep4가 빨강에 가장 가까울 때)
-        // cMain/cStep5/cStep6으로 대체해 FG가 항상 BG와 다른 색이 되도록 한다.
+        // 겹치지 않는 나머지 색 중 4개를 bar마다 순환시킨다. cMain/cStep1~4 5개 중 BG로
+        // 쓰인 1개를 뺀 나머지 4개가 그대로 FG 후보가 된다.
         val verseBlinkBg = closestToRed(colorGroup)
-        val verseBlinkFgCycle = listOf(cStep1, cStep2, cStep3, cStep4, cMain, cStep5, cStep6)
+        val verseBlinkFgCycle = listOf(cStep1, cStep2, cStep3, cStep4, cMain)
             .filterNot { it == verseBlinkBg }.take(4)
         return EffectMatchingEngine.Palette(
             black       = black, white = white,
@@ -122,7 +130,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             blinkSets   = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cStep3, black)),
             strokeSets  = listOf(EffectMatchingEngine.ColorSet(white, black)),
             breathSet   = EffectMatchingEngine.ColorSet(cStep4, patternABg),
-            bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep6, black), EffectMatchingEngine.ColorSet(cMain, black)),
+            bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cMain, black)),
             chorusBg    = cDeep, colorGroup = colorGroup,
             verseBlinkBg = verseBlinkBg,
             verseBlinkFgCycle = verseBlinkFgCycle
