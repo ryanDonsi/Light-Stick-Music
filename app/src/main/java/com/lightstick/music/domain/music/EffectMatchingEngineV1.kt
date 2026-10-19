@@ -53,6 +53,54 @@ private val BLUE_SKYCYAN = LSColor(0, 232, 255)  // 하늘청록
 private val BLUE_AZURE   = LSColor(0, 116, 255)  // 파랑
 private val BLUE_PURE    = LSColor(0, 0, 255)    // 순수 파랑
 
+// 위 스와치들의 파생색 — cMain으로 선택된 스와치와 같은 hue에서 _LIGHT는 채도만
+// 80%로 낮춘 "옅지만 밝은" 포인트색(cStep4), _SHADE는 명도만 48%로 낮춘 어두운 톤
+// (cDeep)이다. 매번 계산하지 않고 값 그대로 이름 붙여 선언해둔다.
+private val PURPLE_MAGENTA_LIGHT = LSColor(220, 50, 255)  // 자주보라 라이트
+private val PURPLE_VIOLET_LIGHT  = LSColor(182, 50, 255)  // 보라 라이트
+private val PURPLE_INDIGO_LIGHT  = LSColor(143, 50, 255)  // 남보라 라이트
+private val PURPLE_NAVY_LIGHT    = LSColor(104, 50, 255)  // 남색 라이트
+private val PURPLE_MAGENTA_SHADE = LSColor(101, 0, 122)   // 자주보라 셰이드
+private val PURPLE_VIOLET_SHADE  = LSColor(78, 0, 122)    // 보라 셰이드
+private val PURPLE_INDIGO_SHADE  = LSColor(55, 0, 122)    // 남보라 셰이드
+private val PURPLE_NAVY_SHADE    = LSColor(32, 0, 122)    // 남색 셰이드
+
+private val RED_MAGENTA_LIGHT   = LSColor(255, 50, 250)  // 자홍 라이트
+private val RED_ROSE_LIGHT      = LSColor(255, 50, 174)  // 로즈 라이트
+private val RED_PURE_LIGHT      = LSColor(255, 50, 50)   // 순수 빨강 라이트
+private val RED_VERMILION_LIGHT = LSColor(255, 77, 50)   // 다홍 라이트
+private val RED_MAGENTA_SHADE   = LSColor(122, 0, 119)   // 자홍 셰이드
+private val RED_ROSE_SHADE      = LSColor(122, 0, 74)    // 로즈 셰이드
+private val RED_PURE_SHADE      = LSColor(122, 0, 0)     // 순수 빨강 셰이드
+private val RED_VERMILION_SHADE = LSColor(122, 15, 0)    // 다홍 셰이드
+
+private val ORANGE_GOLD_DEEP_LIGHT   = LSColor(255, 90, 50)   // 진한 다홍주황 라이트
+private val ORANGE_GOLD_ORANGE_LIGHT = LSColor(255, 144, 50)  // 주황 라이트
+private val ORANGE_GOLD_AMBER_LIGHT  = LSColor(255, 197, 50)  // 골드 라이트
+private val ORANGE_GOLD_LIME_LIGHT   = LSColor(255, 250, 50)  // 라임옐로우 라이트
+private val ORANGE_GOLD_DEEP_SHADE   = LSColor(122, 23, 0)    // 진한 다홍주황 셰이드
+private val ORANGE_GOLD_ORANGE_SHADE = LSColor(122, 56, 0)    // 주황 셰이드
+private val ORANGE_GOLD_AMBER_SHADE  = LSColor(122, 87, 0)    // 골드 셰이드
+private val ORANGE_GOLD_LIME_SHADE   = LSColor(122, 119, 0)   // 라임옐로우 셰이드
+
+private val TEAL_YELLOWGREEN_LIGHT = LSColor(107, 255, 50)  // 연두 라이트
+private val TEAL_GREEN_LIGHT       = LSColor(50, 255, 79)   // 초록 라이트
+private val TEAL_MINT_LIGHT        = LSColor(50, 255, 167)  // 민트 라이트
+private val TEAL_CYAN_LIGHT        = LSColor(50, 255, 255)  // 청록(시안) 라이트
+private val TEAL_YELLOWGREEN_SHADE = LSColor(34, 122, 0)    // 연두 셰이드
+private val TEAL_GREEN_SHADE       = LSColor(0, 122, 17)    // 초록 셰이드
+private val TEAL_MINT_SHADE        = LSColor(0, 122, 70)    // 민트 셰이드
+private val TEAL_CYAN_SHADE        = LSColor(0, 122, 122)   // 청록(시안) 셰이드
+
+private val BLUE_SEAFOAM_LIGHT = LSColor(50, 255, 179)  // 민트청록 라이트
+private val BLUE_SKYCYAN_LIGHT = LSColor(50, 236, 255)  // 하늘청록 라이트
+private val BLUE_AZURE_LIGHT   = LSColor(50, 143, 255)  // 파랑 라이트
+private val BLUE_PURE_LIGHT    = LSColor(50, 50, 255)   // 순수 파랑 라이트
+private val BLUE_SEAFOAM_SHADE = LSColor(0, 122, 77)    // 민트청록 셰이드
+private val BLUE_SKYCYAN_SHADE = LSColor(0, 111, 122)   // 하늘청록 셰이드
+private val BLUE_AZURE_SHADE   = LSColor(0, 55, 122)    // 파랑 셰이드
+private val BLUE_PURE_SHADE    = LSColor(0, 0, 122)     // 순수 파랑 셰이드
+
 /**
  * EffectMatchingEngineV1 - V3의 이펙트 매칭 룰
  * 섹션 타입별 이펙트 엔진 할당 (ON_PULSE / STROBE / BREATH / ON_TRANSIT_ROTATE 등)
@@ -156,30 +204,30 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     ) {
         PURPLE(
             rgb   = listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO, PURPLE_NAVY),
-            light = listOf(LSColor(220, 50, 255), LSColor(182, 50, 255), LSColor(143, 50, 255), LSColor(104, 50, 255)),
-            deep  = listOf(LSColor(101, 0, 122), LSColor(78, 0, 122), LSColor(55, 0, 122), LSColor(32, 0, 122))
+            light = listOf(PURPLE_MAGENTA_LIGHT, PURPLE_VIOLET_LIGHT, PURPLE_INDIGO_LIGHT, PURPLE_NAVY_LIGHT),
+            deep  = listOf(PURPLE_MAGENTA_SHADE, PURPLE_VIOLET_SHADE, PURPLE_INDIGO_SHADE, PURPLE_NAVY_SHADE)
         ),
         // 0/360도 경계를 넘어간다. 세 번째 자리는 보간값이 아니라 RED_PURE로 고정.
         RED(
             rgb   = listOf(RED_MAGENTA, RED_ROSE, RED_PURE, RED_VERMILION),
-            light = listOf(LSColor(255, 50, 250), LSColor(255, 50, 174), LSColor(255, 50, 50), LSColor(255, 77, 50)),
-            deep  = listOf(LSColor(122, 0, 119), LSColor(122, 0, 74), LSColor(122, 0, 0), LSColor(122, 15, 0))
+            light = listOf(RED_MAGENTA_LIGHT, RED_ROSE_LIGHT, RED_PURE_LIGHT, RED_VERMILION_LIGHT),
+            deep  = listOf(RED_MAGENTA_SHADE, RED_ROSE_SHADE, RED_PURE_SHADE, RED_VERMILION_SHADE)
         ),
         ORANGE_GOLD(
             rgb   = listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER, ORANGE_GOLD_LIME),
-            light = listOf(LSColor(255, 90, 50), LSColor(255, 144, 50), LSColor(255, 197, 50), LSColor(255, 250, 50)),
-            deep  = listOf(LSColor(122, 23, 0), LSColor(122, 56, 0), LSColor(122, 87, 0), LSColor(122, 119, 0))
+            light = listOf(ORANGE_GOLD_DEEP_LIGHT, ORANGE_GOLD_ORANGE_LIGHT, ORANGE_GOLD_AMBER_LIGHT, ORANGE_GOLD_LIME_LIGHT),
+            deep  = listOf(ORANGE_GOLD_DEEP_SHADE, ORANGE_GOLD_ORANGE_SHADE, ORANGE_GOLD_AMBER_SHADE, ORANGE_GOLD_LIME_SHADE)
         ),
         TEAL(
             rgb   = listOf(TEAL_YELLOWGREEN, TEAL_GREEN, TEAL_MINT, TEAL_CYAN),
-            light = listOf(LSColor(107, 255, 50), LSColor(50, 255, 79), LSColor(50, 255, 167), LSColor(50, 255, 255)),
-            deep  = listOf(LSColor(34, 122, 0), LSColor(0, 122, 17), LSColor(0, 122, 70), LSColor(0, 122, 122))
+            light = listOf(TEAL_YELLOWGREEN_LIGHT, TEAL_GREEN_LIGHT, TEAL_MINT_LIGHT, TEAL_CYAN_LIGHT),
+            deep  = listOf(TEAL_YELLOWGREEN_SHADE, TEAL_GREEN_SHADE, TEAL_MINT_SHADE, TEAL_CYAN_SHADE)
         ),
         // 네 번째 자리(BLUE_PURE)가 이미 순수 파랑(0,0,255).
         BLUE(
             rgb   = listOf(BLUE_SEAFOAM, BLUE_SKYCYAN, BLUE_AZURE, BLUE_PURE),
-            light = listOf(LSColor(50, 255, 179), LSColor(50, 236, 255), LSColor(50, 143, 255), LSColor(50, 50, 255)),
-            deep  = listOf(LSColor(0, 122, 77), LSColor(0, 111, 122), LSColor(0, 55, 122), LSColor(0, 0, 122))
+            light = listOf(BLUE_SEAFOAM_LIGHT, BLUE_SKYCYAN_LIGHT, BLUE_AZURE_LIGHT, BLUE_PURE_LIGHT),
+            deep  = listOf(BLUE_SEAFOAM_SHADE, BLUE_SKYCYAN_SHADE, BLUE_AZURE_SHADE, BLUE_PURE_SHADE)
         )
     }
 
