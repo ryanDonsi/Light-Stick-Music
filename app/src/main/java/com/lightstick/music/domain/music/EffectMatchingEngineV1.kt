@@ -4,6 +4,7 @@ import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.LSEffectPayload
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -277,23 +278,19 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             mainHue to cMain, hueOf(cStep1) to cStep1, hueOf(cStep2) to cStep2, hueOf(cStep3) to cStep3
         ).sortedBy { signedOffsetFromBase(it.first) }
         val colorGroup = sortedArc.map { it.second } + cStep4
-        // CHORUS는 "탁탁 튀는" 전환이 핵심이라 family.rgb 4개 중 서로 hue 차이가 가장 크게
-        // 벌어지는 3개만 골라 white와 함께 4개로 순환시킨다. 가운데 두 지점(index 1,2)
-        // 중 하나를 빼는 두 가지 경우만 비교하면 되는데(양끝은 항상 남겨야 스펙트럼이
-        // 최대로 벌어짐), 뺐을 때 생기는 두 구간 중 더 좁은 쪽이 큰 경우를 택한다.
-        val (h0, c0) = sortedArc[0]; val (h1, c1) = sortedArc[1]
-        val (h2, c2) = sortedArc[2]; val (h3, c3) = sortedArc[3]
-        val gap01 = signedOffsetFromBase(h1) - signedOffsetFromBase(h0)
-        val gap12 = signedOffsetFromBase(h2) - signedOffsetFromBase(h1)
-        val gap23 = signedOffsetFromBase(h3) - signedOffsetFromBase(h2)
-        // index1 제외: 남는 간격 (gap01+gap12), gap23 중 최소값
-        val minDropMid1 = min(gap01 + gap12, gap23)
-        // index2 제외: 남는 간격 gap01, (gap12+gap23) 중 최소값
-        val minDropMid2 = min(gap01, gap12 + gap23)
-        val chorusColors = if (minDropMid1 >= minDropMid2)
-            listOf(white, c0, c2, c3)
-        else
-            listOf(white, c0, c1, c3)
+        // CHORUS는 "탁탁 튀는" 전환이 핵심이다. white 다음은 항상 cMain(장르 대표색)으로
+        // 고정해서 전환 시작점이 매번 또렷하게 하고, 그 뒤 두 자리는 cStep1~3 중 이어
+        // 붙였을 때 간격이 최대가 되는 조합+순서를 전수 비교(3개 중 2개를 순서까지
+        // 고려하면 6가지뿐)해서 고른다. cMain이 역할 배치상 어느 hue 위치에 오든(장르마다
+        // 다름) 항상 최선의 조합을 찾는다.
+        val others = listOf(hueOf(cStep1) to cStep1, hueOf(cStep2) to cStep2, hueOf(cStep3) to cStep3)
+        val orderedPairs = others.indices.flatMap { i -> others.indices.filter { it != i }.map { j -> i to j } }
+        val bestPair = orderedPairs.maxBy { (i, j) ->
+            val gapMainToFirst = abs(signedOffsetFromBase(others[i].first))
+            val gapFirstToSecond = abs(signedOffsetFromBase(others[j].first) - signedOffsetFromBase(others[i].first))
+            min(gapMainToFirst, gapFirstToSecond)
+        }
+        val chorusColors = listOf(white, cMain, others[bestPair.first].second, others[bestPair.second].second)
         val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
         val patternABg = if (cMainLuma >= 128f) cDeep else cMain
         // VERSE BLINK: BG는 빨강에 가장 가까운 색(closestToRed)으로 고정하고, FG는 BG와
