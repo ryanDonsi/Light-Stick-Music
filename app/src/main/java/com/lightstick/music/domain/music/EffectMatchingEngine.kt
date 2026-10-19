@@ -30,7 +30,10 @@ interface EffectMatchingEngine {
 
     data class Palette(
         val black: LSColor, val white: LSColor,
-        val onPulseSets: List<ColorSet>,
+        // ON_PULSE의 BG만 패턴 A/B(섹션 인덱스 홀짝)로 구분해서 담는다 — FG는 고정색이
+        // 아니라 colorGroup을 bar마다 순환시켜 쓰므로(colorsForEngine 참고) 여기엔
+        // 들어있지 않다.
+        val onPulseBg: List<LSColor>,
         val blinkSets: List<ColorSet>,
         val strokeSets: List<ColorSet>,
         val breathSet: ColorSet,

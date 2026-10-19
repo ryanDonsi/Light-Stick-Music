@@ -304,10 +304,10 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             .filterNot { it == verseBlinkBg }.take(4)
         return EffectMatchingEngine.Palette(
             black       = black, white = white,
-            // 패턴B(onPulseSets[1])의 BG를 black에서 cDeep으로 바꾼다 — BRIDGE의 BREATH가
+            // 패턴B(onPulseBg[1])의 BG를 black에서 cDeep으로 바꾼다 — BRIDGE의 BREATH가
             // BG를 black으로 뒀을 때 "꺼진 것처럼 보임" 피드백이 있었는데, ON_PULSE도 같은
             // 문제를 겪을 수 있어서 같은 색 계열의 어두운 톤(cDeep)으로 바꿔 테스트해본다.
-            onPulseSets = listOf(EffectMatchingEngine.ColorSet(cMain, patternABg), EffectMatchingEngine.ColorSet(cStep1, cDeep)),
+            onPulseBg = listOf(patternABg, cDeep),
             blinkSets   = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cStep3, black)),
             strokeSets  = listOf(EffectMatchingEngine.ColorSet(white, black)),
             breathSet   = EffectMatchingEngine.ColorSet(cStep4, patternABg),
@@ -719,9 +719,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 // 한 색이라 같은 VERSE 안에서는 ON_PULSE FG가 안 바뀌었다. BG는 기존처럼
                 // 섹션 단위 패턴(A/B)을 그대로 유지.
                 val onPulseFgCycle = palette.colorGroup
-                val set = if (isPatternA) palette.onPulseSets[0] else palette.onPulseSets[1]
+                val bg = if (isPatternA) palette.onPulseBg[0] else palette.onPulseBg[1]
                 val fg = onPulseFgCycle[Math.floorMod(barIdx, onPulseFgCycle.size)]
-                fg to set.bg
+                fg to bg
             }
             EffectMatchingEngine.FgEngine.BLINK -> {
                 // VERSE의 BLINK는 "그 bar가 섹션 내에서 에너지가 높은 구간"일 때만 쓰인다
