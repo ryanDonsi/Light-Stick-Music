@@ -93,26 +93,26 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     }
 
     /**
-     * 팔레트 색 계열 — hues는 cMain/cStep1~3 후보가 될 4개의 hue(아래 buildPalette
-     * 참고). 실제 응원봉 펌웨어 색상표(기존에 쓰던 RGB 상수들: PURE_PINK/BLUEGREEN/
-     * SKYBLUE/ICE 등, 전부 S=100%·V=100%의 순수 hue였음을 실측으로 확인)에서 고른 두
-     * "끝점" 색상(hues[0], hues[3])을 3등분한 값이 기본이다. RED만 3등분 보간 그대로
-     * 쓰면 정작 순수 RED(255,0,0, hue 0)가 네 포인트 중 어디에도 걸리지 않아서(실측
-     * 피드백) hues[2]를 보간값 대신 0도(순수 빨강)로 고정해뒀다. RED/ORANGE_GOLD
-     * 경계처럼 한두 계열은 끝점이 살짝 겹치는 것도 실측 확인 후 허용한 값이다(겹쳐도
-     * 색 1개 정도라 문제 없음).
+     * 팔레트 색 계열 — rgb는 cMain/cStep1~3 후보가 될 4개의 RGB(아래 buildPalette에서
+     * hueOf()로 hue만 뽑아 쓴다). 실제 응원봉 펌웨어 색상표(기존에 쓰던 RGB 상수들:
+     * PURE_PINK/BLUEGREEN/SKYBLUE/ICE 등, 전부 S=100%·V=100%의 순수 hue였음을 실측으로
+     * 확인)에서 고른 두 "끝점" 색상(rgb[0], rgb[3])을 hue 기준 3등분한 값이 기본이다.
+     * RED만 3등분 보간 그대로 쓰면 정작 순수 RED(255,0,0)가 네 포인트 중 어디에도
+     * 걸리지 않아서(실측 피드백) rgb[2]를 보간값 대신 순수 빨강으로 고정해뒀다.
+     * RED/ORANGE_GOLD 경계처럼 한두 계열은 끝점이 살짝 겹치는 것도 실측 확인 후 허용한
+     * 값이다(겹쳐도 색 1개 정도라 문제 없음).
      */
-    private enum class PaletteFamily(val hues: List<Float>) {
+    private enum class PaletteFamily(val rgb: List<LSColor>) {
         // (212,0,255)~(68,0,255) 3등분
-        PURPLE(listOf(289.9f, 278.6f, 267.3f, 256.0f)),
-        // (255,0,250)~(255,33,0) — 0/360도 경계를 넘어간다. hues[2]=0도(순수 빨강) 고정.
-        RED(listOf(301.2f, 323.4f, 0.0f, 7.8f)),
+        PURPLE(listOf(LSColor(212, 0, 255), LSColor(164, 0, 255), LSColor(116, 0, 255), LSColor(67, 0, 255))),
+        // (255,0,250)~(255,33,0) — 0/360도 경계를 넘어간다. rgb[2]=순수 빨강 고정.
+        RED(listOf(LSColor(255, 0, 249), LSColor(255, 0, 155), LSColor(255, 0, 0), LSColor(255, 33, 0))),
         // (255,51,0)~(255,250,0) 3등분
-        ORANGE_GOLD(listOf(12.0f, 27.6f, 43.2f, 58.8f)),
+        ORANGE_GOLD(listOf(LSColor(255, 50, 0), LSColor(255, 117, 0), LSColor(255, 183, 0), LSColor(255, 249, 0))),
         // (72,255,0)~(0,255,255) 3등분
-        TEAL(listOf(103.1f, 128.7f, 154.4f, 180.0f)),
-        // (0,255,161)~(0,0,255) 3등분 — hues[3]=240도가 이미 순수 파랑(0,0,255).
-        BLUE(listOf(157.9f, 185.3f, 212.6f, 240.0f))
+        TEAL(listOf(LSColor(71, 255, 0), LSColor(0, 255, 36), LSColor(0, 255, 146), LSColor(0, 255, 255))),
+        // (0,255,161)~(0,0,255) 3등분 — rgb[3]이 이미 순수 파랑(0,0,255).
+        BLUE(listOf(LSColor(0, 255, 161), LSColor(0, 232, 255), LSColor(0, 116, 255), LSColor(0, 0, 255)))
     }
 
     data class V8Section(
@@ -137,9 +137,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val family = candidates[Math.floorMod(rawHue, candidates.size)]
         val jitterRange = (PALETTE_FAMILY_HUE_JITTER * 2).toInt() + 1
         val jitter = Math.floorMod(rawHue / candidates.size, jitterRange) - PALETTE_FAMILY_HUE_JITTER
-        // family.hues(4개 고정 hue)를 통째로 jitter만큼 회전시킨다 — 포인트 간 간격은
-        // 그대로 유지한 채 곡마다 살짝 다르게 보이게 한다.
-        val arcHues = family.hues.map { wrap360(it + jitter) }
+        // family.rgb(4개 고정 RGB)에서 hue만 뽑아 jitter만큼 통째로 회전시킨다 — 포인트
+        // 간 간격은 그대로 유지한 채 곡마다 살짝 다르게 보이게 한다.
+        val arcHues = family.rgb.map { wrap360(hueOf(it) + jitter) }
         Log.d(TAG, "[Palette] style=$musicStyle family=$family arcHues=${arcHues.joinToString { "%.1f".format(it) }}")
         // 장르별 역할 배치(GenreTheme.rolePermutation)에 따라 이 4개를 cMain/cStep1~3으로
         // 재배정한다 — hue 자체는 항상 이 4개 중 하나라 계열 경계를 넘을 위험이 없다.
