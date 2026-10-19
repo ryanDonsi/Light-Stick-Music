@@ -106,7 +106,7 @@ import kotlin.math.min
  *                ↓
  *           [V8 이펙트 엔진 처리]
  *           1. 섹션별 에너지 계산
- *           2. 섹션 타입별 FgEngine 할당 (ON_PULSE/STROBE/BREATH 등)
+ *           2. 섹션 타입별 FgEngine 할당 (ON_PULSE/BREATH/ON_TRANSIT_ROTATE 등)
  *           3. downbeat 기반 색상 선택
  *           4. beatInBar 기반 페이드 값 계산
  *           5. 이펙트 종류별 period/randomDelay 계산
@@ -285,8 +285,6 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
 
         val isBalladMode = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
                         || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
-        // CLIMAX 이펙트: DANCE_POP 장르는 BPM과 무관하게 STROBE를 쓰도록 EffectMatchingEngine에 전달.
-        val isDancePopMode = musicStyle == MusicStyleClassifier.MusicStyle.DANCE_POP
 
         val t0Effect = System.currentTimeMillis()
         val frames = engine.buildFrames(
@@ -304,8 +302,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             downbeatMs = downbeatMs,
             beatsPerBar = beatsPerBar,
             fullEnv = fullEnv,
-            hopMs = effectiveHopMs,
-            isDancePopMode = isDancePopMode
+            hopMs = effectiveHopMs
         )
         val tEffect = System.currentTimeMillis() - t0Effect
 

@@ -211,12 +211,12 @@ object AutoTimelineConfig {
      *  적이 없어 제거했다. 아래 V1은 그 자리를 이어받은, 실제로 쓰이는 V8 기반 구현이다.)
      *
      * V1: 다양한 이펙트 규칙 (고급, 섹션 기반)
-     *     이펙트 타입: ON_PULSE, STROBE, BREATH, ON_TRANSIT_ROTATE, BLINK, OFF_TRANSIT
+     *     이펙트 타입: ON_PULSE, BREATH, ON_TRANSIT_ROTATE, BLINK, OFF_TRANSIT, FREEZE
      *     섹션별 엔진 할당 (FgEngine):
      *       - INTRO/OUTRO: BREATH (부드러운 호흡 효과)
      *       - VERSE/VOCAL: ON_PULSE or BREATH (음성 강조)
      *       - CHORUS: ON_TRANSIT_ROTATE (회전 전환 효과)
-     *       - CLIMAX: STROBE or ON_TRANSIT_ROTATE (급작스러운 변화)
+     *       - CLIMAX: ON_TRANSIT_ROTATE (급작스러운 변화, 실제로는 검출기 단계에서 비활성화됨)
      *       - BUILD: ON_TRANSIT_ROTATE (상승감)
      *       - BEAT: ON_PULSE or BLINK (비트 강조)
      *       - BREAK: BREATH (휴식)

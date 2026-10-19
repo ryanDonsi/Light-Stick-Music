@@ -40,10 +40,7 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
             black = black, white = white,
             colorFamily = "NONE",
             onPulseBg = listOf(black),
-            blinkSets = listOf(empty),
-            strokeSets = listOf(empty),
             breathSet = empty,
-            bridgeSets = listOf(empty),
             chorusBg = black,
             colorGroup = listOf(white, white, white, white),
             verseBlinkBg = black,
@@ -66,8 +63,7 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
         downbeatMs: Long,
         beatsPerBar: Int,
         fullEnv: List<Float>,
-        hopMs: Long,
-        isDancePopMode: Boolean
+        hopMs: Long
     ): List<Pair<Long, ByteArray>> {
         val frames = ArrayList<Pair<Long, ByteArray>>(beatTimesMs.size)
 

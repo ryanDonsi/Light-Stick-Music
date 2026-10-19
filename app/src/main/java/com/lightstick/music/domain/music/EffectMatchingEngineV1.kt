@@ -83,7 +83,7 @@ private val BLUE_PURE_SHADE    = LSColor(0, 0, 122)     // 순수 파랑 셰이�
 
 /**
  * EffectMatchingEngineV1 - V3의 이펙트 매칭 룰
- * 섹션 타입별 이펙트 엔진 할당 (ON_PULSE / STROBE / BREATH / ON_TRANSIT_ROTATE 등)
+ * 섹션 타입별 이펙트 엔진 할당 (ON_PULSE / BREATH / ON_TRANSIT_ROTATE 등)
  */
 class EffectMatchingEngineV1 : EffectMatchingEngine {
 
@@ -92,10 +92,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         private const val ON_TRANSIT = 2
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
         private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
-        // CLIMAX 엔진을 BPM 130 기준으로 양분한다(번갈아 쓰지 않고 섹션 전체에 하나만) —
-        // 130 BPM = beatMs 461.5. beatMs가 이보다 작으면(=BPM이 더 높으면) STROBE,
-        // 크면(BPM이 더 낮으면) ON_TRANSIT_ROTATE.
-        private const val CLIMAX_STROBE_MAX_BEAT_MS = 461L
         // OUTRO 전체에 걸쳐 서서히 꺼지도록, outroStartMs~finalOffMs 구간을 여러 스텝으로
         // 나눠 각 스텝마다 밝기를 낮춘 fg색을 on(transit=...)으로 보낸다(마지막 스텝만
         // 실제 off). 한 스텝의 transit(페이드 길이)이 실제 몇 ms인지는 SDK/문서 어디에도
@@ -275,12 +271,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             // BG를 black으로 뒀을 때 "꺼진 것처럼 보임" 피드백이 있었는데, ON_PULSE도 같은
             // 문제를 겪을 수 있어서 같은 색 계열의 어두운 톤(cDeep)으로 바꿔 테스트해본다.
             onPulseBg = listOf(patternABg, cDeep),
-            blinkSets   = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cStep3, black)),
-            strokeSets  = listOf(EffectMatchingEngine.ColorSet(white, black)),
             // FG는 cMain(완전 채도), BG는 breathBg(cStep1~3 중 cMain과 hue가 가장 먼
             // 색, 채도/명도도 100% 그대로) — 둘 다 흐릿한 톤 없이 색상 자체로 또렷한 대비.
             breathSet   = EffectMatchingEngine.ColorSet(cMain, breathBg),
-            bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cMain, black)),
             chorusBg    = cDeep, colorGroup = colorGroup,
             verseBlinkBg = verseBlinkBg,
             verseBlinkFgCycle = verseBlinkFgCycle,
@@ -298,8 +291,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         downbeatMs: Long,
         beatsPerBar: Int,
         fullEnv: List<Float>,
-        hopMs: Long,
-        isDancePopMode: Boolean
+        hopMs: Long
     ): List<Pair<Long, ByteArray>> {
         if (sectionGroups.isEmpty()) return emptyList()
 
@@ -308,11 +300,11 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             beatTimesMs[1] - beatTimesMs[0] else 500L
 
         val effectiveHopMs = if (hopMs > 0L) hopMs else 10L
-        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode, fullEnv, durationMs, effectiveHopMs, isDancePopMode)
+        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode, fullEnv, durationMs, effectiveHopMs)
 
         // V8 섹션으로부터 프레임 빌드
         return buildFramesFromSections(palette, v8Sections, beatTimesMs, durationMs, isBalladMode, finalOffMs,
-            downbeatMs, beatsPerBar, fullEnv, effectiveHopMs, isDancePopMode)
+            downbeatMs, beatsPerBar, fullEnv, effectiveHopMs)
     }
 
     private fun convertToV8Sections(
@@ -321,8 +313,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         isBalladMode: Boolean,
         fullEnv: List<Float>,
         durationMs: Long,
-        hopMs: Long,
-        isDancePopMode: Boolean
+        hopMs: Long
     ): List<V8Section> {
         if (groups.isEmpty()) return emptyList()
 
@@ -342,10 +333,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             // 문제가 있었다 — 체커에는 BRIDGE로 보이는데 실제 이펙트는 VERSE의 BLINK로
             // 나가서 혼동을 줌(실측 피드백). 타입은 항상 g.type 그대로 두고, 짧은 BRIDGE도
             // bridgePhaseEngine을 그대로 거치게 한다.
-            val engine = assignFgEngine(g.type, relScore, beats, globalBeatMs = beatMs,
-                isBalladMode = isBalladMode, isDancePopMode = isDancePopMode)
+            val engine = assignFgEngine(g.type, isBalladMode = isBalladMode)
 
-            val source = buildSourceName(g.type, engine, beats)
+            val source = buildSourceName(g.type, beats)
 
             val change = when {
                 g.type == SectionDetector.SectionType.BRIDGE && beats < 20 ->
@@ -375,8 +365,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         downbeatMs: Long,
         beatsPerBar: Int,
         fullEnv: List<Float>,
-        hopMs: Long,
-        isDancePopMode: Boolean
+        hopMs: Long
     ): List<Pair<Long, ByteArray>> {
         val frameMap = LinkedHashMap<Long, ByteArray>(beatTimesMs.size * 4 + sections.size + 8)
 
@@ -409,7 +398,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
             if (section.engine == EffectMatchingEngine.FgEngine.OFF_TRANSIT) continue
 
-            val enginePool  = sectionEnginePool(section.type, section.relScore, section.beatMs, isBalladMode, isDancePopMode)
+            val enginePool  = sectionEnginePool(section.type, isBalladMode)
             val barBlockLen = sectionBarBlockLen(section)
             val barMs = if (section.beatMs > 0L && beatsPerBar > 0) section.beatMs * beatsPerBar else 0L
 
@@ -437,7 +426,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 val barIdx = barIndexAt(t, downbeatMs, section.beatMs, beatsPerBar)
                 val beatEngine = when {
                     section.type == SectionDetector.SectionType.BRIDGE ->
-                        bridgePhaseEngine(beatIndex, effectiveBeats.size, section.beatMs, section.relScore, isBalladMode)
+                        bridgePhaseEngine()
                     section.type == SectionDetector.SectionType.VERSE && verseBarEnergy.isNotEmpty() -> {
                         val energy = verseBarEnergy[barIdx] ?: 0f
                         if (energy >= verseEnergyBlinkCutoff) EffectMatchingEngine.FgEngine.BLINK
@@ -457,12 +446,10 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 lastFg = fg
 
                 val beatPeriod = when (effectiveEngine) {
-                    EffectMatchingEngine.FgEngine.STROBE -> 1
                     EffectMatchingEngine.FgEngine.BREATH -> msToBreathPeriod(section.beatMs)
                     else            -> null
                 }
                 val beatRandomDelay = when {
-                    effectiveEngine == EffectMatchingEngine.FgEngine.STROBE             -> 1
                     effectiveEngine == EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE  -> null
                     effectiveEngine == EffectMatchingEngine.FgEngine.ON_PULSE           -> null
                     effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
@@ -490,7 +477,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 val skipRepeat = if (skipOnPulseOdd) {
                     true
                 } else if (effectiveEngine == EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-                    || effectiveEngine == EffectMatchingEngine.FgEngine.STROBE
                     || effectiveEngine == EffectMatchingEngine.FgEngine.BREATH
                     || effectiveEngine == EffectMatchingEngine.FgEngine.FREEZE) {
                     val key = RepeatKey(effectiveEngine,
@@ -559,26 +545,16 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     }
 
     private fun assignFgEngine(
-        type: SectionDetector.SectionType,
-        rel: Float, beats: Int, globalBeatMs: Long,
-        isBalladMode: Boolean, isDancePopMode: Boolean = false
+        type: SectionDetector.SectionType, isBalladMode: Boolean
     ): EffectMatchingEngine.FgEngine = when (type) {
         SectionDetector.SectionType.INTRO  -> EffectMatchingEngine.FgEngine.BREATH
         SectionDetector.SectionType.OUTRO  -> EffectMatchingEngine.FgEngine.OFF_TRANSIT
         // BREAK는 이제 "완전 무음" 구간만 가리키므로(SectionDetectorV2 참고), 숨쉬듯
         // 깜빡이는 BREATH 대신 특정 색을 켠 채 그대로 고정(freeze)해 정적을 표현한다.
         SectionDetector.SectionType.BREAK  -> EffectMatchingEngine.FgEngine.FREEZE
-
-        // CLIMAX 전용 연출(STROBE/BPM-DANCE_POP 분기)이 실기로는 너무 안 어울린다는
-        // 피드백으로 당분간 막아둔다 — CHORUS와 동일하게 ON_TRANSIT_ROTATE만 쓴다.
-        // (이후 SectionDetectorV3 쪽에서 CLIMAX 검출 자체도 막아서, 지금은 이 분기가
-        // 사실상 도달하지 않는다 — 두 레벨 다 복원 시 각자의 주석을 해제하면 된다.)
+        // CLIMAX는 SectionDetectorV3 단계에서 검출 자체를 막아둬서 실제로 도달하지 않는다
+        // (CHORUS와 동일하게 ON_TRANSIT_ROTATE로 매핑만 해 둠).
         SectionDetector.SectionType.CLIMAX -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-        // if (isDancePopMode || globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
-        //     EffectMatchingEngine.FgEngine.STROBE
-        // else
-        //     EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-
         SectionDetector.SectionType.VERSE  -> if (isBalladMode) EffectMatchingEngine.FgEngine.BREATH else EffectMatchingEngine.FgEngine.ON_PULSE
         SectionDetector.SectionType.CHORUS -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
         SectionDetector.SectionType.BRIDGE -> EffectMatchingEngine.FgEngine.BREATH
@@ -592,30 +568,18 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
      * BRIDGE는 bridgePhaseEngine이 별도로 처리하므로 여기서는 사용되지 않는다.
      */
     private fun sectionEnginePool(
-        type: SectionDetector.SectionType, rel: Float, globalBeatMs: Long, isBalladMode: Boolean,
-        isDancePopMode: Boolean = false
+        type: SectionDetector.SectionType, isBalladMode: Boolean
     ): List<EffectMatchingEngine.FgEngine> = when (type) {
         SectionDetector.SectionType.INTRO  -> listOf(EffectMatchingEngine.FgEngine.BREATH)
         SectionDetector.SectionType.OUTRO  -> listOf(EffectMatchingEngine.FgEngine.OFF_TRANSIT)
         SectionDetector.SectionType.BREAK  -> listOf(EffectMatchingEngine.FgEngine.FREEZE)
         SectionDetector.SectionType.END    -> listOf(EffectMatchingEngine.FgEngine.OFF_TRANSIT)
         SectionDetector.SectionType.BRIDGE -> listOf(EffectMatchingEngine.FgEngine.BREATH)
-
-        // assignFgEngine과 동일하게 당분간 막아둠 — CHORUS와 같은 ON_TRANSIT_ROTATE만.
-        // 복원 시 아래 주석을 해제(BPM 130 기준 STROBE/ON_TRANSIT_ROTATE, DANCE_POP은 항상 STROBE).
+        // CLIMAX는 SectionDetectorV3 단계에서 검출 자체를 막아둬서 실제로 도달하지 않는다.
         SectionDetector.SectionType.CLIMAX -> listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
-        // if (isDancePopMode || globalBeatMs in 1..CLIMAX_STROBE_MAX_BEAT_MS)
-        //     listOf(EffectMatchingEngine.FgEngine.STROBE)
-        // else
-        //     listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
-
         SectionDetector.SectionType.VERSE ->
             if (isBalladMode) listOf(EffectMatchingEngine.FgEngine.BREATH)
             else listOf(EffectMatchingEngine.FgEngine.ON_PULSE, EffectMatchingEngine.FgEngine.BLINK)
-
-        // STROBE는 CLIMAX 전용 연출로 남긴다 — CHORUS 풀에 섞으면 CLIMAX 여부와 무관하게
-        // CHORUS 전체에서 bar마다 절반씩 STROBE가 나와, CLIMAX가 좁은 한 구간인데도
-        // STROBE는 훨씬 넓게 반복되는 결과가 됐었다.
         SectionDetector.SectionType.CHORUS ->
             listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
     }
@@ -633,39 +597,21 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         return Math.floorDiv(steps, beatsPerBar.toLong()).toInt()
     }
 
-    private fun buildSourceName(type: SectionDetector.SectionType, engine: EffectMatchingEngine.FgEngine, beats: Int): String =
+    private fun buildSourceName(type: SectionDetector.SectionType, beats: Int): String =
         when (type) {
             SectionDetector.SectionType.INTRO  -> "intro-breath"
             SectionDetector.SectionType.OUTRO  -> "outro-off"
             SectionDetector.SectionType.BREAK  -> "break-freeze"
-            SectionDetector.SectionType.CLIMAX -> if (engine == EffectMatchingEngine.FgEngine.STROBE) "climax-strobe" else "climax-rotate"
+            SectionDetector.SectionType.CLIMAX -> "climax-rotate"
             SectionDetector.SectionType.VERSE  -> "verse-on-pulse"
             SectionDetector.SectionType.CHORUS -> "chorus-rotate"
             SectionDetector.SectionType.BRIDGE -> "bridge-breath"
             SectionDetector.SectionType.END    -> "end-off"
         }
 
-    // 테스트용: BRIDGE는 임시로 BREATH만 쓰도록 단순화했다(원래는 phase/relScore에 따라
-    // STROBE/ON_TRANSIT_ROTATE도 섞였음 — 아래 원본 로직 주석 참고).
-    private fun bridgePhaseEngine(
-        beatIndex: Int, totalBeats: Int, beatMs: Long, relScore: Float, isBalladMode: Boolean
-    ): EffectMatchingEngine.FgEngine = EffectMatchingEngine.FgEngine.BREATH
-    // 원본 로직(복원 시 위 한 줄을 지우고 이 블록 주석 해제):
-    // if (isBalladMode || relScore < 0.1f) return EffectMatchingEngine.FgEngine.BREATH
-    // if (totalBeats <= 0) return EffectMatchingEngine.FgEngine.STROBE
-    // val strobeEntry = (0.80f - relScore * 0.55f).coerceIn(0.20f, 0.85f)
-    // return when {
-    //     totalBeats < 8  -> EffectMatchingEngine.FgEngine.STROBE
-    //     totalBeats < 16 -> {
-    //         val phase = beatIndex.toFloat() / totalBeats
-    //         if (phase < strobeEntry) EffectMatchingEngine.FgEngine.BREATH else EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-    //     }
-    //     else -> {
-    //         val phase      = beatIndex.toFloat() / totalBeats
-    //         val rotateEntry = (strobeEntry - 0.25f - relScore * 0.10f).coerceIn(0.10f, strobeEntry - 0.10f)
-    //         if (phase < rotateEntry) EffectMatchingEngine.FgEngine.BREATH else EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-    //     }
-    // }
+    // BRIDGE는 항상 BREATH만 쓴다(phase/relScore 기반으로 STROBE/ON_TRANSIT_ROTATE까지
+    // 섞던 원본 로직은 실기 테스트 결과가 안 좋아 제거했다 — 필요하면 git 이력 참고).
+    private fun bridgePhaseEngine(): EffectMatchingEngine.FgEngine = EffectMatchingEngine.FgEngine.BREATH
 
     private fun colorsForEngine(
         palette: EffectMatchingEngine.Palette, engine: EffectMatchingEngine.FgEngine, sectionIndex: Int,
@@ -693,39 +639,23 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 fg to bg
             }
             EffectMatchingEngine.FgEngine.BLINK -> {
-                // VERSE의 BLINK는 "그 bar가 섹션 내에서 에너지가 높은 구간"일 때만 쓰인다
-                // (buildFramesFromSections의 verseBarEnergy 참고). BG는 verseBlinkBg(고정,
+                // BLINK는 VERSE(비발라드)의 "그 bar가 섹션 내에서 에너지가 높은 구간"일
+                // 때만 쓰인다(buildFramesFromSections의 verseBarEnergy 참고, sectionEnginePool
+                // 상 다른 섹션 타입에는 BLINK가 배정되지 않는다). BG는 verseBlinkBg(고정,
                 // 팔레트에서 빨강에 가장 가까운 색)로 ON_PULSE(낮은 에너지)와 또렷이
                 // 구분하고, FG는 ON_PULSE처럼 bar마다 verseBlinkFgCycle(BG와 겹치지 않는
-                // 4색)을 순환시켜 bar가 바뀔 때마다 다른 색으로 연출한다.
-                if (sectionType == SectionDetector.SectionType.VERSE) {
-                    val fg = palette.verseBlinkFgCycle[Math.floorMod(barIdx, palette.verseBlinkFgCycle.size)]
-                    fg to palette.verseBlinkBg
-                } else {
-                    val set = palette.blinkSets[beatIndex % palette.blinkSets.size]
-                    set.fg to set.bg
-                }
+                // 색)을 순환시켜 bar가 바뀔 때마다 다른 색으로 연출한다.
+                val fg = palette.verseBlinkFgCycle[Math.floorMod(barIdx, palette.verseBlinkFgCycle.size)]
+                fg to palette.verseBlinkBg
             }
-            EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE ->
-                if (sectionType == SectionDetector.SectionType.BRIDGE) {
-                    val set = palette.bridgeSets[beatIndex % palette.bridgeSets.size]
-                    set.fg to set.bg
-                } else if (sectionType == SectionDetector.SectionType.CHORUS) {
-                    // CHORUS는 간격이 큰 색만 골라둔 chorusColors를 순환시켜 전환마다
-                    // 또렷이 달라지도록 한다("탁탁 튀는" 전환).
-                    val chorusOnRotateFgCycle = palette.chorusColors
-                    val fg = chorusOnRotateFgCycle[beatIndex % chorusOnRotateFgCycle.size]
-                    fg to palette.chorusBg
-                } else {
-                    // CLIMAX 등 BRIDGE/CHORUS가 아닌 ON_TRANSIT_ROTATE 구간은 빈도
-                    // 균등화된 colorGroup을 순환한다.
-                    val onRotateFgCycle = palette.colorGroup
-                    val fg = onRotateFgCycle[beatIndex % onRotateFgCycle.size]
-                    fg to palette.black
-                }
-            EffectMatchingEngine.FgEngine.STROBE -> {
-                val set = palette.strokeSets[beatIndex % palette.strokeSets.size]
-                set.fg to set.bg
+            // ON_TRANSIT_ROTATE는 CHORUS에서만 배정된다(assignFgEngine/sectionEnginePool —
+            // BRIDGE는 bridgePhaseEngine이 항상 BREATH만 반환하고, CLIMAX는 SectionDetectorV3
+            // 단계에서 검출 자체를 막아둬서 도달하지 않는다). 간격이 큰 색만 골라둔
+            // chorusColors를 순환시켜 전환마다 또렷이 달라지도록 한다("탁탁 튀는" 전환).
+            EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE -> {
+                val chorusOnRotateFgCycle = palette.chorusColors
+                val fg = chorusOnRotateFgCycle[beatIndex % chorusOnRotateFgCycle.size]
+                fg to palette.chorusBg
             }
             // BRIDGE의 BREATH는 (비발라드 포함) VERSE의 BREATH와 같은 breathSet 색을 그대로
             // 썼었다(sectionType 구분이 없었음) — 발라드에서만 BG를 검정으로 바꿔 더 조용한
@@ -765,9 +695,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             EffectMatchingEngine.FgEngine.BLINK ->
                 LSEffectPayload.Effects.blink(period = period ?: msToBlinkPeriod(beatMs),
                     color = fg, backgroundColor = bgColor, randomDelay = randomDelay ?: 0).toByteArray()
-            EffectMatchingEngine.FgEngine.STROBE ->
-                LSEffectPayload.Effects.strobe(period = period ?: msToStrobePeriod(beatMs),
-                    color = fg, backgroundColor = bgColor, randomDelay = randomDelay ?: 0).toByteArray()
             EffectMatchingEngine.FgEngine.BREATH ->
                 LSEffectPayload.Effects.breath(period = period ?: msToBreathPeriod(beatMs),
                     color = fg, backgroundColor = bgColor, randomColor = randomColor,
@@ -787,7 +714,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     // 250ms BG = 500ms). beatMs/10("1비트=1사이클")은 느리고, beatMs/40도 실기 테스트로는
     // 박자가 안 맞았다 — beatMs/100이 체감상 박자에 얼추 맞는다는 실기 피드백으로 조정.
     private fun msToBlinkPeriod(beatMs: Long)        = (beatMs / 100L).toInt().coerceIn(1, 255)
-    private fun msToStrobePeriod(beatMs: Long)       = (beatMs / 10L).toInt().coerceIn(1, 255)
     private fun msToBreathPeriod(beatMs: Long)       = (beatMs / 20L).toInt().coerceIn(1, 255)
     private fun msToBreathRandomDelay(beatMs: Long)  = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
 

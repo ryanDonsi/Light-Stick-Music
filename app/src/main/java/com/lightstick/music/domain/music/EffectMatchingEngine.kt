@@ -25,7 +25,7 @@ interface EffectMatchingEngine {
     // 공통 데이터 클래스 및 enum
     // =========================================================================
 
-    enum class FgEngine { ON_PULSE, BLINK, STROBE, BREATH, ON_TRANSIT_ROTATE, OFF_TRANSIT, FREEZE }
+    enum class FgEngine { ON_PULSE, BLINK, BREATH, ON_TRANSIT_ROTATE, OFF_TRANSIT, FREEZE }
     enum class ChangeLevel { MEDIUM, STRONG }
 
     data class Palette(
@@ -38,10 +38,7 @@ interface EffectMatchingEngine {
         // 아니라 colorGroup을 bar마다 순환시켜 쓰므로(colorsForEngine 참고) 여기엔
         // 들어있지 않다.
         val onPulseBg: List<LSColor>,
-        val blinkSets: List<ColorSet>,
-        val strokeSets: List<ColorSet>,
         val breathSet: ColorSet,
-        val bridgeSets: List<ColorSet>,
         val chorusBg: LSColor,
         val colorGroup: List<LSColor>,
         // VERSE의 BLINK(고에너지 bar) 전용 색상 — BG는 고정(cStep6을 cDeep처럼 밝기만
@@ -102,8 +99,7 @@ interface EffectMatchingEngine {
         downbeatMs: Long = 0L,
         beatsPerBar: Int = 4,
         fullEnv: List<Float> = emptyList(),
-        hopMs: Long = 10L,
-        isDancePopMode: Boolean = false
+        hopMs: Long = 10L
     ): List<Pair<Long, ByteArray>>
 }
 
