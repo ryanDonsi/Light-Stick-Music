@@ -291,6 +291,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             min(gapMainToFirst, gapFirstToSecond)
         }
         val chorusColors = listOf(white, cMain, others[bestPair.first].second, others[bestPair.second].second)
+        // BREATH의 bg: cStep1~3 중 cMain과 hue가 가장 먼 것을 고른다 — cDeep(명도만
+        // 낮춘 톤)이 아니라 계열 안의 다른 색상 자체로 fg/bg 대비를 낸다.
+        val breathBg = others.maxBy { abs(signedOffsetFromBase(it.first)) }.second
         val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
         val patternABg = if (cMainLuma >= 128f) cDeep else cMain
         // VERSE BLINK: BG는 빨강에 가장 가까운 색(closestToRed)으로 고정하고, FG는 BG와
@@ -307,12 +310,10 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             onPulseBg = listOf(patternABg, cDeep),
             blinkSets   = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cStep3, black)),
             strokeSets  = listOf(EffectMatchingEngine.ColorSet(white, black)),
-            // BG는 patternABg가 아니라 항상 cDeep으로 고정한다 — PURPLE/RED 계열은
-            // cMain 밝기가 낮아 patternABg가 거의 항상 cMain 자신으로 떨어지는데, 그러면
-            // FG(cStep4, 채도 80%)와 BG(cMain, 채도 100%)가 같은 hue에 채도 차이뿐이라
-            // 숨쉬기(breath) 명암 대비가 거의 안 느껴졌다. cDeep(명도 48%)으로 고정하면
-            // 계열과 무관하게 명도 차이로 또렷한 대비가 난다.
-            breathSet   = EffectMatchingEngine.ColorSet(cStep4, cDeep),
+            // BG는 patternABg(=cMain 밝기에 따라 cMain 또는 cDeep)도, cDeep(명도만 낮춘
+            // 톤)도 아니라 breathBg(cStep1~3 중 cMain과 hue가 가장 먼 색, 채도/명도는
+            // 그대로 100%)로 고정한다 — 명암이 아니라 색상 자체가 또렷이 다른 fg/bg 대비.
+            breathSet   = EffectMatchingEngine.ColorSet(cStep4, breathBg),
             bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cMain, black)),
             chorusBg    = cDeep, colorGroup = colorGroup,
             verseBlinkBg = verseBlinkBg,
