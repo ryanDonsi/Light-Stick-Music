@@ -4,13 +4,13 @@ import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.LSEffectPayload
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-// HSV<->RGB 변환 유틸리티. PaletteFamily(아래, enum 자신은 outer 클래스 인스턴스에
-// 접근 못 하므로 top-level이어야 light/deep 파생 프로퍼티에서 쓸 수 있다)와
-// EffectMatchingEngineV1 본문 양쪽에서 공용으로 쓴다.
+// RGB->hue 변환 유틸리티(색상 정렬/비교용). PaletteFamily는 enum이라 outer 클래스
+// 인스턴스에 접근 못 하므로, EffectMatchingEngineV1 본문과 공유하려면 top-level이어야
+// 한다. light/deep은 더 이상 여기서 계산하지 않고 PaletteFamily에 실측값 그대로
+// 상수로 들고 있는다(아래 enum 참고).
 private fun wrap360(h: Float) = ((h % 360f) + 360f) % 360f
 
 private fun hueOf(c: LSColor): Float {
@@ -24,21 +24,6 @@ private fun hueOf(c: LSColor): Float {
         else -> (r - g) / d + 4f
     }
     return wrap360(h * 60f)
-}
-
-private fun hsvToColor(h: Float, s: Float, v: Float): LSColor {
-    val hh = wrap360(h)
-    val c = v * s; val x = c * (1f - abs((hh / 60f) % 2f - 1f)); val m = v - c
-    val (rf, gf, bf) = when {
-        hh < 60f  -> Triple(c, x, 0f); hh < 120f -> Triple(x, c, 0f)
-        hh < 180f -> Triple(0f, c, x); hh < 240f -> Triple(0f, x, c)
-        hh < 300f -> Triple(x, 0f, c); else      -> Triple(c, 0f, x)
-    }
-    return LSColor(
-        ((rf + m) * 255f).toInt().coerceIn(0, 255),
-        ((gf + m) * 255f).toInt().coerceIn(0, 255),
-        ((bf + m) * 255f).toInt().coerceIn(0, 255)
-    )
 }
 
 // 팔레트 색 계열(PaletteFamily)이 쓰는 실측 RGB 스와치. 이름을 붙여두면 코드만 보고도
@@ -154,27 +139,48 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
     /**
      * 팔레트 색 계열 — rgb는 cMain/cStep1~3 후보가 될 4개의 RGB(위에 이름 붙여둔 실측
-     * 스와치, buildPalette에서 hueOf()로 hue만 뽑아 쓴다). 각 계열의 첫 번째·마지막
-     * 스와치가 실제 응원봉 펌웨어 색상표에서 고른 두 "끝점" 색상이고, 가운데 둘은 그
-     * 사이를 hue 기준 3등분한 값이 기본이다. RED만 3등분 보간 그대로 쓰면 정작 순수
-     * RED_PURE(255,0,0)가 네 포인트 중 어디에도 걸리지 않아서(실측 피드백) 세 번째
-     * 자리를 보간값 대신 RED_PURE로 고정해뒀다. RED/ORANGE_GOLD 경계처럼 한두 계열은
-     * 끝점이 살짝 겹치는 것도 실측 확인 후 허용한 값이다(겹쳐도 색 1개 정도라 문제 없음).
+     * 스와치). light/deep은 rgb[i]가 cMain으로 선택됐을 때 쓰는 cStep4(채도만 80%로
+     * 낮춘 라이트 포인트색)·cDeep(명도만 48%로 낮춘 어두운 톤)을 같은 인덱스로 미리
+     * 계산해 둔 값 — buildPalette에서는 rolePerm[0]으로 세 리스트 모두 바로 꺼내 쓴다.
+     * 각 계열의 첫 번째·마지막 스와치가 실제 응원봉 펌웨어 색상표에서 고른 두 "끝점"
+     * 색상이고, 가운데 둘은 그 사이를 hue 기준 3등분한 값이 기본이다. RED만 3등분 보간
+     * 그대로 쓰면 정작 순수 RED_PURE(255,0,0)가 네 포인트 중 어디에도 걸리지 않아서
+     * (실측 피드백) 세 번째 자리를 보간값 대신 RED_PURE로 고정해뒀다. RED/ORANGE_GOLD
+     * 경계처럼 한두 계열은 끝점이 살짝 겹치는 것도 실측 확인 후 허용한 값이다(겹쳐도
+     * 색 1개 정도라 문제 없음).
      */
-    private enum class PaletteFamily(val rgb: List<LSColor>) {
-        PURPLE(listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO, PURPLE_NAVY)),
+    private enum class PaletteFamily(
+        val rgb: List<LSColor>,
+        val light: List<LSColor>,
+        val deep: List<LSColor>
+    ) {
+        PURPLE(
+            rgb   = listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO, PURPLE_NAVY),
+            light = listOf(LSColor(220, 50, 255), LSColor(182, 50, 255), LSColor(143, 50, 255), LSColor(104, 50, 255)),
+            deep  = listOf(LSColor(101, 0, 122), LSColor(78, 0, 122), LSColor(55, 0, 122), LSColor(32, 0, 122))
+        ),
         // 0/360도 경계를 넘어간다. 세 번째 자리는 보간값이 아니라 RED_PURE로 고정.
-        RED(listOf(RED_MAGENTA, RED_ROSE, RED_PURE, RED_VERMILION)),
-        ORANGE_GOLD(listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER, ORANGE_GOLD_LIME)),
-        TEAL(listOf(TEAL_YELLOWGREEN, TEAL_GREEN, TEAL_MINT, TEAL_CYAN)),
+        RED(
+            rgb   = listOf(RED_MAGENTA, RED_ROSE, RED_PURE, RED_VERMILION),
+            light = listOf(LSColor(255, 50, 250), LSColor(255, 50, 174), LSColor(255, 50, 50), LSColor(255, 77, 50)),
+            deep  = listOf(LSColor(122, 0, 119), LSColor(122, 0, 74), LSColor(122, 0, 0), LSColor(122, 15, 0))
+        ),
+        ORANGE_GOLD(
+            rgb   = listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER, ORANGE_GOLD_LIME),
+            light = listOf(LSColor(255, 90, 50), LSColor(255, 144, 50), LSColor(255, 197, 50), LSColor(255, 250, 50)),
+            deep  = listOf(LSColor(122, 23, 0), LSColor(122, 56, 0), LSColor(122, 87, 0), LSColor(122, 119, 0))
+        ),
+        TEAL(
+            rgb   = listOf(TEAL_YELLOWGREEN, TEAL_GREEN, TEAL_MINT, TEAL_CYAN),
+            light = listOf(LSColor(107, 255, 50), LSColor(50, 255, 79), LSColor(50, 255, 167), LSColor(50, 255, 255)),
+            deep  = listOf(LSColor(34, 122, 0), LSColor(0, 122, 17), LSColor(0, 122, 70), LSColor(0, 122, 122))
+        ),
         // 네 번째 자리(BLUE_PURE)가 이미 순수 파랑(0,0,255).
-        BLUE(listOf(BLUE_SEAFOAM, BLUE_SKYCYAN, BLUE_AZURE, BLUE_PURE));
-
-        // rgb[i]가 cMain으로 선택됐을 때 쓰는 cStep4(채도만 80%로 낮춘 라이트 포인트색)·
-        // cDeep(명도만 48%로 낮춘 어두운 톤)을 미리 계산해둔다 — buildPalette에서는
-        // rolePerm[0]으로 바로 꺼내 쓰기만 하면 돼서 변환 호출이 필요 없다.
-        val light: List<LSColor> by lazy { rgb.map { hsvToColor(hueOf(it), 0.80f, 1.00f) } }
-        val deep: List<LSColor> by lazy { rgb.map { hsvToColor(hueOf(it), 1.00f, 0.48f) } }
+        BLUE(
+            rgb   = listOf(BLUE_SEAFOAM, BLUE_SKYCYAN, BLUE_AZURE, BLUE_PURE),
+            light = listOf(LSColor(50, 255, 179), LSColor(50, 236, 255), LSColor(50, 143, 255), LSColor(50, 50, 255)),
+            deep  = listOf(LSColor(0, 122, 77), LSColor(0, 111, 122), LSColor(0, 55, 122), LSColor(0, 0, 122))
+        )
     }
 
     data class V8Section(
