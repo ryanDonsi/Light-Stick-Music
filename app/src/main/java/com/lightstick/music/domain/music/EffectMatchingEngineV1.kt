@@ -8,6 +8,33 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+// 팔레트 색 계열(PaletteFamily)이 쓰는 실측 RGB 스와치. 이름을 붙여두면 코드만 보고도
+// 바로 어떤 색인지 알 수 있다 — 전부 응원봉 실기로 확인한 S=100%·V=100% 순수 색상.
+private val PURPLE_MAGENTA = LSColor(212, 0, 255)  // 자주보라
+private val PURPLE_VIOLET  = LSColor(164, 0, 255)  // 보라
+private val PURPLE_INDIGO  = LSColor(116, 0, 255)  // 남보라
+private val PURPLE_NAVY    = LSColor(67, 0, 255)   // 남색
+
+private val RED_MAGENTA   = LSColor(255, 0, 249)  // 자홍
+private val RED_ROSE      = LSColor(255, 0, 155)  // 로즈
+private val RED_PURE      = LSColor(255, 0, 0)    // 순수 빨강
+private val RED_VERMILION = LSColor(255, 33, 0)   // 다홍
+
+private val ORANGE_GOLD_DEEP   = LSColor(255, 50, 0)   // 진한 다홍주황
+private val ORANGE_GOLD_ORANGE = LSColor(255, 117, 0)  // 주황
+private val ORANGE_GOLD_AMBER  = LSColor(255, 183, 0)  // 골드
+private val ORANGE_GOLD_LIME   = LSColor(255, 249, 0)  // 라임옐로우
+
+private val TEAL_YELLOWGREEN = LSColor(71, 255, 0)   // 연두
+private val TEAL_GREEN       = LSColor(0, 255, 36)   // 초록
+private val TEAL_MINT        = LSColor(0, 255, 146)  // 민트
+private val TEAL_CYAN        = LSColor(0, 255, 255)  // 청록(시안)
+
+private val BLUE_SEAFOAM = LSColor(0, 255, 161)  // 민트청록
+private val BLUE_SKYCYAN = LSColor(0, 232, 255)  // 하늘청록
+private val BLUE_AZURE   = LSColor(0, 116, 255)  // 파랑
+private val BLUE_PURE    = LSColor(0, 0, 255)    // 순수 파랑
+
 /**
  * EffectMatchingEngineV1 - V3의 이펙트 매칭 룰
  * 섹션 타입별 이펙트 엔진 할당 (ON_PULSE / STROBE / BREATH / ON_TRANSIT_ROTATE 등)
@@ -93,26 +120,22 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     }
 
     /**
-     * 팔레트 색 계열 — rgb는 cMain/cStep1~3 후보가 될 4개의 RGB(아래 buildPalette에서
-     * hueOf()로 hue만 뽑아 쓴다). 실제 응원봉 펌웨어 색상표(기존에 쓰던 RGB 상수들:
-     * PURE_PINK/BLUEGREEN/SKYBLUE/ICE 등, 전부 S=100%·V=100%의 순수 hue였음을 실측으로
-     * 확인)에서 고른 두 "끝점" 색상(rgb[0], rgb[3])을 hue 기준 3등분한 값이 기본이다.
-     * RED만 3등분 보간 그대로 쓰면 정작 순수 RED(255,0,0)가 네 포인트 중 어디에도
-     * 걸리지 않아서(실측 피드백) rgb[2]를 보간값 대신 순수 빨강으로 고정해뒀다.
-     * RED/ORANGE_GOLD 경계처럼 한두 계열은 끝점이 살짝 겹치는 것도 실측 확인 후 허용한
-     * 값이다(겹쳐도 색 1개 정도라 문제 없음).
+     * 팔레트 색 계열 — rgb는 cMain/cStep1~3 후보가 될 4개의 RGB(위에 이름 붙여둔 실측
+     * 스와치, buildPalette에서 hueOf()로 hue만 뽑아 쓴다). 각 계열의 첫 번째·마지막
+     * 스와치가 실제 응원봉 펌웨어 색상표에서 고른 두 "끝점" 색상이고, 가운데 둘은 그
+     * 사이를 hue 기준 3등분한 값이 기본이다. RED만 3등분 보간 그대로 쓰면 정작 순수
+     * RED_PURE(255,0,0)가 네 포인트 중 어디에도 걸리지 않아서(실측 피드백) 세 번째
+     * 자리를 보간값 대신 RED_PURE로 고정해뒀다. RED/ORANGE_GOLD 경계처럼 한두 계열은
+     * 끝점이 살짝 겹치는 것도 실측 확인 후 허용한 값이다(겹쳐도 색 1개 정도라 문제 없음).
      */
     private enum class PaletteFamily(val rgb: List<LSColor>) {
-        // (212,0,255)~(68,0,255) 3등분
-        PURPLE(listOf(LSColor(212, 0, 255), LSColor(164, 0, 255), LSColor(116, 0, 255), LSColor(67, 0, 255))),
-        // (255,0,250)~(255,33,0) — 0/360도 경계를 넘어간다. rgb[2]=순수 빨강 고정.
-        RED(listOf(LSColor(255, 0, 249), LSColor(255, 0, 155), LSColor(255, 0, 0), LSColor(255, 33, 0))),
-        // (255,51,0)~(255,250,0) 3등분
-        ORANGE_GOLD(listOf(LSColor(255, 50, 0), LSColor(255, 117, 0), LSColor(255, 183, 0), LSColor(255, 249, 0))),
-        // (72,255,0)~(0,255,255) 3등분
-        TEAL(listOf(LSColor(71, 255, 0), LSColor(0, 255, 36), LSColor(0, 255, 146), LSColor(0, 255, 255))),
-        // (0,255,161)~(0,0,255) 3등분 — rgb[3]이 이미 순수 파랑(0,0,255).
-        BLUE(listOf(LSColor(0, 255, 161), LSColor(0, 232, 255), LSColor(0, 116, 255), LSColor(0, 0, 255)))
+        PURPLE(listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO, PURPLE_NAVY)),
+        // 0/360도 경계를 넘어간다. 세 번째 자리는 보간값이 아니라 RED_PURE로 고정.
+        RED(listOf(RED_MAGENTA, RED_ROSE, RED_PURE, RED_VERMILION)),
+        ORANGE_GOLD(listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER, ORANGE_GOLD_LIME)),
+        TEAL(listOf(TEAL_YELLOWGREEN, TEAL_GREEN, TEAL_MINT, TEAL_CYAN)),
+        // 네 번째 자리(BLUE_PURE)가 이미 순수 파랑(0,0,255).
+        BLUE(listOf(BLUE_SEAFOAM, BLUE_SKYCYAN, BLUE_AZURE, BLUE_PURE))
     }
 
     data class V8Section(
