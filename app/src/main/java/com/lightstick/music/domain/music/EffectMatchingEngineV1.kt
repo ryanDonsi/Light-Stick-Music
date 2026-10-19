@@ -8,6 +8,39 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+// HSV<->RGB 변환 유틸리티. PaletteFamily(아래, enum 자신은 outer 클래스 인스턴스에
+// 접근 못 하므로 top-level이어야 light/deep 파생 프로퍼티에서 쓸 수 있다)와
+// EffectMatchingEngineV1 본문 양쪽에서 공용으로 쓴다.
+private fun wrap360(h: Float) = ((h % 360f) + 360f) % 360f
+
+private fun hueOf(c: LSColor): Float {
+    val r = c.r / 255f; val g = c.g / 255f; val b = c.b / 255f
+    val maxC = max(r, max(g, b)); val minC = min(r, min(g, b))
+    val d = maxC - minC
+    if (d < 1e-6f) return 0f
+    val h = when (maxC) {
+        r    -> (((g - b) / d) % 6f + 6f) % 6f
+        g    -> (b - r) / d + 2f
+        else -> (r - g) / d + 4f
+    }
+    return wrap360(h * 60f)
+}
+
+private fun hsvToColor(h: Float, s: Float, v: Float): LSColor {
+    val hh = wrap360(h)
+    val c = v * s; val x = c * (1f - abs((hh / 60f) % 2f - 1f)); val m = v - c
+    val (rf, gf, bf) = when {
+        hh < 60f  -> Triple(c, x, 0f); hh < 120f -> Triple(x, c, 0f)
+        hh < 180f -> Triple(0f, c, x); hh < 240f -> Triple(0f, x, c)
+        hh < 300f -> Triple(x, 0f, c); else      -> Triple(c, 0f, x)
+    }
+    return LSColor(
+        ((rf + m) * 255f).toInt().coerceIn(0, 255),
+        ((gf + m) * 255f).toInt().coerceIn(0, 255),
+        ((bf + m) * 255f).toInt().coerceIn(0, 255)
+    )
+}
+
 // 팔레트 색 계열(PaletteFamily)이 쓰는 실측 RGB 스와치. 이름을 붙여두면 코드만 보고도
 // 바로 어떤 색인지 알 수 있다 — 전부 응원봉 실기로 확인한 S=100%·V=100% 순수 색상.
 private val PURPLE_MAGENTA = LSColor(212, 0, 255)  // 자주보라
@@ -63,11 +96,11 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         private const val OUTRO_FADE_STEP_MS = 1_000L
         private const val OUTRO_FADE_MAX_STEPS = 8
 
-        // 팔레트 색 계열(세트) — 곡의 hue를 "아무 색상"이 아니라 미리 정해둔 계열
-        // (PaletteFamily의 hues 4개) 중 하나로 고정한다. 계열 안에서도 곡마다 살짝
-        // 다르게 보이도록 hues 4개 전부에 같은 ±지터를 준다(포인트 간 간격은 그대로
-        // 두고 통째로 살짝 회전시키는 효과).
-        private const val PALETTE_FAMILY_HUE_JITTER = 5f
+        // 팔레트 색 계열(세트) — 곡의 색을 "아무 색상"이 아니라 미리 정해둔 계열
+        // (PaletteFamily의 rgb 4개, 전부 응원봉 실기로 확인한 값) 중 하나로 고정한다.
+        // 과거엔 계열 안에서도 곡마다 ±지터로 hue를 살짝 돌렸지만, 지금은 실측값을
+        // 그대로 보존하기 위해 지터 없이 rgb를 그대로 쓴다 — 곡별 다양성은 장르별
+        // 계열 후보군(families)과 역할 배치(rolePermutation)만으로 충분히 나온다.
 
         // 장르(MusicStyle)별 팔레트 설정을 GenreTheme 하나로 묶는다 — 예전엔
         // GENRE_PALETTE_FAMILIES(계열 후보군)와 GENRE_ROLE_PERMUTATION(역할 배치)이
@@ -135,7 +168,13 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         ORANGE_GOLD(listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER, ORANGE_GOLD_LIME)),
         TEAL(listOf(TEAL_YELLOWGREEN, TEAL_GREEN, TEAL_MINT, TEAL_CYAN)),
         // 네 번째 자리(BLUE_PURE)가 이미 순수 파랑(0,0,255).
-        BLUE(listOf(BLUE_SEAFOAM, BLUE_SKYCYAN, BLUE_AZURE, BLUE_PURE))
+        BLUE(listOf(BLUE_SEAFOAM, BLUE_SKYCYAN, BLUE_AZURE, BLUE_PURE));
+
+        // rgb[i]가 cMain으로 선택됐을 때 쓰는 cStep4(채도만 80%로 낮춘 라이트 포인트색)·
+        // cDeep(명도만 48%로 낮춘 어두운 톤)을 미리 계산해둔다 — buildPalette에서는
+        // rolePerm[0]으로 바로 꺼내 쓰기만 하면 돼서 변환 호출이 필요 없다.
+        val light: List<LSColor> by lazy { rgb.map { hsvToColor(hueOf(it), 0.80f, 1.00f) } }
+        val deep: List<LSColor> by lazy { rgb.map { hsvToColor(hueOf(it), 1.00f, 0.48f) } }
     }
 
     data class V8Section(
@@ -152,48 +191,39 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         seed: Int, musicStyle: MusicStyleClassifier.MusicStyle
     ): EffectMatchingEngine.Palette {
         val rawHue  = (((seed.toLong() * 2654435761L) ushr 8) and 0x7FFFFFFFL).toInt()
-        // 예전엔 rawHue를 그대로 0~360 아무 색상에나 매핑했는데, 이러면 곡마다 색이
-        // 완전히 들쭉날쭉해서 장르별 분위기가 전혀 안 느껴졌다. 장르에 어울리는 색 계열
-        // 후보군 중 하나를 seed로 결정론적으로 고르고, 그 계열 안에서만 약간의 지터를 준다.
+        // 장르에 어울리는 색 계열 후보군 중 하나를 seed로 결정론적으로 고른다 — 같은
+        // 장르 곡들이 전부 똑같은 색은 아니게 하되, 계열 자체(=실측 RGB)는 그대로 쓴다.
         val theme = GENRE_THEMES[musicStyle]
         val candidates = theme?.families ?: PaletteFamily.values().toList()
         val family = candidates[Math.floorMod(rawHue, candidates.size)]
-        val jitterRange = (PALETTE_FAMILY_HUE_JITTER * 2).toInt() + 1
-        val jitter = Math.floorMod(rawHue / candidates.size, jitterRange) - PALETTE_FAMILY_HUE_JITTER
-        // family.rgb(4개 고정 RGB)에서 hue만 뽑아 jitter만큼 통째로 회전시킨다 — 포인트
-        // 간 간격은 그대로 유지한 채 곡마다 살짝 다르게 보이게 한다.
-        val arcHues = family.rgb.map { wrap360(hueOf(it) + jitter) }
-        Log.d(TAG, "[Palette] style=$musicStyle family=$family arcHues=${arcHues.joinToString { "%.1f".format(it) }}")
-        // 장르별 역할 배치(GenreTheme.rolePermutation)에 따라 이 4개를 cMain/cStep1~3으로
-        // 재배정한다 — hue 자체는 항상 이 4개 중 하나라 계열 경계를 넘을 위험이 없다.
+        Log.d(TAG, "[Palette] style=$musicStyle family=$family")
+        // 장르별 역할 배치(GenreTheme.rolePermutation)에 따라 family.rgb(4개 고정 RGB)를
+        // cMain/cStep1~3으로 재배정한다 — 실측값을 그대로 쓰므로 변환이 필요 없다.
         val rolePerm = theme?.rolePermutation ?: listOf(0, 1, 2, 3)
-        val mainHue  = arcHues[rolePerm[0]]
-        val step1Hue = arcHues[rolePerm[1]]
-        val step2Hue = arcHues[rolePerm[2]]
-        val step3Hue = arcHues[rolePerm[3]]
-        val cMain  = hsvToColor(mainHue,  1.00f, 1.00f)
-        val cStep1 = hsvToColor(step1Hue, 1.00f, 1.00f)
-        val cStep2 = hsvToColor(step2Hue, 1.00f, 1.00f)
-        val cStep3 = hsvToColor(step3Hue, 1.00f, 1.00f)
+        val cMain  = family.rgb[rolePerm[0]]
+        val cStep1 = family.rgb[rolePerm[1]]
+        val cStep2 = family.rgb[rolePerm[2]]
+        val cStep3 = family.rgb[rolePerm[3]]
         // cStep4: 계열 역할 배치에 안 들고, cMain과 같은 hue를 채도만 낮춰(80%) 밝기는
         // 그대로(100%) 유지한 "옅지만 밝은" 포인트색이다(기존 응원봉 펌웨어의
         // COLOR_LIGHTPURPLE(153,51,255)가 COLOR_PURPLE(70,0,255)보다 채도만 낮고
         // 명도는 그대로인 것과 같은 방식 — 밝기는 최대한 유지해야 한다는 요구사항에 맞춰
-        // 명도가 아닌 채도로만 "옅은" 느낌을 낸다).
-        val cStep4 = hsvToColor(mainHue, 0.80f, 1.00f)
-        val cDeep  = hsvToColor(mainHue,  1.00f, 0.48f)
+        // 명도가 아닌 채도로만 "옅은" 느낌을 낸다). family.light/deep에 미리 계산해둔
+        // 값을 cMain과 같은 인덱스(rolePerm[0])로 바로 꺼내 쓴다.
+        val cStep4 = family.light[rolePerm[0]]
+        val cDeep  = family.deep[rolePerm[0]]
         val black  = LSColor(0, 0, 0)
         val white = LSColor(255, 255, 255)
-        // colorGroup(VERSE 순환용, cStep 빈도 균등화): arcHues 4개는 3등분 보간이라
-        // 간격이 이미 고르게 벌어져 있어 hue 정렬만 하면 되고(예전 TEAL/PURPLE처럼
-        // 비대칭 오프셋이 아니라 zigzag 재배치가 더 이상 필요 없다), cStep4(포인트색)는
-        // 맨 뒤에 추가한다.
-        fun signedOffsetFromBase(h: Float) = wrap360(h - arcHues[0] + 180f) - 180f
+        // colorGroup(VERSE 순환용, cStep 빈도 균등화): family.rgb 4개는 hue 기준 3등분
+        // 보간이라 간격이 이미 고르게 벌어져 있어 hue 정렬만 하면 되고(zigzag 재배치
+        // 불필요), cStep4(포인트색)는 맨 뒤에 추가한다.
+        val mainHue = hueOf(cMain)
+        fun signedOffsetFromBase(h: Float) = wrap360(h - mainHue + 180f) - 180f
         val sortedArc = listOf(
-            mainHue to cMain, step1Hue to cStep1, step2Hue to cStep2, step3Hue to cStep3
+            mainHue to cMain, hueOf(cStep1) to cStep1, hueOf(cStep2) to cStep2, hueOf(cStep3) to cStep3
         ).sortedBy { signedOffsetFromBase(it.first) }
         val colorGroup = sortedArc.map { it.second } + cStep4
-        // CHORUS는 "탁탁 튀는" 전환이 핵심이라 arcHues 4개 중 서로 hue 차이가 가장 크게
+        // CHORUS는 "탁탁 튀는" 전환이 핵심이라 family.rgb 4개 중 서로 hue 차이가 가장 크게
         // 벌어지는 3개만 골라 white와 함께 4개로 순환시킨다. 가운데 두 지점(index 1,2)
         // 중 하나를 빼는 두 가지 경우만 비교하면 되는데(양끝은 항상 남겨야 스펙트럼이
         // 최대로 벌어짐), 뺐을 때 생기는 두 구간 중 더 좁은 쪽이 큰 경우를 택한다.
@@ -731,21 +761,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         return sorted[(sorted.lastIndex * p).toInt().coerceIn(0, sorted.lastIndex)]
     }
 
-    private fun wrap360(h: Float) = ((h % 360f) + 360f) % 360f
-
-    private fun hueOf(c: LSColor): Float {
-        val r = c.r / 255f; val g = c.g / 255f; val b = c.b / 255f
-        val maxC = max(r, max(g, b)); val minC = min(r, min(g, b))
-        val d = maxC - minC
-        if (d < 1e-6f) return 0f
-        val h = when (maxC) {
-            r    -> (((g - b) / d) % 6f + 6f) % 6f
-            g    -> (b - r) / d + 2f
-            else -> (r - g) / d + 4f
-        }
-        return wrap360(h * 60f)
-    }
-
     /** 색상 목록 중 색상환에서 빨강(hue 0)에 가장 가까운 것을 고른다. */
     private fun closestToRed(colors: List<LSColor>): LSColor {
         if (colors.isEmpty()) return LSColor(255, 0, 0)
@@ -753,20 +768,5 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             val h = hueOf(c)
             min(h, 360f - h)
         }
-    }
-
-    private fun hsvToColor(h: Float, s: Float, v: Float): LSColor {
-        val hh = ((h % 360f) + 360f) % 360f
-        val c = v * s; val x = c * (1f - abs((hh / 60f) % 2f - 1f)); val m = v - c
-        val (rf, gf, bf) = when {
-            hh < 60f  -> Triple(c, x, 0f); hh < 120f -> Triple(x, c, 0f)
-            hh < 180f -> Triple(0f, c, x); hh < 240f -> Triple(0f, x, c)
-            hh < 300f -> Triple(x, 0f, c); else      -> Triple(c, 0f, x)
-        }
-        return LSColor(
-            ((rf + m) * 255f).toInt().coerceIn(0, 255),
-            ((gf + m) * 255f).toInt().coerceIn(0, 255),
-            ((bf + m) * 255f).toInt().coerceIn(0, 255)
-        )
     }
 }
