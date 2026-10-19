@@ -704,22 +704,23 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         barIdx: Int = 0, isBalladMode: Boolean = false
     ): Pair<LSColor, LSColor?> {
         val isPatternA = (sectionIndex % 2 == 0)
-        // colorGroup이 이제 cMain+cStep1~4 5개 전부라, VERSE/CHORUS 모두 잘라내지 않고
-        // 그대로(+ CHORUS는 white 추가) 순환시켜서 cStep1~4가 고르게 노출되게 한다.
-        // CHORUS는 간격이 큰 색만 골라둔 palette.chorusColors를 쓰고(전환마다 또렷이
-        // 달라지도록), VERSE/그 외는 빈도 균등화된 colorGroup(5개) 전부를 순환한다.
-        val effectiveColors: List<LSColor> = when (sectionType) {
-            SectionDetector.SectionType.CHORUS -> palette.chorusColors
-            else -> palette.colorGroup
-        }
-        val groupColor = effectiveColors[beatIndex % effectiveColors.size]
+        // 예전엔 "CHORUS면 chorusColors, 아니면 colorGroup"을 effectiveColors 하나로
+        // 묶어서 ON_PULSE/BREATH/ON_TRANSIT_ROTATE가 전부 같이 참조했는데, 실제로는
+        // ON_PULSE·BREATH(VERSE 분기)는 CHORUS에서 절대 안 쓰인다(assignFgEngine 참고 —
+        // VERSE→ON_PULSE/BREATH, CHORUS→ON_TRANSIT_ROTATE로 섹션별 엔진이 고정이라 겹칠
+        // 일이 없다). 그래서 effectiveColors는 사실상 매번 똑같은 값을 가리키면서도
+        // "어디서 쓰는 색인지"가 변수명만 봐선 안 보였다. 엔진별로 쓰는 색 순환을 각자
+        // 이름 붙여서(onPulseFgCycle/verseBreathFgCycle/chorusOnRotateFgCycle 등)
+        // 분기 안에서 바로 선언하도록 바꿨다.
         return when (engine) {
             EffectMatchingEngine.FgEngine.ON_PULSE -> {
-                // FG를 bar 단위로 팔레트 색상(effectiveColors) 중에서 순환시킨다 — 기존엔
-                // 섹션 전체가 sectionIndex 기반 고정 한 색이라 같은 VERSE 안에서는 ON_PULSE
-                // FG가 안 바뀌었다. BG는 기존처럼 섹션 단위 패턴(A/B)을 그대로 유지.
+                // ON_PULSE는 VERSE(비발라드)에서만 쓰이므로 항상 colorGroup을 순환한다.
+                // FG를 bar 단위로 순환시킨다 — 기존엔 섹션 전체가 sectionIndex 기반 고정
+                // 한 색이라 같은 VERSE 안에서는 ON_PULSE FG가 안 바뀌었다. BG는 기존처럼
+                // 섹션 단위 패턴(A/B)을 그대로 유지.
+                val onPulseFgCycle = palette.colorGroup
                 val set = if (isPatternA) palette.onPulseSets[0] else palette.onPulseSets[1]
-                val fg = effectiveColors[Math.floorMod(barIdx, effectiveColors.size)]
+                val fg = onPulseFgCycle[Math.floorMod(barIdx, onPulseFgCycle.size)]
                 fg to set.bg
             }
             EffectMatchingEngine.FgEngine.BLINK -> {
@@ -740,9 +741,18 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 if (sectionType == SectionDetector.SectionType.BRIDGE) {
                     val set = palette.bridgeSets[beatIndex % palette.bridgeSets.size]
                     set.fg to set.bg
+                } else if (sectionType == SectionDetector.SectionType.CHORUS) {
+                    // CHORUS는 간격이 큰 색만 골라둔 chorusColors를 순환시켜 전환마다
+                    // 또렷이 달라지도록 한다("탁탁 튀는" 전환).
+                    val chorusOnRotateFgCycle = palette.chorusColors
+                    val fg = chorusOnRotateFgCycle[beatIndex % chorusOnRotateFgCycle.size]
+                    fg to palette.chorusBg
                 } else {
-                    val bg = if (sectionType == SectionDetector.SectionType.CHORUS) palette.chorusBg else palette.black
-                    groupColor to bg
+                    // CLIMAX 등 BRIDGE/CHORUS가 아닌 ON_TRANSIT_ROTATE 구간은 빈도
+                    // 균등화된 colorGroup을 순환한다.
+                    val onRotateFgCycle = palette.colorGroup
+                    val fg = onRotateFgCycle[beatIndex % onRotateFgCycle.size]
+                    fg to palette.black
                 }
             EffectMatchingEngine.FgEngine.STROBE -> {
                 val set = palette.strokeSets[beatIndex % palette.strokeSets.size]
@@ -754,14 +764,17 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             // 완전히 꺼진 것처럼 보이는 문제가 있었다(실측: "BRIDGE가 OFF 상태로만 나옴").
             // FG는 breathSet.fg(색상 있는 값)를 유지하고 BG만 검정으로 바꿔서, FREEZE와
             // 같은 패턴(색상 있는 FG + 검정 BG)으로 맞췄다.
-            // 발라드 VERSE의 BREATH는 breathSet 고정 1색 대신 컬러셋(effectiveColors)을
-            // bar마다 순환시킨다 — ON_PULSE가 FG를 bar 단위로 순환시키는 것과 같은 방식.
-            // RANDOM DELAY=0(buildFramesFromSections)이라 모든 기기가 같은 타이밍으로
-            // 숨쉬므로, 색만 bar마다 바뀌어도 기기 간 어긋남 없이 또렷하게 보인다.
+            // 발라드 VERSE의 BREATH는 breathSet 고정 1색 대신 컬러셋을 bar마다 순환시킨다
+            // — ON_PULSE가 FG를 bar 단위로 순환시키는 것과 같은 방식. RANDOM DELAY=0
+            // (buildFramesFromSections)이라 모든 기기가 같은 타이밍으로 숨쉬므로, 색만
+            // bar마다 바뀌어도 기기 간 어긋남 없이 또렷하게 보인다.
             EffectMatchingEngine.FgEngine.BREATH -> when {
                 sectionType == SectionDetector.SectionType.BRIDGE && isBalladMode -> palette.breathSet.fg to palette.black
-                sectionType == SectionDetector.SectionType.VERSE ->
-                    effectiveColors[Math.floorMod(barIdx, effectiveColors.size)] to palette.breathSet.bg
+                sectionType == SectionDetector.SectionType.VERSE -> {
+                    // BREATH가 VERSE에서 쓰이는 건 발라드뿐이라 항상 colorGroup을 순환한다.
+                    val verseBreathFgCycle = palette.colorGroup
+                    verseBreathFgCycle[Math.floorMod(barIdx, verseBreathFgCycle.size)] to palette.breathSet.bg
+                }
                 else -> palette.breathSet.fg to palette.breathSet.bg
             }
             // FREEZE(BREAK): 깜빡임/회전 없이 한 가지 색을 고정해서 보여준다. BREATH와 같은
