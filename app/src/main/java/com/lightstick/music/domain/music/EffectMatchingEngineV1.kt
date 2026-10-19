@@ -54,49 +54,28 @@ private val BLUE_SKYCYAN = LSColor(0, 232, 255)  // 하늘청록
 private val BLUE_AZURE   = LSColor(0, 116, 255)  // 파랑
 private val BLUE_PURE    = LSColor(0, 0, 255)    // 순수 파랑
 
-// 위 스와치들의 파생색 — cMain으로 선택된 스와치와 같은 hue에서 _LIGHT는 채도만
-// 80%로 낮춘 "옅지만 밝은" 포인트색(cStep4), _SHADE는 명도만 48%로 낮춘 어두운 톤
-// (cDeep)이다. 매번 계산하지 않고 값 그대로 이름 붙여 선언해둔다.
-private val PURPLE_MAGENTA_LIGHT = LSColor(220, 50, 255)  // 자주보라 라이트
-private val PURPLE_VIOLET_LIGHT  = LSColor(182, 50, 255)  // 보라 라이트
-private val PURPLE_INDIGO_LIGHT  = LSColor(143, 50, 255)  // 남보라 라이트
-private val PURPLE_NAVY_LIGHT    = LSColor(104, 50, 255)  // 남색 라이트
+// 위 스와치들의 파생색 — cMain으로 선택된 스와치와 같은 hue에서 명도만 48%로 낮춘
+// 어두운 톤(cDeep)이다. 매번 계산하지 않고 값 그대로 이름 붙여 선언해둔다.
 private val PURPLE_MAGENTA_SHADE = LSColor(101, 0, 122)   // 자주보라 셰이드
 private val PURPLE_VIOLET_SHADE  = LSColor(78, 0, 122)    // 보라 셰이드
 private val PURPLE_INDIGO_SHADE  = LSColor(55, 0, 122)    // 남보라 셰이드
 private val PURPLE_NAVY_SHADE    = LSColor(32, 0, 122)    // 남색 셰이드
 
-private val RED_MAGENTA_LIGHT   = LSColor(255, 50, 250)  // 자홍 라이트
-private val RED_ROSE_LIGHT      = LSColor(255, 50, 174)  // 로즈 라이트
-private val RED_PURE_LIGHT      = LSColor(255, 50, 50)   // 순수 빨강 라이트
-private val RED_VERMILION_LIGHT = LSColor(255, 77, 50)   // 다홍 라이트
 private val RED_MAGENTA_SHADE   = LSColor(122, 0, 119)   // 자홍 셰이드
 private val RED_ROSE_SHADE      = LSColor(122, 0, 74)    // 로즈 셰이드
 private val RED_PURE_SHADE      = LSColor(122, 0, 0)     // 순수 빨강 셰이드
 private val RED_VERMILION_SHADE = LSColor(122, 15, 0)    // 다홍 셰이드
 
-private val ORANGE_GOLD_DEEP_LIGHT   = LSColor(255, 90, 50)   // 진한 다홍주황 라이트
-private val ORANGE_GOLD_ORANGE_LIGHT = LSColor(255, 144, 50)  // 주황 라이트
-private val ORANGE_GOLD_AMBER_LIGHT  = LSColor(255, 197, 50)  // 골드 라이트
-private val ORANGE_GOLD_LIME_LIGHT   = LSColor(255, 250, 50)  // 라임옐로우 라이트
 private val ORANGE_GOLD_DEEP_SHADE   = LSColor(122, 23, 0)    // 진한 다홍주황 셰이드
 private val ORANGE_GOLD_ORANGE_SHADE = LSColor(122, 56, 0)    // 주황 셰이드
 private val ORANGE_GOLD_AMBER_SHADE  = LSColor(122, 87, 0)    // 골드 셰이드
 private val ORANGE_GOLD_LIME_SHADE   = LSColor(122, 119, 0)   // 라임옐로우 셰이드
 
-private val TEAL_YELLOWGREEN_LIGHT = LSColor(107, 255, 50)  // 연두 라이트
-private val TEAL_GREEN_LIGHT       = LSColor(50, 255, 79)   // 초록 라이트
-private val TEAL_MINT_LIGHT        = LSColor(50, 255, 167)  // 민트 라이트
-private val TEAL_CYAN_LIGHT        = LSColor(50, 255, 255)  // 청록(시안) 라이트
 private val TEAL_YELLOWGREEN_SHADE = LSColor(34, 122, 0)    // 연두 셰이드
 private val TEAL_GREEN_SHADE       = LSColor(0, 122, 17)    // 초록 셰이드
 private val TEAL_MINT_SHADE        = LSColor(0, 122, 70)    // 민트 셰이드
 private val TEAL_CYAN_SHADE        = LSColor(0, 122, 122)   // 청록(시안) 셰이드
 
-private val BLUE_SEAFOAM_LIGHT = LSColor(50, 255, 179)  // 민트청록 라이트
-private val BLUE_SKYCYAN_LIGHT = LSColor(50, 236, 255)  // 하늘청록 라이트
-private val BLUE_AZURE_LIGHT   = LSColor(50, 143, 255)  // 파랑 라이트
-private val BLUE_PURE_LIGHT    = LSColor(50, 50, 255)   // 순수 파랑 라이트
 private val BLUE_SEAFOAM_SHADE = LSColor(0, 122, 77)    // 민트청록 셰이드
 private val BLUE_SKYCYAN_SHADE = LSColor(0, 111, 122)   // 하늘청록 셰이드
 private val BLUE_AZURE_SHADE   = LSColor(0, 55, 122)    // 파랑 셰이드
@@ -144,16 +123,15 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // families: 장르에 어울리는 색 계열 후보군. 후보가 여럿이면 seed(musicId)로 그중
         //   하나를 결정론적으로 고른다 — 같은 장르 곡들이 전부 똑같은 색은 아니게 하되,
         //   분위기(계열)는 장르에 맞춘다.
-        // rolePermutation: 한 계열(PaletteFamily)은 hues 4개의 고정된 색 후보를 갖는다.
+        // rolePermutation: 한 계열(PaletteFamily)은 rgb 4개의 고정된 색 후보를 갖는다.
         //   이 4개 중 "어느 것을 cMain으로 쓸지" + 나머지를 cStep1~3에
         //   어떤 순서로 배치할지를 장르마다 다르게 둬서, 같은 계열이 걸려도 장르마다
-        //   대표색(cMain)이 달라 보이는 효과를 낸다(cStep4는 역할 배치에 안 들고 항상
-        //   cMain과 같은 hue의 옅은 포인트색 — buildPalette 참고).
+        //   대표색(cMain)이 달라 보이는 효과를 낸다.
         //   rolePermutation[0](=cMain으로 쓸 raw 인덱스)은 임의로 고른 게 아니라, 실사용
         //   비중이 큰 BALLAD/EDM/DANCE_POP/POP이 공유하는 계열별로 "그 계열을 쓰는
         //   장르들의 cMain끼리 최대한 멀어지도록" 전수 탐색(4^4=256 조합)으로 찾은 값이다
         //   (최소 간격 11.3도). 이 조건을 만족하는 조합이 여러 개라 그중 DANCE_POP의
-        //   cMain이 RED의 순수 빨강(hues[2]=0도)이 되는 조합을 택했다. ROCK/HIPHOP_RNB는
+        //   cMain이 RED의 순수 빨강(rgb[2]=RED_PURE)이 되는 조합을 택했다. ROCK/HIPHOP_RNB는
         //   실사용 비중이 낮아 이 최적화에서 제외하고 같은 계열을 쓰는 장르(ROCK→EDM,
         //   HIPHOP_RNB→BALLAD)의 값을 그대로 가져다 쓴다.
         private data class GenreTheme(val families: List<PaletteFamily>, val rolePermutation: List<Int>)
@@ -188,47 +166,40 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
     /**
      * 팔레트 색 계열 — rgb는 cMain/cStep1~3 후보가 될 4개의 RGB(위에 이름 붙여둔 실측
-     * 스와치). light/deep은 rgb[i]가 cMain으로 선택됐을 때 쓰는 cStep4(채도만 80%로
-     * 낮춘 라이트 포인트색)·cDeep(명도만 48%로 낮춘 어두운 톤)을 같은 인덱스로 미리
-     * 계산해 둔 값 — buildPalette에서는 rolePerm[0]으로 세 리스트 모두 바로 꺼내 쓴다.
-     * 각 계열의 첫 번째·마지막 스와치가 실제 응원봉 펌웨어 색상표에서 고른 두 "끝점"
-     * 색상이고, 가운데 둘은 그 사이를 hue 기준 3등분한 값이 기본이다. RED만 3등분 보간
-     * 그대로 쓰면 정작 순수 RED_PURE(255,0,0)가 네 포인트 중 어디에도 걸리지 않아서
-     * (실측 피드백) 세 번째 자리를 보간값 대신 RED_PURE로 고정해뒀다. RED/ORANGE_GOLD
-     * 경계처럼 한두 계열은 끝점이 살짝 겹치는 것도 실측 확인 후 허용한 값이다(겹쳐도
-     * 색 1개 정도라 문제 없음).
+     * 스와치). deep은 rgb[i]가 cMain으로 선택됐을 때 쓰는 cDeep(명도만 48%로 낮춘 어두운
+     * 톤)을 같은 인덱스로 미리 계산해 둔 값 — buildPalette에서는 rolePerm[0]으로 두
+     * 리스트 모두 바로 꺼내 쓴다. 각 계열의 첫 번째·마지막 스와치가 실제 응원봉 펌웨어
+     * 색상표에서 고른 두 "끝점" 색상이고, 가운데 둘은 그 사이를 hue 기준 3등분한 값이
+     * 기본이다. RED만 3등분 보간 그대로 쓰면 정작 순수 RED_PURE(255,0,0)가 네 포인트 중
+     * 어디에도 걸리지 않아서(실측 피드백) 세 번째 자리를 보간값 대신 RED_PURE로
+     * 고정해뒀다. RED/ORANGE_GOLD 경계처럼 한두 계열은 끝점이 살짝 겹치는 것도 실측
+     * 확인 후 허용한 값이다(겹쳐도 색 1개 정도라 문제 없음).
      */
     private enum class PaletteFamily(
         val rgb: List<LSColor>,
-        val light: List<LSColor>,
         val deep: List<LSColor>
     ) {
         PURPLE(
-            rgb   = listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO, PURPLE_NAVY),
-            light = listOf(PURPLE_MAGENTA_LIGHT, PURPLE_VIOLET_LIGHT, PURPLE_INDIGO_LIGHT, PURPLE_NAVY_LIGHT),
-            deep  = listOf(PURPLE_MAGENTA_SHADE, PURPLE_VIOLET_SHADE, PURPLE_INDIGO_SHADE, PURPLE_NAVY_SHADE)
+            rgb  = listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO, PURPLE_NAVY),
+            deep = listOf(PURPLE_MAGENTA_SHADE, PURPLE_VIOLET_SHADE, PURPLE_INDIGO_SHADE, PURPLE_NAVY_SHADE)
         ),
         // 0/360도 경계를 넘어간다. 세 번째 자리는 보간값이 아니라 RED_PURE로 고정.
         RED(
-            rgb   = listOf(RED_MAGENTA, RED_ROSE, RED_PURE, RED_VERMILION),
-            light = listOf(RED_MAGENTA_LIGHT, RED_ROSE_LIGHT, RED_PURE_LIGHT, RED_VERMILION_LIGHT),
-            deep  = listOf(RED_MAGENTA_SHADE, RED_ROSE_SHADE, RED_PURE_SHADE, RED_VERMILION_SHADE)
+            rgb  = listOf(RED_MAGENTA, RED_ROSE, RED_PURE, RED_VERMILION),
+            deep = listOf(RED_MAGENTA_SHADE, RED_ROSE_SHADE, RED_PURE_SHADE, RED_VERMILION_SHADE)
         ),
         ORANGE_GOLD(
-            rgb   = listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER, ORANGE_GOLD_LIME),
-            light = listOf(ORANGE_GOLD_DEEP_LIGHT, ORANGE_GOLD_ORANGE_LIGHT, ORANGE_GOLD_AMBER_LIGHT, ORANGE_GOLD_LIME_LIGHT),
-            deep  = listOf(ORANGE_GOLD_DEEP_SHADE, ORANGE_GOLD_ORANGE_SHADE, ORANGE_GOLD_AMBER_SHADE, ORANGE_GOLD_LIME_SHADE)
+            rgb  = listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER, ORANGE_GOLD_LIME),
+            deep = listOf(ORANGE_GOLD_DEEP_SHADE, ORANGE_GOLD_ORANGE_SHADE, ORANGE_GOLD_AMBER_SHADE, ORANGE_GOLD_LIME_SHADE)
         ),
         TEAL(
-            rgb   = listOf(TEAL_YELLOWGREEN, TEAL_GREEN, TEAL_MINT, TEAL_CYAN),
-            light = listOf(TEAL_YELLOWGREEN_LIGHT, TEAL_GREEN_LIGHT, TEAL_MINT_LIGHT, TEAL_CYAN_LIGHT),
-            deep  = listOf(TEAL_YELLOWGREEN_SHADE, TEAL_GREEN_SHADE, TEAL_MINT_SHADE, TEAL_CYAN_SHADE)
+            rgb  = listOf(TEAL_YELLOWGREEN, TEAL_GREEN, TEAL_MINT, TEAL_CYAN),
+            deep = listOf(TEAL_YELLOWGREEN_SHADE, TEAL_GREEN_SHADE, TEAL_MINT_SHADE, TEAL_CYAN_SHADE)
         ),
         // 네 번째 자리(BLUE_PURE)가 이미 순수 파랑(0,0,255).
         BLUE(
-            rgb   = listOf(BLUE_SEAFOAM, BLUE_SKYCYAN, BLUE_AZURE, BLUE_PURE),
-            light = listOf(BLUE_SEAFOAM_LIGHT, BLUE_SKYCYAN_LIGHT, BLUE_AZURE_LIGHT, BLUE_PURE_LIGHT),
-            deep  = listOf(BLUE_SEAFOAM_SHADE, BLUE_SKYCYAN_SHADE, BLUE_AZURE_SHADE, BLUE_PURE_SHADE)
+            rgb  = listOf(BLUE_SEAFOAM, BLUE_SKYCYAN, BLUE_AZURE, BLUE_PURE),
+            deep = listOf(BLUE_SEAFOAM_SHADE, BLUE_SKYCYAN_SHADE, BLUE_AZURE_SHADE, BLUE_PURE_SHADE)
         )
     }
 
@@ -259,25 +230,20 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val cStep1 = family.rgb[rolePerm[1]]
         val cStep2 = family.rgb[rolePerm[2]]
         val cStep3 = family.rgb[rolePerm[3]]
-        // cStep4: 계열 역할 배치에 안 들고, cMain과 같은 hue를 채도만 낮춰(80%) 밝기는
-        // 그대로(100%) 유지한 "옅지만 밝은" 포인트색이다(기존 응원봉 펌웨어의
-        // COLOR_LIGHTPURPLE(153,51,255)가 COLOR_PURPLE(70,0,255)보다 채도만 낮고
-        // 명도는 그대로인 것과 같은 방식 — 밝기는 최대한 유지해야 한다는 요구사항에 맞춰
-        // 명도가 아닌 채도로만 "옅은" 느낌을 낸다). family.light/deep에 미리 계산해둔
-        // 값을 cMain과 같은 인덱스(rolePerm[0])로 바로 꺼내 쓴다.
-        val cStep4 = family.light[rolePerm[0]]
+        // cStep4(채도만 80%로 낮춘 "옅지만 밝은" 포인트색)는 실기에서 너무 허여멀건하게
+        // 자주 눈에 띈다는 피드백으로 더 이상 쓰지 않는다. 대신 family.deep(명도만 48%로
+        // 낮춘 톤)은 cDeep으로 그대로 사용.
         val cDeep  = family.deep[rolePerm[0]]
         val black  = LSColor(0, 0, 0)
         val white = LSColor(255, 255, 255)
         // colorGroup(VERSE 순환용, cStep 빈도 균등화): family.rgb 4개는 hue 기준 3등분
-        // 보간이라 간격이 이미 고르게 벌어져 있어 hue 정렬만 하면 되고(zigzag 재배치
-        // 불필요), cStep4(포인트색)는 맨 뒤에 추가한다.
+        // 보간이라 간격이 이미 고르게 벌어져 있어 hue 정렬만 하면 된다(zigzag 재배치 불필요).
         val mainHue = hueOf(cMain)
         fun signedOffsetFromBase(h: Float) = wrap360(h - mainHue + 180f) - 180f
         val sortedArc = listOf(
             mainHue to cMain, hueOf(cStep1) to cStep1, hueOf(cStep2) to cStep2, hueOf(cStep3) to cStep3
         ).sortedBy { signedOffsetFromBase(it.first) }
-        val colorGroup = sortedArc.map { it.second } + cStep4
+        val colorGroup = sortedArc.map { it.second }
         // CHORUS는 "탁탁 튀는" 전환이 핵심이다. white 다음은 항상 cMain(장르 대표색)으로
         // 고정해서 전환 시작점이 매번 또렷하게 하고, 그 뒤 두 자리는 cStep1~3 중 이어
         // 붙였을 때 간격이 최대가 되는 조합+순서를 전수 비교(3개 중 2개를 순서까지
@@ -297,11 +263,11 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
         val patternABg = if (cMainLuma >= 128f) cDeep else cMain
         // VERSE BLINK: BG는 빨강에 가장 가까운 색(closestToRed)으로 고정하고, FG는 BG와
-        // 겹치지 않는 나머지 색 중 4개를 bar마다 순환시킨다. cMain/cStep1~4 5개 중 BG로
-        // 쓰인 1개를 뺀 나머지 4개가 그대로 FG 후보가 된다.
+        // 겹치지 않는 나머지 색을 bar마다 순환시킨다. cMain/cStep1~3 4개 중 BG로 쓰인
+        // 1개를 뺀 나머지가 그대로 FG 후보가 된다.
         val verseBlinkBg = closestToRed(colorGroup)
-        val verseBlinkFgCycle = listOf(cStep1, cStep2, cStep3, cStep4, cMain)
-            .filterNot { it == verseBlinkBg }.take(4)
+        val verseBlinkFgCycle = listOf(cStep1, cStep2, cStep3, cMain)
+            .filterNot { it == verseBlinkBg }
         return EffectMatchingEngine.Palette(
             black       = black, white = white,
             // 패턴B(onPulseBg[1])의 BG를 black에서 cDeep으로 바꾼다 — BRIDGE의 BREATH가
@@ -310,10 +276,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             onPulseBg = listOf(patternABg, cDeep),
             blinkSets   = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cStep3, black)),
             strokeSets  = listOf(EffectMatchingEngine.ColorSet(white, black)),
-            // BG는 patternABg(=cMain 밝기에 따라 cMain 또는 cDeep)도, cDeep(명도만 낮춘
-            // 톤)도 아니라 breathBg(cStep1~3 중 cMain과 hue가 가장 먼 색, 채도/명도는
-            // 그대로 100%)로 고정한다 — 명암이 아니라 색상 자체가 또렷이 다른 fg/bg 대비.
-            breathSet   = EffectMatchingEngine.ColorSet(cStep4, breathBg),
+            // FG는 cMain(완전 채도), BG는 breathBg(cStep1~3 중 cMain과 hue가 가장 먼
+            // 색, 채도/명도도 100% 그대로) — 둘 다 흐릿한 톤 없이 색상 자체로 또렷한 대비.
+            breathSet   = EffectMatchingEngine.ColorSet(cMain, breathBg),
             bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cMain, black)),
             chorusBg    = cDeep, colorGroup = colorGroup,
             verseBlinkBg = verseBlinkBg,
