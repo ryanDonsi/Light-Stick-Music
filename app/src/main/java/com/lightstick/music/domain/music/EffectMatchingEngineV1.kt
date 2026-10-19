@@ -62,7 +62,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         //   cMain이 RED의 순수 빨강(hues[2]=0도)이 되는 조합을 택했다. ROCK/HIPHOP_RNB는
         //   실사용 비중이 낮아 이 최적화에서 제외하고 같은 계열을 쓰는 장르(ROCK→EDM,
         //   HIPHOP_RNB→BALLAD)의 값을 그대로 가져다 쓴다.
-        data class GenreTheme(val families: List<PaletteFamily>, val rolePermutation: List<Int>)
+        private data class GenreTheme(val families: List<PaletteFamily>, val rolePermutation: List<Int>)
 
         private val GENRE_THEMES: Map<MusicStyleClassifier.MusicStyle, GenreTheme> = mapOf(
             MusicStyleClassifier.MusicStyle.BALLAD to GenreTheme(
