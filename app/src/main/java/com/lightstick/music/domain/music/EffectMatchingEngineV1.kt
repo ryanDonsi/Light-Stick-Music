@@ -310,7 +310,12 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             onPulseBg = listOf(patternABg, cDeep),
             blinkSets   = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cStep3, black)),
             strokeSets  = listOf(EffectMatchingEngine.ColorSet(white, black)),
-            breathSet   = EffectMatchingEngine.ColorSet(cStep4, patternABg),
+            // BG는 patternABg가 아니라 항상 cDeep으로 고정한다 — PURPLE/RED 계열은
+            // cMain 밝기가 낮아 patternABg가 거의 항상 cMain 자신으로 떨어지는데, 그러면
+            // FG(cStep4, 채도 80%)와 BG(cMain, 채도 100%)가 같은 hue에 채도 차이뿐이라
+            // 숨쉬기(breath) 명암 대비가 거의 안 느껴졌다. cDeep(명도 48%)으로 고정하면
+            // 계열과 무관하게 명도 차이로 또렷한 대비가 난다.
+            breathSet   = EffectMatchingEngine.ColorSet(cStep4, cDeep),
             bridgeSets  = listOf(EffectMatchingEngine.ColorSet(cStep2, black), EffectMatchingEngine.ColorSet(cMain, black)),
             chorusBg    = cDeep, colorGroup = colorGroup,
             verseBlinkBg = verseBlinkBg,
