@@ -270,6 +270,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             .filterNot { it == verseBlinkBg }
         return EffectMatchingEngine.Palette(
             black       = black, white = white,
+            colorFamily = family.name,
             // 패턴B(onPulseBg[1])의 BG를 black에서 cDeep으로 바꾼다 — BRIDGE의 BREATH가
             // BG를 black으로 뒀을 때 "꺼진 것처럼 보임" 피드백이 있었는데, ON_PULSE도 같은
             // 문제를 겪을 수 있어서 같은 색 계열의 어두운 톤(cDeep)으로 바꿔 테스트해본다.

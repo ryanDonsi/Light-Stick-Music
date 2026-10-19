@@ -30,6 +30,10 @@ interface EffectMatchingEngine {
 
     data class Palette(
         val black: LSColor, val white: LSColor,
+        // 이 팔레트가 선택한 색 계열의 이름(V1: PaletteFamily.name, 예 "PURPLE"/"RED"/
+        // "ORANGE_GOLD"/"TEAL"/"BLUE". V0처럼 계열 개념이 없는 구현체는 "NONE") — UI의
+        // Effect Info 패널에서 장르 옆에 어떤 색상 테이블이 선택됐는지 보여주는 용도.
+        val colorFamily: String,
         // ON_PULSE의 BG만 패턴 A/B(섹션 인덱스 홀짝)로 구분해서 담는다 — FG는 고정색이
         // 아니라 colorGroup을 bar마다 순환시켜 쓰므로(colorsForEngine 참고) 여기엔
         // 들어있지 않다.

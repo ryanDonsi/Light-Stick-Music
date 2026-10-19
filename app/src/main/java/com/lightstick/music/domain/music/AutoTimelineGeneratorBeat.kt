@@ -333,6 +333,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
                 onsetDensity = rep?.sectionOnsetDensity ?: 0f,
                 periodicity  = rep?.sectionPeriodicity ?: 0f,
                 musicStyle = if (idx == 0) musicStyle else null,
+                colorFamily = if (idx == 0) palette.colorFamily else null,
                 beatTimesMs = g.annotatedBeats.map { it.timeMs }
             )
         }

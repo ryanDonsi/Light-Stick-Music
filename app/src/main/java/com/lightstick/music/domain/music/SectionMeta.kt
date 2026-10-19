@@ -21,6 +21,9 @@ data class SectionMeta(
     val periodicity: Float  = 0f,  // 주기성 강도 (0~1)
     // 곡 단위 스타일 — 첫 번째 섹션에만 채워지며 나머지는 null
     val musicStyle: MusicStyleClassifier.MusicStyle? = null,
+    // 이 곡의 팔레트가 선택한 색 계열 이름(EffectMatchingEngine.Palette.colorFamily 참고,
+    // 예 "PURPLE"/"RED") — musicStyle과 마찬가지로 첫 번째 섹션에만 채워진다.
+    val colorFamily: String? = null,
     // 이 섹션 안에 포함된 비트 타임스탬프 목록 (BeatDetector 원본)
     val beatTimesMs: List<Long> = emptyList()
 )

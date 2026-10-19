@@ -38,6 +38,7 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
         val empty = EffectMatchingEngine.ColorSet(white, black)
         return EffectMatchingEngine.Palette(
             black = black, white = white,
+            colorFamily = "NONE",
             onPulseBg = listOf(black),
             blinkSets = listOf(empty),
             strokeSets = listOf(empty),
