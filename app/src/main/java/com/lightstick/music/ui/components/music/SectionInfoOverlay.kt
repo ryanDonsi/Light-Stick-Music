@@ -258,7 +258,7 @@ private fun musicStyleColor(style: MusicStyleClassifier.MusicStyle): Color = whe
     MusicStyleClassifier.MusicStyle.POP        -> Color(0xFF40C4FF)  // Light Blue
 }
 
-// Palette.colorFamily(= EffectMatchingEngineV1의 PaletteSet.label)에 맞춰 배지 색을
+// Palette.colorFamily(= EffectMatchingEngineV1의 장르별 팔레트 세트가 들고 있는 색 계열 이름)에 맞춰 배지 색을
 // 고른다 — 실제 팔레트 RGB와 정확히 같을 필요는 없고, 계열을 한눈에 구분하는 용도.
 private fun colorFamilyColor(colorFamily: String): Color = when (colorFamily) {
     "PURPLE"      -> Color(0xFFB388FF)

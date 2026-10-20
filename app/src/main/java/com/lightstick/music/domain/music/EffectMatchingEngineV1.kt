@@ -5,8 +5,9 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.LSEffectPayload
 
-// 팔레트 세트(PaletteSet)가 쓰는 실측 RGB 스와치. 이름을 붙여두면 코드만 보고도 바로
-// 어떤 색인지 알 수 있다 — 전부 응원봉 실기로 확인한 S=100%·V=100% 순수 색상.
+// 장르별 이펙트 색상표(아래 <장르>_SET_<번호>_<이펙트> 상수들)가 쓰는 실측 RGB 스와치.
+// 이름을 붙여두면 코드만 보고도 바로 어떤 색인지 알 수 있다 — 전부 응원봉 실기로 확인한
+// S=100%·V=100% 순수 색상.
 private val PURPLE_MAGENTA = LSColor(212, 0, 255)  // 자주보라
 private val PURPLE_VIOLET  = LSColor(164, 0, 255)  // 보라
 private val PURPLE_INDIGO  = LSColor(116, 0, 255)  // 남보라
@@ -32,8 +33,9 @@ private val BLUE_SKYCYAN = LSColor(0, 232, 255)  // 하늘청록
 private val BLUE_AZURE   = LSColor(0, 116, 255)  // 파랑
 private val BLUE_PURE    = LSColor(0, 0, 255)    // 순수 파랑
 
-// 위 스와치들의 파생색 — mainColors[0]으로 쓰이는 스와치와 같은 hue에서 명도만 48%로
-// 낮춘 어두운 톤(bgColor 후보)이다. 매번 계산하지 않고 값 그대로 이름 붙여 선언해둔다.
+// 위 스와치들의 파생색 — 그 세트의 대표색과 같은 hue에서 명도만 48%로 낮춘 어두운 톤
+// (ONPULSE/CHORUS/BREATH_VERSE의 bg 후보)이다. 매번 계산하지 않고 값 그대로 이름 붙여
+// 선언해둔다.
 private val PURPLE_MAGENTA_SHADE = LSColor(101, 0, 122)   // 자주보라 셰이드
 private val PURPLE_VIOLET_SHADE  = LSColor(78, 0, 122)    // 보라 셰이드
 private val PURPLE_INDIGO_SHADE  = LSColor(55, 0, 122)    // 남보라 셰이드
@@ -59,68 +61,337 @@ private val BLUE_SKYCYAN_SHADE = LSColor(0, 111, 122)   // 하늘청록 셰이�
 private val BLUE_AZURE_SHADE   = LSColor(0, 55, 122)    // 파랑 셰이드
 private val BLUE_PURE_SHADE    = LSColor(0, 0, 122)     // 순수 파랑 셰이드
 
-/**
- * 팔레트 세트 — 이펙트가 실제로 참조하는 색상 구성 단위, 그 자체가 "하나의 팔레트"다.
- * mainColors(3): 순환형 이펙트(ON_PULSE, VERSE의 BREATH/BLINK, CHORUS)가 bar/beat마다
- *                번갈아 쓰는 메인 색.
- * pointColor: 고정 포인트 색 — 숨쉬듯 한 색을 유지하는 BREATH(비VERSE)·FREEZE의 메인색이자,
- *             BLINK에서 ON_PULSE와 구분되는 배경 강조색으로 쓰인다.
- * bgColor: 전 이펙트 공통 배경색.
- *
- * 과거엔 "색 계열(PaletteFamily, rgb 4개+deep 4개)"과 "장르별 역할 배치(rolePermutation)"를
- * 따로 두고 buildPalette()가 매번 조합했지만, 계열 하나에 역할 배치가 여러 장르에 걸쳐
- * 간접적으로 엮여 있어 "이 장르가 실제로 쓰는 색이 뭔지" 한눈에 보기 어려웠다. 지금은 장르별로
- * 실제 쓰는 PaletteSet을 바로 아래에 완성된 값으로 선언해 둔다 — buildPalette()는 seed로
- * 그중 하나를 고르기만 하면 되고, hue 비교·간격 최적화·역할 재배치 같은 계산은 전혀 하지 않는다.
- */
-private data class PaletteSet(
-    val label: String,
-    val mainColors: List<LSColor>,
-    val pointColor: LSColor,
-    val bgColor: LSColor
+private val WHITE = LSColor(255, 255, 255)
+private val BLACK = LSColor(0, 0, 0)
+
+// ===== 이펙트별 색상표 (장르×세트×이펙트, 전부 응원봉 실기로 확인한 RGB를 그대로 역할에 맞게 배치) =====
+// <장르>_SET_<번호>_<이펙트> 형태로 전부 독립된 상수다 — 어떤 장르의 몇 번째 세트가 어떤 이펙트에
+// 무슨 색을 쓰는지 이름만 보고 바로 알 수 있다. 각 세트의 main[0](ONPULSE/CHORUS 등 순환 리스트의
+// 첫 색)이 그 세트의 "대표색"이고, 이 배치는 실사용 비중이 큰 BALLAD/EDM/DANCE_POP/POP이 공유하는
+// 계열별로 "그 계열을 쓰는 세트들의 대표색끼리 최대한 멀어지도록" 전수 탐색으로 찾은 값이다
+// (최소 간격 11.3도). HIPHOP_RNB/ROCK은 실사용 비중이 낮아 이 최적화에서 제외하고 같은 계열을
+// 쓰는 세트(HIPHOP_RNB→BALLAD, ROCK→EDM)의 상수를 그대로 재사용한다.
+//
+// 이펙트 역할: ONPULSE/CHORUS/BREATH_VERSE는 fg가 bar/beat마다 순환, BLINK는 ONPULSE와 같은 fg
+// 순환에 bg만 달리해 구분, BREATH_DEFAULT/FREEZE는 fg 고정 1색, BREATH_BRIDGE_BALLAD는 발라드
+// BRIDGE 전용(fg 고정 1색 + bg 검정, 조용한 느낌).
+
+// BALLAD_SET_1 = TEAL (rolePerm=[3, 0, 1, 2])
+private val BALLAD_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_CYAN_SHADE)
+private val BALLAD_SET_1_BLINK = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_MINT)
+private val BALLAD_SET_1_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, TEAL_CYAN, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_CYAN_SHADE)
+private val BALLAD_SET_1_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_CYAN_SHADE)
+private val BALLAD_SET_1_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(TEAL_MINT), BLACK)
+private val BALLAD_SET_1_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(TEAL_MINT), TEAL_CYAN_SHADE)
+private val BALLAD_SET_1_FREEZE = EffectMatchingEngine.EffectColors(listOf(TEAL_MINT), BLACK)
+
+// BALLAD_SET_2 = PURPLE (rolePerm=[3, 0, 1, 2])
+private val BALLAD_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY, PURPLE_MAGENTA, PURPLE_VIOLET), PURPLE_NAVY_SHADE)
+private val BALLAD_SET_2_BLINK = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY, PURPLE_MAGENTA, PURPLE_VIOLET), PURPLE_INDIGO)
+private val BALLAD_SET_2_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, PURPLE_NAVY, PURPLE_MAGENTA, PURPLE_VIOLET), PURPLE_NAVY_SHADE)
+private val BALLAD_SET_2_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY, PURPLE_MAGENTA, PURPLE_VIOLET), PURPLE_NAVY_SHADE)
+private val BALLAD_SET_2_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(PURPLE_INDIGO), BLACK)
+private val BALLAD_SET_2_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(PURPLE_INDIGO), PURPLE_NAVY_SHADE)
+private val BALLAD_SET_2_FREEZE = EffectMatchingEngine.EffectColors(listOf(PURPLE_INDIGO), BLACK)
+
+// BALLAD_SET_3 = BLUE (rolePerm=[3, 0, 1, 2])
+private val BALLAD_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_PURE_SHADE)
+private val BALLAD_SET_3_BLINK = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_AZURE)
+private val BALLAD_SET_3_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, BLUE_PURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_PURE_SHADE)
+private val BALLAD_SET_3_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_PURE_SHADE)
+private val BALLAD_SET_3_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(BLUE_AZURE), BLACK)
+private val BALLAD_SET_3_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(BLUE_AZURE), BLUE_PURE_SHADE)
+private val BALLAD_SET_3_FREEZE = EffectMatchingEngine.EffectColors(listOf(BLUE_AZURE), BLACK)
+
+// EDM_SET_1 = RED (rolePerm=[0, 1, 2, 3])
+private val EDM_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(RED_MAGENTA, RED_ROSE, RED_PURE), RED_MAGENTA_SHADE)
+private val EDM_SET_1_BLINK = EffectMatchingEngine.EffectColors(listOf(RED_MAGENTA, RED_ROSE, RED_PURE), RED_VERMILION)
+private val EDM_SET_1_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, RED_MAGENTA, RED_ROSE, RED_PURE), RED_MAGENTA_SHADE)
+private val EDM_SET_1_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(RED_MAGENTA, RED_ROSE, RED_PURE), RED_MAGENTA_SHADE)
+private val EDM_SET_1_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), BLACK)
+private val EDM_SET_1_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), RED_MAGENTA_SHADE)
+private val EDM_SET_1_FREEZE = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), BLACK)
+
+// EDM_SET_2 = ORANGE_GOLD (rolePerm=[0, 1, 2, 3])
+private val EDM_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), ORANGE_GOLD_DEEP_SHADE)
+private val EDM_SET_2_BLINK = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), ORANGE_GOLD_LIME)
+private val EDM_SET_2_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), ORANGE_GOLD_DEEP_SHADE)
+private val EDM_SET_2_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), ORANGE_GOLD_DEEP_SHADE)
+private val EDM_SET_2_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_LIME), BLACK)
+private val EDM_SET_2_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_LIME), ORANGE_GOLD_DEEP_SHADE)
+private val EDM_SET_2_FREEZE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_LIME), BLACK)
+
+// EDM_SET_3 = PURPLE (rolePerm=[0, 1, 2, 3])
+private val EDM_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO), PURPLE_MAGENTA_SHADE)
+private val EDM_SET_3_BLINK = EffectMatchingEngine.EffectColors(listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO), PURPLE_NAVY)
+private val EDM_SET_3_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO), PURPLE_MAGENTA_SHADE)
+private val EDM_SET_3_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO), PURPLE_MAGENTA_SHADE)
+private val EDM_SET_3_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY), BLACK)
+private val EDM_SET_3_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY), PURPLE_MAGENTA_SHADE)
+private val EDM_SET_3_FREEZE = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY), BLACK)
+
+// DANCE_POP_SET_1 = RED (rolePerm=[2, 0, 1, 3])
+private val DANCE_POP_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(RED_PURE, RED_MAGENTA, RED_ROSE), RED_PURE_SHADE)
+private val DANCE_POP_SET_1_BLINK = EffectMatchingEngine.EffectColors(listOf(RED_PURE, RED_MAGENTA, RED_ROSE), RED_VERMILION)
+private val DANCE_POP_SET_1_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, RED_PURE, RED_MAGENTA, RED_ROSE), RED_PURE_SHADE)
+private val DANCE_POP_SET_1_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(RED_PURE, RED_MAGENTA, RED_ROSE), RED_PURE_SHADE)
+private val DANCE_POP_SET_1_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), BLACK)
+private val DANCE_POP_SET_1_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), RED_PURE_SHADE)
+private val DANCE_POP_SET_1_FREEZE = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), BLACK)
+
+// DANCE_POP_SET_2 = TEAL (rolePerm=[2, 0, 1, 3])
+private val DANCE_POP_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(TEAL_MINT, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_MINT_SHADE)
+private val DANCE_POP_SET_2_BLINK = EffectMatchingEngine.EffectColors(listOf(TEAL_MINT, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_CYAN)
+private val DANCE_POP_SET_2_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, TEAL_MINT, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_MINT_SHADE)
+private val DANCE_POP_SET_2_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(TEAL_MINT, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_MINT_SHADE)
+private val DANCE_POP_SET_2_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN), BLACK)
+private val DANCE_POP_SET_2_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN), TEAL_MINT_SHADE)
+private val DANCE_POP_SET_2_FREEZE = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN), BLACK)
+
+// DANCE_POP_SET_3 = BLUE (rolePerm=[2, 0, 1, 3])
+private val DANCE_POP_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(BLUE_AZURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_AZURE_SHADE)
+private val DANCE_POP_SET_3_BLINK = EffectMatchingEngine.EffectColors(listOf(BLUE_AZURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_PURE)
+private val DANCE_POP_SET_3_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, BLUE_AZURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_AZURE_SHADE)
+private val DANCE_POP_SET_3_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(BLUE_AZURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_AZURE_SHADE)
+private val DANCE_POP_SET_3_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE), BLACK)
+private val DANCE_POP_SET_3_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE), BLUE_AZURE_SHADE)
+private val DANCE_POP_SET_3_FREEZE = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE), BLACK)
+
+// POP_SET_1 = PURPLE (rolePerm=[1, 0, 2, 3])
+private val POP_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_VIOLET, PURPLE_MAGENTA, PURPLE_INDIGO), PURPLE_VIOLET_SHADE)
+private val POP_SET_1_BLINK = EffectMatchingEngine.EffectColors(listOf(PURPLE_VIOLET, PURPLE_MAGENTA, PURPLE_INDIGO), PURPLE_NAVY)
+private val POP_SET_1_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, PURPLE_VIOLET, PURPLE_MAGENTA, PURPLE_INDIGO), PURPLE_VIOLET_SHADE)
+private val POP_SET_1_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_VIOLET, PURPLE_MAGENTA, PURPLE_INDIGO), PURPLE_VIOLET_SHADE)
+private val POP_SET_1_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY), BLACK)
+private val POP_SET_1_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY), PURPLE_VIOLET_SHADE)
+private val POP_SET_1_FREEZE = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY), BLACK)
+
+// POP_SET_2 = RED (rolePerm=[1, 0, 2, 3])
+private val POP_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(RED_ROSE, RED_MAGENTA, RED_PURE), RED_ROSE_SHADE)
+private val POP_SET_2_BLINK = EffectMatchingEngine.EffectColors(listOf(RED_ROSE, RED_MAGENTA, RED_PURE), RED_VERMILION)
+private val POP_SET_2_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, RED_ROSE, RED_MAGENTA, RED_PURE), RED_ROSE_SHADE)
+private val POP_SET_2_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(RED_ROSE, RED_MAGENTA, RED_PURE), RED_ROSE_SHADE)
+private val POP_SET_2_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), BLACK)
+private val POP_SET_2_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), RED_ROSE_SHADE)
+private val POP_SET_2_FREEZE = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), BLACK)
+
+// POP_SET_3 = ORANGE_GOLD (rolePerm=[1, 0, 2, 3])
+private val POP_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_ORANGE_SHADE)
+private val POP_SET_3_BLINK = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_LIME)
+private val POP_SET_3_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_ORANGE_SHADE)
+private val POP_SET_3_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_ORANGE_SHADE)
+private val POP_SET_3_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_LIME), BLACK)
+private val POP_SET_3_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_LIME), ORANGE_GOLD_ORANGE_SHADE)
+private val POP_SET_3_FREEZE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_LIME), BLACK)
+
+// POP_SET_4 = TEAL (rolePerm=[1, 0, 2, 3])
+private val POP_SET_4_ONPULSE = EffectMatchingEngine.EffectColors(listOf(TEAL_GREEN, TEAL_YELLOWGREEN, TEAL_MINT), TEAL_GREEN_SHADE)
+private val POP_SET_4_BLINK = EffectMatchingEngine.EffectColors(listOf(TEAL_GREEN, TEAL_YELLOWGREEN, TEAL_MINT), TEAL_CYAN)
+private val POP_SET_4_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, TEAL_GREEN, TEAL_YELLOWGREEN, TEAL_MINT), TEAL_GREEN_SHADE)
+private val POP_SET_4_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(TEAL_GREEN, TEAL_YELLOWGREEN, TEAL_MINT), TEAL_GREEN_SHADE)
+private val POP_SET_4_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN), BLACK)
+private val POP_SET_4_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN), TEAL_GREEN_SHADE)
+private val POP_SET_4_FREEZE = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN), BLACK)
+
+// POP_SET_5 = BLUE (rolePerm=[1, 0, 2, 3])
+private val POP_SET_5_ONPULSE = EffectMatchingEngine.EffectColors(listOf(BLUE_SKYCYAN, BLUE_SEAFOAM, BLUE_AZURE), BLUE_SKYCYAN_SHADE)
+private val POP_SET_5_BLINK = EffectMatchingEngine.EffectColors(listOf(BLUE_SKYCYAN, BLUE_SEAFOAM, BLUE_AZURE), BLUE_PURE)
+private val POP_SET_5_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, BLUE_SKYCYAN, BLUE_SEAFOAM, BLUE_AZURE), BLUE_SKYCYAN_SHADE)
+private val POP_SET_5_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(BLUE_SKYCYAN, BLUE_SEAFOAM, BLUE_AZURE), BLUE_SKYCYAN_SHADE)
+private val POP_SET_5_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE), BLACK)
+private val POP_SET_5_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE), BLUE_SKYCYAN_SHADE)
+private val POP_SET_5_FREEZE = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE), BLACK)
+
+// HIPHOP_RNB_SET_1 = BALLAD_SET_2와 동일 계열/배치(PURPLE) 재사용 — 실사용 비중이 낮아 별도 최적화 없이 그대로 가져다 쓴다.
+private val HIPHOP_RNB_SET_1_ONPULSE = BALLAD_SET_2_ONPULSE
+private val HIPHOP_RNB_SET_1_BLINK = BALLAD_SET_2_BLINK
+private val HIPHOP_RNB_SET_1_CHORUS = BALLAD_SET_2_CHORUS
+private val HIPHOP_RNB_SET_1_BREATH_VERSE = BALLAD_SET_2_BREATH_VERSE
+private val HIPHOP_RNB_SET_1_BREATH_BRIDGE_BALLAD = BALLAD_SET_2_BREATH_BRIDGE_BALLAD
+private val HIPHOP_RNB_SET_1_BREATH_DEFAULT = BALLAD_SET_2_BREATH_DEFAULT
+private val HIPHOP_RNB_SET_1_FREEZE = BALLAD_SET_2_FREEZE
+
+// HIPHOP_RNB_SET_2 = BALLAD_SET_3와 동일 계열/배치(BLUE) 재사용 — 실사용 비중이 낮아 별도 최적화 없이 그대로 가져다 쓴다.
+private val HIPHOP_RNB_SET_2_ONPULSE = BALLAD_SET_3_ONPULSE
+private val HIPHOP_RNB_SET_2_BLINK = BALLAD_SET_3_BLINK
+private val HIPHOP_RNB_SET_2_CHORUS = BALLAD_SET_3_CHORUS
+private val HIPHOP_RNB_SET_2_BREATH_VERSE = BALLAD_SET_3_BREATH_VERSE
+private val HIPHOP_RNB_SET_2_BREATH_BRIDGE_BALLAD = BALLAD_SET_3_BREATH_BRIDGE_BALLAD
+private val HIPHOP_RNB_SET_2_BREATH_DEFAULT = BALLAD_SET_3_BREATH_DEFAULT
+private val HIPHOP_RNB_SET_2_FREEZE = BALLAD_SET_3_FREEZE
+
+// HIPHOP_RNB_SET_3 = BALLAD_SET_1와 동일 계열/배치(TEAL) 재사용 — 실사용 비중이 낮아 별도 최적화 없이 그대로 가져다 쓴다.
+private val HIPHOP_RNB_SET_3_ONPULSE = BALLAD_SET_1_ONPULSE
+private val HIPHOP_RNB_SET_3_BLINK = BALLAD_SET_1_BLINK
+private val HIPHOP_RNB_SET_3_CHORUS = BALLAD_SET_1_CHORUS
+private val HIPHOP_RNB_SET_3_BREATH_VERSE = BALLAD_SET_1_BREATH_VERSE
+private val HIPHOP_RNB_SET_3_BREATH_BRIDGE_BALLAD = BALLAD_SET_1_BREATH_BRIDGE_BALLAD
+private val HIPHOP_RNB_SET_3_BREATH_DEFAULT = BALLAD_SET_1_BREATH_DEFAULT
+private val HIPHOP_RNB_SET_3_FREEZE = BALLAD_SET_1_FREEZE
+
+// ROCK_SET_1 = EDM_SET_1와 동일 계열/배치(RED) 재사용 — 실사용 비중이 낮아 별도 최적화 없이 그대로 가져다 쓴다.
+private val ROCK_SET_1_ONPULSE = EDM_SET_1_ONPULSE
+private val ROCK_SET_1_BLINK = EDM_SET_1_BLINK
+private val ROCK_SET_1_CHORUS = EDM_SET_1_CHORUS
+private val ROCK_SET_1_BREATH_VERSE = EDM_SET_1_BREATH_VERSE
+private val ROCK_SET_1_BREATH_BRIDGE_BALLAD = EDM_SET_1_BREATH_BRIDGE_BALLAD
+private val ROCK_SET_1_BREATH_DEFAULT = EDM_SET_1_BREATH_DEFAULT
+private val ROCK_SET_1_FREEZE = EDM_SET_1_FREEZE
+
+// ROCK_SET_2 = EDM_SET_2와 동일 계열/배치(ORANGE_GOLD) 재사용 — 실사용 비중이 낮아 별도 최적화 없이 그대로 가져다 쓴다.
+private val ROCK_SET_2_ONPULSE = EDM_SET_2_ONPULSE
+private val ROCK_SET_2_BLINK = EDM_SET_2_BLINK
+private val ROCK_SET_2_CHORUS = EDM_SET_2_CHORUS
+private val ROCK_SET_2_BREATH_VERSE = EDM_SET_2_BREATH_VERSE
+private val ROCK_SET_2_BREATH_BRIDGE_BALLAD = EDM_SET_2_BREATH_BRIDGE_BALLAD
+private val ROCK_SET_2_BREATH_DEFAULT = EDM_SET_2_BREATH_DEFAULT
+private val ROCK_SET_2_FREEZE = EDM_SET_2_FREEZE
+
+// ===== 장르별 팔레트 세트 (위 색상표를 Palette로 묶은 것 — 더 이상의 조합/계산 없음) =====
+
+private val BALLAD_SET_1 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "TEAL",
+    onPulse = BALLAD_SET_1_ONPULSE, blink = BALLAD_SET_1_BLINK, chorus = BALLAD_SET_1_CHORUS,
+    breathVerse = BALLAD_SET_1_BREATH_VERSE, breathBridgeBallad = BALLAD_SET_1_BREATH_BRIDGE_BALLAD,
+    breathDefault = BALLAD_SET_1_BREATH_DEFAULT, freeze = BALLAD_SET_1_FREEZE
 )
 
-// ===== 팔레트 세트 정의 (장르별, 전부 응원봉 실기로 확인한 RGB를 그대로 역할에 맞게 배치) =====
-// mainColors[0]이 그 장르의 "대표색"이다 — 값은 실사용 비중이 큰 BALLAD/EDM/DANCE_POP/POP이
-// 공유하는 계열별로 "그 계열을 쓰는 장르들의 대표색끼리 최대한 멀어지도록" 전수 탐색으로
-// 찾은 배치(최소 간격 11.3도)를 그대로 반영한 것이다. ROCK/HIPHOP_RNB는 실사용 비중이 낮아
-// 이 최적화에서 제외하고 같은 계열을 쓰는 장르(ROCK→EDM, HIPHOP_RNB→BALLAD)의 배치를 그대로
-// 가져다 쓴다 — 그래서 아래 세트도 여러 장르가 그대로 공유한다.
+private val BALLAD_SET_2 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "PURPLE",
+    onPulse = BALLAD_SET_2_ONPULSE, blink = BALLAD_SET_2_BLINK, chorus = BALLAD_SET_2_CHORUS,
+    breathVerse = BALLAD_SET_2_BREATH_VERSE, breathBridgeBallad = BALLAD_SET_2_BREATH_BRIDGE_BALLAD,
+    breathDefault = BALLAD_SET_2_BREATH_DEFAULT, freeze = BALLAD_SET_2_FREEZE
+)
 
-// BALLAD / HIPHOP_RNB 공용
-private val TEAL_SET_SLOW   = PaletteSet("TEAL",   listOf(TEAL_CYAN, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_MINT, TEAL_CYAN_SHADE)
-private val PURPLE_SET_SLOW = PaletteSet("PURPLE", listOf(PURPLE_NAVY, PURPLE_MAGENTA, PURPLE_VIOLET), PURPLE_INDIGO, PURPLE_NAVY_SHADE)
-private val BLUE_SET_SLOW   = PaletteSet("BLUE",   listOf(BLUE_PURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_AZURE, BLUE_PURE_SHADE)
+private val BALLAD_SET_3 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "BLUE",
+    onPulse = BALLAD_SET_3_ONPULSE, blink = BALLAD_SET_3_BLINK, chorus = BALLAD_SET_3_CHORUS,
+    breathVerse = BALLAD_SET_3_BREATH_VERSE, breathBridgeBallad = BALLAD_SET_3_BREATH_BRIDGE_BALLAD,
+    breathDefault = BALLAD_SET_3_BREATH_DEFAULT, freeze = BALLAD_SET_3_FREEZE
+)
 
-// EDM / ROCK 공용
-private val RED_SET_EDM         = PaletteSet("RED",         listOf(RED_MAGENTA, RED_ROSE, RED_PURE), RED_VERMILION, RED_MAGENTA_SHADE)
-private val ORANGE_GOLD_SET_EDM = PaletteSet("ORANGE_GOLD", listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), ORANGE_GOLD_LIME, ORANGE_GOLD_DEEP_SHADE)
-// EDM 전용
-private val PURPLE_SET_EDM      = PaletteSet("PURPLE",      listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO), PURPLE_NAVY, PURPLE_MAGENTA_SHADE)
+private val EDM_SET_1 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "RED",
+    onPulse = EDM_SET_1_ONPULSE, blink = EDM_SET_1_BLINK, chorus = EDM_SET_1_CHORUS,
+    breathVerse = EDM_SET_1_BREATH_VERSE, breathBridgeBallad = EDM_SET_1_BREATH_BRIDGE_BALLAD,
+    breathDefault = EDM_SET_1_BREATH_DEFAULT, freeze = EDM_SET_1_FREEZE
+)
 
-// DANCE_POP 전용
-private val RED_SET_DANCEPOP  = PaletteSet("RED",  listOf(RED_PURE, RED_MAGENTA, RED_ROSE), RED_VERMILION, RED_PURE_SHADE)
-private val TEAL_SET_DANCEPOP = PaletteSet("TEAL", listOf(TEAL_MINT, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_CYAN, TEAL_MINT_SHADE)
-private val BLUE_SET_DANCEPOP = PaletteSet("BLUE", listOf(BLUE_AZURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_PURE, BLUE_AZURE_SHADE)
+private val EDM_SET_2 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "ORANGE_GOLD",
+    onPulse = EDM_SET_2_ONPULSE, blink = EDM_SET_2_BLINK, chorus = EDM_SET_2_CHORUS,
+    breathVerse = EDM_SET_2_BREATH_VERSE, breathBridgeBallad = EDM_SET_2_BREATH_BRIDGE_BALLAD,
+    breathDefault = EDM_SET_2_BREATH_DEFAULT, freeze = EDM_SET_2_FREEZE
+)
 
-// POP 전용 (5계열 전부)
-private val PURPLE_SET_POP      = PaletteSet("PURPLE",      listOf(PURPLE_VIOLET, PURPLE_MAGENTA, PURPLE_INDIGO), PURPLE_NAVY, PURPLE_VIOLET_SHADE)
-private val RED_SET_POP         = PaletteSet("RED",         listOf(RED_ROSE, RED_MAGENTA, RED_PURE), RED_VERMILION, RED_ROSE_SHADE)
-private val ORANGE_GOLD_SET_POP = PaletteSet("ORANGE_GOLD", listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_LIME, ORANGE_GOLD_ORANGE_SHADE)
-private val TEAL_SET_POP        = PaletteSet("TEAL",        listOf(TEAL_GREEN, TEAL_YELLOWGREEN, TEAL_MINT), TEAL_CYAN, TEAL_GREEN_SHADE)
-private val BLUE_SET_POP        = PaletteSet("BLUE",        listOf(BLUE_SKYCYAN, BLUE_SEAFOAM, BLUE_AZURE), BLUE_PURE, BLUE_SKYCYAN_SHADE)
+private val EDM_SET_3 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "PURPLE",
+    onPulse = EDM_SET_3_ONPULSE, blink = EDM_SET_3_BLINK, chorus = EDM_SET_3_CHORUS,
+    breathVerse = EDM_SET_3_BREATH_VERSE, breathBridgeBallad = EDM_SET_3_BREATH_BRIDGE_BALLAD,
+    breathDefault = EDM_SET_3_BREATH_DEFAULT, freeze = EDM_SET_3_FREEZE
+)
 
-// 장르에 어울리는 팔레트 세트 후보군(~3개) — 후보가 여럿이면 seed(musicId)로 그중 하나를
-// 결정론적으로 고른다(buildPalette 참고). POP은 전 계열을 후보로 두므로 그대로 기본값으로도
-// 재사용한다.
-private val POP_PALETTE_SETS = listOf(PURPLE_SET_POP, RED_SET_POP, ORANGE_GOLD_SET_POP, TEAL_SET_POP, BLUE_SET_POP)
+private val DANCE_POP_SET_1 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "RED",
+    onPulse = DANCE_POP_SET_1_ONPULSE, blink = DANCE_POP_SET_1_BLINK, chorus = DANCE_POP_SET_1_CHORUS,
+    breathVerse = DANCE_POP_SET_1_BREATH_VERSE, breathBridgeBallad = DANCE_POP_SET_1_BREATH_BRIDGE_BALLAD,
+    breathDefault = DANCE_POP_SET_1_BREATH_DEFAULT, freeze = DANCE_POP_SET_1_FREEZE
+)
 
-private val GENRE_PALETTE_SETS: Map<MusicStyleClassifier.MusicStyle, List<PaletteSet>> = mapOf(
-    MusicStyleClassifier.MusicStyle.BALLAD     to listOf(TEAL_SET_SLOW, PURPLE_SET_SLOW, BLUE_SET_SLOW),
-    MusicStyleClassifier.MusicStyle.EDM        to listOf(RED_SET_EDM, ORANGE_GOLD_SET_EDM, PURPLE_SET_EDM),
-    MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(RED_SET_DANCEPOP, TEAL_SET_DANCEPOP, BLUE_SET_DANCEPOP),
-    MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(PURPLE_SET_SLOW, BLUE_SET_SLOW, TEAL_SET_SLOW),
-    MusicStyleClassifier.MusicStyle.ROCK       to listOf(RED_SET_EDM, ORANGE_GOLD_SET_EDM),
+private val DANCE_POP_SET_2 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "TEAL",
+    onPulse = DANCE_POP_SET_2_ONPULSE, blink = DANCE_POP_SET_2_BLINK, chorus = DANCE_POP_SET_2_CHORUS,
+    breathVerse = DANCE_POP_SET_2_BREATH_VERSE, breathBridgeBallad = DANCE_POP_SET_2_BREATH_BRIDGE_BALLAD,
+    breathDefault = DANCE_POP_SET_2_BREATH_DEFAULT, freeze = DANCE_POP_SET_2_FREEZE
+)
+
+private val DANCE_POP_SET_3 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "BLUE",
+    onPulse = DANCE_POP_SET_3_ONPULSE, blink = DANCE_POP_SET_3_BLINK, chorus = DANCE_POP_SET_3_CHORUS,
+    breathVerse = DANCE_POP_SET_3_BREATH_VERSE, breathBridgeBallad = DANCE_POP_SET_3_BREATH_BRIDGE_BALLAD,
+    breathDefault = DANCE_POP_SET_3_BREATH_DEFAULT, freeze = DANCE_POP_SET_3_FREEZE
+)
+
+private val POP_SET_1 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "PURPLE",
+    onPulse = POP_SET_1_ONPULSE, blink = POP_SET_1_BLINK, chorus = POP_SET_1_CHORUS,
+    breathVerse = POP_SET_1_BREATH_VERSE, breathBridgeBallad = POP_SET_1_BREATH_BRIDGE_BALLAD,
+    breathDefault = POP_SET_1_BREATH_DEFAULT, freeze = POP_SET_1_FREEZE
+)
+
+private val POP_SET_2 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "RED",
+    onPulse = POP_SET_2_ONPULSE, blink = POP_SET_2_BLINK, chorus = POP_SET_2_CHORUS,
+    breathVerse = POP_SET_2_BREATH_VERSE, breathBridgeBallad = POP_SET_2_BREATH_BRIDGE_BALLAD,
+    breathDefault = POP_SET_2_BREATH_DEFAULT, freeze = POP_SET_2_FREEZE
+)
+
+private val POP_SET_3 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "ORANGE_GOLD",
+    onPulse = POP_SET_3_ONPULSE, blink = POP_SET_3_BLINK, chorus = POP_SET_3_CHORUS,
+    breathVerse = POP_SET_3_BREATH_VERSE, breathBridgeBallad = POP_SET_3_BREATH_BRIDGE_BALLAD,
+    breathDefault = POP_SET_3_BREATH_DEFAULT, freeze = POP_SET_3_FREEZE
+)
+
+private val POP_SET_4 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "TEAL",
+    onPulse = POP_SET_4_ONPULSE, blink = POP_SET_4_BLINK, chorus = POP_SET_4_CHORUS,
+    breathVerse = POP_SET_4_BREATH_VERSE, breathBridgeBallad = POP_SET_4_BREATH_BRIDGE_BALLAD,
+    breathDefault = POP_SET_4_BREATH_DEFAULT, freeze = POP_SET_4_FREEZE
+)
+
+private val POP_SET_5 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "BLUE",
+    onPulse = POP_SET_5_ONPULSE, blink = POP_SET_5_BLINK, chorus = POP_SET_5_CHORUS,
+    breathVerse = POP_SET_5_BREATH_VERSE, breathBridgeBallad = POP_SET_5_BREATH_BRIDGE_BALLAD,
+    breathDefault = POP_SET_5_BREATH_DEFAULT, freeze = POP_SET_5_FREEZE
+)
+
+private val HIPHOP_RNB_SET_1 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "PURPLE",
+    onPulse = HIPHOP_RNB_SET_1_ONPULSE, blink = HIPHOP_RNB_SET_1_BLINK, chorus = HIPHOP_RNB_SET_1_CHORUS,
+    breathVerse = HIPHOP_RNB_SET_1_BREATH_VERSE, breathBridgeBallad = HIPHOP_RNB_SET_1_BREATH_BRIDGE_BALLAD,
+    breathDefault = HIPHOP_RNB_SET_1_BREATH_DEFAULT, freeze = HIPHOP_RNB_SET_1_FREEZE
+)
+
+private val HIPHOP_RNB_SET_2 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "BLUE",
+    onPulse = HIPHOP_RNB_SET_2_ONPULSE, blink = HIPHOP_RNB_SET_2_BLINK, chorus = HIPHOP_RNB_SET_2_CHORUS,
+    breathVerse = HIPHOP_RNB_SET_2_BREATH_VERSE, breathBridgeBallad = HIPHOP_RNB_SET_2_BREATH_BRIDGE_BALLAD,
+    breathDefault = HIPHOP_RNB_SET_2_BREATH_DEFAULT, freeze = HIPHOP_RNB_SET_2_FREEZE
+)
+
+private val HIPHOP_RNB_SET_3 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "TEAL",
+    onPulse = HIPHOP_RNB_SET_3_ONPULSE, blink = HIPHOP_RNB_SET_3_BLINK, chorus = HIPHOP_RNB_SET_3_CHORUS,
+    breathVerse = HIPHOP_RNB_SET_3_BREATH_VERSE, breathBridgeBallad = HIPHOP_RNB_SET_3_BREATH_BRIDGE_BALLAD,
+    breathDefault = HIPHOP_RNB_SET_3_BREATH_DEFAULT, freeze = HIPHOP_RNB_SET_3_FREEZE
+)
+
+private val ROCK_SET_1 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "RED",
+    onPulse = ROCK_SET_1_ONPULSE, blink = ROCK_SET_1_BLINK, chorus = ROCK_SET_1_CHORUS,
+    breathVerse = ROCK_SET_1_BREATH_VERSE, breathBridgeBallad = ROCK_SET_1_BREATH_BRIDGE_BALLAD,
+    breathDefault = ROCK_SET_1_BREATH_DEFAULT, freeze = ROCK_SET_1_FREEZE
+)
+
+private val ROCK_SET_2 = EffectMatchingEngine.Palette(
+    black = BLACK, white = WHITE, colorFamily = "ORANGE_GOLD",
+    onPulse = ROCK_SET_2_ONPULSE, blink = ROCK_SET_2_BLINK, chorus = ROCK_SET_2_CHORUS,
+    breathVerse = ROCK_SET_2_BREATH_VERSE, breathBridgeBallad = ROCK_SET_2_BREATH_BRIDGE_BALLAD,
+    breathDefault = ROCK_SET_2_BREATH_DEFAULT, freeze = ROCK_SET_2_FREEZE
+)
+
+// 장르에 어울리는 팔레트 세트 후보군 — 후보가 여럿이면 seed(musicId)로 그중 하나를 결정론적으로
+// 고른다(buildPalette 참고). POP은 전 계열을 후보로 두므로 그대로 기본값으로도 재사용한다.
+private val POP_PALETTE_SETS = listOf(POP_SET_1, POP_SET_2, POP_SET_3, POP_SET_4, POP_SET_5)
+
+private val GENRE_PALETTE_SETS: Map<MusicStyleClassifier.MusicStyle, List<EffectMatchingEngine.Palette>> = mapOf(
+    MusicStyleClassifier.MusicStyle.BALLAD     to listOf(BALLAD_SET_1, BALLAD_SET_2, BALLAD_SET_3),
+    MusicStyleClassifier.MusicStyle.EDM        to listOf(EDM_SET_1, EDM_SET_2, EDM_SET_3),
+    MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(DANCE_POP_SET_1, DANCE_POP_SET_2, DANCE_POP_SET_3),
+    MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(HIPHOP_RNB_SET_1, HIPHOP_RNB_SET_2, HIPHOP_RNB_SET_3),
+    MusicStyleClassifier.MusicStyle.ROCK       to listOf(ROCK_SET_1, ROCK_SET_2),
     MusicStyleClassifier.MusicStyle.POP        to POP_PALETTE_SETS
 )
 
@@ -164,18 +435,12 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     ): EffectMatchingEngine.Palette {
         val rawHue  = (((seed.toLong() * 2654435761L) ushr 8) and 0x7FFFFFFFL).toInt()
         // 장르에 어울리는 팔레트 세트 후보군(~3개) 중 하나를 seed로 결정론적으로 고른다 —
-        // 같은 장르 곡들이 전부 똑같은 색은 아니게 하되, 세트 자체(=실측 RGB를 미리
-        // mainColors/pointColor/bgColor로 나눠둔 값)는 그대로 쓴다.
+        // 같은 장르 곡들이 전부 똑같은 색은 아니게 하되, 세트 자체(이펙트별로 이미 다 구워진
+        // Palette)는 그대로 쓴다. 더 이상 조합/계산할 게 없다.
         val sets = GENRE_PALETTE_SETS[musicStyle] ?: POP_PALETTE_SETS
-        val set = sets[Math.floorMod(rawHue, sets.size)]
-        Log.d(TAG, "[Palette] style=$musicStyle set=${set.label}")
-        return EffectMatchingEngine.Palette(
-            black       = LSColor(0, 0, 0), white = LSColor(255, 255, 255),
-            colorFamily = set.label,
-            mainColors  = set.mainColors,
-            pointColor  = set.pointColor,
-            bgColor     = set.bgColor
-        )
+        val palette = sets[Math.floorMod(rawHue, sets.size)]
+        Log.d(TAG, "[Palette] style=$musicStyle set=${palette.colorFamily}")
+        return palette
     }
 
     override fun buildFrames(
@@ -506,60 +771,43 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     // 섞던 원본 로직은 실기 테스트 결과가 안 좋아 제거했다 — 필요하면 git 이력 참고).
     private fun bridgePhaseEngine(): EffectMatchingEngine.FgEngine = EffectMatchingEngine.FgEngine.BREATH
 
+    // EffectColors.fgCycle을 인덱스로 순환시켜 (fg, bg) 쌍을 뽑는다 — 색상 자체에 대한
+    // 판단은 전혀 없고, 팔레트에 이미 구워진 값을 인덱스로 집어오기만 한다.
+    private fun pick(ec: EffectMatchingEngine.EffectColors, idx: Int): Pair<LSColor, LSColor?> =
+        ec.fgCycle[Math.floorMod(idx, ec.fgCycle.size)] to ec.bg
+
     private fun colorsForEngine(
         palette: EffectMatchingEngine.Palette, engine: EffectMatchingEngine.FgEngine,
         beatIndex: Int = 0, sectionType: SectionDetector.SectionType = SectionDetector.SectionType.VERSE,
         barIdx: Int = 0, isBalladMode: Boolean = false
-    ): Pair<LSColor, LSColor?> {
-        // 팔레트가 미리 "메인 3색 + 포인트 1색 + 배경 1색"으로 나뉘어 있으므로, 이펙트별
-        // 색 정의는 그중 어떤 역할을 어떻게 쓰는지만 선언하면 된다 — hue 거리/대비 계산은
-        // buildPalette에서 PaletteSet을 고르는 시점에 이미 끝나 있다.
-        return when (engine) {
-            // ON_PULSE는 VERSE(비발라드)에서만 쓰인다. FG는 bar마다 mainColors를 순환,
-            // BG는 공통 bgColor.
-            EffectMatchingEngine.FgEngine.ON_PULSE -> {
-                val fg = palette.mainColors[Math.floorMod(barIdx, palette.mainColors.size)]
-                fg to palette.bgColor
-            }
-            // BLINK는 VERSE(비발라드)의 "그 bar가 섹션 내에서 에너지가 높은 구간"일 때만
-            // 쓰인다(buildFramesFromSections의 verseBarEnergy 참고). FG는 ON_PULSE와 같은
-            // mainColors 순환이지만, BG를 pointColor로 바꿔 ON_PULSE(낮은 에너지)와 또렷이
-            // 구분한다.
-            EffectMatchingEngine.FgEngine.BLINK -> {
-                val fg = palette.mainColors[Math.floorMod(barIdx, palette.mainColors.size)]
-                fg to palette.pointColor
-            }
-            // ON_TRANSIT_ROTATE는 CHORUS에서만 배정된다(assignFgEngine/sectionEnginePool —
-            // BRIDGE는 bridgePhaseEngine이 항상 BREATH만 반환하고, CLIMAX는 SectionDetectorV3
-            // 단계에서 검출 자체를 막아둬서 도달하지 않는다). white 다음은 항상 mainColors를
-            // 순서대로 순환시켜 전환마다 또렷이 달라지도록 한다("탁탁 튀는" 전환).
-            EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE -> {
-                val chorusOnRotateFgCycle = listOf(palette.white) + palette.mainColors
-                val fg = chorusOnRotateFgCycle[beatIndex % chorusOnRotateFgCycle.size]
-                fg to palette.bgColor
-            }
-            // 발라드 BRIDGE만 BG를 검정으로 바꿔 더 조용한 느낌을 준다 — FG까지 검정으로
-            // 하면 breath가 검정↔검정이 돼서 완전히 꺼진 것처럼 보이는 문제가 있었다(실측:
-            // "BRIDGE가 OFF 상태로만 나옴"). FG는 pointColor(색상 있는 값)를 유지하고 BG만
-            // 검정으로 바꿔서, FREEZE와 같은 패턴(색상 있는 FG + 검정 BG)으로 맞췄다.
-            // 발라드 VERSE의 BREATH는 pointColor 고정 1색 대신 mainColors를 bar마다
-            // 순환시킨다 — ON_PULSE가 FG를 bar 단위로 순환시키는 것과 같은 방식.
-            // RANDOM DELAY=0(buildFramesFromSections)이라 모든 기기가 같은 타이밍으로
-            // 숨쉬므로, 색만 bar마다 바뀌어도 기기 간 어긋남 없이 또렷하게 보인다.
-            EffectMatchingEngine.FgEngine.BREATH -> when {
-                sectionType == SectionDetector.SectionType.BRIDGE && isBalladMode -> palette.pointColor to palette.black
-                sectionType == SectionDetector.SectionType.VERSE -> {
-                    val verseBreathFgCycle = palette.mainColors
-                    verseBreathFgCycle[Math.floorMod(barIdx, verseBreathFgCycle.size)] to palette.bgColor
-                }
-                else -> palette.pointColor to palette.bgColor
-            }
-            // FREEZE(BREAK): 깜빡임/회전 없이 한 가지 색을 고정해서 보여준다. pointColor를
-            // 쓰되 배경은 완전히 꺼서(black) 정적인 느낌을 준다.
-            EffectMatchingEngine.FgEngine.FREEZE -> palette.pointColor to palette.black
-            // OFF_TRANSIT 섹션은 buildFramesFromSections에서 이미 continue로 걸러져 여기 도달하지 않음
-            EffectMatchingEngine.FgEngine.OFF_TRANSIT -> palette.black to palette.black
+    ): Pair<LSColor, LSColor?> = when (engine) {
+        // ON_PULSE는 VERSE(비발라드)에서만 쓰인다 — palette.onPulse가 fg 순환/bg를 이미 담고 있다.
+        EffectMatchingEngine.FgEngine.ON_PULSE -> pick(palette.onPulse, barIdx)
+        // BLINK는 VERSE(비발라드)의 "그 bar가 섹션 내에서 에너지가 높은 구간"일 때만 쓰인다
+        // (buildFramesFromSections의 verseBarEnergy 참고). palette.blink는 ON_PULSE와 같은 fg
+        // 순환에 bg만 달리 구워둬서 ON_PULSE(낮은 에너지)와 또렷이 구분된다.
+        EffectMatchingEngine.FgEngine.BLINK -> pick(palette.blink, barIdx)
+        // ON_TRANSIT_ROTATE는 CHORUS에서만 배정된다(assignFgEngine/sectionEnginePool —
+        // BRIDGE는 bridgePhaseEngine이 항상 BREATH만 반환하고, CLIMAX는 SectionDetectorV3
+        // 단계에서 검출 자체를 막아둬서 도달하지 않는다). palette.chorus는 white로 시작해
+        // 전환마다 또렷이 달라지도록 이미 구워져 있다.
+        EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE -> pick(palette.chorus, beatIndex)
+        // 발라드 BRIDGE만 palette.breathBridgeBallad(bg 검정, 조용한 느낌)를 쓴다 — FG까지
+        // 검정이면 breath가 검정↔검정이 돼서 완전히 꺼진 것처럼 보이는 문제가 있었다(실측:
+        // "BRIDGE가 OFF 상태로만 나옴"). 발라드 VERSE의 BREATH(palette.breathVerse)는 fg를
+        // bar마다 순환시킨다 — ON_PULSE와 같은 방식. RANDOM DELAY=0(buildFramesFromSections)
+        // 이라 모든 기기가 같은 타이밍으로 숨쉬므로, 색만 bar마다 바뀌어도 기기 간 어긋남
+        // 없이 또렷하게 보인다. 그 외(INTRO, 비발라드 BRIDGE)는 palette.breathDefault(fg 고정
+        // 1색).
+        EffectMatchingEngine.FgEngine.BREATH -> when {
+            sectionType == SectionDetector.SectionType.BRIDGE && isBalladMode -> pick(palette.breathBridgeBallad, 0)
+            sectionType == SectionDetector.SectionType.VERSE -> pick(palette.breathVerse, barIdx)
+            else -> pick(palette.breathDefault, 0)
         }
+        // FREEZE(BREAK): 깜빡임/회전 없이 palette.freeze(fg 고정 1색 + bg 검정)를 그대로 보여준다.
+        EffectMatchingEngine.FgEngine.FREEZE -> pick(palette.freeze, 0)
+        // OFF_TRANSIT 섹션은 buildFramesFromSections에서 이미 continue로 걸러져 여기 도달하지 않음
+        EffectMatchingEngine.FgEngine.OFF_TRANSIT -> palette.black to palette.black
     }
 
     private fun buildPayload(

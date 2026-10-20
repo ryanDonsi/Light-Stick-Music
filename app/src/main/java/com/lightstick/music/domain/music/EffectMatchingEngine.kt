@@ -28,20 +28,33 @@ interface EffectMatchingEngine {
     enum class FgEngine { ON_PULSE, BLINK, BREATH, ON_TRANSIT_ROTATE, OFF_TRANSIT, FREEZE }
     enum class ChangeLevel { MEDIUM, STRONG }
 
+    // 한 이펙트가 실제로 쓰는 색 — fgCycle은 bar/beat 인덱스로 순환시킬 FG 목록(고정
+    // 1색이면 원소 1개), bg는 그 이펙트의 고정 배경색. 둘 다 더 이상 런타임에 계산하지
+    // 않고, Palette 생성 시점에 이미 완성돼 있다.
+    data class EffectColors(val fgCycle: List<LSColor>, val bg: LSColor)
+
     data class Palette(
         val black: LSColor, val white: LSColor,
-        // 이 팔레트가 선택한 색 계열의 이름(V1: PaletteSet.label, 예 "PURPLE"/"RED"/
-        // "ORANGE_GOLD"/"TEAL"/"BLUE". V0처럼 계열 개념이 없는 구현체는 "NONE") — UI의
-        // Effect Info 패널에서 장르 옆에 어떤 색상 테이블이 선택됐는지 보여주는 용도.
+        // 이 팔레트가 선택한 색 계열의 이름(V1: 장르별 팔레트 세트가 직접 들고 있는 값, 예
+        // "PURPLE"/"RED"/"ORANGE_GOLD"/"TEAL"/"BLUE". V0처럼 계열 개념이 없는 구현체는
+        // "NONE") — UI의 Effect Info 패널에서 장르 옆에 어떤 색상 테이블이 선택됐는지
+        // 보여주는 용도.
         val colorFamily: String,
-        // 순환형 이펙트(ON_PULSE, VERSE의 BREATH/BLINK, CHORUS)가 bar/beat마다 번갈아
-        // 쓰는 메인 색 3개.
-        val mainColors: List<LSColor>,
-        // 고정 포인트 색 — 숨쉬듯 한 색을 유지하는 BREATH(비VERSE)·FREEZE의 메인색이자,
-        // BLINK에서 ON_PULSE와 구분되는 배경 강조색으로 쓰인다.
-        val pointColor: LSColor,
-        // 전 이펙트가 공통으로 쓰는 배경색.
-        val bgColor: LSColor
+        // ON_PULSE(VERSE, 비발라드): fg는 bar마다 순환, bg는 고정.
+        val onPulse: EffectColors,
+        // BLINK(VERSE 고에너지 bar, 비발라드): ON_PULSE와 같은 fg 순환이지만 bg를 달리해
+        // 또렷이 구분한다.
+        val blink: EffectColors,
+        // ON_TRANSIT_ROTATE(CHORUS): white로 시작해 전환마다 또렷이 달라지도록 순환.
+        val chorus: EffectColors,
+        // BREATH(VERSE, 발라드/HIPHOP_RNB에서만 쓰임): fg를 bar마다 순환.
+        val breathVerse: EffectColors,
+        // BREATH(BRIDGE, 발라드): fg 고정 1색 + bg는 검정(조용한 느낌).
+        val breathBridgeBallad: EffectColors,
+        // BREATH(그 외 — INTRO, BRIDGE 비발라드): fg 고정 1색.
+        val breathDefault: EffectColors,
+        // FREEZE(BREAK): fg 고정 1색 + bg는 검정.
+        val freeze: EffectColors
     )
 
     data class SectionGroup(

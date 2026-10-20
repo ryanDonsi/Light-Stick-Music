@@ -34,12 +34,12 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
     override fun buildPalette(seed: Int, musicStyle: MusicStyleClassifier.MusicStyle): EffectMatchingEngine.Palette {
         val white = LSColor(255, 255, 255)
         val black = LSColor(0, 0, 0)
+        val trivial = EffectMatchingEngine.EffectColors(listOf(white), black)
         return EffectMatchingEngine.Palette(
             black = black, white = white,
             colorFamily = "NONE",
-            mainColors = listOf(white, white, white),
-            pointColor = white,
-            bgColor = black
+            onPulse = trivial, blink = trivial, chorus = trivial,
+            breathVerse = trivial, breathBridgeBallad = trivial, breathDefault = trivial, freeze = trivial
         )
     }
 
