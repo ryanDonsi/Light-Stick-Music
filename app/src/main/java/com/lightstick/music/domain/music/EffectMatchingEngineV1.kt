@@ -5,8 +5,8 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.LSEffectPayload
 
-// 팔레트 색 계열(PaletteFamily)이 쓰는 실측 RGB 스와치. 이름을 붙여두면 코드만 보고도
-// 바로 어떤 색인지 알 수 있다 — 전부 응원봉 실기로 확인한 S=100%·V=100% 순수 색상.
+// 팔레트 세트(PaletteSet)가 쓰는 실측 RGB 스와치. 이름을 붙여두면 코드만 보고도 바로
+// 어떤 색인지 알 수 있다 — 전부 응원봉 실기로 확인한 S=100%·V=100% 순수 색상.
 private val PURPLE_MAGENTA = LSColor(212, 0, 255)  // 자주보라
 private val PURPLE_VIOLET  = LSColor(164, 0, 255)  // 보라
 private val PURPLE_INDIGO  = LSColor(116, 0, 255)  // 남보라
@@ -32,8 +32,8 @@ private val BLUE_SKYCYAN = LSColor(0, 232, 255)  // 하늘청록
 private val BLUE_AZURE   = LSColor(0, 116, 255)  // 파랑
 private val BLUE_PURE    = LSColor(0, 0, 255)    // 순수 파랑
 
-// 위 스와치들의 파생색 — cMain으로 선택된 스와치와 같은 hue에서 명도만 48%로 낮춘
-// 어두운 톤(cDeep)이다. 매번 계산하지 않고 값 그대로 이름 붙여 선언해둔다.
+// 위 스와치들의 파생색 — mainColors[0]으로 쓰이는 스와치와 같은 hue에서 명도만 48%로
+// 낮춘 어두운 톤(bgColor 후보)이다. 매번 계산하지 않고 값 그대로 이름 붙여 선언해둔다.
 private val PURPLE_MAGENTA_SHADE = LSColor(101, 0, 122)   // 자주보라 셰이드
 private val PURPLE_VIOLET_SHADE  = LSColor(78, 0, 122)    // 보라 셰이드
 private val PURPLE_INDIGO_SHADE  = LSColor(55, 0, 122)    // 남보라 셰이드
@@ -60,6 +60,71 @@ private val BLUE_AZURE_SHADE   = LSColor(0, 55, 122)    // 파랑 셰이드
 private val BLUE_PURE_SHADE    = LSColor(0, 0, 122)     // 순수 파랑 셰이드
 
 /**
+ * 팔레트 세트 — 이펙트가 실제로 참조하는 색상 구성 단위, 그 자체가 "하나의 팔레트"다.
+ * mainColors(3): 순환형 이펙트(ON_PULSE, VERSE의 BREATH/BLINK, CHORUS)가 bar/beat마다
+ *                번갈아 쓰는 메인 색.
+ * pointColor: 고정 포인트 색 — 숨쉬듯 한 색을 유지하는 BREATH(비VERSE)·FREEZE의 메인색이자,
+ *             BLINK에서 ON_PULSE와 구분되는 배경 강조색으로 쓰인다.
+ * bgColor: 전 이펙트 공통 배경색.
+ *
+ * 과거엔 "색 계열(PaletteFamily, rgb 4개+deep 4개)"과 "장르별 역할 배치(rolePermutation)"를
+ * 따로 두고 buildPalette()가 매번 조합했지만, 계열 하나에 역할 배치가 여러 장르에 걸쳐
+ * 간접적으로 엮여 있어 "이 장르가 실제로 쓰는 색이 뭔지" 한눈에 보기 어려웠다. 지금은 장르별로
+ * 실제 쓰는 PaletteSet을 바로 아래에 완성된 값으로 선언해 둔다 — buildPalette()는 seed로
+ * 그중 하나를 고르기만 하면 되고, hue 비교·간격 최적화·역할 재배치 같은 계산은 전혀 하지 않는다.
+ */
+private data class PaletteSet(
+    val label: String,
+    val mainColors: List<LSColor>,
+    val pointColor: LSColor,
+    val bgColor: LSColor
+)
+
+// ===== 팔레트 세트 정의 (장르별, 전부 응원봉 실기로 확인한 RGB를 그대로 역할에 맞게 배치) =====
+// mainColors[0]이 그 장르의 "대표색"이다 — 값은 실사용 비중이 큰 BALLAD/EDM/DANCE_POP/POP이
+// 공유하는 계열별로 "그 계열을 쓰는 장르들의 대표색끼리 최대한 멀어지도록" 전수 탐색으로
+// 찾은 배치(최소 간격 11.3도)를 그대로 반영한 것이다. ROCK/HIPHOP_RNB는 실사용 비중이 낮아
+// 이 최적화에서 제외하고 같은 계열을 쓰는 장르(ROCK→EDM, HIPHOP_RNB→BALLAD)의 배치를 그대로
+// 가져다 쓴다 — 그래서 아래 세트도 여러 장르가 그대로 공유한다.
+
+// BALLAD / HIPHOP_RNB 공용
+private val TEAL_SET_SLOW   = PaletteSet("TEAL",   listOf(TEAL_CYAN, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_MINT, TEAL_CYAN_SHADE)
+private val PURPLE_SET_SLOW = PaletteSet("PURPLE", listOf(PURPLE_NAVY, PURPLE_MAGENTA, PURPLE_VIOLET), PURPLE_INDIGO, PURPLE_NAVY_SHADE)
+private val BLUE_SET_SLOW   = PaletteSet("BLUE",   listOf(BLUE_PURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_AZURE, BLUE_PURE_SHADE)
+
+// EDM / ROCK 공용
+private val RED_SET_EDM         = PaletteSet("RED",         listOf(RED_MAGENTA, RED_ROSE, RED_PURE), RED_VERMILION, RED_MAGENTA_SHADE)
+private val ORANGE_GOLD_SET_EDM = PaletteSet("ORANGE_GOLD", listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), ORANGE_GOLD_LIME, ORANGE_GOLD_DEEP_SHADE)
+// EDM 전용
+private val PURPLE_SET_EDM      = PaletteSet("PURPLE",      listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO), PURPLE_NAVY, PURPLE_MAGENTA_SHADE)
+
+// DANCE_POP 전용
+private val RED_SET_DANCEPOP  = PaletteSet("RED",  listOf(RED_PURE, RED_MAGENTA, RED_ROSE), RED_VERMILION, RED_PURE_SHADE)
+private val TEAL_SET_DANCEPOP = PaletteSet("TEAL", listOf(TEAL_MINT, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_CYAN, TEAL_MINT_SHADE)
+private val BLUE_SET_DANCEPOP = PaletteSet("BLUE", listOf(BLUE_AZURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_PURE, BLUE_AZURE_SHADE)
+
+// POP 전용 (5계열 전부)
+private val PURPLE_SET_POP      = PaletteSet("PURPLE",      listOf(PURPLE_VIOLET, PURPLE_MAGENTA, PURPLE_INDIGO), PURPLE_NAVY, PURPLE_VIOLET_SHADE)
+private val RED_SET_POP         = PaletteSet("RED",         listOf(RED_ROSE, RED_MAGENTA, RED_PURE), RED_VERMILION, RED_ROSE_SHADE)
+private val ORANGE_GOLD_SET_POP = PaletteSet("ORANGE_GOLD", listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_LIME, ORANGE_GOLD_ORANGE_SHADE)
+private val TEAL_SET_POP        = PaletteSet("TEAL",        listOf(TEAL_GREEN, TEAL_YELLOWGREEN, TEAL_MINT), TEAL_CYAN, TEAL_GREEN_SHADE)
+private val BLUE_SET_POP        = PaletteSet("BLUE",        listOf(BLUE_SKYCYAN, BLUE_SEAFOAM, BLUE_AZURE), BLUE_PURE, BLUE_SKYCYAN_SHADE)
+
+// 장르에 어울리는 팔레트 세트 후보군(~3개) — 후보가 여럿이면 seed(musicId)로 그중 하나를
+// 결정론적으로 고른다(buildPalette 참고). POP은 전 계열을 후보로 두므로 그대로 기본값으로도
+// 재사용한다.
+private val POP_PALETTE_SETS = listOf(PURPLE_SET_POP, RED_SET_POP, ORANGE_GOLD_SET_POP, TEAL_SET_POP, BLUE_SET_POP)
+
+private val GENRE_PALETTE_SETS: Map<MusicStyleClassifier.MusicStyle, List<PaletteSet>> = mapOf(
+    MusicStyleClassifier.MusicStyle.BALLAD     to listOf(TEAL_SET_SLOW, PURPLE_SET_SLOW, BLUE_SET_SLOW),
+    MusicStyleClassifier.MusicStyle.EDM        to listOf(RED_SET_EDM, ORANGE_GOLD_SET_EDM, PURPLE_SET_EDM),
+    MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(RED_SET_DANCEPOP, TEAL_SET_DANCEPOP, BLUE_SET_DANCEPOP),
+    MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(PURPLE_SET_SLOW, BLUE_SET_SLOW, TEAL_SET_SLOW),
+    MusicStyleClassifier.MusicStyle.ROCK       to listOf(RED_SET_EDM, ORANGE_GOLD_SET_EDM),
+    MusicStyleClassifier.MusicStyle.POP        to POP_PALETTE_SETS
+)
+
+/**
  * EffectMatchingEngineV1 - 섹션 타입 기반 이펙트 매칭 엔진
  * 섹션 타입별 이펙트 엔진 할당 (ON_PULSE / BREATH / ON_TRANSIT_ROTATE 등)
  */
@@ -82,123 +147,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 뜸하면 "서서히"가 아니라 계단식으로 뚝뚝 떨어지는 느낌이 된다.
         private const val OUTRO_FADE_STEP_MS = 1_000L
         private const val OUTRO_FADE_MAX_STEPS = 8
-
-        // 팔레트 색 계열(세트) — 곡의 색을 "아무 색상"이 아니라 미리 정해둔 계열
-        // (PaletteFamily의 rgb 4개, 전부 응원봉 실기로 확인한 값) 중 하나로 고정한다.
-        // 과거엔 계열 안에서도 곡마다 ±지터로 hue를 살짝 돌렸지만, 지금은 실측값을
-        // 그대로 보존하기 위해 지터 없이 rgb를 그대로 쓴다 — 곡별 다양성은 장르별
-        // 계열 후보군(families)과 역할 배치(rolePermutation)만으로 충분히 나온다.
-
-        // 장르(MusicStyle)별 팔레트 설정을 GenreTheme 하나로 묶는다 — 예전엔
-        // GENRE_PALETTE_FAMILIES(계열 후보군)와 GENRE_ROLE_PERMUTATION(역할 배치)이
-        // 장르별로 따로따로 Map에 떨어져 있어서, 장르를 추가/수정할 때 둘을 따로 맞춰야
-        // 했고 서로 안 맞게 어긋날 위험이 있었다.
-        //
-        // families: 장르에 어울리는 색 계열 후보군. 후보가 여럿이면 seed(musicId)로 그중
-        //   하나를 결정론적으로 고른다 — 같은 장르 곡들이 전부 똑같은 색은 아니게 하되,
-        //   분위기(계열)는 장르에 맞춘다.
-        // rolePermutation: 한 계열(PaletteFamily)은 rgb 4개의 고정된 색 후보를 갖는다.
-        //   이 4개 중 앞 3개를 PaletteSet.mainColors로, 마지막 1개를 pointColor로 배치하는
-        //   순서를 장르마다 다르게 둬서, 같은 계열이 걸려도 장르마다 대표색(mainColors[0])이
-        //   달라 보이는 효과를 낸다.
-        //   rolePermutation[0](=mainColors[0]으로 쓸 raw 인덱스)은 임의로 고른 게 아니라,
-        //   실사용 비중이 큰 BALLAD/EDM/DANCE_POP/POP이 공유하는 계열별로 "그 계열을 쓰는
-        //   장르들의 mainColors[0]끼리 최대한 멀어지도록" 전수 탐색(4^4=256 조합)으로 찾은
-        //   값이다(최소 간격 11.3도). 이 조건을 만족하는 조합이 여러 개라 그중 DANCE_POP의
-        //   mainColors[0]이 RED의 순수 빨강(rgb[2]=RED_PURE)이 되는 조합을 택했다.
-        //   ROCK/HIPHOP_RNB는 실사용 비중이 낮아 이 최적화에서 제외하고 같은 계열을 쓰는
-        //   장르(ROCK→EDM, HIPHOP_RNB→BALLAD)의 값을 그대로 가져다 쓴다.
-        //
-        // 팔레트 세트(PaletteSet)는 한 계열(PaletteFamily)의 실측 RGB 4개를 역할 배치
-        // (rolePermutation)에 따라 "메인 3개 + 포인트 1개 + 배경 1개"로 미리 나눠(bake)둔
-        // 완성품이다 — buildPalette()는 이걸 seed로 고르기만 하면 되고, hue 비교/간격
-        // 최적화 같은 계산은 더 이상 하지 않는다(모두 buildPaletteSet에서 미리 끝남).
-        private data class PaletteSet(
-            val label: String,
-            val mainColors: List<LSColor>,
-            val pointColor: LSColor,
-            val bgColor: LSColor
-        )
-
-        private fun buildPaletteSet(family: PaletteFamily, rolePermutation: List<Int>): PaletteSet = PaletteSet(
-            label = family.name,
-            mainColors = listOf(
-                family.rgb[rolePermutation[0]], family.rgb[rolePermutation[1]], family.rgb[rolePermutation[2]]
-            ),
-            pointColor = family.rgb[rolePermutation[3]],
-            bgColor = family.deep[rolePermutation[0]]
-        )
-
-        private data class GenreTheme(val paletteSets: List<PaletteSet>)
-
-        private val GENRE_THEMES: Map<MusicStyleClassifier.MusicStyle, GenreTheme> = mapOf(
-            MusicStyleClassifier.MusicStyle.BALLAD to GenreTheme(
-                listOf(PaletteFamily.TEAL, PaletteFamily.PURPLE, PaletteFamily.BLUE)
-                    .map { buildPaletteSet(it, listOf(3, 0, 1, 2)) }
-            ),
-            MusicStyleClassifier.MusicStyle.EDM to GenreTheme(
-                listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD, PaletteFamily.PURPLE)
-                    .map { buildPaletteSet(it, listOf(0, 1, 2, 3)) }
-            ),
-            MusicStyleClassifier.MusicStyle.DANCE_POP to GenreTheme(
-                listOf(PaletteFamily.RED, PaletteFamily.TEAL, PaletteFamily.BLUE)
-                    .map { buildPaletteSet(it, listOf(2, 0, 1, 3)) }
-            ),
-            MusicStyleClassifier.MusicStyle.HIPHOP_RNB to GenreTheme(
-                listOf(PaletteFamily.PURPLE, PaletteFamily.BLUE, PaletteFamily.TEAL)
-                    .map { buildPaletteSet(it, listOf(3, 0, 1, 2)) }
-            ),
-            MusicStyleClassifier.MusicStyle.ROCK to GenreTheme(
-                listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD)
-                    .map { buildPaletteSet(it, listOf(0, 1, 2, 3)) }
-            ),
-            MusicStyleClassifier.MusicStyle.POP to GenreTheme(
-                PaletteFamily.values().map { buildPaletteSet(it, listOf(1, 0, 2, 3)) }
-            )
-        )
-
-        private val DEFAULT_PALETTE_SETS: List<PaletteSet> =
-            PaletteFamily.values().map { buildPaletteSet(it, listOf(0, 1, 2, 3)) }
-    }
-
-    /**
-     * 팔레트 색 계열 — rgb는 PaletteSet.mainColors/pointColor 후보가 될 4개의 RGB(위에
-     * 이름 붙여둔 실측 스와치). deep은 rgb[i]가 mainColors[0]으로 선택됐을 때 쓰는
-     * bgColor(명도만 48%로 낮춘 어두운 톤)를 같은 인덱스로 미리 계산해 둔 값 —
-     * buildPaletteSet에서 rolePermutation으로 두 리스트 모두 바로 꺼내 쓴다. 각 계열의
-     * 첫 번째·마지막 스와치가 실제 응원봉 펌웨어
-     * 색상표에서 고른 두 "끝점" 색상이고, 가운데 둘은 그 사이를 hue 기준 3등분한 값이
-     * 기본이다. RED만 3등분 보간 그대로 쓰면 정작 순수 RED_PURE(255,0,0)가 네 포인트 중
-     * 어디에도 걸리지 않아서(실측 피드백) 세 번째 자리를 보간값 대신 RED_PURE로
-     * 고정해뒀다. RED/ORANGE_GOLD 경계처럼 한두 계열은 끝점이 살짝 겹치는 것도 실측
-     * 확인 후 허용한 값이다(겹쳐도 색 1개 정도라 문제 없음).
-     */
-    private enum class PaletteFamily(
-        val rgb: List<LSColor>,
-        val deep: List<LSColor>
-    ) {
-        PURPLE(
-            rgb  = listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO, PURPLE_NAVY),
-            deep = listOf(PURPLE_MAGENTA_SHADE, PURPLE_VIOLET_SHADE, PURPLE_INDIGO_SHADE, PURPLE_NAVY_SHADE)
-        ),
-        // 0/360도 경계를 넘어간다. 세 번째 자리는 보간값이 아니라 RED_PURE로 고정.
-        RED(
-            rgb  = listOf(RED_MAGENTA, RED_ROSE, RED_PURE, RED_VERMILION),
-            deep = listOf(RED_MAGENTA_SHADE, RED_ROSE_SHADE, RED_PURE_SHADE, RED_VERMILION_SHADE)
-        ),
-        ORANGE_GOLD(
-            rgb  = listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER, ORANGE_GOLD_LIME),
-            deep = listOf(ORANGE_GOLD_DEEP_SHADE, ORANGE_GOLD_ORANGE_SHADE, ORANGE_GOLD_AMBER_SHADE, ORANGE_GOLD_LIME_SHADE)
-        ),
-        TEAL(
-            rgb  = listOf(TEAL_YELLOWGREEN, TEAL_GREEN, TEAL_MINT, TEAL_CYAN),
-            deep = listOf(TEAL_YELLOWGREEN_SHADE, TEAL_GREEN_SHADE, TEAL_MINT_SHADE, TEAL_CYAN_SHADE)
-        ),
-        // 네 번째 자리(BLUE_PURE)가 이미 순수 파랑(0,0,255).
-        BLUE(
-            rgb  = listOf(BLUE_SEAFOAM, BLUE_SKYCYAN, BLUE_AZURE, BLUE_PURE),
-            deep = listOf(BLUE_SEAFOAM_SHADE, BLUE_SKYCYAN_SHADE, BLUE_AZURE_SHADE, BLUE_PURE_SHADE)
-        )
     }
 
     data class ResolvedSection(
@@ -218,7 +166,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 장르에 어울리는 팔레트 세트 후보군(~3개) 중 하나를 seed로 결정론적으로 고른다 —
         // 같은 장르 곡들이 전부 똑같은 색은 아니게 하되, 세트 자체(=실측 RGB를 미리
         // mainColors/pointColor/bgColor로 나눠둔 값)는 그대로 쓴다.
-        val sets = GENRE_THEMES[musicStyle]?.paletteSets ?: DEFAULT_PALETTE_SETS
+        val sets = GENRE_PALETTE_SETS[musicStyle] ?: POP_PALETTE_SETS
         val set = sets[Math.floorMod(rawHue, sets.size)]
         Log.d(TAG, "[Palette] style=$musicStyle set=${set.label}")
         return EffectMatchingEngine.Palette(
@@ -565,7 +513,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     ): Pair<LSColor, LSColor?> {
         // 팔레트가 미리 "메인 3색 + 포인트 1색 + 배경 1색"으로 나뉘어 있으므로, 이펙트별
         // 색 정의는 그중 어떤 역할을 어떻게 쓰는지만 선언하면 된다 — hue 거리/대비 계산은
-        // buildPalette(→buildPaletteSet)에서 이미 끝나 있다.
+        // buildPalette에서 PaletteSet을 고르는 시점에 이미 끝나 있다.
         return when (engine) {
             // ON_PULSE는 VERSE(비발라드)에서만 쓰인다. FG는 bar마다 mainColors를 순환,
             // BG는 공통 bgColor.
