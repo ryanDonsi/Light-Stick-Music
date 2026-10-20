@@ -3,23 +3,8 @@ package com.lightstick.music.domain.music
 import kotlin.math.*
 
 /**
- * BeatDetectorV3 (Tempogram 기반)
- *
- * V1의 기능 + Tempogram
- * - V1의 IIR 필터 기반 ODF 유지
- * - Tempogram 기반 모달 피크 검출
- * - 신뢰도(confidence) 점수 추가
- * - 반박자 체크(half-tempo) 유지
- *
- * 개선점:
- * 1. 시간-BPM 2D 분석으로 더 정확한 BPM 탐지
- * 2. 모든 시간에서 일관되게 강한 BPM 선택
- * 3. 약한 노이즈 자동 필터링
- * 4. 신뢰도 점수로 BPM의 확실성 판단 가능
- *
- * Ed Sheeran 문제 해결:
- * - V1: 133.3 BPM (틀림)
- * - V3: 96.77 BPM (맞음, confidence 87%)
+ * BeatDetectorV3 — Tempogram(시간-BPM 2D 분석) 기반 비트 감지기.
+ * IIR 필터 기반 ODF + Tempogram 모달 피크 검출 + 신뢰도(confidence) 점수 + 반박자 체크.
  */
 object BeatDetectorV3 {
 
@@ -29,11 +14,7 @@ object BeatDetectorV3 {
     /** ENABLE_JSON_EXPORT=true일 때 JSON을 남길 곡 제목 필터. 비어 있으면 전곡 저장. */
     private val JSON_EXPORT_TITLE_FILTER = emptySet<String>()
 
-    // ════════════════════════════════════════════════════════════════════
-    // 단위 변환 함수 - 모든 코드에서 일관된 단위 사용을 강제
-    // beatMs: Long = milliseconds between beats = 60_000 / BPM
-    // bpm: Float = beats per minute
-    // ════════════════════════════════════════════════════════════════════
+    // 단위 변환 함수. beatMs: 비트 간 밀리초 = 60_000 / BPM. bpm: beats per minute.
 
     /** BPM 값 → 비트 간격(밀리초) 변환 */
     private fun beatMsFromBpm(bpm: Float): Long {
@@ -45,7 +26,6 @@ object BeatDetectorV3 {
         return if (beatMs > 0) 60_000f / beatMs else 0f
     }
 
-    // V1 상수들
     private const val FILL_CONFIDENCE = 0.20f
     private const val LOCAL_NORM_WINDOW = 60
     private const val GLOBAL_NORM_WINDOW = 80
@@ -57,7 +37,7 @@ object BeatDetectorV3 {
 
     // BPM 탐지 파라미터
     private const val PRIOR_CENTER_MS = 500L
-    private const val PRIOR_STD_OCTAVE = 2.0f  // V3: Tempogram은 V1과 동일한 범위 탐지 필요
+    private const val PRIOR_STD_OCTAVE = 2.0f
     private const val HALF_TEMPO_RATIO = 0.60f
     private const val DP_MIN_BEAT_RATIO = 0.25f
 
@@ -65,19 +45,15 @@ object BeatDetectorV3 {
     private const val TEMPOGRAM_TIME_FRAMES = 200  // 시간 축 프레임 수
     private const val TEMPOGRAM_MIN_CONFIDENCE = 0.3f  // 신뢰도 최소값
 
-    // V4.5: 하모닉 필터링 전(raw) 절반-lag(2배 BPM) 자기상관 비율 기반 옥타브 보정 임계값.
-    // filterHarmonicPeaks가 억제하기 전 원본 신호가 선택된 후보와 비슷하거나 더 강하면(비율↑),
-    // 그 2배 BPM이 억제되어 묻힌 정답일 가능성이 높다는 뜻. 43곡 실측(2026-07-08 진단)에서
-    // 이 값이 계산되는 14곡 중 0.85 이상 5곡은 전부 2배가 정답, 미만 9곡은 전부 2배가 오답으로
-    // 정확히 갈렸음(박구윤 - 뿐이고/Stray Kids 神메뉴/장윤정 - 사랑 참 등 기존 로직이 못 고치던 케이스 포함).
+    // 하모닉 필터링 전(raw) 절반-lag(2배 BPM) 자기상관 비율 기반 옥타브 보정 임계값
     private const val RAW_HALF_LAG_RATIO_THRESHOLD = 0.85f
 
-    // IIR 필터 상수 (V1과 동일)
+    // IIR 필터 상수
     private const val LOW_ALPHA = 0.12f
     private const val MID_LP1_ALPHA = 0.35f
     private const val MID_LP2_ALPHA = 0.08f
 
-    // V3.1: 5-band 추가 필터 상수
+    // 5-band 추가 필터 상수
     private const val VERYLOW_ALPHA = 0.08f   // 20-100Hz
     private const val LOWMID_ALPHA = 0.20f    // 100-400Hz
     private const val HIGH_LP1_ALPHA = 0.50f  // High band LP1
@@ -85,7 +61,7 @@ object BeatDetectorV3 {
 
     data class TimedBeat(val timeMs: Long, val confidence: Float)
 
-    // V3.8: Tempogram 분석용 데이터 구조
+    // Tempogram 분석용 데이터 구조
     data class AcPeakInfo(
         val lagMs: Long,
         val bpm: Float,
@@ -107,7 +83,7 @@ object BeatDetectorV3 {
         val secondaryPeakRatio: Float  // 2nd peak / 1st peak
     )
 
-    /** V4.0: findModalPeak의 다중 피크 평가 후보 하나에 대한 디버그 정보 (JSON 저장용) */
+    /** findModalPeak의 다중 피크 평가 후보 하나에 대한 디버그 정보 (JSON 저장용) */
     data class PeakCandidateDebugInfo(
         val bpm: Float,
         val acStrength: Float,
@@ -117,8 +93,7 @@ object BeatDetectorV3 {
         val selected: Boolean
     )
 
-    /** V4.3: 하모닉 필터링 전(raw) 자기상관 강도 진단 정보 — 절반 lag(2배 BPM 후보)가
-     *  filterHarmonicPeaks에 의해 억제되기 전 원래 신호가 얼마나 있었는지 확인용 (JSON 저장용) */
+    /** 하모닉 필터링 전(raw) 자기상관 강도 진단 정보 (JSON 저장용) */
     data class RawHarmonicDiagInfo(
         val bestLagRawStrength: Float,
         val halfLagBpm: Float,
@@ -128,7 +103,7 @@ object BeatDetectorV3 {
         val halfLagTemporalConsistency: Float
     )
 
-    /** V4.0: findModalPeak의 전체 평가 결과 (선택된 BPM + 후보 목록 + 옥타브 보정 여부) */
+    /** findModalPeak의 전체 평가 결과 (선택된 BPM + 후보 목록 + 옥타브 보정 여부) */
     data class ModalPeakResult(
         val bpm: Float,
         val confidence: Float,
@@ -137,10 +112,10 @@ object BeatDetectorV3 {
         val rawHarmonicDiag: RawHarmonicDiagInfo? = null
     )
 
-    /** V4.0: detectAndCorrectOctaveError의 결과 + 어떤 판단 근거로 결정했는지 (JSON 저장용) */
+    /** detectAndCorrectOctaveError의 결과 + 판단 근거 (JSON 저장용) */
     data class OctaveCorrectionResult(val bpm: Float, val reason: String)
 
-    /** V4.0: selectBetweenMethodsAandB의 결과 + 어떤 판단 근거로 결정했는지 (JSON 저장용) */
+    /** selectBetweenMethodsAandB의 결과 + 판단 근거 (JSON 저장용) */
     data class MethodSelectionResult(val beatMs: Long, val reason: String)
 
     enum class TimeSignatureType { FOUR_FOUR, THREE_FOUR, SIX_EIGHT }
@@ -179,9 +154,6 @@ object BeatDetectorV3 {
         val doubleTempoRatio: Float = 0.55f
     )
 
-    /**
-     * V3 DetectResult: 신뢰도 추가
-     */
     // 분석 데이터 저장 클래스
     data class AnalysisMetadata(
         val methodABpm: Float = 0f,
@@ -198,14 +170,14 @@ object BeatDetectorV3 {
     data class DetectResultV3(
         val beats: List<TimedBeat>,
         val beatMs: Long,
-        val confidence: Float,  // ✨ 새로운!
+        val confidence: Float,
         val source: BeatSource?,
         val reason: String,
         val downbeatOffsetMs: Long,
         val timeSignature: TimeSignature,
-        val tempogram: Array<FloatArray>? = null,  // ✨ 새로운!
+        val tempogram: Array<FloatArray>? = null,
         val debugSegments: List<Any> = emptyList(),
-        val analysisMetadata: AnalysisMetadata = AnalysisMetadata()  // ✨ 새로운!
+        val analysisMetadata: AnalysisMetadata = AnalysisMetadata()
     ) {
         val beatTimesMs: List<Long> get() = beats.map { it.timeMs }
 
@@ -309,13 +281,8 @@ object BeatDetectorV3 {
     }
 
     /**
-     * 모달 피크 찾기 (옥타브 에러 보정 포함)
-     *
-     * Returns: Pair<BPM, Confidence>
-     */
-    /**
-     * Tempogram에서 모달 피크(주요 BPM)를 찾음
-     * @return ModalPeakResult - BPM, 신뢰도, V4.0 다중 피크 평가 후보 목록, 옥타브 보정 적용 여부
+     * Tempogram에서 모달 피크(주요 BPM)를 찾음 (옥타브 에러 보정 포함)
+     * @return ModalPeakResult - BPM, 신뢰도, 다중 피크 평가 후보 목록, 옥타브 보정 적용 여부
      */
     fun findModalPeak(
         tempogram: Array<FloatArray>,
@@ -338,16 +305,10 @@ object BeatDetectorV3 {
             }
         }
 
-        // === Harmonic Peak Filtering (부음 필터링) ===
         // 절반 박자(하모닉)를 감지하고 필터링
         val harmonicFiltered = filterHarmonicPeaks(bpmStrengths, minLag)
 
-        // V4.2: 전체 lag를 채점 대상으로 사용 (BeatDetectorV1의 "raw AC로 미리 추리지 않고
-        // score=ac×prior를 전체 lag에 연속으로 적용해 argmax"하는 방식을 반영).
-        // V4.0~V4.1은 raw AC 상위 N개로 먼저 추린 뒤 그 안에서만 정교하게 채점했는데,
-        // 이 사전 필터링 자체가 정답 후보를 통째로 배제하는 경우가 있었음
-        // (Ed Sheeran: raw AC 순위 15위 밖, IYKYK: top15에도 안 들어옴).
-        // minLag~maxLag 범위가 보통 80~90개 수준(375~1200ms)이라 전부 채점해도 비용이 작음.
+        // 전체 lag를 채점 대상으로 사용
         val allCandidates = harmonicFiltered.indices
             .map { idx ->
                 val lag = idx + minLag
@@ -355,8 +316,7 @@ object BeatDetectorV3 {
             }
             .filter { it.second > 1e-6f }  // 강도가 0에 가까운 lag는 제외 (노이즈)
 
-        // === V4.0: 다중 피크 평가 (Multi-peak evaluation) ===
-        // 상위 5개 피크 각각을 3가지 기준으로 평가:
+        // 다중 피크 평가: 각 피크를 3가지 기준으로 평가
         // 1. AC 강도 (Tempogram에서의 절대값)
         // 2. Log-Normal Prior (음악 BPM 자연 분포)
         // 3. 시간 일관성 (Temporal Consistency) - 시간을 통해 일정하게 강한가?
@@ -370,7 +330,7 @@ object BeatDetectorV3 {
             val compositeScore: Float
         )
 
-        // V4.0: 시간 일관성 점수 계산
+        // 시간 일관성 점수 계산
         fun calculateTemporalConsistency(lagIdx: Int): Float {
             if (tempogram.isEmpty() || tempogram[0].isEmpty()) return 0.5f
             val lagStrengths = tempogram.getOrNull(lagIdx) ?: return 0.5f
@@ -394,13 +354,13 @@ object BeatDetectorV3 {
         }
 
 
-        // V4.2: 전체 lag를 대상으로 채점 (raw AC 사전 필터링 없음 — BeatDetectorV1 방식)
+        // 전체 lag를 대상으로 채점
         val candidateScores = allCandidates.map { (lag, acStrength, bpm) ->
             val lagIdx = lag - minLag
             val prior = calculateLogNormalPrior(bpm)
             val temporalConsistency = calculateTemporalConsistency(lagIdx)
 
-            // 가중치 조합 (V4.0):
+            // 가중치 조합:
             // - AC 강도: 30% (절대값이 높은 것)
             // - Log-Normal Prior: 30% (자연스러운 BPM)
             // - 시간 일관성: 40% (곡 전체에서 일정한 것)
@@ -421,11 +381,10 @@ object BeatDetectorV3 {
             ?: candidateScores.firstOrNull()
             ?: PeakCandidate(minLag, bpmFromBeatMs(minLag * hopMs), 1f, 1f, 0.5f, 1f)
 
-        // V4.2: 로깅/JSON 저장은 전체(~80여개)가 아닌 composite score 상위 20개만
-        // (선택된 후보는 항상 1위이므로 이 목록에 반드시 포함됨)
+        // 로깅/JSON 저장은 composite score 상위 20개만
         val topScoredCandidates = candidateScores.sortedByDescending { it.compositeScore }.take(20)
 
-        // V4.0: JSON 저장용 후보 디버그 목록 (선택된 후보 표시, 상위 20개만 저장)
+        // JSON 저장용 후보 디버그 목록 (선택된 후보 표시, 상위 20개만 저장)
         val candidateDebugList = topScoredCandidates.map { cand ->
             PeakCandidateDebugInfo(
                 bpm = cand.bpm,
@@ -451,8 +410,7 @@ object BeatDetectorV3 {
             sorted.firstOrNull()?.coerceIn(TEMPOGRAM_MIN_CONFIDENCE, 1.0f) ?: 0.5f
         }
 
-        // === V4.0: 강화된 옥타브 에러 검증 (Octave Error Validation) ===
-        // V4.0: 옥타브 보정 검증 함수 (bestLagIdx 정의 이후)
+        // 옥타브 보정 검증 함수
         fun shouldApplyOctaveCorrection(
             candidateBpm: Float,
             candidateStrength: Float,
@@ -468,7 +426,7 @@ object BeatDetectorV3 {
             val candidateConsistency = calculateTemporalConsistency(candidateLag.toInt() - minLag)
             val originalConsistency = calculateTemporalConsistency(bestLagIdx)
 
-            // V4.0: 시간 일관성이 충분히 개선되어야만 보정 적용
+            // 시간 일관성이 충분히 개선되어야만 보정 적용
             if (candidateConsistency - originalConsistency < 0.10f) {
                 return false
             }
@@ -495,10 +453,7 @@ object BeatDetectorV3 {
         } else 0f
         val doubleRatio = if (harmonicFiltered[bestLagIdx] > 1e-6f) doubleStrength / harmonicFiltered[bestLagIdx] else 0f
 
-        // V4.3: 하모닉 필터링 전(raw) 절반 lag(2배 BPM) 신호 기록.
-        // filterHarmonicPeaks가 억제하기 전 원래 자기상관 강도가 얼마나 있었는지 확인해서
-        // "정답 BPM이 raw 신호에는 있었는데 억제됐는지" vs "raw 신호에도 애초에 없었는지" 구분용.
-        // halfLag >= minLag는 정확히 "2배 BPM이 탐색 최대 BPM을 넘지 않는다"는 조건과 동치.
+        // 하모닉 필터링 전(raw) 절반 lag(2배 BPM) 신호 기록 — 억제 전 자기상관 강도 진단용
         val rawHalfLagIdx = halfLag - minLag
         val rawHarmonicDiag = if (halfLag >= minLag && rawHalfLagIdx < bpmStrengths.size &&
                                    bestLagIdx < bpmStrengths.size) {
@@ -514,7 +469,7 @@ object BeatDetectorV3 {
             )
         } else null
 
-        // V4.0: 절반 비트 보정 (2배 오류 수정) — 하모닉 필터링된 강도 기준
+        // 절반 비트 보정 (2배 오류 수정) — 하모닉 필터링된 강도 기준
         if (halfLag >= minLag && shouldApplyOctaveCorrection(bpmFromBeatMs(halfLag * hopMs), halfStrength, halfRatio)) {
             val halfBeatMs = halfLag * hopMs
             val halfBpm = bpmFromBeatMs(halfBeatMs)
@@ -522,7 +477,7 @@ object BeatDetectorV3 {
             confidence = minOf(1.0f, halfStrength / sorted[0])
             octaveCorrected = true
         }
-        // V4.0: 2배 비트 보정 (절반 오류 수정)
+        // 2배 비트 보정 (절반 오류 수정)
         else if (doubleLag - minLag < harmonicFiltered.size && doubleRatio >= 0.45f &&
                  doubleStrength > harmonicFiltered[bestLagIdx] * 0.7f &&
                  shouldApplyOctaveCorrection(bpmFromBeatMs(doubleLag * hopMs), doubleStrength, doubleRatio)) {
@@ -532,11 +487,8 @@ object BeatDetectorV3 {
             confidence = minOf(1.0f, doubleStrength / sorted[0])
             octaveCorrected = true
         }
-        // V4.5: raw(하모닉 필터링 전) 절반-lag 비율 기반 보정.
-        // 위 두 보정은 harmonicFiltered 기준이라, filterHarmonicPeaks가 이미 억제해버린
-        // 진짜 2배 BPM 후보(예: 박구윤 - 뿐이고, Stray Kids 神메뉴)는 여기까지 못 왔다.
-        // 43곡 실측으로 검증된 임계값이므로 shouldApplyOctaveCorrection의 시간 일관성
-        // 조건(그 자체가 이 케이스들을 걸러내던 원인)은 의도적으로 거치지 않는다.
+        // raw(하모닉 필터링 전) 절반-lag 비율 기반 보정 — filterHarmonicPeaks가 이미
+        // 억제해버린 2배 BPM 후보를 구제한다.
         else if (rawHarmonicDiag != null && rawHarmonicDiag.halfLagRawRatio >= RAW_HALF_LAG_RATIO_THRESHOLD) {
             bestBpm = rawHarmonicDiag.halfLagBpm
             confidence = minOf(1.0f, rawHarmonicDiag.halfLagRawRatio)
@@ -572,7 +524,6 @@ object BeatDetectorV3 {
                 val doubleStrength = filtered[doubleLagIdx]
                 val ratio = doubleStrength / strength
                 // 2배 lag이 현재 lag와 비슷하거나 강하면, 현재 lag는 절반 박자(하모닉)
-                // V3.3: 강화된 필터링 (0.65 → 0.50, 0.3 → 0.1)
                 if (ratio >= 0.50f) {
                     // 절반 박자로 판정되었으므로 강도 감소 (0.3배 → 0.1배)
                     filtered[idx] = strength * 0.1f
@@ -587,7 +538,6 @@ object BeatDetectorV3 {
                     val halfStrength = filtered[halfLagIdx]
                     val ratio = halfStrength / strength
                     // 절반 lag이 현재 lag와 비슷하거나 강하면, 현재 lag는 두배 박자(하모닉)
-                    // V3.3: 강화된 필터링 (0.65 → 0.50, 0.3 → 0.1)
                     if (ratio >= 0.50f) {
                         // 두배 박자로 판정되었으므로 강도 감소 (0.3배 → 0.1배)
                         filtered[idx] = strength * 0.1f
@@ -600,9 +550,7 @@ object BeatDetectorV3 {
         return filtered
     }
 
-    /** V4.4: ODF(온셋 검출 함수)의 "뾰족함 vs 뭉개짐" 진단 정보 (JSON 저장용).
-     *  에너지가 계속 높게 깔려있는(=뭉개진) 곡은 진짜 박자 간격의 자기상관 신호가
-     *  약해지고 더 굵은 절반-박자 펄스에 밀릴 수 있다는 가설을 검증하기 위한 지표. */
+    /** ODF(온셋 검출 함수)의 "뾰족함 vs 뭉개짐" 진단 정보 (JSON 저장용). */
     data class OdfShapeDiagInfo(
         val mean: Float,
         val std: Float,
@@ -648,20 +596,15 @@ object BeatDetectorV3 {
     }
 
     /**
-     * Log-Normal Prior: 음악 BPM 확률 분포 (V3.9 개선)
-     *
-     * V3.9: Prior 중심을 120 BPM으로 이동하고 std를 증가시켜
-     * 높은 BPM(140~180)의 가중치를 높이고 낮은 BPM(60~80)의 페널티 감소
-     *
+     * Log-Normal Prior: 음악 BPM 확률 분포
      * @param bpm BPM 값
      * @return 확률 가중치 (0~1)
      */
     private fun calculateLogNormalPrior(bpm: Float): Float {
         if (bpm < 30 || bpm > 360) return 0.01f
 
-        // V3.9: 파라미터 개선 - 중심을 120 BPM으로, std를 0.45로 증가
-        val muLn = ln(120.0)   // V3.9: 평균 120 BPM의 로그값 (기존 110)
-        val sigma = 0.45f      // V3.9: 표준편차 증가 0.35f → 0.45f (더 광범위 허용)
+        val muLn = ln(120.0)   // 평균 120 BPM의 로그값
+        val sigma = 0.45f      // 표준편차
 
         val lnBpm = ln(bpm.toDouble())
         val exponent = -((lnBpm - muLn) * (lnBpm - muLn)) / (2 * sigma * sigma)
@@ -671,7 +614,6 @@ object BeatDetectorV3 {
                       exp(exponent).toFloat()
 
         // 0~1로 정규화 (최대값 약 0.010 at BPM=120)
-        // V3.9: 정규화 계수 조정 (기존 0.011 → 0.009, 더 넓은 분포)
         return (density / 0.009f).coerceIn(0.01f, 1.0f)
     }
 
@@ -846,10 +788,7 @@ object BeatDetectorV3 {
     }
 
     /**
-     * madmom 방식 BPM 계산: 비트 간격의 중앙값으로부터 BPM 추정
-     * 절반/2배 옥타브 에러도 감지하고 보정
-     * 참고: 90-110 BPM 대역 오류 방지를 위해 강화된 필터링
-     *
+     * madmom 방식 BPM 계산: 비트 간격의 중앙값으로부터 BPM 추정, 절반/2배 옥타브 에러도 보정
      * @param beatTimesMs 비트 타임스탐프 (ms)
      * @param referenceBpm 참고 BPM (옥타브 에러 판단용, 0이면 무시)
      * @return BPM (0 if insufficient beats)
@@ -927,7 +866,7 @@ object BeatDetectorV3 {
             bpmValues[bpmValues.size / 2]
         }
 
-        // [FIX #3] 섹션 BPM 이상값 필터링 (중앙값 ±20 범위)
+        // 섹션 BPM 이상값 필터링 (중앙값 ±20 범위)
         val initialMedian = median
         val filteredBpms = bpmValues.filter { kotlin.math.abs(it - initialMedian) <= 20f }.sorted()
 
@@ -945,11 +884,7 @@ object BeatDetectorV3 {
     }
 
     /**
-     * V3.7 Step 3: Method A (Global AC) vs Method B (Section Median) 선택
-     *
-     * 미스매치 곡들에서 Global BPM이 정확할 수 있으므로,
-     * methodBBpm이 극단적이거나 신뢰도가 낮으면 methodABeatMs (Global AC) 사용.
-     *
+     * Method A (Global AC) vs Method B (Section Median) 선택
      * @param globalBpm Method A에서 계산한 Global AC 피크 BPM
      * @param methodBBpm Method B에서 계산한 보정된 Section Median BPM
      * @param methodABeatMs Global AC에서 계산한 beatMs
@@ -1007,12 +942,7 @@ object BeatDetectorV3 {
             return MethodSelectionResult(beatMsFromBpm(methodBBpm / 2), reason)
         }
 
-        // 2x 관계 없음 → methodBBpm이 합리적이면 사용, 아니면 Global 사용
-        // V4.1: 6/8박(복합박자)에서는 이 "묻지도 따지지도 않고 methodB 우선" 규칙이
-        // 오히려 이미 맞는 Global을 뒤집는 경우가 있음 (Entrance: Global=105.3 정답인데
-        // methodB=131.9로 잘못 대체됨, 비율 1.25로 다른 4/4·3/4 곡들의 1.49 근처와 다름).
-        // 43곡 검증: 4/4·3/4 곡 11개는 전부 이 분기에서 methodB가 정답이었고,
-        // 6/8인 Entrance만 예외였음 → 6/8일 때만 Global 유지.
+        // 2x 관계 없음 → methodBBpm이 합리적이면 사용, 복합박자(6/8)면 Global 유지
         if (methodBBpm >= IDEAL_MIN && methodBBpm <= IDEAL_MAX && !isCompoundMeter) {
             val reason = "SELECT_METHOD_B_FINAL: no 2x relation, methodB=${"%.1f".format(methodBBpm)} preferred over Global=${"%.1f".format(globalBpm)}"
             return MethodSelectionResult(beatMsFromBpm(methodBBpm), reason)
@@ -1028,19 +958,12 @@ object BeatDetectorV3 {
     }
 
     /**
-     * V3.7.8: 절반/2배 속도 오류 감지 및 보정 (섹션 BPM 범위 분석)
-     *
-     * 섹션 BPM들의 분포 범위를 분석하여 절반/2배 오류를 더 정확히 감지.
+     * 절반/2배 속도 오류 감지 및 보정 (섹션 BPM 범위 분석)
      *
      * 핵심 로직:
-     * 1. Global과 Median이 가깝고(≤5) 섹션 BPM 범위가 좁으면(≤50):
-     *    → 정상 범위이므로 보정하지 않음 (정상 곡: 74.1 BPM, 섹션 범위 28-47)
-     *
-     * 2. Global과 Median이 가깝지만 섹션 BPM 범위가 넓으면(>50):
-     *    → 절반/2배 속도 가능성이 높으므로 섹션 분포로 판단 후 보정
-     *
-     * 3. Global과 Median이 차이가 크면:
-     *    → 섹션 분포로 판단 후 보정
+     * 1. Global과 Median이 가깝고(≤5) 섹션 BPM 범위가 좁으면(≤50) → 보정하지 않음
+     * 2. Global과 Median이 가깝지만 섹션 BPM 범위가 넓으면(>50) → 섹션 분포로 판단 후 보정
+     * 3. Global과 Median이 차이가 크면 → 섹션 분포로 판단 후 보정
      *
      * @param medianBpm 섹션 분석으로 계산한 중앙값 BPM
      * @param globalBpm 전역 AC 피크 BPM (Method A, bestBpm)
@@ -1074,26 +997,19 @@ object BeatDetectorV3 {
         val halvedBpm = medianBpm / 2
         val globalMedianDiff = kotlin.math.abs(globalBpm - medianBpm)
 
-        // V3.7.8: Global과 Median이 일치(≤5)하고 섹션 범위가 좁으면(≤50) 보정 안 함
-        // → 정상 곡: TOMBOY, 진미령 등 (범위 28-47)
+        // Global과 Median이 일치(≤5)하고 섹션 범위가 좁으면(≤50) 보정 안 함
         if (globalMedianDiff <= 5f && bpmRange <= 50f) {
             val reason = "TRUST_BOTH_METHODS: global=${"%.1f".format(globalBpm)} ≈ median=${"%.1f".format(medianBpm)} (perfect match, narrow range=${"%.0f".format(bpmRange)})"
             return OctaveCorrectionResult(medianBpm, reason)
         }
 
-        // V3.9: Global과 Median이 가깝고 둘 다 정상 범위면 보정 방지
+        // Global과 Median이 가깝고 둘 다 정상 범위면 보정 방지
         if (globalMedianDiff <= 15f &&
             globalBpm >= IDEAL_MIN && globalBpm <= IDEAL_MAX &&
             medianBpm >= IDEAL_MIN && medianBpm <= IDEAL_MAX) {
 
-            // V4.4: "정상 범위"라고 무조건 믿기 전에, 고BPM 섹션들이 가리키는 값이
-            // 현재 값과 사실상 같은 템포(측정 오차로 100 근처만 넘긴 것)인지, 아니면
-            // 완전히 동떨어진 별개의 클러스터인지 구분. IYKYK: Global=85.7인데 섹션의
-            // 45%가 127 근처(highBpmMedian/global 비율 1.52)로 몰려있음에도 이 분기가
-            // 먼저 발동해 뒤의 HALF_TEMPO_DETECTED 체크에 도달하지 못했던 문제.
-            // 43곡 실측: 정상적으로 이 분기를 타는 5곡(홍진영/aespa NextLevel/CharliePuth/
-            // MyWorld/AlmondChoc)은 highBpmMedian/global 비율이 0.998~1.000(사실상 동일 템포).
-            // IYKYK만 1.517로 확연히 다름 — 임계값 1.2로 안전하게 분리 가능.
+            // "정상 범위"로 보기 전에, 고BPM 섹션들이 현재 값과 같은 템포인지 아니면
+            // 별개의 클러스터인지 구분
             val highBpms = bpmValues.filter { it >= 100f }
             if (highRangeCount >= 3) {
                 val highBpmMedian = highBpms.sorted()[highBpms.size / 2]
@@ -1110,8 +1026,7 @@ object BeatDetectorV3 {
             return OctaveCorrectionResult(medianBpm, reason)
         }
 
-        // V3.9: Global과 Median 모두 <80이고 가깝지만, 고BPM 섹션이 2배 관계를 보이면 보정
-        // 예: TOMBOY (Global=74, Median=74, highBpms=[105,115,142,146] → 대부분 2배 범위)
+        // Global과 Median 모두 <80이고 가깝지만, 고BPM 섹션이 2배 관계를 보이면 보정
         if (globalMedianDiff <= 5f && globalBpm < IDEAL_MIN && medianBpm < IDEAL_MIN &&
             highRangeCount > 0) {
             // 고BPM 섹션의 중앙값 계산
@@ -1122,12 +1037,9 @@ object BeatDetectorV3 {
             val doubleExpectation = doubledBpm
             val doubleRatio = kotlin.math.abs(highBpmMedian - doubleExpectation) / doubleExpectation
 
-
-            // V4.1: doubleRatio 단독으로는 오탐/정탐 구분이 안 됨 (43곡 실측 결과 0.03~0.04 범위에 오탐/정탐 혼재).
-            // 대신 highRangeCount(2배로 보이는 섹션 개수)가 판별력을 가짐:
-            //   - 실제 곡 전체가 빠른 경우: 섹션별 검출도 대부분 절반속도로 오검출되어 "고BPM 섹션"이 1~2개만 우연히 남음
-            //   - 실제로는 느린 곡인데 드럼필 등 국소 구간만 빠른 경우: 고BPM 섹션이 여러 개(4개 이상) 나타남
-            // 43곡 실측: 정탐(JUMP,COOMO,Cherish,SodaPop,KillThisLove)=1~2개, 오탐(TOMBOY,초혼,EdSheeran)=4개 이상
+            // doubleRatio만으로는 오탐/정탐 구분이 안 돼서, highRangeCount(2배로 보이는
+            // 섹션 개수)로 추가 판별: 실제 곡 전체가 빠르면 1~2개만 남고, 국소 구간만
+            // 빠른 경우엔 여러 개(4개 이상) 나타남
             val highCountLooksLikeGlobalTempo = highRangeCount <= 2
 
             if (doubleRatio <= 0.10f && doubledBpm >= IDEAL_MIN && doubledBpm <= IDEAL_MAX && highCountLooksLikeGlobalTempo) {
@@ -1162,7 +1074,7 @@ object BeatDetectorV3 {
 
 
     /**
-     * V3.8: Tempogram 분석하여 개선 데이터 추출
+     * Tempogram 분석하여 개선 데이터 추출
      * @return TempogramInsights - AC 피크, 신뢰도, 2차 피크 비율 등
      */
     private fun analyzeTempogramForInsights(
@@ -1371,11 +1283,7 @@ object BeatDetectorV3 {
     }
 
     /**
-     * 구간별 BPM 탐지 (섹션 경계 기반)
-     *
-     * Tempogram을 시간 구간별로 분석하여 각 섹션의 BPM을 따로 계산
-     * 반박자 문제 해결용: 곡의 일부는 71.8 BPM, 일부는 142.9 BPM인 경우
-     *
+     * 구간별 BPM 탐지 (섹션 경계 기반) — Tempogram을 시간 구간별로 분석해 각 섹션의 BPM을 따로 계산
      * @param tempogram 전체 곡의 Tempogram
      * @param hopMs ODF 홉 간격
      * @param minBeatMs 최소 비트 간격 (lag 계산용)
@@ -1391,42 +1299,6 @@ object BeatDetectorV3 {
         odfSize: Int,
         sectionBoundariesMs: List<Long> = emptyList()
     ): List<Pair<Long, Float>> {
-        // ════════════════════════════════════════════════════════════════════════════════
-        // [섹션별 BPM 감지 분석 로그]
-        //
-        // 이 함수는 Tempogram을 섹션 단위로 분석하여 각 섹션의 BPM을 추정합니다.
-        // V3.4에서 절대 강도 임계값 (0.02) 필터링이 추가되어 약한 신호 섹션을 제외합니다.
-        // V3.6 FIX: odfSize 기반으로 실제 곡 길이 범위를 벗어나는 섹션 필터링
-        //
-        // 실제 분석 데이터 (iKON):
-        // ─────────────────────────────────────────────────────────────────────
-        // 섹션 분석 결과:
-        //   39개 섹션 중 23개만 유효 (16개 약한 신호로 필터링됨)
-        //
-        // 섹션별 절대 강도 분포:
-        //   - 강한 신호: 0.045 ~ 0.051 (섹션 0, 3)
-        //   - 중간 신호: 0.030 ~ 0.040
-        //   - 약한 신호: 0.0001 (섹션 2 - SKIPPED)
-        //
-        // 섹션별 선택 BPM:
-        //   섹션 0: 67 BPM  (lag=89, abs_strength=0.045)
-        //   섹션 1: 162 BPM (lag=37, abs_strength=0.038)
-        //   섹션 2: SKIPPED (abs_strength=0.0001 < 0.02 threshold)
-        //   섹션 3: 117 BPM (lag=51, abs_strength=0.051)
-        //   ...
-        //   → 중앙값: 78 BPM (23개 유효 섹션)
-        //
-        // V3.4 절대 강도 필터링의 효과:
-        //   - 극도로 약한 신호로 인한 오류 방지
-        //   - 정규화만으로 판단하던 방식의 한계 극복
-        //   - 신뢰성 높은 섹션만 선택
-        //
-        // 주의사항 (V3.5 비트 추적과 연관):
-        //   - 선택된 BPM이 모두 섹션 내에서 가장 강한 신호라는 보장은 없음
-        //   - 절대 강도만으로는 ODF상의 실제 비트 위치를 보장하지 않음
-        //   - V3.5의 dpBeatTracker가 선택된 BPM으로 실제 비트를 생성해야 함
-        // ════════════════════════════════════════════════════════════════════════════════
-
         if (tempogram.isEmpty() || tempogram[0].isEmpty()) {
             return emptyList()
         }
@@ -1436,9 +1308,7 @@ object BeatDetectorV3 {
         val step = maxOf(1, odfSize / (totalTimeFrames / 2))
         val totalDurationMs = totalTimeFrames * step * hopMs
 
-        // V3.6 FIX: odfSize를 기반으로 실제 곡 길이 범위 제한
-        // Tempogram의 각 프레임은 ODF의 step개씩을 대표함
-        // 실제 ODF가 odfSize까지만 존재하므로, 그 이상으로 초과하는 tempogram 섹션 제외
+        // odfSize를 기반으로 실제 곡 길이 범위 제한 (초과하는 tempogram 섹션 제외)
         val maxActualFrame = minOf(totalTimeFrames, maxOf(1, odfSize / step))
         val actualDurationMs = maxActualFrame * step * hopMs
 
@@ -1450,7 +1320,7 @@ object BeatDetectorV3 {
                 boundaryFrames.add(frame)
             }
         }
-        boundaryFrames.add(maxActualFrame)  // V3.6: 실제 곡 길이 범위까지만
+        boundaryFrames.add(maxActualFrame)  // 실제 곡 길이 범위까지만
         boundaryFrames.sort()
 
         val result = mutableListOf<Pair<Long, Float>>()
@@ -1474,16 +1344,13 @@ object BeatDetectorV3 {
                 sectionStrengths[lagIdx] = sum / (endFrame - startFrame)
             }
 
-            // V3.4 FIX: 절대 강도 기반 신호 신뢰성 확인
             // 정규화 전 절대 강도 확인: 절대값 < 0.02는 신호가 극도로 약함
             val maxAbsoluteStrength = sectionStrengths.maxOrNull() ?: 0f
             if (maxAbsoluteStrength < 0.02f) {
                 continue
             }
 
-            // V3.4 FIX: 하모닉 필터링 적용 (약한 신호 보호)
-            // 섹션의 정규화 전에 하모닉 필터링을 적용하여
-            // 절반 박자나 두배 박자 하모닉이 약한 신호에서 "상대 최대"가 되는 것을 방지
+            // 섹션의 정규화 전에 하모닉 필터링을 적용 (약한 신호 보호)
             val filteredStrengths = filterHarmonicPeaks(sectionStrengths, minLag)
 
             // 정규화
@@ -1509,7 +1376,7 @@ object BeatDetectorV3 {
         return result
     }
 
-    /** V3 BPM 탐지 결과: BPM, confidence, tempogram, V4.0 다중 피크 평가 후보 목록 */
+    /** V3 BPM 탐지 결과: BPM, confidence, tempogram, 다중 피크 평가 후보 목록 */
     data class BpmV3Result(
         val bpm: Float,
         val confidence: Float,
@@ -1520,7 +1387,7 @@ object BeatDetectorV3 {
 
     /**
      * V3 BPM 탐지
-     * @return BpmV3Result - BPM, confidence, tempogram, V4.0 피크 평가 후보 목록
+     * @return BpmV3Result - BPM, confidence, tempogram, 피크 평가 후보 목록
      */
     fun estimateBpmV3(
         odf: FloatArray,
@@ -1690,7 +1557,7 @@ object BeatDetectorV3 {
             )
         }
 
-        // PCM → Envelope 계산 (V3.1: 5-band 주파수 분해)
+        // PCM → Envelope 계산 (5-band 주파수 분해)
         val hopSamples = kotlin.math.max(1, (sampleRate * params.hopMs / 1000).toInt())
         val numFrames = monoSamples.size / hopSamples
         val outVeryLow = ArrayList<Float>(numFrames)
@@ -1761,7 +1628,6 @@ object BeatDetectorV3 {
             return if (mx > 1e-6f) src.map { (it / mx).coerceIn(0f, 1f) } else src
         }
 
-        // V3.1: 5-band 주파수 분석 사용
         return detectFiveBand(
             normalizeEnv(outVeryLow), normalizeEnv(outLowMid),
             normalizeEnv(outLow), normalizeEnv(outMid), normalizeEnv(outHigh),
@@ -1770,11 +1636,7 @@ object BeatDetectorV3 {
         )
     }
 
-    /**
-     * V3.2: 5-band ODF 가중치 통합
-     * 각 주파수 대역의 ODF를 가중치로 통합 → 최종 ODF 생성 → BPM 추정
-     * detectPcm에서만 호출됨
-     */
+    /** 5-band ODF 가중치 통합: 각 주파수 대역의 ODF를 가중치로 통합 → 최종 ODF 생성 → BPM 추정 */
     private fun detectFiveBand(
         veryLowEnv: List<Float>,
         lowMidEnv: List<Float>,
@@ -1787,46 +1649,6 @@ object BeatDetectorV3 {
         sectionBoundariesMs: List<Long> = emptyList(),
         context: android.content.Context? = null
     ): DetectResultV3 {
-        // V3.5 주석: 비트 감지 실패의 근본 원인 분석
-        // ════════════════════════════════════════════════════════════════════════════════
-        // [실제 로그 데이터 - iKON 분석]
-        //
-        // V3.4까지의 문제:
-        //   input:  BPM 추정 ✓ (67, 162, 117 BPM 등 섹션별 선택)
-        //   output: beats = [] ❌ (빈 리스트 반환)
-        //   result: "beat detect FAIL" → "empty frames" 에러
-        //
-        // 로그 예시:
-        //   V3 Section[0ms-21100ms]:
-        //     [0] lag=89(67BPM,ratio=1.00,PEAK,str=100%)
-        //     [1] lag=90(66BPM,ratio=1.01,PEAK,str=95%)
-        //     SELECTED: lag=89(67BPM) ✓
-        //
-        //   V3 Section[30500ms-45800ms]:
-        //     SKIPPED (signal too weak, max absolute=0.0000)  ← V3.4 절대 강도 필터
-        //
-        //   V3 Section[45800ms-61200ms]:
-        //     [0] lag=51(117BPM,ratio=0.68,PEAK,str=100%)
-        //     SELECTED: lag=51(117BPM) ✓
-        //
-        //   결과: 23개 유효 섹션 → 중앙값 78 BPM 선택
-        //   그런데 beats = [] ← V3.5에서 수정됨
-        //
-        // V3.5 수정 사항:
-        //   1. dpBeatTracker(integratedOdf, finalBpm) 호출
-        //      → ODF 데이터 + BPM 으로 실제 비트 위치 계산
-        //      → output: [0ms, 78ms, 156ms, 234ms, ...]
-        //
-        //   2. estimatePhaseFromOdf() 로 위상 앵커 계산
-        //      → DP 수렴 문제 방지
-        //
-        //   3. 세그먼트 폴백
-        //      → dpBeatTracker 실패시 섹션 단위로 비트 생성
-        //
-        //   4. Time Signature + Downbeat 감지
-        //      → 완전한 비트 정보 반환
-        // ════════════════════════════════════════════════════════════════════════════════
-
         // List<Float> → FloatArray 변환
         val minSize = minOf(veryLowEnv.size, lowMidEnv.size, lowEnv.size, midEnv.size, highEnv.size, fullEnv.size)
 
@@ -1896,7 +1718,7 @@ object BeatDetectorV3 {
         // Beat 추정 (Method A: Tempogram 기반)
         val methodABeatMs = beatMsFromBpm(bestBpm)
 
-        // Method B: 섹션 중앙값 기반 BPM 보정 (V3.7)
+        // Method B: 섹션 중앙값 기반 BPM 보정
         val methodBBpm: Float
         val finalBeatMs: Long
         val octaveCorrectionReason: String
@@ -1906,24 +1728,17 @@ object BeatDetectorV3 {
             // Step 1: 기본 중앙값 계산
             val baseMedianBpm = calculateMedianBpmFromSections(collectedSectionBpms)
 
-            // Step 2: V3.7.4 - Global AC와 비교하여 과도한 보정 방지
-            // Global AC가 이미 합리적인 범위(80-180)면 보정하지 않음
+            // Step 2: Global AC와 비교하여 과도한 보정 방지 (이미 80-180 범위면 보정 안 함)
             val octaveResult = detectAndCorrectOctaveError(baseMedianBpm, bestBpm, collectedSectionBpms)
             methodBBpm = octaveResult.bpm
             octaveCorrectionReason = octaveResult.reason
 
-            // V4.3: methodB 후보 자체의 임시 박자 판정 (Entrance 같은 6/8곡 보호용)
-            // V4.1 시도: Global(Method A) 주기로 판정 → 실패. Entrance는 Global(105.3ms) 기준으론
-            // SIX_EIGHT가 안 나오고, 오히려 methodB(131.9, 틀린 값) 기준으로 봤을 때만 6/8 패턴이
-            // 나타남 — methodB가 실제로는 "곡의 3연음/복합박 서브비트"를 메인 비트로 착각한 것으로
-            // 추정. 그래서 methodB의 주기로 판정해서, 6/8로 보이면 methodB를 불신하고 Global 유지.
-            // detectTimeSignature는 finalBeatMs 확정 후 다시 정식으로 호출되므로 순환 의존 아님.
+            // methodB 후보의 주기로 임시 박자 판정 — 6/8(복합박자)곡 보호용
             val methodBBeatMsForSigCheck = beatMsFromBpm(methodBBpm)
             val provisionalTimeSig = detectTimeSignature(integratedOdf, methodBBeatMsForSigCheck, params.hopMs)
             val isCompoundMeterCandidate = provisionalTimeSig == TimeSignature.SIX_EIGHT
 
             // Step 3: Method A (Global AC, bestBpm) vs Method B (Section Median, methodBBpm) 선택
-            // 미스매치 곡들의 경우 Global BPM이 정확할 수 있으므로 비교 후 결정
             val selectionResult = selectBetweenMethodsAandB(bestBpm, methodBBpm, methodABeatMs, isCompoundMeterCandidate)
             finalBeatMs = selectionResult.beatMs
             methodSelectionReason = selectionResult.reason
@@ -1934,43 +1749,7 @@ object BeatDetectorV3 {
             methodSelectionReason = "NO_SECTIONS: using Global AC directly"
         }
 
-        // V3.5 FIX: Generate actual beat positions using dpBeatTracker
-        // ════════════════════════════════════════════════════════════════════════════════
-        // [V3.5 비트 추적 분석]
-        //
-        // 문제 (V3.4까지):
-        //   - BPM 추정만 하고 실제 비트 위치는 생성하지 않음
-        //   - 결과: beats = [] → "beat detect FAIL"
-        //
-        // 해결책 (V3.5):
-        //   1. dpBeatTracker(integratedOdf, finalBpm) 호출
-        //      → ODF의 각 위치에서 finalBpm과 일치하는 비트 찾음
-        //      → DP 알고리즘으로 최적 경로 선택
-        //
-        //   2. 위상 앵커 추정
-        //      → 초기 프레임에서 가장 강한 신호 구간 찾음
-        //      → DP가 약한 신호에 수렴하는 것을 방지
-        //
-        //   3. 실패시 세그먼트 폴백
-        //      → 오디오를 20초 단위로 나누어 재시도
-        //      → 국소적 최적점을 찾는 방식
-        //
-        // 실제 로그 예시 (성공):
-        //   V3 Beat tracking: dpTimes=237 frames from finalBpm=78 ms
-        //   → 78ms 간격으로 237개의 비트 감지
-        //   → [0ms, 78ms, 156ms, 234ms, ...]
-        //
-        // 실제 로그 예시 (폴백):
-        //   V3 dpBeatTracker returned empty, trying fallback segment beats
-        //   → 세그먼트별로 재시도
-        //   → 여러 세그먼트에서 감지한 비트를 합침
-        //
-        // 중요: dpBeatTracker 성공 조건
-        //   - integratedOdf가 비어있지 않아야 함
-        //   - finalBeatMs이 양수여야 함 (0보다 커야 함)
-        //   - ODF와 BeatMs이 일관성 있어야 함
-        // ════════════════════════════════════════════════════════════════════════════════
-
+        // dpBeatTracker로 실제 비트 위치 생성, 실패 시 세그먼트 단위 폴백
         val durationMs = integratedOdf.size.toLong() * params.hopMs
         val phaseMs = if (finalBeatMs > 0L) estimatePhaseFromOdf(integratedOdf, finalBeatMs, params.hopMs) else 0L
 
@@ -2024,7 +1803,7 @@ object BeatDetectorV3 {
 
         val finalBpmForLog = bpmFromBeatMs(finalBeatMs)
 
-        // V3.5 섹션별 BPM 분석 데이터 저장 (JSON) - 정확도 진단용, 평상시 OFF
+        // 섹션별 BPM 분석 데이터 저장 (JSON) - 정확도 진단용, 평상시 OFF
         if (ENABLE_JSON_EXPORT && context != null && songTitle != null &&
             (JSON_EXPORT_TITLE_FILTER.isEmpty() || songTitle in JSON_EXPORT_TITLE_FILTER)) {
             try {
@@ -2032,13 +1811,10 @@ object BeatDetectorV3 {
                     "{\"timeMs\":$ms,\"bpm\":${bpm.toInt()}}"
                 }
 
-                // V3.6 DEBUG: bestBpm은 BPM 단위, 따라서:
-                // - methodABeatMs = 비트 간격 (ms) = beatMsFromBpm(bestBpm)
-                // - bestBpm = BPM 값 (그대로)
                 val globalBpmMs = methodABeatMs
                 val globalBpmValue = bestBpm  // BPM 값 그자체
 
-                // V3.8: Tempogram 분석 데이터 수집 (Tempogram 개선용)
+                // Tempogram 분석 데이터 수집
                 val tempogramInsightsJson = if (tempogram != null && collectedSectionBpms.isNotEmpty()) {
                     try {
                         val insights = analyzeTempogramForInsights(tempogram, params.hopMs, finalBeatMs, collectedSectionBpms)
@@ -2059,7 +1835,7 @@ object BeatDetectorV3 {
                     ""
                 }
 
-                // V4.0: 다중 피크 평가 후보 목록 JSON (Stray Kids/TOMBOY 등 진단용)
+                // 다중 피크 평가 후보 목록 JSON
                 val peakEvaluationJson = if (peakCandidates.isNotEmpty()) {
                     try {
                         ",\"v4_peak_evaluation\":[${peakCandidates.joinToString(",") { cand ->
@@ -2077,7 +1853,7 @@ object BeatDetectorV3 {
                     ""
                 }
 
-                // V4.3: 하모닉 필터링 전(raw) 절반-lag 진단 정보 JSON (박구윤 - 뿐이고 등 진단용)
+                // 하모닉 필터링 전(raw) 절반-lag 진단 정보 JSON
                 val rawHarmonicDiagJson = if (rawHarmonicDiag != null) {
                     try {
                         ",\"v4_3_raw_harmonic_diag\":{" +
@@ -2095,7 +1871,7 @@ object BeatDetectorV3 {
                     ""
                 }
 
-                // V4.4: ODF 뾰족함/뭉개짐 진단 정보 JSON (에너지가 계속 높은 곡의 자기상관 왜곡 가설 검증용)
+                // ODF 뾰족함/뭉개짐 진단 정보 JSON
                 val odfShapeDiag = computeOdfShapeDiag(integratedOdf, params.hopMs, finalBeatMs)
                 val odfShapeDiagJson = if (odfShapeDiag != null) {
                     try {
@@ -2463,8 +2239,7 @@ object BeatDetectorV3 {
             0f
         }
 
-        // === Phase 1: 옥타브 에러 검출 (Method A vs Method B 비율 분석) ===
-        // methodABpm이 아직 bestBpm일 때, AC peaks 기반 BPM과 섹션 기반 BPM의 비율을 확인
+        // 옥타브 에러 검출: AC peaks 기반 BPM과 섹션 기반 BPM의 비율 확인
         var octaveErrorDetected = false
         var octaveErrorReason = ""
 
@@ -2496,7 +2271,7 @@ object BeatDetectorV3 {
 
         // 최종 BPM 선택: 옥타브 에러 검출 시 Method A 우선, 정상 시 Method B 우선
         val finalBpm = if (octaveErrorDetected) {
-            // Phase 1 Fix: 옥타브 에러 발생 시 Method A 사용
+            // 옥타브 에러 발생 시 Method A 사용
             methodBBpm = medianSectionBpm.toLong()  // logging용 기록
             methodABpmFromPeaks
         } else if (medianSectionBpm > 0f && collectedSectionBpms.size >= 2) {
@@ -2526,7 +2301,7 @@ object BeatDetectorV3 {
             reason = "octave_correction_${octaveErrorReason}"
         }
 
-        // [FIX #4] 신뢰도 재계산 (고조파 필터링 후)
+        // 신뢰도 재계산 (고조파 필터링 후)
         val adjustedConfidence = if (methodABpm != methodBBpm && methodBBpm > 0L) {
             // Method A와 B가 다른 경우 (옥타브 오류 감지)
             // finalBpm이 methodBBpm과 같으면 신뢰도를 100%로 상향 (고조파 필터링 성공)
@@ -2660,11 +2435,9 @@ object BeatDetectorV3 {
             fullFlux.toFloatArray()
         )
 
-        // [V3 개선] Mid 대역 신뢰도 강화
-        // Ed Sheeran 같은 곡에서 드럼/보컬(mid 대역)의 주기성을 더 강하게 반영
-        // 스펙트럼 분석 결과: Mid 대역이 가장 강하고 신뢰도 높음
-        val enhancedMidWeight = midWeight * 1.25f  // Mid 대역 25% 추가 강화 (15% → 25%)
-        val adjustedLowWeight = lowWeight * 0.70f   // Low 대역 30% 감소 (15% → 30%)
+        // Mid 대역 신뢰도 강화 (드럼/보컬 주기성을 더 강하게 반영)
+        val enhancedMidWeight = midWeight * 1.25f  // Mid 대역 가중치 강화
+        val adjustedLowWeight = lowWeight * 0.70f   // Low 대역 가중치 감소
 
         // 가중치 정규화
         val totalWeight = adjustedLowWeight + enhancedMidWeight + fullWeight
@@ -2677,33 +2450,17 @@ object BeatDetectorV3 {
             combined += lowFlux[i] * normLowWeight + midFlux[i] * normMidWeight + fullFlux[i] * normFullWeight
         }
 
-        // 로깅: 적응적 가중치 정보
-
         return localNormalizeMean(combined, GLOBAL_NORM_WINDOW).toFloatArray()
     }
 
-    /**
-     * 단일 대역 ODF 계산 (5-band 구조 전용).
-     *
-     * computeMultiBandFluxOdf(band, band, band, params)를 호출하면 3개 인자가 전부 같은 배열이라
-     * computeOdf가 동일한 결과를 3번 계산하고, calculateAdaptiveBandWeights로 가중 평균을 낸 뒤
-     * 재정규화하는 과정이 lowFlux==midFlux==fullFlux이므로 결과적으로 그냥 lowFlux를 반환하는 것과
-     * 수학적으로 동일함. 이 함수는 그 중복 계산을 제거하고 동일한 결과를 반환한다.
-     */
+    /** 단일 대역 ODF 계산 (5-band 구조 전용) — computeMultiBandFluxOdf의 중복 계산을 피한 버전. */
     private fun computeSingleBandOdf(band: FloatArray, params: Params): FloatArray {
         val flux = computeOdf(band.toList(), params.onsetSmoothWindow, LOCAL_NORM_WINDOW)
         return localNormalizeMean(flux, GLOBAL_NORM_WINDOW).toFloatArray()
     }
 
     /**
-     * 곡의 주파수 특성에 따른 적응적 대역 가중치 계산
-     *
-     * 원리:
-     * - 각 대역의 에너지와 peak 강도를 분석
-     * - 드럼이 강한 곡: mid/high 가중치 증가
-     * - 베이스가 강한 곡: low 가중치 증가
-     * - 동적 범위가 큰 곡: full 가중치 조정
-     *
+     * 곡의 주파수 특성(각 대역의 에너지/피크 강도)에 따른 적응적 대역 가중치 계산
      * @return Triple(lowWeight, midWeight, fullWeight)
      */
     private fun calculateAdaptiveBandWeights(
@@ -2757,17 +2514,12 @@ object BeatDetectorV3 {
         midWeight = midWeight * 3.0f / weightSum
         fullWeight = fullWeight * 3.0f / weightSum
 
-        // [V3.2] 강화된 절반 박자 필터링
-        // 분석: V3에서 29.7%가 0.5x 에러 (절반 박자)로 감지
-        // 원인: Low 대역이 절반 주기를 강하게 포착하는 경향
-        // 해결: Low 대역의 가중치를 더 공격적으로 감소
+        // 절반 박자 필터링 — Low 대역이 절반 주기를 강하게 포착하는 경향을 보정
 
         // 절반 박자 신호 감지: Low peak가 Mid peak의 1.2배 이상
         if (lowPeakRatio > midPeakRatio * 1.2f) {
-            // 절반 박자 가능성이 높음
-            // Low를 원래 3분의 1 이하로 감소
-            lowWeight = lowWeight * 0.33f  // 기존 0.75 → 0.33 (더 강한 감소)
-            midWeight = midWeight * 1.25f  // Mid 강화 (기존 1.1 → 1.25)
+            lowWeight = lowWeight * 0.33f  // Low 대역 감소
+            midWeight = midWeight * 1.25f  // Mid 대역 강화
 
             // 정규화 재적용
             val newWeightSum = lowWeight + midWeight + fullWeight
@@ -2807,12 +2559,7 @@ object BeatDetectorV3 {
         return localNormalizeMax(diff, normWindow)
     }
 
-    /**
-     * 고주파 강조를 통한 onset 감지 개선
-     *
-     * Onset은 신호의 급격한 변화(고주파 성분)로 나타나므로,
-     * 고주파를 부스트하면 onset 감지가 더 명확해집니다.
-     */
+    /** 고주파 강조를 통한 onset 감지 개선 */
     private fun enhanceHighFrequency(signal: List<Float>): List<Float> {
         if (signal.size < 3) return signal.toList()
 

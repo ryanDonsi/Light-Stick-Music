@@ -3,26 +3,7 @@ package com.lightstick.music.domain.music
 import kotlin.math.*
 
 /**
- * BeatDetectorV1 (= 버전 14)
- *
- * librosa beat_track 충실 재현. V4 의 두 가지 근본 결함을 해소:
- *
- * 문제 A — BPM 오추정 (V4 8-seed comb filter)
- *   V4: 8개 이산 씨드(80/90/100/110/120/125/140/160 BPM)만 채점
- *   → 비표준 BPM(74/117.5/126/147.7 등)을 잡지 못함 → 30-60% BPM 오차
- *   수정: 모든 lag 에 대해 autocorrelation 연속 스윕 + log-normal prior 직접 곱셈
- *         harmonic folding 규칙 제거 → prior 가 octave 해소
- *         (librosa: ac_df * logprior, prior = exp(-0.5*(log2(bpm/120)/1octave)^2))
- *
- * 문제 B — 세그먼트 비트가 DP 를 덮어씀 (V4 segment merge)
- *   V4: segment 감지 비트(confidence≈0.5~1.0)가 DP FILL 비트(0.20) override
- *   → 잘못된 위상·BPM 의 세그먼트 비트가 전곡 DP 를 무력화
- *   수정: 전곡 DP 결과를 주 출력으로 사용, 세그먼트 루프는 DP 실패 시 fallback 만 사용
- *
- * 유지:
- *   - Multi-band flux ODF + localNormalizeMean (V4 Fix E)
- *   - Ellis DP, Gaussian local scoring, tightness=100 (V4 Rev3)
- *   - 고정 위상 보정 제거 (DP 가 자연스럽게 최적 위상 탐색)
+ * BeatDetectorV1 — librosa beat_track 방식의 비트/다운비트/박자 검출기.
  */
 object BeatDetectorV1 {
 
@@ -38,12 +19,11 @@ object BeatDetectorV1 {
     private const val DOWNBEAT_W_BAR_COMB    = 0.30f
     private const val DOWNBEAT_W_CONSISTENCY = 0.20f
 
-    // log-normal prior 중심: 120 BPM (500ms), std: 1 octave (librosa default)
+    // log-normal prior 중심: 120 BPM (500ms), std: 1 octave
     private const val PRIOR_CENTER_MS  = 500L
     private const val PRIOR_STD_OCTAVE = 1.0f
 
     // half-tempo 체크: autocorr[halfLag] / autocorr[bestLag] >= 이 값이면 빠른 템포 선택
-    // prior 가 느린 BPM 쪽으로 과도하게 치우쳐 TOMBOY/Stars 등 140+ BPM 곡에서 반박자 오류 방지
     private const val HALF_TEMPO_RATIO = 0.60f
 
     // DP 실패 판단 기준: 예상 비트 수의 25% 미만이면 fallback
@@ -69,7 +49,7 @@ object BeatDetectorV1 {
     enum class BeatSource { LOW, MID, FULL, LOW_MID, MID_FULL, LOW_FULL }
 
     data class Params(
-        val hopMs: Long             = 10L,    // V1/V2/V3 통일: 10ms (AutoTimelineConfig와 동일)
+        val hopMs: Long             = 10L,
         val minBeatMs: Long         = 375L,   // 160 BPM
         val maxBeatMs: Long         = 1000L,  // 60 BPM
         val minPeakDistanceMs: Long = 120L,
@@ -95,13 +75,12 @@ object BeatDetectorV1 {
         val beatTimesMs: List<Long> get() = beats.map { it.timeMs }
     }
 
-    // IIR 계수 (AutoTimelineGeneratorBeat_v0 와 동일)
+    // IIR 계수
     private const val LOW_ALPHA     = 0.12f
     private const val MID_LP1_ALPHA = 0.35f
     private const val MID_LP2_ALPHA = 0.08f
 
     // PCM 입력 entry point — 내부에서 IIR 필터로 low/mid/full 엔벨로프 계산 후 detect()
-
     fun detectPcm(
         monoSamples: FloatArray,
         sampleRate: Int,
@@ -169,7 +148,6 @@ object BeatDetectorV1 {
         val beatMs = estimateBpmDense(globalOdf, params.hopMs, params.minBeatMs, params.maxBeatMs, songTitle)
                      ?: 500L
 
-        //    DP가 잘못된 위상에 수렴하는 문제(Dynamite 등) 방지
         val phaseMs = estimatePhaseFromOdf(globalOdf, beatMs, params.hopMs)
 
         val dpTimes = dpBeatTracker(globalOdf, beatMs, params.hopMs, durationMs, anchorMs = phaseMs)
@@ -243,9 +221,7 @@ object BeatDetectorV1 {
         val bestMs = bestLag * hopMs
         val bestAc = acVals[bestLag]
 
-        // prior 가 낮은 BPM(긴 주기)을 선호하는 경향이 있어 140+ BPM 곡에서 반박자 오류 발생
-        // ex) TOMBOY GT=147.7 BPM (406ms) → prior 편향으로 75 BPM (800ms) 선택됨
-        // halfLag의 autocorr 가 bestLag의 55% 이상이면 빠른 템포(halfLag) 선택
+        // halfLag의 autocorr 가 bestLag 대비 HALF_TEMPO_RATIO 이상이면 빠른 템포(halfLag) 선택
         val halfLag = bestLag / 2
         if (halfLag >= minLag) {
             val halfAc = acVals[halfLag]
@@ -275,7 +251,7 @@ object BeatDetectorV1 {
         targetPeriodMs: Long,
         hopMs: Long,
         durationMs: Long,
-        anchorMs: Long = 0L   // 위상 앵커: estimatePhaseFromOdf 결과를 주입하여 위상 오류 방지
+        anchorMs: Long = 0L   // 위상 앵커 (estimatePhaseFromOdf 결과)
     ): LongArray {
         if (odf.isEmpty() || targetPeriodMs <= 0L) return LongArray(0)
         val n            = odf.size
@@ -300,8 +276,6 @@ object BeatDetectorV1 {
         }
 
         // p == 0 또는 p == anchorFrame 이면 "자유 시작" 으로 pScore = 0 취급
-        // → anchorFrame(comb-phase 추정 위상)에서 chain 을 시작할 수 있어
-        //   전역 DP 가 잘못된 위상에 수렴하는 문제를 방지한다
         val cumscore = FloatArray(n) { Float.NEGATIVE_INFINITY }
         val prev     = IntArray(n)  { -1 }
         val searchRange = fpb * 2
@@ -383,7 +357,7 @@ object BeatDetectorV1 {
         return localNormalizeMean(combined, GLOBAL_NORM_WINDOW)
     }
 
-    // Fix E: 배경 평균 제거 후 0-1 정규화
+    // 배경 평균 제거 후 0-1 정규화
     private fun localNormalizeMean(src: List<Float>, windowFrames: Int): List<Float> {
         if (src.isEmpty()) return emptyList()
         val bgRemoved = ArrayList<Float>(src.size)
