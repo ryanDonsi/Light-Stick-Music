@@ -43,6 +43,7 @@ fun MusicControlScreen(
     val isAutoModeEnabled       by viewModel.isAutoModeEnabled.collectAsState()
     val latestTransmission      by viewModel.latestTransmission.collectAsState()
     val currentSections         by viewModel.currentSections.collectAsState()
+    val currentColorFamily      by viewModel.currentColorFamily.collectAsState()
     val isSectionOverlayEnabled by viewModel.isSectionOverlayEnabled.collectAsState()
 
     val toastState = rememberToastState()
@@ -98,7 +99,8 @@ fun MusicControlScreen(
                             modifier         = Modifier.fillMaxWidth(),
                             latestTransmission      = latestTransmission,
                             sections                = currentSections,
-                            isSectionOverlayEnabled = isSectionOverlayEnabled
+                            isSectionOverlayEnabled = isSectionOverlayEnabled,
+                            colorFamily             = currentColorFamily
                         )
                     }
 

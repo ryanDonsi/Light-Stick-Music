@@ -33,7 +33,11 @@ fun SectionInfoOverlay(
     sections: List<SectionMeta>,
     currentPositionMs: Long,
     durationMs: Long,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // 팔레트 관련 값(EffectMatchingEngine.Palette.colorFamily)은 SectionMeta가 아니라
+    // 호출부(ViewModel)가 EffectMatchingEngine에서 직접 받아와 전달한다 — Section 쪽은
+    // 섹션 감지 결과만 다룬다.
+    colorFamily: String? = null
 ) {
     if (sections.isEmpty() || durationMs <= 0L) return
 
@@ -41,7 +45,6 @@ fun SectionInfoOverlay(
         currentPositionMs >= it.startMs && currentPositionMs < it.endMs
     } ?: sections.last()
     val musicStyle  = sections.firstOrNull()?.musicStyle
-    val colorFamily = sections.firstOrNull()?.colorFamily
 
     Box(modifier = modifier) {
         Column(

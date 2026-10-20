@@ -54,7 +54,8 @@ fun MusicPlayerCard(
     modifier: Modifier = Modifier,
     latestTransmission: BleTransmissionEvent? = null,
     sections: List<SectionMeta>? = null,
-    isSectionOverlayEnabled: Boolean = false
+    isSectionOverlayEnabled: Boolean = false,
+    colorFamily: String? = null
 ) {
     if (musicItem == null) {
         EmptyMusicCard(modifier = modifier)
@@ -127,7 +128,8 @@ fun MusicPlayerCard(
                             durationMs        = duration,
                             modifier          = Modifier
                                 .fillMaxSize()
-                                .clip(RoundedCornerShape(20.dp))
+                                .clip(RoundedCornerShape(20.dp)),
+                            colorFamily       = colorFamily
                         )
                     }
                 }
