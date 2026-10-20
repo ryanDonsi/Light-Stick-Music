@@ -2,7 +2,6 @@ package com.lightstick.music.domain.music
 
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.LSEffectPayload
-import kotlin.math.abs
 
 /**
  * EffectMatchingEngineV0 — 단순 비트 ON 매칭
@@ -35,17 +34,12 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
     override fun buildPalette(seed: Int, musicStyle: MusicStyleClassifier.MusicStyle): EffectMatchingEngine.Palette {
         val white = LSColor(255, 255, 255)
         val black = LSColor(0, 0, 0)
-        val empty = EffectMatchingEngine.ColorSet(white, black)
         return EffectMatchingEngine.Palette(
             black = black, white = white,
             colorFamily = "NONE",
-            onPulseBg = listOf(black),
-            breathSet = empty,
-            chorusBg = black,
-            colorGroup = listOf(white, white, white, white),
-            verseBlinkBg = black,
-            verseBlinkFgCycle = listOf(white),
-            chorusColors = listOf(white)
+            mainColors = listOf(white, white, white),
+            pointColor = white,
+            bgColor = black
         )
     }
 

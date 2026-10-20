@@ -4,28 +4,6 @@ import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.LSEffectPayload
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
-
-// RGB->hue 변환 유틸리티(색상 정렬/비교용). PaletteFamily는 enum이라 outer 클래스
-// 인스턴스에 접근 못 하므로, EffectMatchingEngineV1 본문과 공유하려면 top-level이어야
-// 한다. light/deep은 더 이상 여기서 계산하지 않고 PaletteFamily에 실측값 그대로
-// 상수로 들고 있는다(아래 enum 참고).
-private fun wrap360(h: Float) = ((h % 360f) + 360f) % 360f
-
-private fun hueOf(c: LSColor): Float {
-    val r = c.r / 255f; val g = c.g / 255f; val b = c.b / 255f
-    val maxC = max(r, max(g, b)); val minC = min(r, min(g, b))
-    val d = maxC - minC
-    if (d < 1e-6f) return 0f
-    val h = when (maxC) {
-        r    -> (((g - b) / d) % 6f + 6f) % 6f
-        g    -> (b - r) / d + 2f
-        else -> (r - g) / d + 4f
-    }
-    return wrap360(h * 60f)
-}
 
 // 팔레트 색 계열(PaletteFamily)이 쓰는 실측 RGB 스와치. 이름을 붙여두면 코드만 보고도
 // 바로 어떤 색인지 알 수 있다 — 전부 응원봉 실기로 확인한 S=100%·V=100% 순수 색상.
@@ -120,51 +98,75 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         //   하나를 결정론적으로 고른다 — 같은 장르 곡들이 전부 똑같은 색은 아니게 하되,
         //   분위기(계열)는 장르에 맞춘다.
         // rolePermutation: 한 계열(PaletteFamily)은 rgb 4개의 고정된 색 후보를 갖는다.
-        //   이 4개 중 "어느 것을 cMain으로 쓸지" + 나머지를 cStep1~3에
-        //   어떤 순서로 배치할지를 장르마다 다르게 둬서, 같은 계열이 걸려도 장르마다
-        //   대표색(cMain)이 달라 보이는 효과를 낸다.
-        //   rolePermutation[0](=cMain으로 쓸 raw 인덱스)은 임의로 고른 게 아니라, 실사용
-        //   비중이 큰 BALLAD/EDM/DANCE_POP/POP이 공유하는 계열별로 "그 계열을 쓰는
-        //   장르들의 cMain끼리 최대한 멀어지도록" 전수 탐색(4^4=256 조합)으로 찾은 값이다
-        //   (최소 간격 11.3도). 이 조건을 만족하는 조합이 여러 개라 그중 DANCE_POP의
-        //   cMain이 RED의 순수 빨강(rgb[2]=RED_PURE)이 되는 조합을 택했다. ROCK/HIPHOP_RNB는
-        //   실사용 비중이 낮아 이 최적화에서 제외하고 같은 계열을 쓰는 장르(ROCK→EDM,
-        //   HIPHOP_RNB→BALLAD)의 값을 그대로 가져다 쓴다.
-        private data class GenreTheme(val families: List<PaletteFamily>, val rolePermutation: List<Int>)
+        //   이 4개 중 앞 3개를 PaletteSet.mainColors로, 마지막 1개를 pointColor로 배치하는
+        //   순서를 장르마다 다르게 둬서, 같은 계열이 걸려도 장르마다 대표색(mainColors[0])이
+        //   달라 보이는 효과를 낸다.
+        //   rolePermutation[0](=mainColors[0]으로 쓸 raw 인덱스)은 임의로 고른 게 아니라,
+        //   실사용 비중이 큰 BALLAD/EDM/DANCE_POP/POP이 공유하는 계열별로 "그 계열을 쓰는
+        //   장르들의 mainColors[0]끼리 최대한 멀어지도록" 전수 탐색(4^4=256 조합)으로 찾은
+        //   값이다(최소 간격 11.3도). 이 조건을 만족하는 조합이 여러 개라 그중 DANCE_POP의
+        //   mainColors[0]이 RED의 순수 빨강(rgb[2]=RED_PURE)이 되는 조합을 택했다.
+        //   ROCK/HIPHOP_RNB는 실사용 비중이 낮아 이 최적화에서 제외하고 같은 계열을 쓰는
+        //   장르(ROCK→EDM, HIPHOP_RNB→BALLAD)의 값을 그대로 가져다 쓴다.
+        //
+        // 팔레트 세트(PaletteSet)는 한 계열(PaletteFamily)의 실측 RGB 4개를 역할 배치
+        // (rolePermutation)에 따라 "메인 3개 + 포인트 1개 + 배경 1개"로 미리 나눠(bake)둔
+        // 완성품이다 — buildPalette()는 이걸 seed로 고르기만 하면 되고, hue 비교/간격
+        // 최적화 같은 계산은 더 이상 하지 않는다(모두 buildPaletteSet에서 미리 끝남).
+        private data class PaletteSet(
+            val label: String,
+            val mainColors: List<LSColor>,
+            val pointColor: LSColor,
+            val bgColor: LSColor
+        )
+
+        private fun buildPaletteSet(family: PaletteFamily, rolePermutation: List<Int>): PaletteSet = PaletteSet(
+            label = family.name,
+            mainColors = listOf(
+                family.rgb[rolePermutation[0]], family.rgb[rolePermutation[1]], family.rgb[rolePermutation[2]]
+            ),
+            pointColor = family.rgb[rolePermutation[3]],
+            bgColor = family.deep[rolePermutation[0]]
+        )
+
+        private data class GenreTheme(val paletteSets: List<PaletteSet>)
 
         private val GENRE_THEMES: Map<MusicStyleClassifier.MusicStyle, GenreTheme> = mapOf(
             MusicStyleClassifier.MusicStyle.BALLAD to GenreTheme(
-                families = listOf(PaletteFamily.TEAL, PaletteFamily.PURPLE, PaletteFamily.BLUE),
-                rolePermutation = listOf(3, 0, 1, 2)
+                listOf(PaletteFamily.TEAL, PaletteFamily.PURPLE, PaletteFamily.BLUE)
+                    .map { buildPaletteSet(it, listOf(3, 0, 1, 2)) }
             ),
             MusicStyleClassifier.MusicStyle.EDM to GenreTheme(
-                families = listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD, PaletteFamily.PURPLE),
-                rolePermutation = listOf(0, 1, 2, 3)
+                listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD, PaletteFamily.PURPLE)
+                    .map { buildPaletteSet(it, listOf(0, 1, 2, 3)) }
             ),
             MusicStyleClassifier.MusicStyle.DANCE_POP to GenreTheme(
-                families = listOf(PaletteFamily.RED, PaletteFamily.TEAL, PaletteFamily.BLUE),
-                rolePermutation = listOf(2, 0, 1, 3)
+                listOf(PaletteFamily.RED, PaletteFamily.TEAL, PaletteFamily.BLUE)
+                    .map { buildPaletteSet(it, listOf(2, 0, 1, 3)) }
             ),
             MusicStyleClassifier.MusicStyle.HIPHOP_RNB to GenreTheme(
-                families = listOf(PaletteFamily.PURPLE, PaletteFamily.BLUE, PaletteFamily.TEAL),
-                rolePermutation = listOf(3, 0, 1, 2)
+                listOf(PaletteFamily.PURPLE, PaletteFamily.BLUE, PaletteFamily.TEAL)
+                    .map { buildPaletteSet(it, listOf(3, 0, 1, 2)) }
             ),
             MusicStyleClassifier.MusicStyle.ROCK to GenreTheme(
-                families = listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD),
-                rolePermutation = listOf(0, 1, 2, 3)
+                listOf(PaletteFamily.RED, PaletteFamily.ORANGE_GOLD)
+                    .map { buildPaletteSet(it, listOf(0, 1, 2, 3)) }
             ),
             MusicStyleClassifier.MusicStyle.POP to GenreTheme(
-                families = PaletteFamily.values().toList(),
-                rolePermutation = listOf(1, 0, 2, 3)
+                PaletteFamily.values().map { buildPaletteSet(it, listOf(1, 0, 2, 3)) }
             )
         )
+
+        private val DEFAULT_PALETTE_SETS: List<PaletteSet> =
+            PaletteFamily.values().map { buildPaletteSet(it, listOf(0, 1, 2, 3)) }
     }
 
     /**
-     * 팔레트 색 계열 — rgb는 cMain/cStep1~3 후보가 될 4개의 RGB(위에 이름 붙여둔 실측
-     * 스와치). deep은 rgb[i]가 cMain으로 선택됐을 때 쓰는 cDeep(명도만 48%로 낮춘 어두운
-     * 톤)을 같은 인덱스로 미리 계산해 둔 값 — buildPalette에서는 rolePerm[0]으로 두
-     * 리스트 모두 바로 꺼내 쓴다. 각 계열의 첫 번째·마지막 스와치가 실제 응원봉 펌웨어
+     * 팔레트 색 계열 — rgb는 PaletteSet.mainColors/pointColor 후보가 될 4개의 RGB(위에
+     * 이름 붙여둔 실측 스와치). deep은 rgb[i]가 mainColors[0]으로 선택됐을 때 쓰는
+     * bgColor(명도만 48%로 낮춘 어두운 톤)를 같은 인덱스로 미리 계산해 둔 값 —
+     * buildPaletteSet에서 rolePermutation으로 두 리스트 모두 바로 꺼내 쓴다. 각 계열의
+     * 첫 번째·마지막 스와치가 실제 응원봉 펌웨어
      * 색상표에서 고른 두 "끝점" 색상이고, 가운데 둘은 그 사이를 hue 기준 3등분한 값이
      * 기본이다. RED만 3등분 보간 그대로 쓰면 정작 순수 RED_PURE(255,0,0)가 네 포인트 중
      * 어디에도 걸리지 않아서(실측 피드백) 세 번째 자리를 보간값 대신 RED_PURE로
@@ -213,71 +215,18 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         seed: Int, musicStyle: MusicStyleClassifier.MusicStyle
     ): EffectMatchingEngine.Palette {
         val rawHue  = (((seed.toLong() * 2654435761L) ushr 8) and 0x7FFFFFFFL).toInt()
-        // 장르에 어울리는 색 계열 후보군 중 하나를 seed로 결정론적으로 고른다 — 같은
-        // 장르 곡들이 전부 똑같은 색은 아니게 하되, 계열 자체(=실측 RGB)는 그대로 쓴다.
-        val theme = GENRE_THEMES[musicStyle]
-        val candidates = theme?.families ?: PaletteFamily.values().toList()
-        val family = candidates[Math.floorMod(rawHue, candidates.size)]
-        Log.d(TAG, "[Palette] style=$musicStyle family=$family")
-        // 장르별 역할 배치(GenreTheme.rolePermutation)에 따라 family.rgb(4개 고정 RGB)를
-        // cMain/cStep1~3으로 재배정한다 — 실측값을 그대로 쓰므로 변환이 필요 없다.
-        val rolePerm = theme?.rolePermutation ?: listOf(0, 1, 2, 3)
-        val cMain  = family.rgb[rolePerm[0]]
-        val cStep1 = family.rgb[rolePerm[1]]
-        val cStep2 = family.rgb[rolePerm[2]]
-        val cStep3 = family.rgb[rolePerm[3]]
-        // cStep4(채도만 80%로 낮춘 "옅지만 밝은" 포인트색)는 실기에서 너무 허여멀건하게
-        // 자주 눈에 띈다는 피드백으로 더 이상 쓰지 않는다. 대신 family.deep(명도만 48%로
-        // 낮춘 톤)은 cDeep으로 그대로 사용.
-        val cDeep  = family.deep[rolePerm[0]]
-        val black  = LSColor(0, 0, 0)
-        val white = LSColor(255, 255, 255)
-        // colorGroup(VERSE 순환용, cStep 빈도 균등화): family.rgb 4개는 hue 기준 3등분
-        // 보간이라 간격이 이미 고르게 벌어져 있어 hue 정렬만 하면 된다(zigzag 재배치 불필요).
-        val mainHue = hueOf(cMain)
-        fun signedOffsetFromBase(h: Float) = wrap360(h - mainHue + 180f) - 180f
-        val sortedArc = listOf(
-            mainHue to cMain, hueOf(cStep1) to cStep1, hueOf(cStep2) to cStep2, hueOf(cStep3) to cStep3
-        ).sortedBy { signedOffsetFromBase(it.first) }
-        val colorGroup = sortedArc.map { it.second }
-        // CHORUS는 "탁탁 튀는" 전환이 핵심이다. white 다음은 항상 cMain(장르 대표색)으로
-        // 고정해서 전환 시작점이 매번 또렷하게 하고, 그 뒤 두 자리는 cStep1~3 중 이어
-        // 붙였을 때 간격이 최대가 되는 조합+순서를 전수 비교(3개 중 2개를 순서까지
-        // 고려하면 6가지뿐)해서 고른다. cMain이 역할 배치상 어느 hue 위치에 오든(장르마다
-        // 다름) 항상 최선의 조합을 찾는다.
-        val others = listOf(hueOf(cStep1) to cStep1, hueOf(cStep2) to cStep2, hueOf(cStep3) to cStep3)
-        val orderedPairs = others.indices.flatMap { i -> others.indices.filter { it != i }.map { j -> i to j } }
-        val bestPair = orderedPairs.maxBy { (i, j) ->
-            val gapMainToFirst = abs(signedOffsetFromBase(others[i].first))
-            val gapFirstToSecond = abs(signedOffsetFromBase(others[j].first) - signedOffsetFromBase(others[i].first))
-            min(gapMainToFirst, gapFirstToSecond)
-        }
-        val chorusColors = listOf(white, cMain, others[bestPair.first].second, others[bestPair.second].second)
-        // BREATH의 bg: cStep1~3 중 cMain과 hue가 가장 먼 것을 고른다 — cDeep(명도만
-        // 낮춘 톤)이 아니라 계열 안의 다른 색상 자체로 fg/bg 대비를 낸다.
-        val breathBg = others.maxBy { abs(signedOffsetFromBase(it.first)) }.second
-        val cMainLuma  = 0.299f * cMain.r + 0.587f * cMain.g + 0.114f * cMain.b
-        val patternABg = if (cMainLuma >= 128f) cDeep else cMain
-        // VERSE BLINK: BG는 빨강에 가장 가까운 색(closestToRed)으로 고정하고, FG는 BG와
-        // 겹치지 않는 나머지 색을 bar마다 순환시킨다. cMain/cStep1~3 4개 중 BG로 쓰인
-        // 1개를 뺀 나머지가 그대로 FG 후보가 된다.
-        val verseBlinkBg = closestToRed(colorGroup)
-        val verseBlinkFgCycle = listOf(cStep1, cStep2, cStep3, cMain)
-            .filterNot { it == verseBlinkBg }
+        // 장르에 어울리는 팔레트 세트 후보군(~3개) 중 하나를 seed로 결정론적으로 고른다 —
+        // 같은 장르 곡들이 전부 똑같은 색은 아니게 하되, 세트 자체(=실측 RGB를 미리
+        // mainColors/pointColor/bgColor로 나눠둔 값)는 그대로 쓴다.
+        val sets = GENRE_THEMES[musicStyle]?.paletteSets ?: DEFAULT_PALETTE_SETS
+        val set = sets[Math.floorMod(rawHue, sets.size)]
+        Log.d(TAG, "[Palette] style=$musicStyle set=${set.label}")
         return EffectMatchingEngine.Palette(
-            black       = black, white = white,
-            colorFamily = family.name,
-            // 패턴B(onPulseBg[1])의 BG를 black에서 cDeep으로 바꾼다 — BRIDGE의 BREATH가
-            // BG를 black으로 뒀을 때 "꺼진 것처럼 보임" 피드백이 있었는데, ON_PULSE도 같은
-            // 문제를 겪을 수 있어서 같은 색 계열의 어두운 톤(cDeep)으로 바꿔 테스트해본다.
-            onPulseBg = listOf(patternABg, cDeep),
-            // FG는 cMain(완전 채도), BG는 breathBg(cStep1~3 중 cMain과 hue가 가장 먼
-            // 색, 채도/명도도 100% 그대로) — 둘 다 흐릿한 톤 없이 색상 자체로 또렷한 대비.
-            breathSet   = EffectMatchingEngine.ColorSet(cMain, breathBg),
-            chorusBg    = cDeep, colorGroup = colorGroup,
-            verseBlinkBg = verseBlinkBg,
-            verseBlinkFgCycle = verseBlinkFgCycle,
-            chorusColors = chorusColors
+            black       = LSColor(0, 0, 0), white = LSColor(255, 255, 255),
+            colorFamily = set.label,
+            mainColors  = set.mainColors,
+            pointColor  = set.pointColor,
+            bgColor     = set.bgColor
         )
     }
 
@@ -387,11 +336,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         // 마지막 fg로 남는다.
         var lastFg: LSColor = palette.white
 
-        val sameTypeCountMap = mutableMapOf<SectionDetector.SectionType, Int>()
-
-        for ((index, section) in sections.withIndex()) {
-            val sameTypeIdx = sameTypeCountMap.getOrDefault(section.type, 0)
-            sameTypeCountMap[section.type] = sameTypeIdx + 1
+        for (section in sections) {
             lastRepeatKey = null
 
             val effectiveBeats = section.beatTimesMs
@@ -441,7 +386,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
                 val effectiveEngine = beatEngine
 
-                val (fg, bg) = colorsForEngine(palette, effectiveEngine, sameTypeIdx, beatIndex, section.type, barIdx, isBalladMode)
+                val (fg, bg) = colorsForEngine(palette, effectiveEngine, beatIndex, section.type, barIdx, isBalladMode)
                 val bgNonNull = bg ?: LSColor(0, 0, 0)
                 lastFg = fg
 
@@ -614,71 +559,56 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     private fun bridgePhaseEngine(): EffectMatchingEngine.FgEngine = EffectMatchingEngine.FgEngine.BREATH
 
     private fun colorsForEngine(
-        palette: EffectMatchingEngine.Palette, engine: EffectMatchingEngine.FgEngine, sectionIndex: Int,
+        palette: EffectMatchingEngine.Palette, engine: EffectMatchingEngine.FgEngine,
         beatIndex: Int = 0, sectionType: SectionDetector.SectionType = SectionDetector.SectionType.VERSE,
         barIdx: Int = 0, isBalladMode: Boolean = false
     ): Pair<LSColor, LSColor?> {
-        val isPatternA = (sectionIndex % 2 == 0)
-        // 예전엔 "CHORUS면 chorusColors, 아니면 colorGroup"을 effectiveColors 하나로
-        // 묶어서 ON_PULSE/BREATH/ON_TRANSIT_ROTATE가 전부 같이 참조했는데, 실제로는
-        // ON_PULSE·BREATH(VERSE 분기)는 CHORUS에서 절대 안 쓰인다(assignFgEngine 참고 —
-        // VERSE→ON_PULSE/BREATH, CHORUS→ON_TRANSIT_ROTATE로 섹션별 엔진이 고정이라 겹칠
-        // 일이 없다). 그래서 effectiveColors는 사실상 매번 똑같은 값을 가리키면서도
-        // "어디서 쓰는 색인지"가 변수명만 봐선 안 보였다. 엔진별로 쓰는 색 순환을 각자
-        // 이름 붙여서(onPulseFgCycle/verseBreathFgCycle/chorusOnRotateFgCycle 등)
-        // 분기 안에서 바로 선언하도록 바꿨다.
+        // 팔레트가 미리 "메인 3색 + 포인트 1색 + 배경 1색"으로 나뉘어 있으므로, 이펙트별
+        // 색 정의는 그중 어떤 역할을 어떻게 쓰는지만 선언하면 된다 — hue 거리/대비 계산은
+        // buildPalette(→buildPaletteSet)에서 이미 끝나 있다.
         return when (engine) {
+            // ON_PULSE는 VERSE(비발라드)에서만 쓰인다. FG는 bar마다 mainColors를 순환,
+            // BG는 공통 bgColor.
             EffectMatchingEngine.FgEngine.ON_PULSE -> {
-                // ON_PULSE는 VERSE(비발라드)에서만 쓰이므로 항상 colorGroup을 순환한다.
-                // FG를 bar 단위로 순환시킨다 — 기존엔 섹션 전체가 sectionIndex 기반 고정
-                // 한 색이라 같은 VERSE 안에서는 ON_PULSE FG가 안 바뀌었다. BG는 기존처럼
-                // 섹션 단위 패턴(A/B)을 그대로 유지.
-                val onPulseFgCycle = palette.colorGroup
-                val bg = if (isPatternA) palette.onPulseBg[0] else palette.onPulseBg[1]
-                val fg = onPulseFgCycle[Math.floorMod(barIdx, onPulseFgCycle.size)]
-                fg to bg
+                val fg = palette.mainColors[Math.floorMod(barIdx, palette.mainColors.size)]
+                fg to palette.bgColor
             }
+            // BLINK는 VERSE(비발라드)의 "그 bar가 섹션 내에서 에너지가 높은 구간"일 때만
+            // 쓰인다(buildFramesFromSections의 verseBarEnergy 참고). FG는 ON_PULSE와 같은
+            // mainColors 순환이지만, BG를 pointColor로 바꿔 ON_PULSE(낮은 에너지)와 또렷이
+            // 구분한다.
             EffectMatchingEngine.FgEngine.BLINK -> {
-                // BLINK는 VERSE(비발라드)의 "그 bar가 섹션 내에서 에너지가 높은 구간"일
-                // 때만 쓰인다(buildFramesFromSections의 verseBarEnergy 참고, sectionEnginePool
-                // 상 다른 섹션 타입에는 BLINK가 배정되지 않는다). BG는 verseBlinkBg(고정,
-                // 팔레트에서 빨강에 가장 가까운 색)로 ON_PULSE(낮은 에너지)와 또렷이
-                // 구분하고, FG는 ON_PULSE처럼 bar마다 verseBlinkFgCycle(BG와 겹치지 않는
-                // 색)을 순환시켜 bar가 바뀔 때마다 다른 색으로 연출한다.
-                val fg = palette.verseBlinkFgCycle[Math.floorMod(barIdx, palette.verseBlinkFgCycle.size)]
-                fg to palette.verseBlinkBg
+                val fg = palette.mainColors[Math.floorMod(barIdx, palette.mainColors.size)]
+                fg to palette.pointColor
             }
             // ON_TRANSIT_ROTATE는 CHORUS에서만 배정된다(assignFgEngine/sectionEnginePool —
             // BRIDGE는 bridgePhaseEngine이 항상 BREATH만 반환하고, CLIMAX는 SectionDetectorV3
-            // 단계에서 검출 자체를 막아둬서 도달하지 않는다). 간격이 큰 색만 골라둔
-            // chorusColors를 순환시켜 전환마다 또렷이 달라지도록 한다("탁탁 튀는" 전환).
+            // 단계에서 검출 자체를 막아둬서 도달하지 않는다). white 다음은 항상 mainColors를
+            // 순서대로 순환시켜 전환마다 또렷이 달라지도록 한다("탁탁 튀는" 전환).
             EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE -> {
-                val chorusOnRotateFgCycle = palette.chorusColors
+                val chorusOnRotateFgCycle = listOf(palette.white) + palette.mainColors
                 val fg = chorusOnRotateFgCycle[beatIndex % chorusOnRotateFgCycle.size]
-                fg to palette.chorusBg
+                fg to palette.bgColor
             }
-            // BRIDGE의 BREATH는 (비발라드 포함) VERSE의 BREATH와 같은 breathSet 색을 그대로
-            // 썼었다(sectionType 구분이 없었음) — 발라드에서만 BG를 검정으로 바꿔 더 조용한
-            // 느낌을 주려 했는데, FG까지 검정으로 하면 breath가 검정↔검정이 돼서 사실상
-            // 완전히 꺼진 것처럼 보이는 문제가 있었다(실측: "BRIDGE가 OFF 상태로만 나옴").
-            // FG는 breathSet.fg(색상 있는 값)를 유지하고 BG만 검정으로 바꿔서, FREEZE와
-            // 같은 패턴(색상 있는 FG + 검정 BG)으로 맞췄다.
-            // 발라드 VERSE의 BREATH는 breathSet 고정 1색 대신 컬러셋을 bar마다 순환시킨다
-            // — ON_PULSE가 FG를 bar 단위로 순환시키는 것과 같은 방식. RANDOM DELAY=0
-            // (buildFramesFromSections)이라 모든 기기가 같은 타이밍으로 숨쉬므로, 색만
-            // bar마다 바뀌어도 기기 간 어긋남 없이 또렷하게 보인다.
+            // 발라드 BRIDGE만 BG를 검정으로 바꿔 더 조용한 느낌을 준다 — FG까지 검정으로
+            // 하면 breath가 검정↔검정이 돼서 완전히 꺼진 것처럼 보이는 문제가 있었다(실측:
+            // "BRIDGE가 OFF 상태로만 나옴"). FG는 pointColor(색상 있는 값)를 유지하고 BG만
+            // 검정으로 바꿔서, FREEZE와 같은 패턴(색상 있는 FG + 검정 BG)으로 맞췄다.
+            // 발라드 VERSE의 BREATH는 pointColor 고정 1색 대신 mainColors를 bar마다
+            // 순환시킨다 — ON_PULSE가 FG를 bar 단위로 순환시키는 것과 같은 방식.
+            // RANDOM DELAY=0(buildFramesFromSections)이라 모든 기기가 같은 타이밍으로
+            // 숨쉬므로, 색만 bar마다 바뀌어도 기기 간 어긋남 없이 또렷하게 보인다.
             EffectMatchingEngine.FgEngine.BREATH -> when {
-                sectionType == SectionDetector.SectionType.BRIDGE && isBalladMode -> palette.breathSet.fg to palette.black
+                sectionType == SectionDetector.SectionType.BRIDGE && isBalladMode -> palette.pointColor to palette.black
                 sectionType == SectionDetector.SectionType.VERSE -> {
-                    // BREATH가 VERSE에서 쓰이는 건 발라드뿐이라 항상 colorGroup을 순환한다.
-                    val verseBreathFgCycle = palette.colorGroup
-                    verseBreathFgCycle[Math.floorMod(barIdx, verseBreathFgCycle.size)] to palette.breathSet.bg
+                    val verseBreathFgCycle = palette.mainColors
+                    verseBreathFgCycle[Math.floorMod(barIdx, verseBreathFgCycle.size)] to palette.bgColor
                 }
-                else -> palette.breathSet.fg to palette.breathSet.bg
+                else -> palette.pointColor to palette.bgColor
             }
-            // FREEZE(BREAK): 깜빡임/회전 없이 한 가지 색을 고정해서 보여준다. BREATH와 같은
-            // 색을 쓰되 배경은 완전히 꺼서(black) 정적인 느낌을 준다.
-            EffectMatchingEngine.FgEngine.FREEZE -> palette.breathSet.fg to palette.black
+            // FREEZE(BREAK): 깜빡임/회전 없이 한 가지 색을 고정해서 보여준다. pointColor를
+            // 쓰되 배경은 완전히 꺼서(black) 정적인 느낌을 준다.
+            EffectMatchingEngine.FgEngine.FREEZE -> palette.pointColor to palette.black
             // OFF_TRANSIT 섹션은 buildFramesFromSections에서 이미 continue로 걸러져 여기 도달하지 않음
             EffectMatchingEngine.FgEngine.OFF_TRANSIT -> palette.black to palette.black
         }
@@ -721,14 +651,5 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         if (values.isEmpty()) return 0f
         val sorted = values.sorted()
         return sorted[(sorted.lastIndex * p).toInt().coerceIn(0, sorted.lastIndex)]
-    }
-
-    /** 색상 목록 중 색상환에서 빨강(hue 0)에 가장 가까운 것을 고른다. */
-    private fun closestToRed(colors: List<LSColor>): LSColor {
-        if (colors.isEmpty()) return LSColor(255, 0, 0)
-        return colors.minBy { c ->
-            val h = hueOf(c)
-            min(h, 360f - h)
-        }
     }
 }

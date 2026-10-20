@@ -30,28 +30,19 @@ interface EffectMatchingEngine {
 
     data class Palette(
         val black: LSColor, val white: LSColor,
-        // 이 팔레트가 선택한 색 계열의 이름(V1: PaletteFamily.name, 예 "PURPLE"/"RED"/
+        // 이 팔레트가 선택한 색 계열의 이름(V1: PaletteSet.label, 예 "PURPLE"/"RED"/
         // "ORANGE_GOLD"/"TEAL"/"BLUE". V0처럼 계열 개념이 없는 구현체는 "NONE") — UI의
         // Effect Info 패널에서 장르 옆에 어떤 색상 테이블이 선택됐는지 보여주는 용도.
         val colorFamily: String,
-        // ON_PULSE의 BG만 패턴 A/B(섹션 인덱스 홀짝)로 구분해서 담는다 — FG는 고정색이
-        // 아니라 colorGroup을 bar마다 순환시켜 쓰므로(colorsForEngine 참고) 여기엔
-        // 들어있지 않다.
-        val onPulseBg: List<LSColor>,
-        val breathSet: ColorSet,
-        val chorusBg: LSColor,
-        val colorGroup: List<LSColor>,
-        // VERSE의 BLINK(고에너지 bar) 전용 색상 — BG는 고정(cStep6을 cDeep처럼 밝기만
-        // 낮춘 값), FG는 bar마다 verseBlinkFgCycle을 순환한다.
-        val verseBlinkBg: LSColor,
-        val verseBlinkFgCycle: List<LSColor>,
-        // CHORUS 전용 순환색. colorGroup(5개, 빈도 균등화용)을 그대로 쓰면 사이사이 간격이
-        // 좁은 색도 섞여서 "탁탁 튀는" 느낌이 약해진다 — CHORUS는 간격이 가장 큰 3개만
-        // 골라 전환마다 또렷이 달라지도록 white 포함 4개로 미리 계산해 둔다.
-        val chorusColors: List<LSColor>
+        // 순환형 이펙트(ON_PULSE, VERSE의 BREATH/BLINK, CHORUS)가 bar/beat마다 번갈아
+        // 쓰는 메인 색 3개.
+        val mainColors: List<LSColor>,
+        // 고정 포인트 색 — 숨쉬듯 한 색을 유지하는 BREATH(비VERSE)·FREEZE의 메인색이자,
+        // BLINK에서 ON_PULSE와 구분되는 배경 강조색으로 쓰인다.
+        val pointColor: LSColor,
+        // 전 이펙트가 공통으로 쓰는 배경색.
+        val bgColor: LSColor
     )
-
-    data class ColorSet(val fg: LSColor, val bg: LSColor)
 
     data class SectionGroup(
         val startMs: Long, val endMs: Long,
@@ -70,7 +61,7 @@ interface EffectMatchingEngine {
      *                   고르는 데 쓰인다. 같은 장르 후보군 안에서는 seed로 결정론적으로 하나를
      *                   고르므로, 같은 곡은 항상 같은 팔레트가 나오지만 장르가 다르면 분위기도
      *                   달라진다. 미사용 구현체(V0)는 무시해도 된다.
-     * @return 4색 팔레트 (흰색 포함)
+     * @return 메인 3색 + 포인트 1색 + 배경 1색(+흑백)으로 구성된 팔레트
      */
     fun buildPalette(seed: Int, musicStyle: MusicStyleClassifier.MusicStyle = MusicStyleClassifier.MusicStyle.POP): Palette
 
