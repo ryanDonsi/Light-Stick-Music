@@ -25,18 +25,30 @@ interface EffectMatchingEngine {
     // 공통 데이터 클래스 및 enum
     // =========================================================================
 
-    enum class FgEngine { ON_PULSE, BLINK, STROBE, BREATH, ON_TRANSIT_ROTATE, OFF_TRANSIT }
+    enum class FgEngine { ON_PULSE, BLINK, BREATH, ON_TRANSIT_ROTATE, OFF_TRANSIT, FREEZE }
     enum class ChangeLevel { MEDIUM, STRONG }
 
     data class Palette(
         val black: LSColor, val white: LSColor,
-        val onPulseSets: List<ColorSet>,
-        val blinkSets: List<ColorSet>,
-        val strokeSets: List<ColorSet>,
+        // 이 팔레트가 선택한 색 계열의 이름(V1: PaletteFamily.name, 예 "PURPLE"/"RED"/
+        // "ORANGE_GOLD"/"TEAL"/"BLUE". V0처럼 계열 개념이 없는 구현체는 "NONE") — UI의
+        // Effect Info 패널에서 장르 옆에 어떤 색상 테이블이 선택됐는지 보여주는 용도.
+        val colorFamily: String,
+        // ON_PULSE의 BG만 패턴 A/B(섹션 인덱스 홀짝)로 구분해서 담는다 — FG는 고정색이
+        // 아니라 colorGroup을 bar마다 순환시켜 쓰므로(colorsForEngine 참고) 여기엔
+        // 들어있지 않다.
+        val onPulseBg: List<LSColor>,
         val breathSet: ColorSet,
-        val bridgeSets: List<ColorSet>,
         val chorusBg: LSColor,
-        val colorGroup: List<LSColor>
+        val colorGroup: List<LSColor>,
+        // VERSE의 BLINK(고에너지 bar) 전용 색상 — BG는 고정(cStep6을 cDeep처럼 밝기만
+        // 낮춘 값), FG는 bar마다 verseBlinkFgCycle을 순환한다.
+        val verseBlinkBg: LSColor,
+        val verseBlinkFgCycle: List<LSColor>,
+        // CHORUS 전용 순환색. colorGroup(5개, 빈도 균등화용)을 그대로 쓰면 사이사이 간격이
+        // 좁은 색도 섞여서 "탁탁 튀는" 느낌이 약해진다 — CHORUS는 간격이 가장 큰 3개만
+        // 골라 전환마다 또렷이 달라지도록 white 포함 4개로 미리 계산해 둔다.
+        val chorusColors: List<LSColor>
     )
 
     data class ColorSet(val fg: LSColor, val bg: LSColor)
@@ -54,9 +66,13 @@ interface EffectMatchingEngine {
     /**
      * 팔레트 생성
      * @param seed musicId 또는 임의의 시드값
+     * @param musicStyle 음악 스타일(장르) — 장르에 어울리는 색 계열(팔레트 세트) 후보군을
+     *                   고르는 데 쓰인다. 같은 장르 후보군 안에서는 seed로 결정론적으로 하나를
+     *                   고르므로, 같은 곡은 항상 같은 팔레트가 나오지만 장르가 다르면 분위기도
+     *                   달라진다. 미사용 구현체(V0)는 무시해도 된다.
      * @return 4색 팔레트 (흰색 포함)
      */
-    fun buildPalette(seed: Int): Palette
+    fun buildPalette(seed: Int, musicStyle: MusicStyleClassifier.MusicStyle = MusicStyleClassifier.MusicStyle.POP): Palette
 
     /**
      * 섹션 그룹으로부터 이펙트 프레임 생성
@@ -69,6 +85,8 @@ interface EffectMatchingEngine {
      * @param finalOffMs 마지막 음악 위치 (종료 후 묵음 제거)
      * @param downbeatMs 강박 위치
      * @param beatsPerBar 마디당 비트 수 (예: 4/4박자 → 4)
+     * @param fullEnv 원본 전체 에너지 envelope (섹션 내부 bar 단위 에너지 변화를 보는 용도, 미사용 구현체는 무시해도 됨)
+     * @param hopMs fullEnv 한 칸이 나타내는 시간(ms)
      * @return 타임스탐프→페이로드 쌍 리스트
      */
     fun buildFrames(
@@ -79,7 +97,9 @@ interface EffectMatchingEngine {
         isBalladMode: Boolean,
         finalOffMs: Long,
         downbeatMs: Long = 0L,
-        beatsPerBar: Int = 4
+        beatsPerBar: Int = 4,
+        fullEnv: List<Float> = emptyList(),
+        hopMs: Long = 10L
     ): List<Pair<Long, ByteArray>>
 }
 

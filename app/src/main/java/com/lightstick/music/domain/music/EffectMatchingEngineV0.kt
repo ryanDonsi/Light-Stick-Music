@@ -32,19 +32,20 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
      * V0은 팔레트를 사용하지 않으므로 빈 팔레트 반환
      * (하위 호환성 유지)
      */
-    override fun buildPalette(seed: Int): EffectMatchingEngine.Palette {
+    override fun buildPalette(seed: Int, musicStyle: MusicStyleClassifier.MusicStyle): EffectMatchingEngine.Palette {
         val white = LSColor(255, 255, 255)
         val black = LSColor(0, 0, 0)
         val empty = EffectMatchingEngine.ColorSet(white, black)
         return EffectMatchingEngine.Palette(
             black = black, white = white,
-            onPulseSets = listOf(empty),
-            blinkSets = listOf(empty),
-            strokeSets = listOf(empty),
+            colorFamily = "NONE",
+            onPulseBg = listOf(black),
             breathSet = empty,
-            bridgeSets = listOf(empty),
             chorusBg = black,
-            colorGroup = listOf(white, white, white, white)
+            colorGroup = listOf(white, white, white, white),
+            verseBlinkBg = black,
+            verseBlinkFgCycle = listOf(white),
+            chorusColors = listOf(white)
         )
     }
 
@@ -60,7 +61,9 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
         isBalladMode: Boolean,
         finalOffMs: Long,
         downbeatMs: Long,
-        beatsPerBar: Int
+        beatsPerBar: Int,
+        fullEnv: List<Float>,
+        hopMs: Long
     ): List<Pair<Long, ByteArray>> {
         val frames = ArrayList<Pair<Long, ByteArray>>(beatTimesMs.size)
 

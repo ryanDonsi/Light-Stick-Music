@@ -289,8 +289,25 @@ object EffectEngineController {
         try {
             devices.forEach { it.updatePlaybackPosition(currentPositionMs) }
             recordCurrentTimelineEffect(devices.first().mac, currentPositionMs)
+            logNextFrameGap(currentPositionMs)
         } catch (e: Exception) {
             Log.e(TAG, "Update playback failed: ${e.message}")
+        }
+    }
+
+    // 진단용 — 재개 직후 이펙트가 1~2초 늦게 나오는 현상의 원인 확인용.
+    // "다음 예정 프레임이 실제로 그만큼 떨어져 있어서(타임라인 자체가 성긴 구간)"인지,
+    // "바로 다음인데 전송이 늦는 것"인지 구분하려고 캐시된 타임라인에서 이 위치 이후
+    // 첫 프레임까지의 거리를 로그로 남긴다. 동작에는 영향 없음 — SDK가 실제로 그 프레임을
+    // 언제 전송하는지는 앱에서 관측할 수 없어서(closed SDK), 이건 "몇 ms 뒤에 프레임이
+    // 예정돼 있다"는 타임라인 데이터 자체만 보여준다.
+    private fun logNextFrameGap(currentPositionMs: Long) {
+        val next = cachedTimeline.firstOrNull { it.timestampMs >= currentPositionMs }
+        if (next == null) {
+            Log.d(TAG, "[gap-check] posMs=$currentPositionMs 이후 예정 프레임 없음 (타임라인 끝)")
+        } else {
+            Log.d(TAG, "[gap-check] posMs=$currentPositionMs nextFrameT=${next.timestampMs}ms " +
+                "gap=${next.timestampMs - currentPositionMs}ms type=${next.payload.effectType} color=${next.payload.color}")
         }
     }
 
@@ -346,6 +363,20 @@ object EffectEngineController {
 
         sendColor(context, color, transit = 5, source = TransmissionSource.FFT_EFFECT)
     }
+
+    /**
+     * 재생 재개 시 타임라인을 다시 로드해야 하는지 SDK에 직접 물어본다(device.isTimelineLoaded()).
+     * SDK 업데이트(suspendBackgroundProducers 도입) 이후로는 sendEffect()가
+     * 로드된 타임라인 데이터를 보존한 채 전송만 잠깐 억제하므로, 연결된 기기가 전부
+     * 타임라인을 갖고 있으면 resumeTimeline()만으로 충분하다. 연결된 기기 중 하나라도
+     * 타임라인이 없다고 응답하면(레거시 play() 취소 등 다른 경로로 비워진 경우) 재로드가 필요하다.
+     */
+    fun needsTimelineReload(context: Context): Boolean =
+        resolveAllDevices(context).any { device ->
+            // 조회 자체가 실패하면 상태를 모르는 것이므로, 모른 채로 넘어가 이펙트가
+            // 조용히 안 나가는 것보다는 안전하게 재로드하는 쪽을 택한다.
+            try { !device.isTimelineLoaded() } catch (e: Exception) { true }
+        }
 
     /** 타임라인/재생 제어 대상: 연결된 모든 기기 반환 */
     private fun resolveAllDevices(context: Context): List<Device> {

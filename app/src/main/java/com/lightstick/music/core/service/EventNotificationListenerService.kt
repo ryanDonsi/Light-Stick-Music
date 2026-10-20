@@ -88,8 +88,9 @@ class EventNotificationListenerService : NotificationListenerService() {
             }
             Notification.CATEGORY_MESSAGE -> {
                 Log.i(TAG, "메시지 알림 감지 [${sbn.packageName}]")
-                if (title.isNullOrBlank()) {
-                    Log.d(TAG, "→ title 없음 → 무시")
+                // 카카오톡 등 일부 앱은 title이 없을 때 실제 null 대신 문자열 "null"을 그대로 채워 보냄
+                if (title.isNullOrBlank() || title.toString().trim().equals("null", ignoreCase = true)) {
+                    Log.d(TAG, "→ title 없음(또는 \"null\" 문자열) → 무시")
                     return
                 }
                 if (!hasAnyEnabledDevice { DevicePreferences.getSmsEventEnabled(it) }) {

@@ -159,9 +159,20 @@ object AutoTimelineConfig {
      *     3. Single-pass feature extraction (계산량 1/3)
      *     4. STRIDE를 2배로 늘려도 정확도 손실 미미
      *
+     * V2: V1 + 비트 단위 특징 보강
+     *     섹션 경계/타입 판정 로직은 V1과 완전히 동일 (buildFeatureWindows ~ applyIntroOutro
+     *     그대로) — 달라지는 건 annotateBeats()뿐이다.
+     *     AnnotatedBeat에 localEnergy/onsetStrength/lowRatio/highRatio/beatInBar를 추가로
+     *     채워서, 같은 섹션 안에서도 비트마다 실제 순간값이 다르게 나오도록 한다 (섹션 구간
+     *     평균을 복사하는 게 아니라 원본 envelope/novelty를 비트 자신의 timeMs로 재인덱싱).
+     *     EffectMatchingEngine이 섹션 타입만으로 뭉뚱그리지 않고 비트별로 다채로운 이펙트를
+     *     매칭할 수 있게 하기 위한 전제 작업 — 이 값들을 실제로 사용하는 매칭 룰 확장은 별도.
+     *     용도: 비트별 이펙트 다양화 준비 (현재 EFFECT_RULE_VERSION은 아직 V1 필드만 사용)
+     *
      * 선택 기준:
      * - V0: 최고 정확도 필요 (느려도 괜찮음)
      * - V1: 일반적인 경우 (추천, 더 빠르고 정확도 비슷)
+     * - V2: 비트 단위 특징이 필요할 때 (V1과 섹션 결과는 동일, AnnotatedBeat 필드만 추가)
      *
      * 섹션 감지 결과 예시 (INTRO -> VERSE -> CHORUS -> BRIDGE -> CLIMAX -> OUTRO):
      *   INTRO(0~5s): 1-2개 비트, 낮은 에너지, 숨쉬기 이펙트
@@ -169,7 +180,7 @@ object AutoTimelineConfig {
      *   CHORUS(15~25s): 8-16개 비트, 높은 에너지, 로테이션 이펙트
      *   등등...
      */
-    const val SECTION_DETECTOR_VERSION = 1
+    const val SECTION_DETECTOR_VERSION = 3
 
     // =========================================================================
     // EFFECT_RULE: 이펙트 생성 규칙 버전
@@ -196,29 +207,16 @@ object AutoTimelineConfig {
      *     - 팔레트 색상 없음 (고정 색상)
      *     - 계산 오버헤드 거의 없음
      *
-     * V1: 단일 색상 비트 이펙트 (섹션 기반)
-     *     이펙트 타입: ON (각 비트마다)
-     *     색상 규칙:
-     *       - 각 비트마다 ON 이펙트 (색상: 팔레트 기반)
-     *       - downbeat 규칙 (beatInBar)과 동일하지만 팔레트 활용
-     *     섹션 정보: 사용 (섹션별 다른 색상 조합)
-     *     복잡도: 낮음, 속도: 빠름
-     *     이펙트 품질: 중간, 팔레트 활용으로 조화로운 색상
-     *     메모리: 낮음
-     *     용도: 일반적인 음악 재생, 색상 다양성 원할 때
+     * (예전에는 "단일 색상 비트 이펙트" V1이 따로 있었으나 미완성 스켈레톤으로 실사용된
+     *  적이 없어 제거했다. 아래 V1은 그 자리를 이어받은, 실제로 쓰이는 V8 기반 구현이다.)
      *
-     *     특징:
-     *     - 팔레트: baseHue 기반 4색 생성 (complementary color)
-     *     - 섹션별 색상 로테이션
-     *     - 단순하지만 시각적 만족도 높음
-     *
-     * V2: 다양한 이펙트 규칙 (고급, 섹션 기반)
-     *     이펙트 타입: ON_PULSE, STROBE, BREATH, ON_TRANSIT_ROTATE, BLINK, OFF_TRANSIT
+     * V1: 다양한 이펙트 규칙 (고급, 섹션 기반)
+     *     이펙트 타입: ON_PULSE, BREATH, ON_TRANSIT_ROTATE, BLINK, OFF_TRANSIT, FREEZE
      *     섹션별 엔진 할당 (FgEngine):
      *       - INTRO/OUTRO: BREATH (부드러운 호흡 효과)
      *       - VERSE/VOCAL: ON_PULSE or BREATH (음성 강조)
      *       - CHORUS: ON_TRANSIT_ROTATE (회전 전환 효과)
-     *       - CLIMAX: STROBE or ON_TRANSIT_ROTATE (급작스러운 변화)
+     *       - CLIMAX: ON_TRANSIT_ROTATE (급작스러운 변화, 실제로는 검출기 단계에서 비활성화됨)
      *       - BUILD: ON_TRANSIT_ROTATE (상승감)
      *       - BEAT: ON_PULSE or BLINK (비트 강조)
      *       - BREAK: BREATH (휴식)
@@ -248,10 +246,9 @@ object AutoTimelineConfig {
      *
      * 선택 기준:
      * - V0: 비트확인 테스트용
-     * - V1: 이펙트 테스트용
-     * - V2: 일반적인 사용(권장, 속도와 품질 균형)
+     * - V1: 일반적인 사용(권장)
      */
-    const val EFFECT_RULE_VERSION = 2
+    const val EFFECT_RULE_VERSION = 1
 
     const val PALETTE_SIZE = 4
 

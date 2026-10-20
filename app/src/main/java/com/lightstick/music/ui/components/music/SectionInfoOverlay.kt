@@ -40,7 +40,8 @@ fun SectionInfoOverlay(
     val cur        = sections.firstOrNull {
         currentPositionMs >= it.startMs && currentPositionMs < it.endMs
     } ?: sections.last()
-    val musicStyle = sections.firstOrNull()?.musicStyle
+    val musicStyle  = sections.firstOrNull()?.musicStyle
+    val colorFamily = sections.firstOrNull()?.colorFamily
 
     Box(modifier = modifier) {
         Column(
@@ -51,7 +52,7 @@ fun SectionInfoOverlay(
                 .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            // ── Music Style 배지 ──────────────────────────────
+            // ── Music Style + 팔레트 색 계열 배지 ──────────────
             if (musicStyle != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -72,6 +73,28 @@ fun SectionInfoOverlay(
                             fontSize   = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+                    if (colorFamily != null && colorFamily != "NONE") {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text       = "PALETTE",
+                            color      = Color.White.copy(alpha = 0.50f),
+                            fontSize   = 9.sp
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(colorFamilyColor(colorFamily).copy(alpha = 0.25f))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text       = colorFamily,
+                                color      = colorFamilyColor(colorFamily),
+                                fontSize   = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -203,8 +226,6 @@ private fun sectionLabel(type: SectionDetector.SectionType): String = when (type
     SectionDetector.SectionType.CHORUS -> "CHORUS"
     SectionDetector.SectionType.BRIDGE -> "BRIDGE"
     SectionDetector.SectionType.END    -> "END"
-    SectionDetector.SectionType.INST   -> "INST"
-    SectionDetector.SectionType.SOLO   -> "SOLO"
 }
 
 private fun changeLabel(s: SectionDetector.ChangeStrength): String = when (s) {
@@ -237,6 +258,17 @@ private fun musicStyleColor(style: MusicStyleClassifier.MusicStyle): Color = whe
     MusicStyleClassifier.MusicStyle.POP        -> Color(0xFF40C4FF)  // Light Blue
 }
 
+// Palette.colorFamily(= EffectMatchingEngineV1의 PaletteFamily.name)에 맞춰 배지 색을
+// 고른다 — 실제 팔레트 RGB와 정확히 같을 필요는 없고, 계열을 한눈에 구분하는 용도.
+private fun colorFamilyColor(colorFamily: String): Color = when (colorFamily) {
+    "PURPLE"      -> Color(0xFFB388FF)
+    "RED"         -> Color(0xFFFF5252)
+    "ORANGE_GOLD" -> Color(0xFFFFC107)
+    "TEAL"        -> Color(0xFF26C6DA)
+    "BLUE"        -> Color(0xFF448AFF)
+    else          -> Color.White.copy(alpha = 0.60f)
+}
+
 fun sectionColor(type: SectionDetector.SectionType): Color = when (type) {
     // V2 타입
     SectionDetector.SectionType.INTRO  -> Color(0xFF9C27B0)  // Purple
@@ -248,7 +280,4 @@ fun sectionColor(type: SectionDetector.SectionType): Color = when (type) {
     SectionDetector.SectionType.CHORUS -> Color(0xFFF44336)
     SectionDetector.SectionType.BRIDGE -> Color(0xFFFF9800)
     SectionDetector.SectionType.END    -> Color(0xFF26C6DA)
-    // 신규 (INST/SOLO)
-    SectionDetector.SectionType.INST   -> Color(0xFF558B2F)  // Olive Green — 무보컬 반주
-    SectionDetector.SectionType.SOLO   -> Color(0xFFFF6F00)  // Orange      — 리드 악기 솔로
 }

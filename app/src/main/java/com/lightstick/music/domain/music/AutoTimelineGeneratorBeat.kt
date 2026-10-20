@@ -106,7 +106,7 @@ import kotlin.math.min
  *                ↓
  *           [V8 이펙트 엔진 처리]
  *           1. 섹션별 에너지 계산
- *           2. 섹션 타입별 FgEngine 할당 (ON_PULSE/STROBE/BREATH 등)
+ *           2. 섹션 타입별 FgEngine 할당 (ON_PULSE/BREATH/ON_TRANSIT_ROTATE 등)
  *           3. downbeat 기반 색상 선택
  *           4. beatInBar 기반 페이드 값 계산
  *           5. 이펙트 종류별 period/randomDelay 계산
@@ -267,7 +267,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             beatsPerBar = beatsPerBar, downbeatMs = downbeatMs
         ).map { ab ->
             if (ab.timeMs >= finalOffMs)
-                SectionDetector.AnnotatedBeat(ab.timeMs, ab.confidence, SectionDetector.SectionType.END)
+                ab.copy(sectionType = SectionDetector.SectionType.END)
             else ab
         }
         val tSection = System.currentTimeMillis() - t0Section
@@ -281,7 +281,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
 
         // 이펙트 엔진 선택 및 실행
         val engine = EffectMatchingEngineRouter.createEngine()
-        val palette = engine.buildPalette(musicId)
+        val palette = engine.buildPalette(musicId, musicStyle)
 
         val isBalladMode = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
                         || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
@@ -300,7 +300,9 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
             isBalladMode = isBalladMode,
             finalOffMs = finalOffMs,
             downbeatMs = downbeatMs,
-            beatsPerBar = beatsPerBar
+            beatsPerBar = beatsPerBar,
+            fullEnv = fullEnv,
+            hopMs = effectiveHopMs
         )
         val tEffect = System.currentTimeMillis() - t0Effect
 
@@ -312,11 +314,23 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
                 g.annotatedBeats.size < 8 -> SectionDetector.ChangeStrength.MEDIUM
                 else -> SectionDetector.ChangeStrength.STRONG
             }
+            // 구간 특성값(energy/lowRatio 등)은 SectionDetectorV2+가 AnnotatedBeat에 실어 보낸
+            // section* 필드에서 가져온다 — 한 그룹의 비트는 전부 같은 Section에서 나왔으므로
+            // 대표로 첫 비트 값을 쓴다 (V0/V1은 이 필드가 없어 기본값 0f 그대로 유지됨).
+            val rep = g.annotatedBeats.firstOrNull()
             SectionMeta(
                 startMs = g.startMs, endMs = g.endMs,
                 type = g.type, changeStrength = changeStrength,
                 beatMs = globalBeatMs, beatConfidence = confidence,
+                energy       = rep?.sectionEnergy ?: 0f,
+                peakEnergy   = rep?.sectionPeakEnergy ?: 0f,
+                lowRatio     = rep?.sectionLowRatio ?: 0f,
+                midRatio     = rep?.sectionMidRatio ?: 0f,
+                highRatio    = rep?.sectionHighRatio ?: 0f,
+                onsetDensity = rep?.sectionOnsetDensity ?: 0f,
+                periodicity  = rep?.sectionPeriodicity ?: 0f,
                 musicStyle = if (idx == 0) musicStyle else null,
+                colorFamily = if (idx == 0) palette.colorFamily else null,
                 beatTimesMs = g.annotatedBeats.map { it.timeMs }
             )
         }

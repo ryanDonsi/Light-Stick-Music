@@ -21,6 +21,7 @@ import com.lightstick.music.data.local.preferences.SectionOverlayPreferences
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.BleTransmissionMonitor
+import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
@@ -34,6 +35,7 @@ import com.lightstick.music.domain.usecase.music.LoadEfxUseCase
 import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
 import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
 import com.lightstick.efx.MusicId
+import com.lightstick.types.LSEffectPayload
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -113,11 +115,24 @@ class MusicViewModel @Inject constructor(
             when (reason) {
                 Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS,
                 Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY -> {
-                    Log.i(TAG, "전화/다른 앱으로 인한 자동 일시정지 감지 → 이펙트 일시정지")
-                    if (_isAutoModeEnabled.value) {
-                        EffectEngineController.pauseEffects(context)
+                    // AUDIO_FOCUS_LOSS는 포커스를 "잃을 때"뿐 아니라 통화 종료 등으로
+                    // 다시 "되찾을 때"도 같은 reason으로 전달된다(ExoPlayer는 GAIN 전용
+                    // reason을 따로 두지 않음) — playWhenReady로 둘을 구분해야 한다.
+                    // 과거엔 이 분기에서 항상 false로 취급해서 통화 종료 후 자동 재개가
+                    // isPlaying/이펙트에 반영되지 않는 문제가 있었다.
+                    if (playWhenReady) {
+                        Log.i(TAG, "전화 종료 등으로 오디오 포커스 회복 → 자동 재개 감지")
+                        _isPlaying.value = true
+                        if (_isAutoModeEnabled.value) {
+                            resyncEffectsOnResume()
+                        }
+                    } else {
+                        Log.i(TAG, "전화/다른 앱으로 인한 자동 일시정지 감지 → 이펙트 일시정지")
+                        if (_isAutoModeEnabled.value) {
+                            EffectEngineController.pauseEffects(context)
+                        }
+                        _isPlaying.value = false
                     }
-                    _isPlaying.value = false
                 }
                 Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST -> {
                     Log.d(TAG, "사용자 요청으로 인한 재생/일시정지 → togglePlayPause에서 처리됨")
@@ -322,6 +337,28 @@ class MusicViewModel @Inject constructor(
         )
     }
 
+    // 자동모드용 타임라인을 musicFile 기준으로 (재)로드한다. playMusic()/toggleAutoMode()/
+    // togglePlayPause() 재개 경로에서 공용으로 쓴다 — 셋 다 "이 곡의 자동 타임라인을 디바이스에
+    // 새로 실어야 한다"는 같은 필요에서 나온 호출이라 로직을 하나로 모았다.
+    private fun loadTimelineForCurrentTrack(musicFile: File) {
+        EffectEngineController.reset()
+
+        if (MusicEffectManager.hasEffectFor(musicFile)) {
+            loadEfxUseCase(context, musicFile)
+        } else {
+            val musicId = MusicId.fromFile(musicFile)
+            val ver     = AutoTimelineConfig.VERSION
+            val storage = AutoTimelineStorage(version = ver)
+            val frames  = storage.load(context, musicId)
+
+            if (!frames.isNullOrEmpty()) {
+                EffectEngineController.loadTimelineFromFrames(context, frames)
+            } else {
+                Log.w(TAG, "자동 타임라인 없음 (v=$ver) → FFT 폴백")
+            }
+        }
+    }
+
     fun playMusic(item: MusicItem) {
         _nowPlaying.value      = item
         _isPlaying.value       = true
@@ -333,20 +370,7 @@ class MusicViewModel @Inject constructor(
         val ver       = AutoTimelineConfig.VERSION
 
         if (_isAutoModeEnabled.value) {
-            EffectEngineController.reset()
-
-            if (MusicEffectManager.hasEffectFor(musicFile)) {
-                loadEfxUseCase(context, musicFile)
-            } else {
-                val storage = AutoTimelineStorage(version = ver)
-                val frames  = storage.load(context, musicId)
-
-                if (!frames.isNullOrEmpty()) {
-                    EffectEngineController.loadTimelineFromFrames(context, frames)
-                } else {
-                    Log.w(TAG, "자동 타임라인 없음 (v=$ver) → FFT 폴백")
-                }
-            }
+            loadTimelineForCurrentTrack(musicFile)
         } else {
             EffectEngineController.reset()
         }
@@ -383,31 +407,62 @@ class MusicViewModel @Inject constructor(
         if (player.isPlaying) {
             player.pause()
             _isPlaying.value = false
-            if (_isAutoModeEnabled.value) EffectEngineController.pauseEffects(context)
+            if (_isAutoModeEnabled.value) {
+                EffectEngineController.pauseEffects(context)
+                // pause 중엔 마지막 이펙트가 기기에 계속 반복 재생되지 않도록 명시적으로 off.
+                // resume 시 SDK의 pendingResyncAfterManualEffect가 현재 위치 프레임으로 자동 복원한다.
+                EffectEngineController.sendEffect(
+                    context = context,
+                    payload = LSEffectPayload.Effects.off(),
+                    source = TransmissionSource.TIMELINE_EFFECT
+                )
+            }
         } else {
             player.play()
             _isPlaying.value = true
+            Log.d(TAG, "Resume: begin pos=${player.currentPosition}ms")
             if (_isAutoModeEnabled.value) {
-                EffectEngineController.resumeEffects(context)
-                // 전화 중단 후 재개 등 상황에서 이펙트 재동기화
-                // 1. 현재 위치로 Seek 실행 (Timeline 인덱스 초기화)
-                val currentPos = player.currentPosition
-                try {
-                    handleSeekUseCase(context, currentPos)
-                    Log.d(TAG, "Resume: seek to $currentPos")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Resume position sync failed: ${e.message}")
-                }
-                // 2. 즉시 위치 업데이트 (타임라인을 현재 위치로 강제 동기화)
-                try {
-                    updatePlaybackPositionUseCase(context, currentPos)
-                    Log.d(TAG, "Resume: sync position at $currentPos")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Resume position update failed: ${e.message}")
-                }
+                resyncEffectsOnResume()
             }
         }
         updateNotificationProgress()
+    }
+
+    /**
+     * 재생 재개 시 이펙트/타임라인 위치를 현재 재생 위치로 재동기화한다.
+     * 사용자가 직접 재생 버튼을 눌렀을 때(togglePlayPause)와, 통화 종료 등으로
+     * 오디오 포커스를 되찾아 ExoPlayer가 자동으로 재생을 재개했을 때
+     * (playerListener의 AUDIO_FOCUS_LOSS reason, playWhenReady=true) 모두 동일하게 필요하다.
+     */
+    private fun resyncEffectsOnResume() {
+        // SDK 업데이트(pendingResyncAfterManualEffect 도입) 이후로는 sendEffect()가
+        // 로드된 타임라인을 보존한 채 전송만 억제하고, resumeTimeline() 호출 시 SDK가
+        // 내부적으로 현재 프레임을 자동 재전송하므로 앱에서 별도 재동기화가 불필요하다.
+        // 그래도 기기가 실제로 타임라인이 없다고 응답하면(연결 재시도 등 다른 경로로
+        // 비워진 경우) 재로드한다 — 앱이 자체 추론하지 않고 SDK 상태를 직접 확인한다.
+        val needsReload = EffectEngineController.needsTimelineReload(context)
+        Log.d(TAG, "Resume: needsTimelineReload=$needsReload")
+        if (needsReload) {
+            _nowPlaying.value?.let { loadTimelineForCurrentTrack(File(it.filePath)) }
+            Log.d(TAG, "Resume: timeline reload (device reports timeline not loaded)")
+        }
+        EffectEngineController.resumeEffects(context)
+        // 전화 중단 후 재개 등 상황에서 이펙트 재동기화
+        // 1. 현재 위치로 Seek 실행 (Timeline 인덱스 초기화)
+        val currentPos = player.currentPosition
+        try {
+            handleSeekUseCase(context, currentPos)
+            Log.d(TAG, "Resume: seek to $currentPos")
+        } catch (e: Exception) {
+            Log.e(TAG, "Resume position sync failed: ${e.message}")
+        }
+        // 2. 즉시 위치 업데이트 (타임라인을 현재 위치로 강제 동기화)
+        try {
+            updatePlaybackPositionUseCase(context, currentPos)
+            Log.d(TAG, "Resume: sync position at $currentPos")
+        } catch (e: Exception) {
+            Log.e(TAG, "Resume position update failed: ${e.message}")
+        }
     }
 
     fun toggleSectionOverlay(): Boolean {
@@ -428,19 +483,7 @@ class MusicViewModel @Inject constructor(
             val currentMusic = _nowPlaying.value
             if (currentMusic != null) {
                 val musicFile = File(currentMusic.filePath)
-                EffectEngineController.reset()
-
-                if (MusicEffectManager.hasEffectFor(musicFile)) {
-                    loadEfxUseCase(context, musicFile)
-                } else {
-                    val musicId = MusicId.fromFile(musicFile)
-                    val ver     = AutoTimelineConfig.VERSION
-                    val storage = AutoTimelineStorage(version = ver)
-                    val frames  = storage.load(context, musicId)
-                    if (!frames.isNullOrEmpty()) {
-                        EffectEngineController.loadTimelineFromFrames(context, frames)
-                    }
-                }
+                loadTimelineForCurrentTrack(musicFile)
 
                 val currentPos = _currentPosition.value.toLong()
                 try {
