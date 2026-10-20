@@ -82,7 +82,7 @@ private val BLUE_AZURE_SHADE   = LSColor(0, 55, 122)    // 파랑 셰이드
 private val BLUE_PURE_SHADE    = LSColor(0, 0, 122)     // 순수 파랑 셰이드
 
 /**
- * EffectMatchingEngineV1 - V3의 이펙트 매칭 룰
+ * EffectMatchingEngineV1 - 섹션 타입 기반 이펙트 매칭 엔진
  * 섹션 타입별 이펙트 엔진 할당 (ON_PULSE / BREATH / ON_TRANSIT_ROTATE 등)
  */
 class EffectMatchingEngineV1 : EffectMatchingEngine {
@@ -199,7 +199,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         )
     }
 
-    data class V8Section(
+    data class ResolvedSection(
         val startMs: Long, val endMs: Long,
         val type: SectionDetector.SectionType,
         val engine: EffectMatchingEngine.FgEngine,
@@ -295,26 +295,26 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     ): List<Pair<Long, ByteArray>> {
         if (sectionGroups.isEmpty()) return emptyList()
 
-        // 섹션을 V8 섹션으로 변환 (에너지 기반 엔진 할당)
+        // 섹션에 이펙트 엔진을 할당해 ResolvedSection으로 변환 (에너지 기반 엔진 할당)
         val globalBeatMs = if (beatTimesMs.size > 1)
             beatTimesMs[1] - beatTimesMs[0] else 500L
 
         val effectiveHopMs = if (hopMs > 0L) hopMs else 10L
-        val v8Sections = convertToV8Sections(sectionGroups, globalBeatMs, isBalladMode, fullEnv, durationMs, effectiveHopMs)
+        val resolvedSections = convertToResolvedSections(sectionGroups, globalBeatMs, isBalladMode, fullEnv, durationMs, effectiveHopMs)
 
-        // V8 섹션으로부터 프레임 빌드
-        return buildFramesFromSections(palette, v8Sections, beatTimesMs, durationMs, isBalladMode, finalOffMs,
+        // 엔진 할당된 섹션으로부터 프레임 빌드
+        return buildFramesFromSections(palette, resolvedSections, beatTimesMs, durationMs, isBalladMode, finalOffMs,
             downbeatMs, beatsPerBar, fullEnv, effectiveHopMs)
     }
 
-    private fun convertToV8Sections(
+    private fun convertToResolvedSections(
         groups: List<EffectMatchingEngine.SectionGroup>,
         beatMs: Long,
         isBalladMode: Boolean,
         fullEnv: List<Float>,
         durationMs: Long,
         hopMs: Long
-    ): List<V8Section> {
+    ): List<ResolvedSection> {
         if (groups.isEmpty()) return emptyList()
 
         val energies = groups.map { g -> computeGroupEnergy(g.startMs, g.endMs, fullEnv, durationMs, hopMs) }
@@ -327,7 +327,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             val beats    = g.annotatedBeats.size
             val relScore = ((energy - lowTh) / range).coerceIn(0f, 1f)
 
-            // 예전엔 6비트 미만 BRIDGE를 V8Section.type 단계에서 VERSE로 재분류했는데,
+            // 예전엔 6비트 미만 BRIDGE를 ResolvedSection.type 단계에서 VERSE로 재분류했는데,
             // 이게 EffectMatchingEngineV1 내부에서만 일어나는 변환이라 SectionDetectorV3가
             // 내보내는 실제 섹션 타입(Beat Accuracy Checker 등에 표시되는 값)과 어긋나는
             // 문제가 있었다 — 체커에는 BRIDGE로 보이는데 실제 이펙트는 VERSE의 BLINK로
@@ -344,7 +344,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 else      -> EffectMatchingEngine.ChangeLevel.STRONG
             }
 
-            V8Section(
+            ResolvedSection(
                 startMs     = g.startMs,      endMs       = g.endMs,
                 type        = g.type,          engine      = engine,
                 beatMs      = beatMs,          beats       = beats,
@@ -357,7 +357,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
     private fun buildFramesFromSections(
         palette: EffectMatchingEngine.Palette,
-        sections: List<V8Section>,
+        sections: List<ResolvedSection>,
         beatTimesMs: List<Long>,
         durationMs: Long,
         isBalladMode: Boolean,
@@ -585,7 +585,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     }
 
     /** 섹션마다 결정론적으로 2~5 사이의 bar 블록 길이를 고른다 (같은 곡이면 항상 같은 결과). */
-    private fun sectionBarBlockLen(section: V8Section): Int {
+    private fun sectionBarBlockLen(section: ResolvedSection): Int {
         val h = section.startMs * 2654435761L + section.type.ordinal * 97L
         return 2 + Math.floorMod(h, 4L).toInt()
     }

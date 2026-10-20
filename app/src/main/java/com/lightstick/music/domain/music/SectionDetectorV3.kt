@@ -216,7 +216,7 @@ class SectionDetectorV3 : SectionDetector {
 
         val rawTypedSections = toSections(labeledSections)
         // 비트 수가 너무 적은 BRIDGE는 VERSE로 재분류한다. 원래는 EffectMatchingEngineV1
-        // 내부에서만(V8Section 변환 시) 일어나던 변환이라 SectionDetectorV3가 실제로
+        // 내부에서만(ResolvedSection 변환 시) 일어나던 변환이라 SectionDetectorV3가 실제로
         // 내보내는 SectionType과 어긋나는 문제가 있었다 — Beat Accuracy Checker 등에는
         // BRIDGE로 표시되는데 실제 이펙트는 VERSE용 BLINK로 나가서 혼동을 줌(실측 피드백).
         // 재분류 자체는 음악적으로도 타당하다는 판단이라, 판정 결과가 모든 소비자(디버그
@@ -1073,7 +1073,7 @@ class SectionDetectorV3 : SectionDetector {
 
     /**
      * BRIDGE로 분류된 구간 중 포함된 비트 수가 6개 미만인 짧은 구간을 VERSE로 재분류한다.
-     * (과거 EffectMatchingEngineV1.convertToV8Sections()의 normalizedType 로직과 동일한 기준)
+     * (과거 EffectMatchingEngineV1.convertToResolvedSections()의 normalizedType 로직과 동일한 기준)
      */
     private fun reclassifyShortBridgeAsVerse(
         sections: List<SectionDetector.Section>,
