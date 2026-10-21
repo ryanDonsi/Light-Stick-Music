@@ -40,11 +40,11 @@ interface FgEngineEffect {
     fun shouldSend(beatIndex: Int): Boolean = true
 
     /**
-     * 메인 프레임을 보낸 뒤 별도 시점에 추가로 보낼 프레임(예: accent-hold 뒤 bg색으로 전환).
-     * 없으면 null. t는 이 비트의 타임스탬프, sectionEndMs는 추가 프레임이 섹션을 넘지
-     * 않도록 자를 때 쓰는 섹션 종료 시각, bg는 이 비트의 배경색(팔레트 기준).
+     * 메인 프레임을 보낸 뒤 별도 시점에 추가로 보낼 프레임들(예: accent-hold 뒤 bg색으로 전환).
+     * 개수 제한 없음 — 없으면 빈 리스트. t는 이 비트의 타임스탬프, sectionEndMs는 추가
+     * 프레임이 섹션을 넘지 않도록 자를 때 쓰는 섹션 종료 시각, bg는 이 비트의 배경색(팔레트 기준).
      */
-    fun followUpFrame(t: Long, beatMs: Long, sectionEndMs: Long, bg: LSColor): Pair<Long, ByteArray>? = null
+    fun followUpFrames(t: Long, beatMs: Long, sectionEndMs: Long, bg: LSColor): List<Pair<Long, ByteArray>> = emptyList()
 }
 
 private fun pick(ec: EffectMatchingEngine.EffectColors, idx: Int): Pair<LSColor, LSColor?> {
@@ -82,10 +82,10 @@ object OnPulseEffect : FgEngineEffect {
 
     override fun shouldSend(beatIndex: Int): Boolean = beatIndex % 2 == 0
 
-    override fun followUpFrame(t: Long, beatMs: Long, sectionEndMs: Long, bg: LSColor): Pair<Long, ByteArray>? {
+    override fun followUpFrames(t: Long, beatMs: Long, sectionEndMs: Long, bg: LSColor): List<Pair<Long, ByteArray>> {
         val holdMs = minOf(ACCENT_HOLD_MS * 2L, beatMs * 44L / 100L).coerceAtLeast(60L)
         val offT = minOf(sectionEndMs - 1L, t + holdMs)
-        return if (offT > t) offT to LSEffectPayload.Effects.on(color = bg, transit = 3).toByteArray() else null
+        return if (offT > t) listOf(offT to LSEffectPayload.Effects.on(color = bg, transit = 3).toByteArray()) else emptyList()
     }
 }
 
