@@ -40,11 +40,11 @@ interface FgEngineEffect {
     fun shouldSend(beatIndex: Int): Boolean = true
 
     /**
-     * 메인 프레임을 보낸 뒤 별도 시점에 추가로 보낼 프레임(예: accent-hold 뒤 자동 off).
+     * 메인 프레임을 보낸 뒤 별도 시점에 추가로 보낼 프레임(예: accent-hold 뒤 bg색으로 전환).
      * 없으면 null. t는 이 비트의 타임스탬프, sectionEndMs는 추가 프레임이 섹션을 넘지
-     * 않도록 자를 때 쓰는 섹션 종료 시각.
+     * 않도록 자를 때 쓰는 섹션 종료 시각, bg는 이 비트의 배경색(팔레트 기준).
      */
-    fun followUpFrame(t: Long, beatMs: Long, sectionEndMs: Long): Pair<Long, ByteArray>? = null
+    fun followUpFrame(t: Long, beatMs: Long, sectionEndMs: Long, bg: LSColor): Pair<Long, ByteArray>? = null
 }
 
 private fun pick(ec: EffectMatchingEngine.EffectColors, idx: Int): Pair<LSColor, LSColor?> =
@@ -60,8 +60,9 @@ private const val BALLAD_ROTATE_TRANSIT = 2
 
 /**
  * ON_PULSE: VERSE(비발라드)에서 bar마다 색을 순환시키며 그대로 켠다. 짝수 beatIndex에만
- * 실제로 보내고(홀수는 건너뜀), 보낸 뒤 accent-hold 시간만큼 뒤에 자동으로 off 프레임을
- * 하나 더 끼워넣는다 — 둘 다 이 엔진만의 전송 스케줄 특성이라 여기 캡슐화한다.
+ * 실제로 보내고(홀수는 건너뜀), 보낸 뒤 accent-hold 시간만큼 뒤에 bg색(팔레트상 BLACK)으로
+ * 전환하는 ON 프레임을 하나 더 끼워넣는다 — 둘 다 이 엔진만의 전송 스케줄 특성이라 여기
+ * 캡슐화한다.
  */
 object OnPulseEffect : FgEngineEffect {
     private const val ACCENT_HOLD_MS = 200L
@@ -78,10 +79,10 @@ object OnPulseEffect : FgEngineEffect {
 
     override fun shouldSend(beatIndex: Int): Boolean = beatIndex % 2 == 0
 
-    override fun followUpFrame(t: Long, beatMs: Long, sectionEndMs: Long): Pair<Long, ByteArray>? {
+    override fun followUpFrame(t: Long, beatMs: Long, sectionEndMs: Long, bg: LSColor): Pair<Long, ByteArray>? {
         val holdMs = minOf(ACCENT_HOLD_MS * 2L, beatMs * 44L / 100L).coerceAtLeast(60L)
         val offT = minOf(sectionEndMs - 1L, t + holdMs)
-        return if (offT > t) offT to LSEffectPayload.Effects.off(transit = 3).toByteArray() else null
+        return if (offT > t) offT to LSEffectPayload.Effects.on(color = bg, transit = 3).toByteArray() else null
     }
 }
 

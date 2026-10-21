@@ -35,7 +35,7 @@ object PaletteCatalog {
     private val BLUE_PURE    = LSColor(0, 0, 255)    // 순수 파랑
 
     // 위 스와치들의 파생색 — 그 세트의 대표색과 같은 hue에서 명도만 48%로 낮춘 어두운 톤
-    // (ONPULSE/CHORUS/BREATH_VERSE의 bg 후보).
+    // (CHORUS/BREATH_VERSE의 bg 후보).
     private val PURPLE_MAGENTA_SHADE = LSColor(101, 0, 122)   // 자주보라 셰이드
     private val PURPLE_VIOLET_SHADE  = LSColor(78, 0, 122)    // 보라 셰이드
     private val PURPLE_INDIGO_SHADE  = LSColor(55, 0, 122)    // 남보라 셰이드
@@ -70,7 +70,7 @@ object PaletteCatalog {
     // BREATH_BRIDGE_BALLAD: 발라드 BRIDGE 전용(fg 고정 1색 + bg 검정).
 
     // BALLAD_SET_1 = TEAL (rolePerm=[3, 0, 1, 2])
-    private val BALLAD_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_CYAN_SHADE)
+    private val BALLAD_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN, TEAL_YELLOWGREEN, TEAL_GREEN), BLACK)
     private val BALLAD_SET_1_BLINK = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_MINT)
     private val BALLAD_SET_1_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, TEAL_CYAN, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_CYAN_SHADE)
     private val BALLAD_SET_1_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_CYAN_SHADE)
@@ -79,7 +79,7 @@ object PaletteCatalog {
     private val BALLAD_SET_1_FREEZE = EffectMatchingEngine.EffectColors(listOf(TEAL_MINT), BLACK)
 
     // BALLAD_SET_2 = PURPLE (rolePerm=[3, 0, 1, 2])
-    private val BALLAD_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY, PURPLE_MAGENTA, PURPLE_VIOLET), PURPLE_NAVY_SHADE)
+    private val BALLAD_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY, PURPLE_MAGENTA, PURPLE_VIOLET), BLACK)
     private val BALLAD_SET_2_BLINK = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY, PURPLE_MAGENTA, PURPLE_VIOLET), PURPLE_INDIGO)
     private val BALLAD_SET_2_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, PURPLE_NAVY, PURPLE_MAGENTA, PURPLE_VIOLET), PURPLE_NAVY_SHADE)
     private val BALLAD_SET_2_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY, PURPLE_MAGENTA, PURPLE_VIOLET), PURPLE_NAVY_SHADE)
@@ -88,7 +88,7 @@ object PaletteCatalog {
     private val BALLAD_SET_2_FREEZE = EffectMatchingEngine.EffectColors(listOf(PURPLE_INDIGO), BLACK)
 
     // BALLAD_SET_3 = BLUE (rolePerm=[3, 0, 1, 2])
-    private val BALLAD_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_PURE_SHADE)
+    private val BALLAD_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLACK)
     private val BALLAD_SET_3_BLINK = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_AZURE)
     private val BALLAD_SET_3_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, BLUE_PURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_PURE_SHADE)
     private val BALLAD_SET_3_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_PURE_SHADE)
@@ -97,7 +97,7 @@ object PaletteCatalog {
     private val BALLAD_SET_3_FREEZE = EffectMatchingEngine.EffectColors(listOf(BLUE_AZURE), BLACK)
 
     // EDM_SET_1 = RED (rolePerm=[0, 1, 2, 3])
-    private val EDM_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(RED_MAGENTA, RED_ROSE, RED_PURE), RED_MAGENTA_SHADE)
+    private val EDM_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(RED_MAGENTA, RED_ROSE, RED_PURE), BLACK)
     private val EDM_SET_1_BLINK = EffectMatchingEngine.EffectColors(listOf(RED_MAGENTA, RED_ROSE, RED_PURE), RED_VERMILION)
     private val EDM_SET_1_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, RED_MAGENTA, RED_ROSE, RED_PURE), RED_MAGENTA_SHADE)
     private val EDM_SET_1_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(RED_MAGENTA, RED_ROSE, RED_PURE), RED_MAGENTA_SHADE)
@@ -106,7 +106,7 @@ object PaletteCatalog {
     private val EDM_SET_1_FREEZE = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), BLACK)
 
     // EDM_SET_2 = ORANGE_GOLD (rolePerm=[0, 1, 2, 3])
-    private val EDM_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), ORANGE_GOLD_DEEP_SHADE)
+    private val EDM_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), BLACK)
     private val EDM_SET_2_BLINK = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), ORANGE_GOLD_LIME)
     private val EDM_SET_2_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), ORANGE_GOLD_DEEP_SHADE)
     private val EDM_SET_2_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), ORANGE_GOLD_DEEP_SHADE)
@@ -115,7 +115,7 @@ object PaletteCatalog {
     private val EDM_SET_2_FREEZE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_LIME), BLACK)
 
     // EDM_SET_3 = PURPLE (rolePerm=[0, 1, 2, 3])
-    private val EDM_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO), PURPLE_MAGENTA_SHADE)
+    private val EDM_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO), BLACK)
     private val EDM_SET_3_BLINK = EffectMatchingEngine.EffectColors(listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO), PURPLE_NAVY)
     private val EDM_SET_3_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO), PURPLE_MAGENTA_SHADE)
     private val EDM_SET_3_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_MAGENTA, PURPLE_VIOLET, PURPLE_INDIGO), PURPLE_MAGENTA_SHADE)
@@ -124,7 +124,7 @@ object PaletteCatalog {
     private val EDM_SET_3_FREEZE = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY), BLACK)
 
     // DANCE_POP_SET_1 = RED (rolePerm=[2, 0, 1, 3])
-    private val DANCE_POP_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(RED_PURE, RED_MAGENTA, RED_ROSE), RED_PURE_SHADE)
+    private val DANCE_POP_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(RED_PURE, RED_MAGENTA, RED_ROSE), BLACK)
     private val DANCE_POP_SET_1_BLINK = EffectMatchingEngine.EffectColors(listOf(RED_PURE, RED_MAGENTA, RED_ROSE), RED_VERMILION)
     private val DANCE_POP_SET_1_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, RED_PURE, RED_MAGENTA, RED_ROSE), RED_PURE_SHADE)
     private val DANCE_POP_SET_1_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(RED_PURE, RED_MAGENTA, RED_ROSE), RED_PURE_SHADE)
@@ -133,7 +133,7 @@ object PaletteCatalog {
     private val DANCE_POP_SET_1_FREEZE = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), BLACK)
 
     // DANCE_POP_SET_2 = TEAL (rolePerm=[2, 0, 1, 3])
-    private val DANCE_POP_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(TEAL_MINT, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_MINT_SHADE)
+    private val DANCE_POP_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(TEAL_MINT, TEAL_YELLOWGREEN, TEAL_GREEN), BLACK)
     private val DANCE_POP_SET_2_BLINK = EffectMatchingEngine.EffectColors(listOf(TEAL_MINT, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_CYAN)
     private val DANCE_POP_SET_2_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, TEAL_MINT, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_MINT_SHADE)
     private val DANCE_POP_SET_2_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(TEAL_MINT, TEAL_YELLOWGREEN, TEAL_GREEN), TEAL_MINT_SHADE)
@@ -142,7 +142,7 @@ object PaletteCatalog {
     private val DANCE_POP_SET_2_FREEZE = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN), BLACK)
 
     // DANCE_POP_SET_3 = BLUE (rolePerm=[2, 0, 1, 3])
-    private val DANCE_POP_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(BLUE_AZURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_AZURE_SHADE)
+    private val DANCE_POP_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(BLUE_AZURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLACK)
     private val DANCE_POP_SET_3_BLINK = EffectMatchingEngine.EffectColors(listOf(BLUE_AZURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_PURE)
     private val DANCE_POP_SET_3_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, BLUE_AZURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_AZURE_SHADE)
     private val DANCE_POP_SET_3_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(BLUE_AZURE, BLUE_SEAFOAM, BLUE_SKYCYAN), BLUE_AZURE_SHADE)
@@ -151,7 +151,7 @@ object PaletteCatalog {
     private val DANCE_POP_SET_3_FREEZE = EffectMatchingEngine.EffectColors(listOf(BLUE_PURE), BLACK)
 
     // POP_SET_1 = PURPLE (rolePerm=[1, 0, 2, 3])
-    private val POP_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_VIOLET, PURPLE_MAGENTA, PURPLE_INDIGO), PURPLE_VIOLET_SHADE)
+    private val POP_SET_1_ONPULSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_VIOLET, PURPLE_MAGENTA, PURPLE_INDIGO), BLACK)
     private val POP_SET_1_BLINK = EffectMatchingEngine.EffectColors(listOf(PURPLE_VIOLET, PURPLE_MAGENTA, PURPLE_INDIGO), PURPLE_NAVY)
     private val POP_SET_1_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, PURPLE_VIOLET, PURPLE_MAGENTA, PURPLE_INDIGO), PURPLE_VIOLET_SHADE)
     private val POP_SET_1_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(PURPLE_VIOLET, PURPLE_MAGENTA, PURPLE_INDIGO), PURPLE_VIOLET_SHADE)
@@ -160,7 +160,7 @@ object PaletteCatalog {
     private val POP_SET_1_FREEZE = EffectMatchingEngine.EffectColors(listOf(PURPLE_NAVY), BLACK)
 
     // POP_SET_2 = RED (rolePerm=[1, 0, 2, 3])
-    private val POP_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(RED_ROSE, RED_MAGENTA, RED_PURE), RED_ROSE_SHADE)
+    private val POP_SET_2_ONPULSE = EffectMatchingEngine.EffectColors(listOf(RED_ROSE, RED_MAGENTA, RED_PURE), BLACK)
     private val POP_SET_2_BLINK = EffectMatchingEngine.EffectColors(listOf(RED_ROSE, RED_MAGENTA, RED_PURE), RED_VERMILION)
     private val POP_SET_2_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, RED_ROSE, RED_MAGENTA, RED_PURE), RED_ROSE_SHADE)
     private val POP_SET_2_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(RED_ROSE, RED_MAGENTA, RED_PURE), RED_ROSE_SHADE)
@@ -169,7 +169,7 @@ object PaletteCatalog {
     private val POP_SET_2_FREEZE = EffectMatchingEngine.EffectColors(listOf(RED_VERMILION), BLACK)
 
     // POP_SET_3 = ORANGE_GOLD (rolePerm=[1, 0, 2, 3])
-    private val POP_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_ORANGE_SHADE)
+    private val POP_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), BLACK)
     private val POP_SET_3_BLINK = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_LIME)
     private val POP_SET_3_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_ORANGE_SHADE)
     private val POP_SET_3_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_ORANGE_SHADE)
@@ -178,7 +178,7 @@ object PaletteCatalog {
     private val POP_SET_3_FREEZE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_LIME), BLACK)
 
     // POP_SET_4 = TEAL (rolePerm=[1, 0, 2, 3])
-    private val POP_SET_4_ONPULSE = EffectMatchingEngine.EffectColors(listOf(TEAL_GREEN, TEAL_YELLOWGREEN, TEAL_MINT), TEAL_GREEN_SHADE)
+    private val POP_SET_4_ONPULSE = EffectMatchingEngine.EffectColors(listOf(TEAL_GREEN, TEAL_YELLOWGREEN, TEAL_MINT), BLACK)
     private val POP_SET_4_BLINK = EffectMatchingEngine.EffectColors(listOf(TEAL_GREEN, TEAL_YELLOWGREEN, TEAL_MINT), TEAL_CYAN)
     private val POP_SET_4_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, TEAL_GREEN, TEAL_YELLOWGREEN, TEAL_MINT), TEAL_GREEN_SHADE)
     private val POP_SET_4_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(TEAL_GREEN, TEAL_YELLOWGREEN, TEAL_MINT), TEAL_GREEN_SHADE)
@@ -187,7 +187,7 @@ object PaletteCatalog {
     private val POP_SET_4_FREEZE = EffectMatchingEngine.EffectColors(listOf(TEAL_CYAN), BLACK)
 
     // POP_SET_5 = BLUE (rolePerm=[1, 0, 2, 3])
-    private val POP_SET_5_ONPULSE = EffectMatchingEngine.EffectColors(listOf(BLUE_SKYCYAN, BLUE_SEAFOAM, BLUE_AZURE), BLUE_SKYCYAN_SHADE)
+    private val POP_SET_5_ONPULSE = EffectMatchingEngine.EffectColors(listOf(BLUE_SKYCYAN, BLUE_SEAFOAM, BLUE_AZURE), BLACK)
     private val POP_SET_5_BLINK = EffectMatchingEngine.EffectColors(listOf(BLUE_SKYCYAN, BLUE_SEAFOAM, BLUE_AZURE), BLUE_PURE)
     private val POP_SET_5_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, BLUE_SKYCYAN, BLUE_SEAFOAM, BLUE_AZURE), BLUE_SKYCYAN_SHADE)
     private val POP_SET_5_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(BLUE_SKYCYAN, BLUE_SEAFOAM, BLUE_AZURE), BLUE_SKYCYAN_SHADE)
