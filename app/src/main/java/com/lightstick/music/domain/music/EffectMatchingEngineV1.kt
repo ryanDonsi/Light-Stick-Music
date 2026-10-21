@@ -182,14 +182,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 val effectiveEngine = beatEngine
                 val effect = FgEngineEffectCatalog.of(effectiveEngine)
 
-                val (fg, bg) = effect.colors(palette, section.type, barIdx, beatIndex, isBalladMode)
-                val bgNonNull = bg ?: LSColor(0, 0, 0)
-                lastFg = fg
-
-                val beatPeriod = effect.period(section.beatMs)
-                val beatRandomDelay = effect.randomDelay(section.beatMs, section.type, isBalladMode, beatPeriod)
-                val beatRandomColor = effect.randomColorFlag(section.type, isBalladMode)
-                val beatRotateTransit = effect.rotateTransit(isBalladMode)
+                val spec = effect.frameSpec(palette, section.type, barIdx, beatIndex, isBalladMode, section.beatMs)
+                val bgNonNull = spec.bg ?: LSColor(0, 0, 0)
+                lastFg = spec.fg
 
                 val shouldSend = effect.shouldSend(beatIndex)
 
@@ -197,20 +192,20 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                     true
                 } else if (effect.isRepeatable) {
                     val key = RepeatKey(effectiveEngine,
-                        fg.r, fg.g, fg.b, bgNonNull.r, bgNonNull.g, bgNonNull.b,
-                        beatPeriod, beatRandomDelay)
+                        spec.fg.r, spec.fg.g, spec.fg.b, bgNonNull.r, bgNonNull.g, bgNonNull.b,
+                        spec.period, spec.randomDelay)
                     val dup = (key == lastRepeatKey); lastRepeatKey = key; dup
                 } else {
                     lastRepeatKey = null; false
                 }
 
                 if (!skipRepeat) {
-                    put(t, effect.buildPayload(fg, bg, beatPeriod, beatRandomDelay, beatRotateTransit, beatRandomColor))
+                    put(t, spec.toPayload())
                 }
 
                 if (shouldSend) {
-                    for ((offT, payload) in effect.followUpFrames(t, section.beatMs, section.endMs, fg, bgNonNull)) {
-                        put(offT, payload)
+                    for ((offT, followSpec) in effect.followUpFrames(t, section.beatMs, section.endMs, spec.fg, bgNonNull, beatIndex)) {
+                        put(offT, followSpec.toPayload())
                     }
                 }
             }
