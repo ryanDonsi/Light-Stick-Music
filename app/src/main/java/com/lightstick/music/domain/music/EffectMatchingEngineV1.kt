@@ -14,7 +14,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
         private const val ON_TRANSIT = 2
-        private const val ON_PULSE_ACCENT_HOLD_MS = 200L
         // OUTRO 페이드: 스텝 길이(ms)를 transit 값으로 변환하는 비율/범위.
         private const val OUTRO_TRANSIT_DIVISOR = 100L
         private const val OUTRO_TRANSIT_MIN = 2
@@ -192,9 +191,9 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 val beatRandomColor = effect.randomColorFlag(section.type, isBalladMode)
                 val beatRotateTransit = effect.rotateTransit(isBalladMode)
 
-                val skipOnPulseOdd = (beatEngine == EffectMatchingEngine.FgEngine.ON_PULSE && beatIndex % 2 != 0)
+                val shouldSend = effect.shouldSend(beatIndex)
 
-                val skipRepeat = if (skipOnPulseOdd) {
+                val skipRepeat = if (!shouldSend) {
                     true
                 } else if (effect.isRepeatable) {
                     val key = RepeatKey(effectiveEngine,
@@ -209,11 +208,8 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                     put(t, effect.buildPayload(fg, bg, beatPeriod, beatRandomDelay, beatRotateTransit, beatRandomColor))
                 }
 
-                if (beatEngine == EffectMatchingEngine.FgEngine.ON_PULSE && !skipOnPulseOdd) {
-                    val holdMs = minOf(ON_PULSE_ACCENT_HOLD_MS * 2L, section.beatMs * 44L / 100L).coerceAtLeast(60L)
-                    val offT   = minOf(section.endMs - 1L, t + holdMs)
-                    if (offT > t)
-                        put(offT, LSEffectPayload.Effects.off(transit = 3).toByteArray())
+                if (shouldSend) {
+                    effect.followUpFrame(t, section.beatMs, section.endMs)?.let { (offT, payload) -> put(offT, payload) }
                 }
             }
         }
