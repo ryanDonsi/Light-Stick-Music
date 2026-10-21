@@ -47,8 +47,11 @@ interface FgEngineEffect {
     fun followUpFrame(t: Long, beatMs: Long, sectionEndMs: Long, bg: LSColor): Pair<Long, ByteArray>? = null
 }
 
-private fun pick(ec: EffectMatchingEngine.EffectColors, idx: Int): Pair<LSColor, LSColor?> =
-    ec.fgCycle[Math.floorMod(idx, ec.fgCycle.size)] to ec.bg
+private fun pick(ec: EffectMatchingEngine.EffectColors, idx: Int): Pair<LSColor, LSColor?> {
+    val fg = ec.fgCycle[Math.floorMod(idx, ec.fgCycle.size)]
+    val bg = ec.bgCycle?.let { it[Math.floorMod(idx, it.size)] } ?: ec.bg
+    return fg to bg
+}
 
 // period는 10ms 단위, FG+BG를 합친 한 사이클 전체 길이.
 private fun msToBlinkPeriod(beatMs: Long)       = (beatMs / 100L).toInt().coerceIn(1, 255)

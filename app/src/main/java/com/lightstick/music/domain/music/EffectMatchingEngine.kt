@@ -13,7 +13,8 @@ interface EffectMatchingEngine {
     enum class ChangeLevel { MEDIUM, STRONG }
 
     // 한 이펙트가 쓰는 색 — fgCycle: bar/beat 인덱스로 순환시킬 FG 목록, bg: 고정 배경색.
-    data class EffectColors(val fgCycle: List<LSColor>, val bg: LSColor)
+    // bgCycle을 채우면 bg 대신 fg와 같은 인덱스로 순환(선택적 확장, 기본은 비워서 고정 bg 유지).
+    data class EffectColors(val fgCycle: List<LSColor>, val bg: LSColor, val bgCycle: List<LSColor>? = null)
 
     data class Palette(
         val black: LSColor, val white: LSColor,
