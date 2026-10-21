@@ -62,7 +62,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             beatTimesMs[1] - beatTimesMs[0] else 500L
 
         val effectiveHopMs = if (hopMs > 0L) hopMs else 10L
-        val resolvedSections = convertToResolvedSections(sectionGroups, globalBeatMs, isBalladMode, fullEnv, durationMs, effectiveHopMs)
+        val resolvedSections = convertToResolvedSections(sectionGroups, globalBeatMs, palette.musicStyle, fullEnv, durationMs, effectiveHopMs)
 
         // 엔진 할당된 섹션으로부터 프레임 빌드
         return buildFramesFromSections(palette, resolvedSections, beatTimesMs, durationMs, isBalladMode, finalOffMs,
@@ -72,7 +72,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     private fun convertToResolvedSections(
         groups: List<EffectMatchingEngine.SectionGroup>,
         beatMs: Long,
-        isBalladMode: Boolean,
+        musicStyle: MusicStyleClassifier.MusicStyle,
         fullEnv: List<Float>,
         durationMs: Long,
         hopMs: Long
@@ -89,7 +89,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             val beats    = g.annotatedBeats.size
             val relScore = ((energy - lowTh) / range).coerceIn(0f, 1f)
 
-            val engine = SectionEngineCatalog.assign(g.type, isBalladMode = isBalladMode)
+            val engine = SectionEngineCatalog.assign(g.type, musicStyle = musicStyle)
 
             val source = buildSourceName(g.type, beats)
 
@@ -147,7 +147,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
             if (section.engine == EffectMatchingEngine.FgEngine.OFF_TRANSIT) continue
 
-            val enginePool  = SectionEngineCatalog.pool(section.type, isBalladMode)
+            val enginePool  = SectionEngineCatalog.pool(section.type, palette.musicStyle)
             val barBlockLen = sectionBarBlockLen(section)
             val barMs = if (section.beatMs > 0L && beatsPerBar > 0) section.beatMs * beatsPerBar else 0L
 

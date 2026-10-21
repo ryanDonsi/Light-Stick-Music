@@ -16,7 +16,7 @@ class EffectMatchingEngineV0 : EffectMatchingEngine {
         val trivial = EffectMatchingEngine.EffectColors(listOf(white), black)
         return EffectMatchingEngine.Palette(
             black = black, white = white,
-            colorFamily = "NONE",
+            colorFamily = "NONE", musicStyle = musicStyle,
             onPulse = trivial, blink = trivial, chorus = trivial,
             breathVerse = trivial, breathBridgeBallad = trivial, breathDefault = trivial, freeze = trivial
         )
