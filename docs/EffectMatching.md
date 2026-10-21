@@ -1,143 +1,79 @@
-# 이펙트 매칭 구조 (EffectMatchingEngineV1)
+# 이펙트 매칭 구성 소개
 
-섹션(`SectionGroup`)과 비트 타임스탬프를 받아 LED 프레임(타임스탬프→페이로드)을 만드는 과정을
-**세 가지 독립 관심사**로 분리했다. 각자 자기 파일에서만 바뀐다.
+"이펙트 매칭"은 분석된 음악(섹션 구간 + 비트)에 맞춰 라이트스틱이 어떤 색으로, 어떻게
+움직일지를 결정하는 부분이다. 세 가지 결정을 서로 독립적으로 내리고 마지막에 조합한다.
 
 ```
-PaletteCatalog          — "무슨 색을 쓸지"      (장르별 색상 데이터, 순수 조회)
-SectionEngineCatalog    — "어느 섹션에 어떤 엔진을 쓸지" (장르별 섹션→엔진 매칭)
-FgEngineEffectCatalog   — "그 엔진이 실제로 뭘 하는지"  (엔진별 색/파라미터/payload)
-EffectMatchingEngineV1  — 위 세 가지를 비트 루프에서 조합만 함 (오케스트레이션)
+① 어떤 색을 쓸까      (장르 → 색 계열)
+② 어느 구간에 어떤 느낌을 줄까   (섹션 타입 → 이펙트 종류, 장르별로 다름)
+③ 그 느낌을 실제로 어떻게 표현할까 (이펙트 종류 → 깜빡임/숨쉬기/회전 등 구체적 동작)
 ```
 
-Section 쪽(`SectionDetector*`, `SectionMeta*`)은 팔레트/이펙트를 전혀 참조하지 않는다 —
-순수하게 섹션 구간(시작/끝/타입)만 감지한다.
+①②③은 서로 영향을 주지 않는 독립된 설정이라, 하나를 바꿔도 나머지는 그대로다.
+예를 들어 색 계열을 새로 추가해도 어느 구간에 뭘 쓸지는 안 바뀌고, 새 장르를 추가해도
+이펙트 동작 자체는 안 바뀐다.
 
 ---
 
-## 1. PaletteCatalog — 색상 데이터
+## ① 색 — 장르별 색 계열
 
-`Palette`는 한 곡에서 쓸 색상 묶음. `EffectMatchingEngine.Palette`에 정의되어 있고,
-`musicStyle`(장르) 필드를 갖고 있어 엔진 매칭 쪽에서도 재사용한다.
+곡의 장르(발라드, EDM, 댄스팝, 팝, 힙합/R&B, 록)마다 어울리는 색 계열 후보가 몇 개씩
+미리 정해져 있다 (예: 발라드는 민트/보라/블루 계열, EDM은 레드/골드/퍼플 계열).
 
-```kotlin
-data class Palette(
-    val black: LSColor, val white: LSColor,
-    val colorFamily: String,                        // "PURPLE"/"RED"/... (표시용)
-    val musicStyle: MusicStyleClassifier.MusicStyle, // 이 팔레트를 고른 장르
-    val onPulse, val blink, val chorus,
-    val breathVerse, val breathBridgeBallad, val breathDefault, val freeze: EffectColors
-)
-```
+- 같은 장르라도 곡마다 후보 중 하나를 **곡 고유 번호(seed) 기준으로 결정론적으로** 선택한다
+  — 같은 곡을 다시 분석해도 항상 같은 색이 나오고, 곡이 다르면 같은 장르 안에서도
+  다양한 색으로 섞인다.
+- 하나의 색 계열 안에는 포인트 색(강조 이펙트용), 숨쉬기용 색, 배경색 등 역할별로 3~4가지
+  톤이 묶여 있어서, 한 곡 안에서는 항상 일관된 색감으로 보인다.
 
-- `EffectColors(fgCycle: List<Color>, bg: Color)` — fg는 bar/beat 인덱스로 순환, bg는 고정.
-- `PaletteCatalog`에 장르×색계열 조합으로 미리 만든 `Palette` 상수 19개가 있고
-  (`BALLAD_SET_1~3`, `EDM_SET_1~3`, `DANCE_POP_SET_1~3`, `POP_SET_1~5`, `HIPHOP_RNB_SET_1~3`,
-  `ROCK_SET_1~2`), `GENRE_PALETTE_SETS: Map<MusicStyle, List<Palette>>`로 장르별 후보군을 묶는다.
-- 진입점은 단 하나: `PaletteCatalog.select(seed, musicStyle)` — seed(musicId)로 후보 중 하나를
-  결정론적으로 고른다. 런타임 색 계산은 없음, 전부 미리 박아둔 값 중에서 고르기만 한다.
+## ② 구간별 이펙트 배정 — 장르별로 다름
 
-**ON_PULSE의 bg는 전부 BLACK** — accent-hold 뒤 꺼지는 것처럼 보이되 실제로는 `ON(bg)`로
-전환한다(아래 §3 참고). 다른 이펙트(`CHORUS`/`BREATH_VERSE`/`BREATH_DEFAULT`)의 bg는 해당 색의
-어두운 셰이드(`<COLOR>_SHADE`)를 쓴다.
+곡은 인트로/벌스/코러스/브릿지/클라이맥스/브레이크/아웃트로 같은 구간으로 나뉘고,
+구간 타입마다 어떤 "느낌"의 이펙트를 쓸지가 정해져 있다. 이 배정은 **장르별로 다르다.**
 
----
-
-## 2. SectionEngineCatalog — 섹션 → 엔진 매칭
-
-`EngineSet(label, pools: Map<SectionType, List<FgEngine>>)` 하나가 "섹션 타입별로 어떤 엔진
-풀을 쓸지"를 정의한다. 현재 두 세트:
-
-| SectionType | DEFAULT_SET | BALLAD_SET (발라드/힙합R&B) |
+| 구간 | 일반(EDM/댄스팝/팝/록) | 발라드/힙합·R&B |
 |---|---|---|
-| INTRO  | BREATH | BREATH |
-| VERSE  | ON_PULSE, BLINK (에너지로 선택) | BREATH |
-| CHORUS | ON_TRANSIT_ROTATE | ON_TRANSIT_ROTATE |
-| BRIDGE | BREATH | BREATH |
-| CLIMAX | ON_TRANSIT_ROTATE | ON_TRANSIT_ROTATE |
-| BREAK  | FREEZE | FREEZE |
-| OUTRO / END | OFF_TRANSIT | OFF_TRANSIT |
+| 인트로 | 숨쉬기 (서서히 밝아지고 어두워짐) | 숨쉬기 |
+| 벌스 | 에너지 낮으면 깜빡 켬, 높으면 빠른 점멸 | 숨쉬기 |
+| 코러스 / 클라이맥스 | 회전하듯 색이 바뀌며 또렷하게 ON | 동일 |
+| 브릿지 | 숨쉬기 | 숨쉬기(발라드 전용 느낌 추가) |
+| 브레이크 | 한 가지 색으로 고정 | 동일 |
+| 아웃트로 / 엔딩 | 점점 어두워지다 꺼짐 | 동일 |
 
-`GENRE_ENGINE_SETS: Map<MusicStyle, EngineSet>`이 장르별로 세트를 고른다
-(BALLAD/HIPHOP_RNB → `BALLAD_SET`, 나머지 → `DEFAULT_SET`).
+즉 같은 "벌스" 구간이어도 일반 장르 곡에서는 리듬감 있게 깜빡이고, 발라드 곡에서는
+잔잔하게 숨쉬듯 표현된다. 벌스의 "에너지 낮음/높음" 구분은 그 구간을 마디(bar) 단위로
+잘라 실제 음량을 비교해서 정한다 — 상위 20% 정도만 강조용 점멸로 올라간다.
 
-공개 API 3개뿐:
-- `pool(type, musicStyle)` — 그 섹션 타입이 쓸 엔진 후보 리스트.
-- `assign(type, musicStyle)` = `pool(...).first()` — 대표 엔진 1개 (단일 소스, 드리프트 없음).
-- `bridgePhaseEngine()` — BRIDGE 전용 고정 엔진(`BREATH`).
+구간이 길면 지루하지 않도록, 일부 구간(특히 비발라드 코러스/클라이맥스처럼 후보가 여러
+개인 곡)은 몇 마디마다 비슷한 계열 안에서 조금씩 다른 동작으로 자연스럽게 번갈아
+나타나기도 한다.
 
-새 장르/새 엔진 조합을 추가하려면 `EngineSet` 하나 더 선언하고 `GENRE_ENGINE_SETS`에 매핑만
-추가하면 된다.
+## ③ 이펙트 동작 — 실제로 어떻게 보이는지
 
----
+| 이펙트 | 시각적으로 보이는 모습 |
+|---|---|
+| 포인트 점등 | 비트마다 색을 바꿔가며 켜고, 켠 뒤 짧게 배경색으로 가라앉는다 (강약 느낌) |
+| 점멸 | 비트 속도에 맞춰 색이 빠르게 깜빡인다 |
+| 숨쉬기 | 켜지고 꺼지는 게 아니라, 밝기가 서서히 오르고 내리며 숨 쉬듯 변한다 |
+| 회전 전환 | 전환될 때마다 또렷하게 다른 색으로 바뀌며 순환한다 (강조 구간용) |
+| 고정 | 한 가지 색으로 켜진 채 변화 없이 유지된다 (쉬어가는 구간용) |
+| 소등 전환 | 부드럽게 꺼진다 |
 
-## 3. FgEngineEffectCatalog — 엔진별 실제 동작
-
-`FgEngine` enum 값 하나당 `FgEngineEffect` 구현체(싱글턴 `object`) 하나. "어떤 엔진을 쓸지"
-고르는 오케스트레이션과 "그 엔진이 뭘 하는지"가 완전히 분리되어 있다.
-
-```kotlin
-interface FgEngineEffect {
-    fun colors(palette, sectionType, barIdx, beatIndex, isBalladMode): Pair<Color, Color?>
-    fun period(beatMs): Int = 0
-    fun randomDelay(beatMs, sectionType, isBalladMode, period): Int = 0
-    fun randomColorFlag(sectionType, isBalladMode): Int = 0
-    fun rotateTransit(isBalladMode): Int = 0
-    val isRepeatable: Boolean
-    fun buildPayload(fg, bg, period, randomDelay, rotateTransit, randomColor): ByteArray
-    fun shouldSend(beatIndex): Boolean = true                       // 이 비트에 보낼지
-    fun followUpFrame(t, beatMs, sectionEndMs, bg): Pair<Long, ByteArray>? = null  // 추가 프레임
-}
-```
-
-| 구현체 | SDK 호출 | 특이사항 |
-|---|---|---|
-| `OnPulseEffect` | `on` | VERSE(비발라드). 짝수 beatIndex만 전송, accent-hold 뒤 `on(bg)`로 전환(followUpFrame) |
-| `BlinkEffect` | `blink` | VERSE 고에너지 bar |
-| `BreathEffect` | `breath` | BRIDGE+발라드 / VERSE / 그 외로 색·randomDelay·randomColor 분기 |
-| `OnTransitRotateEffect` | `on` (rotate transit) | CHORUS/CLIMAX |
-| `FreezeEffect` | `on` (transit 0) | BREAK, 고정 1색 |
-| `OffTransitEffect` | `off` | 실제로는 오케스트레이션에서 섹션 자체를 건너뛰어 호출 안 됨 |
-
-`shouldSend`/`followUpFrame`은 "이 엔진만의 전송 스케줄 특성"을 캡슐화하기 위한 범용 훅.
-지금은 `OnPulseEffect`만 쓰지만(짝수 비트만 전송 + 지연 후 bg 전환), 비슷한 스케줄링이
-필요한 새 엔진이 생기면 그대로 재사용한다.
-
-새 `FgEngine`을 추가하려면: ① `EffectMatchingEngine.FgEngine`에 값 추가 ② 이 인터페이스
-구현체 작성 ③ `FgEngineEffectCatalog.of()`에 한 줄 등록 ④ `SectionEngineCatalog`의 어느
-`EngineSet` 풀에 넣을지 결정.
+같은 "숨쉬기"라도 어떤 구간/장르에서 쓰이느냐에 따라 색, 주기, 기기마다 랜덤하게
+어긋나는 파도 느낌의 유무가 달라진다 — 예컨대 발라드의 브릿지에서는 기기마다 살짝
+다른 타이밍으로 숨쉬어 파도처럼 보이게, 그 외에는 다같이 맞춰서 숨쉬게 한다.
 
 ---
 
-## 4. EffectMatchingEngineV1 — 조합(오케스트레이션)
+## 확장 포인트
 
-`buildFrames()`의 흐름:
+이 세 가지는 각각 독립적으로 늘릴 수 있게 되어 있다.
 
-1. **`convertToResolvedSections`**: `SectionGroup` → `ResolvedSection`. 섹션별 에너지를
-   계산해 상대 에너지 점수(`relScore`)를 매기고, `SectionEngineCatalog.assign()`으로 대표
-   엔진을 할당한다.
-2. **`buildFramesFromSections`**: 섹션 → 비트 2중 루프.
-   - `OFF_TRANSIT` 섹션은 통째로 스킵.
-   - **VERSE(비발라드)**: bar 에너지를 구해 상위 20%(percentile 0.80) bar는 `BLINK`, 나머지는
-     `ON_PULSE`로 비트마다 다시 분기(섹션 대표 엔진을 덮어씀).
-   - **BRIDGE**: `SectionEngineCatalog.bridgePhaseEngine()` 고정.
-   - **그 외(풀이 2개 이상인 섹션)**: bar를 2~5개 단위 블록으로 묶어(`sectionBarBlockLen`,
-     곡마다 결정론적) 블록마다 풀 안의 엔진을 순환.
-   - 비트마다 `FgEngineEffectCatalog.of(engine)`으로 구현체를 찾아 `colors`/`period`/
-     `randomDelay`/`randomColorFlag`/`rotateTransit`/`shouldSend`를 호출해 payload 구성.
-   - **반복 전송 스킵**: `isRepeatable`인 엔진은 (엔진,fg,bg,period,randomDelay)가 직전과
-     같으면 재전송하지 않음(BLE 대역 절약). 섹션이 바뀌면 리셋.
-   - `shouldSend`가 true면 `followUpFrame`으로 추가 프레임(현재는 ON_PULSE의 accent-hold off
-     전환)도 끼워넣음.
-3. **OUTRO 페이드**: OUTRO 섹션 구간을 여러 스텝(최대 8)으로 나눠 마지막 fg 색을 점점
-   어둡게(`scaleColor`) 보내고 마지막 스텝에서 실제 off.
+- **새로운 색 계열**을 추가하고 싶다 → ①에 색 계열 하나 더 등록 (②③은 그대로)
+- **같은 장르인데 구간별 배정을 다르게 하고 싶다 / 새 장르를 추가하고 싶다** →
+  ②에 구간→이펙트 배정표 하나 더 등록 (①③은 그대로)
+- **지금 없는 새로운 동작(예: 전혀 다른 깜빡임 패턴)을 만들고 싶다** →
+  ③에 그 동작을 하나 추가하고, ②의 배정표에서 원하는 구간에 연결
 
-### 팔레트/엔진 선택과 실제 동작의 경계
-
-- 섹션이 "어떤 엔진을 쓸지" 고르는 로직(위 2번 항목)은 전부 `EffectMatchingEngineV1`과
-  `SectionEngineCatalog`에 있다.
-- 그 엔진이 "실제로 어떤 색/파라미터/payload"를 내는지는 전부 `FgEngineEffectCatalog`에 있다.
-- 색 데이터 자체(스와치, 세트, Palette 상수)는 전부 `PaletteCatalog`에 있다.
-
-세 파일 중 하나만 보면 "무슨 색이 있는지", "어느 섹션에 어떤 엔진이 붙는지", "그 엔진이
-구체적으로 뭘 하는지"를 각각 확인할 수 있다.
+세 영역이 서로의 구현에 관여하지 않기 때문에, 어느 하나를 바꿔도 나머지 두 영역을
+다시 검토할 필요가 없다.
