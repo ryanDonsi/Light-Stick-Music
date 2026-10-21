@@ -87,7 +87,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             val beats    = g.annotatedBeats.size
             val relScore = ((energy - lowTh) / range).coerceIn(0f, 1f)
 
-            val engine = SectionEngineCatalog.assign(g.type, musicStyle = musicStyle)
+            val engine = GenreEngineCatalog.assign(g.type, musicStyle = musicStyle)
 
             val source = buildSourceName(g.type, beats)
 
@@ -145,7 +145,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
             if (section.engine == EffectMatchingEngine.FgEngine.OFF_TRANSIT) continue
 
-            val enginePool  = SectionEngineCatalog.pool(section.type, palette.musicStyle)
+            val enginePool  = GenreEngineCatalog.pool(section.type, palette.musicStyle)
             val barBlockLen = sectionBarBlockLen(section)
             val barMs = if (section.beatMs > 0L && beatsPerBar > 0) section.beatMs * beatsPerBar else 0L
 
@@ -166,7 +166,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 val barIdx = barIndexAt(t, downbeatMs, section.beatMs, beatsPerBar)
                 val beatEngine = when {
                     section.type == SectionDetector.SectionType.BRIDGE ->
-                        SectionEngineCatalog.bridgePhaseEngine()
+                        GenreEngineCatalog.bridgePhaseEngine()
                     section.type == SectionDetector.SectionType.VERSE && verseBarEnergy.isNotEmpty() -> {
                         val energy = verseBarEnergy[barIdx] ?: 0f
                         if (energy >= verseEnergyBlinkCutoff) EffectMatchingEngine.FgEngine.BLINK

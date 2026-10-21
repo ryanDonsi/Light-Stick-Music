@@ -1,12 +1,12 @@
 package com.lightstick.music.domain.music
 
 /**
- * 섹션 타입별 이펙트 엔진 매칭표 — 장르마다 다른 EngineSet을 통째로 바꿔 끼울 수 있다.
- * pool(): 그 섹션이 bar 단위로 순환시킬 엔진 후보 목록(결정론적 해시/에너지로 그중 하나를
- * 고름). assign(): 섹션 전체를 대표하는 기본 엔진 — 항상 pool의 첫 번째 값이다.
- * BRIDGE는 비트 단위로 bridgePhaseEngine()이 매 비트마다 직접 override한다.
+ * 장르별 이펙트 엔진 매칭표 — 장르마다 "섹션 타입 → 엔진" 배정을 통째로 다른 EngineSet으로
+ * 바꿔 끼울 수 있다. pool(): 그 장르에서 섹션이 bar 단위로 순환시킬 엔진 후보 목록(결정론적
+ * 해시/에너지로 그중 하나를 고름). assign(): 섹션 전체를 대표하는 기본 엔진 — 항상 pool의
+ * 첫 번째 값이다. BRIDGE는 비트 단위로 bridgePhaseEngine()이 매 비트마다 직접 override한다.
  */
-object SectionEngineCatalog {
+object GenreEngineCatalog {
 
     /** 섹션 타입 → 엔진 후보 목록 매칭표 하나. 새 세트를 만들려면 이 타입으로 하나 선언하면 된다. */
     data class EngineSet(

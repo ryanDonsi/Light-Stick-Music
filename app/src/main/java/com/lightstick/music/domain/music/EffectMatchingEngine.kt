@@ -19,7 +19,7 @@ interface EffectMatchingEngine {
         val black: LSColor, val white: LSColor,
         // 선택된 색 계열 이름(예 "PURPLE"/"RED"/"ORANGE_GOLD"/"TEAL"/"BLUE", 없으면 "NONE").
         val colorFamily: String,
-        // 이 팔레트를 고를 때 쓴 장르 — SectionEngineCatalog가 섹션별 엔진 매칭을 장르별로
+        // 이 팔레트를 고를 때 쓴 장르 — GenreEngineCatalog가 섹션별 엔진 매칭을 장르별로
         // 고르는 데도 그대로 재사용한다.
         val musicStyle: MusicStyleClassifier.MusicStyle,
         val onPulse: EffectColors,          // ON_PULSE(VERSE, 비발라드)
