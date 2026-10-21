@@ -40,17 +40,28 @@ interface FgEngineEffect {
     fun shouldSend(beatIndex: Int): Boolean = true
 
     /**
-     * 메인 프레임을 보낸 뒤 별도 시점에 추가로 보낼 프레임들(예: accent-hold 뒤 bg색으로 전환).
-     * 개수 제한 없음 — 없으면 빈 리스트. t는 이 비트의 타임스탬프, sectionEndMs는 추가
-     * 프레임이 섹션을 넘지 않도록 자를 때 쓰는 섹션 종료 시각, bg는 이 비트의 배경색(팔레트 기준).
+     * 메인 프레임을 보낸 뒤 별도 시점에 추가로 보낼 프레임들(예: accent-hold 뒤 bg색으로 전환,
+     * 또는 fg→bg 다단계 페이드). 개수 제한 없음 — 없으면 빈 리스트. t는 이 비트의 타임스탬프,
+     * sectionEndMs는 추가 프레임이 섹션을 넘지 않도록 자를 때 쓰는 섹션 종료 시각,
+     * fg/bg는 이 비트의 전경/배경색(팔레트 기준).
      */
-    fun followUpFrames(t: Long, beatMs: Long, sectionEndMs: Long, bg: LSColor): List<Pair<Long, ByteArray>> = emptyList()
+    fun followUpFrames(t: Long, beatMs: Long, sectionEndMs: Long, fg: LSColor, bg: LSColor): List<Pair<Long, ByteArray>> = emptyList()
 }
 
 private fun pick(ec: EffectMatchingEngine.EffectColors, idx: Int): Pair<LSColor, LSColor?> {
     val fg = ec.fgCycle[Math.floorMod(idx, ec.fgCycle.size)]
     val bg = ec.bgCycle?.let { it[Math.floorMod(idx, it.size)] } ?: ec.bg
     return fg to bg
+}
+
+// 두 색 사이를 f(0~1) 비율로 선형보간 — 다단계 페이드 프레임을 만들 때 쓴다.
+private fun lerp(a: LSColor, b: LSColor, f: Float): LSColor {
+    val t = f.coerceIn(0f, 1f)
+    return LSColor(
+        (a.r + (b.r - a.r) * t).toInt().coerceIn(0, 255),
+        (a.g + (b.g - a.g) * t).toInt().coerceIn(0, 255),
+        (a.b + (b.b - a.b) * t).toInt().coerceIn(0, 255)
+    )
 }
 
 // period는 10ms 단위, FG+BG를 합친 한 사이클 전체 길이.
@@ -82,10 +93,18 @@ object OnPulseEffect : FgEngineEffect {
 
     override fun shouldSend(beatIndex: Int): Boolean = beatIndex % 2 == 0
 
-    override fun followUpFrames(t: Long, beatMs: Long, sectionEndMs: Long, bg: LSColor): List<Pair<Long, ByteArray>> {
+    override fun followUpFrames(t: Long, beatMs: Long, sectionEndMs: Long, fg: LSColor, bg: LSColor): List<Pair<Long, ByteArray>> {
         val holdMs = minOf(ACCENT_HOLD_MS * 2L, beatMs * 44L / 100L).coerceAtLeast(60L)
-        val offT = minOf(sectionEndMs - 1L, t + holdMs)
-        return if (offT > t) listOf(offT to LSEffectPayload.Effects.on(color = bg, transit = 3).toByteArray()) else emptyList()
+        val maxT = sectionEndMs - 1L
+        val step = holdMs / 3
+        val t1 = minOf(maxT, t + step)
+        val t2 = minOf(maxT, t + step * 2)
+        val t3 = minOf(maxT, t + holdMs)
+        val frames = mutableListOf<Pair<Long, ByteArray>>()
+        if (t1 > t)  frames += t1 to LSEffectPayload.Effects.on(color = lerp(fg, bg, 0.5f), transit = 1).toByteArray()
+        if (t2 > t1) frames += t2 to LSEffectPayload.Effects.on(color = lerp(fg, bg, 0.8f), transit = 1).toByteArray()
+        if (t3 > t2) frames += t3 to LSEffectPayload.Effects.on(color = bg, transit = 3).toByteArray()
+        return frames
     }
 }
 

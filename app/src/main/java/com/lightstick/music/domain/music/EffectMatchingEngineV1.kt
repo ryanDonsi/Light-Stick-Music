@@ -209,7 +209,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 }
 
                 if (shouldSend) {
-                    for ((offT, payload) in effect.followUpFrames(t, section.beatMs, section.endMs, bgNonNull)) {
+                    for ((offT, payload) in effect.followUpFrames(t, section.beatMs, section.endMs, fg, bgNonNull)) {
                         put(offT, payload)
                     }
                 }
