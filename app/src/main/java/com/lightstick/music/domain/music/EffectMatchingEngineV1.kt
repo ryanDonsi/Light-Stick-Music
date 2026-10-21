@@ -89,7 +89,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             val beats    = g.annotatedBeats.size
             val relScore = ((energy - lowTh) / range).coerceIn(0f, 1f)
 
-            val engine = assignFgEngine(g.type, isBalladMode = isBalladMode)
+            val engine = SectionEngineCatalog.assign(g.type, isBalladMode = isBalladMode)
 
             val source = buildSourceName(g.type, beats)
 
@@ -147,7 +147,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
 
             if (section.engine == EffectMatchingEngine.FgEngine.OFF_TRANSIT) continue
 
-            val enginePool  = sectionEnginePool(section.type, isBalladMode)
+            val enginePool  = SectionEngineCatalog.pool(section.type, isBalladMode)
             val barBlockLen = sectionBarBlockLen(section)
             val barMs = if (section.beatMs > 0L && beatsPerBar > 0) section.beatMs * beatsPerBar else 0L
 
@@ -168,7 +168,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 val barIdx = barIndexAt(t, downbeatMs, section.beatMs, beatsPerBar)
                 val beatEngine = when {
                     section.type == SectionDetector.SectionType.BRIDGE ->
-                        bridgePhaseEngine()
+                        SectionEngineCatalog.bridgePhaseEngine()
                     section.type == SectionDetector.SectionType.VERSE && verseBarEnergy.isNotEmpty() -> {
                         val energy = verseBarEnergy[barIdx] ?: 0f
                         if (energy >= verseEnergyBlinkCutoff) EffectMatchingEngine.FgEngine.BLINK
@@ -280,38 +280,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         return fullEnv.subList(startIdx, endIdx + 1).average().toFloat()
     }
 
-    private fun assignFgEngine(
-        type: SectionDetector.SectionType, isBalladMode: Boolean
-    ): EffectMatchingEngine.FgEngine = when (type) {
-        SectionDetector.SectionType.INTRO  -> EffectMatchingEngine.FgEngine.BREATH
-        SectionDetector.SectionType.OUTRO  -> EffectMatchingEngine.FgEngine.OFF_TRANSIT
-        // BREAK: 완전 무음 구간 — 고정 점등(FREEZE).
-        SectionDetector.SectionType.BREAK  -> EffectMatchingEngine.FgEngine.FREEZE
-        // CLIMAX: 실제로 도달하지 않음(검출 비활성).
-        SectionDetector.SectionType.CLIMAX -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-        SectionDetector.SectionType.VERSE  -> if (isBalladMode) EffectMatchingEngine.FgEngine.BREATH else EffectMatchingEngine.FgEngine.ON_PULSE
-        SectionDetector.SectionType.CHORUS -> EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-        SectionDetector.SectionType.BRIDGE -> EffectMatchingEngine.FgEngine.BREATH
-        SectionDetector.SectionType.END    -> EffectMatchingEngine.FgEngine.OFF_TRANSIT
-    }
-
-    /** 섹션 타입별 이펙트 후보군 — bar 단위로 순환시킬 엔진 목록. BRIDGE는 bridgePhaseEngine이 처리. */
-    private fun sectionEnginePool(
-        type: SectionDetector.SectionType, isBalladMode: Boolean
-    ): List<EffectMatchingEngine.FgEngine> = when (type) {
-        SectionDetector.SectionType.INTRO  -> listOf(EffectMatchingEngine.FgEngine.BREATH)
-        SectionDetector.SectionType.OUTRO  -> listOf(EffectMatchingEngine.FgEngine.OFF_TRANSIT)
-        SectionDetector.SectionType.BREAK  -> listOf(EffectMatchingEngine.FgEngine.FREEZE)
-        SectionDetector.SectionType.END    -> listOf(EffectMatchingEngine.FgEngine.OFF_TRANSIT)
-        SectionDetector.SectionType.BRIDGE -> listOf(EffectMatchingEngine.FgEngine.BREATH)
-        SectionDetector.SectionType.CLIMAX -> listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
-        SectionDetector.SectionType.VERSE ->
-            if (isBalladMode) listOf(EffectMatchingEngine.FgEngine.BREATH)
-            else listOf(EffectMatchingEngine.FgEngine.ON_PULSE, EffectMatchingEngine.FgEngine.BLINK)
-        SectionDetector.SectionType.CHORUS ->
-            listOf(EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE)
-    }
-
     /** 섹션마다 결정론적으로 2~5 사이의 bar 블록 길이를 고른다 (같은 곡이면 항상 같은 결과). */
     private fun sectionBarBlockLen(section: ResolvedSection): Int {
         val h = section.startMs * 2654435761L + section.type.ordinal * 97L
@@ -336,9 +304,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             SectionDetector.SectionType.BRIDGE -> "bridge-breath"
             SectionDetector.SectionType.END    -> "end-off"
         }
-
-    /** BRIDGE는 항상 BREATH. */
-    private fun bridgePhaseEngine(): EffectMatchingEngine.FgEngine = EffectMatchingEngine.FgEngine.BREATH
 
     /** EffectColors.fgCycle을 인덱스로 순환시켜 (fg, bg) 쌍을 뽑는다. */
     private fun pick(ec: EffectMatchingEngine.EffectColors, idx: Int): Pair<LSColor, LSColor?> =
