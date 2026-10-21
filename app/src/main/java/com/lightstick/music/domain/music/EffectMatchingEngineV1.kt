@@ -15,7 +15,6 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
         private const val ON_TRANSIT = 2
         private const val ON_PULSE_ACCENT_HOLD_MS = 200L
-        private const val ON_ROTATE_BALLAD_TRANSIT = ON_TRANSIT
         // OUTRO 페이드: 스텝 길이(ms)를 transit 값으로 변환하는 비율/범위.
         private const val OUTRO_TRANSIT_DIVISOR = 100L
         private const val OUTRO_TRANSIT_MIN = 2
@@ -182,53 +181,32 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
                 }
 
                 val effectiveEngine = beatEngine
+                val effect = FgEngineEffectCatalog.of(effectiveEngine)
 
-                val (fg, bg) = colorsForEngine(palette, effectiveEngine, beatIndex, section.type, barIdx, isBalladMode)
+                val (fg, bg) = effect.colors(palette, section.type, barIdx, beatIndex, isBalladMode)
                 val bgNonNull = bg ?: LSColor(0, 0, 0)
                 lastFg = fg
 
-                val beatPeriod = when (effectiveEngine) {
-                    EffectMatchingEngine.FgEngine.BREATH -> msToBreathPeriod(section.beatMs)
-                    else            -> null
-                }
-                val beatRandomDelay = when {
-                    effectiveEngine == EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE  -> null
-                    effectiveEngine == EffectMatchingEngine.FgEngine.ON_PULSE           -> null
-                    effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
-                        section.type == SectionDetector.SectionType.VERSE -> 0
-                    // 발라드 BRIDGE: SDK 랜덤딜레이로 기기별 파도 효과. 비발라드 BRIDGE: 결정적 beatPeriod.
-                    effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
-                        section.type == SectionDetector.SectionType.BRIDGE && isBalladMode ->
-                        msToBreathRandomDelay(section.beatMs)
-                    effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
-                        section.type == SectionDetector.SectionType.BRIDGE -> beatPeriod
-                    effectiveEngine == EffectMatchingEngine.FgEngine.BREATH             -> msToBreathRandomDelay(section.beatMs)
-                    else                                           -> null
-                }
-                // 발라드 BRIDGE만 SDK의 randomColor 플래그를 켠다.
-                val beatRandomColor = if (effectiveEngine == EffectMatchingEngine.FgEngine.BREATH &&
-                    section.type == SectionDetector.SectionType.BRIDGE && isBalladMode) 1 else 0
-                val beatRotateTransit = if (effectiveEngine == EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE && isBalladMode)
-                    ON_ROTATE_BALLAD_TRANSIT else 0
+                val beatPeriod = effect.period(section.beatMs)
+                val beatRandomDelay = effect.randomDelay(section.beatMs, section.type, isBalladMode, beatPeriod)
+                val beatRandomColor = effect.randomColorFlag(section.type, isBalladMode)
+                val beatRotateTransit = effect.rotateTransit(isBalladMode)
 
                 val skipOnPulseOdd = (beatEngine == EffectMatchingEngine.FgEngine.ON_PULSE && beatIndex % 2 != 0)
 
                 val skipRepeat = if (skipOnPulseOdd) {
                     true
-                } else if (effectiveEngine == EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE
-                    || effectiveEngine == EffectMatchingEngine.FgEngine.BREATH
-                    || effectiveEngine == EffectMatchingEngine.FgEngine.FREEZE) {
+                } else if (effect.isRepeatable) {
                     val key = RepeatKey(effectiveEngine,
                         fg.r, fg.g, fg.b, bgNonNull.r, bgNonNull.g, bgNonNull.b,
-                        beatPeriod ?: 0, beatRandomDelay ?: 0)
+                        beatPeriod, beatRandomDelay)
                     val dup = (key == lastRepeatKey); lastRepeatKey = key; dup
                 } else {
                     lastRepeatKey = null; false
                 }
 
                 if (!skipRepeat) {
-                    put(t, buildPayload(effectiveEngine, fg, bg, section.beatMs, beatPeriod,
-                        beatRandomDelay, rotateTransit = beatRotateTransit, randomColor = beatRandomColor))
+                    put(t, effect.buildPayload(fg, bg, beatPeriod, beatRandomDelay, beatRotateTransit, beatRandomColor))
                 }
 
                 if (beatEngine == EffectMatchingEngine.FgEngine.ON_PULSE && !skipOnPulseOdd) {
@@ -305,62 +283,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             SectionDetector.SectionType.END    -> "end-off"
         }
 
-    /** EffectColors.fgCycle을 인덱스로 순환시켜 (fg, bg) 쌍을 뽑는다. */
-    private fun pick(ec: EffectMatchingEngine.EffectColors, idx: Int): Pair<LSColor, LSColor?> =
-        ec.fgCycle[Math.floorMod(idx, ec.fgCycle.size)] to ec.bg
-
-    private fun colorsForEngine(
-        palette: EffectMatchingEngine.Palette, engine: EffectMatchingEngine.FgEngine,
-        beatIndex: Int = 0, sectionType: SectionDetector.SectionType = SectionDetector.SectionType.VERSE,
-        barIdx: Int = 0, isBalladMode: Boolean = false
-    ): Pair<LSColor, LSColor?> = when (engine) {
-        // ON_PULSE: VERSE(비발라드).
-        EffectMatchingEngine.FgEngine.ON_PULSE -> pick(palette.onPulse, barIdx)
-        // BLINK: VERSE(비발라드) 고에너지 bar.
-        EffectMatchingEngine.FgEngine.BLINK -> pick(palette.blink, barIdx)
-        // ON_TRANSIT_ROTATE: CHORUS.
-        EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE -> pick(palette.chorus, beatIndex)
-        // BREATH: 발라드 BRIDGE/VERSE/그 외로 구분.
-        EffectMatchingEngine.FgEngine.BREATH -> when {
-            sectionType == SectionDetector.SectionType.BRIDGE && isBalladMode -> pick(palette.breathBridgeBallad, 0)
-            sectionType == SectionDetector.SectionType.VERSE -> pick(palette.breathVerse, barIdx)
-            else -> pick(palette.breathDefault, 0)
-        }
-        // FREEZE: BREAK.
-        EffectMatchingEngine.FgEngine.FREEZE -> pick(palette.freeze, 0)
-        EffectMatchingEngine.FgEngine.OFF_TRANSIT -> palette.black to palette.black
-    }
-
-    private fun buildPayload(
-        engine: EffectMatchingEngine.FgEngine, fg: LSColor, bg: LSColor?, beatMs: Long,
-        period: Int? = null, randomDelay: Int? = null, rotateTransit: Int = 0, randomColor: Int = 0
-    ): ByteArray {
-        val bgColor = bg ?: LSColor(0, 0, 0)
-        return when (engine) {
-            EffectMatchingEngine.FgEngine.ON_PULSE ->
-                LSEffectPayload.Effects.on(color = fg, transit = 0).toByteArray()
-            EffectMatchingEngine.FgEngine.BLINK ->
-                LSEffectPayload.Effects.blink(period = period ?: msToBlinkPeriod(beatMs),
-                    color = fg, backgroundColor = bgColor, randomDelay = randomDelay ?: 0).toByteArray()
-            EffectMatchingEngine.FgEngine.BREATH ->
-                LSEffectPayload.Effects.breath(period = period ?: msToBreathPeriod(beatMs),
-                    color = fg, backgroundColor = bgColor, randomColor = randomColor,
-                    randomDelay = randomDelay ?: msToBreathRandomDelay(beatMs)).toByteArray()
-            EffectMatchingEngine.FgEngine.ON_TRANSIT_ROTATE ->
-                LSEffectPayload.Effects.on(color = fg, transit = rotateTransit).toByteArray()
-            // FREEZE: 애니메이션 없이 한 번 켜서 그대로 유지한다(transit=0, 이후 재전송 없음).
-            EffectMatchingEngine.FgEngine.FREEZE ->
-                LSEffectPayload.Effects.on(color = fg, transit = 0).toByteArray()
-            EffectMatchingEngine.FgEngine.OFF_TRANSIT -> buildOffPayload()
-        }
-    }
-
     private fun buildOffPayload(transit: Int = ON_TRANSIT): ByteArray = LSEffectPayload.Effects.off(transit = transit).toByteArray()
-
-    // period는 10ms 단위, FG+BG를 합친 한 사이클 전체 길이.
-    private fun msToBlinkPeriod(beatMs: Long)        = (beatMs / 100L).toInt().coerceIn(1, 255)
-    private fun msToBreathPeriod(beatMs: Long)       = (beatMs / 20L).toInt().coerceIn(1, 255)
-    private fun msToBreathRandomDelay(beatMs: Long)  = (msToBreathPeriod(beatMs) / 10).coerceIn(1, 10)
 
     private fun percentile(values: List<Float>, p: Float): Float {
         if (values.isEmpty()) return 0f
