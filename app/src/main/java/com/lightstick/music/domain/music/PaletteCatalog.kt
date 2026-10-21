@@ -171,7 +171,7 @@ object PaletteCatalog {
     // POP_SET_3 = ORANGE_GOLD (rolePerm=[1, 0, 2, 3])
     private val POP_SET_3_ONPULSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), BLACK)
     private val POP_SET_3_BLINK = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_LIME)
-    private val POP_SET_3_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, ORANGE_GOLD_DEEP, ORANGE_GOLD_ORANGE, ORANGE_GOLD_AMBER), ORANGE_GOLD_ORANGE_SHADE)
+    private val POP_SET_3_CHORUS = EffectMatchingEngine.EffectColors(listOf(WHITE, ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_ORANGE_SHADE)
     private val POP_SET_3_BREATH_VERSE = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_ORANGE, ORANGE_GOLD_DEEP, ORANGE_GOLD_AMBER), ORANGE_GOLD_LIME_SHADE)
     private val POP_SET_3_BREATH_BRIDGE_BALLAD = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_LIME), BLACK)
     private val POP_SET_3_BREATH_DEFAULT = EffectMatchingEngine.EffectColors(listOf(ORANGE_GOLD_LIME), ORANGE_GOLD_ORANGE_SHADE)
