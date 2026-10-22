@@ -20,7 +20,7 @@ import kotlin.math.min
  * AutoTimelineConfig 설정에 따라 비트 감지기(BeatDetectorRouter)·섹션 감지기
  * (SectionDetectorRouter)·이펙트 매칭 엔진(EffectMatchingEngineRouter)을 조합해 동작한다.
  */
-class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
+class AutoTimelineGeneratorBeat : AutoTimelineGenerator, AutoTimelineGeneratorWithSections {
 
     companion object {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
