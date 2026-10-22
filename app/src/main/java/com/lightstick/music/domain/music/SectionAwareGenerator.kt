@@ -1,5 +1,7 @@
 package com.lightstick.music.domain.music
 
+import com.lightstick.music.domain.music.sectiondetector.SectionMeta
+
 /**
  * SectionDetector 를 사용하는 생성기가 구현하는 확장 인터페이스.
  * PrecomputeAutoTimelinesUseCase 가 섹션 메타데이터를 저장할 수 있도록 한다.

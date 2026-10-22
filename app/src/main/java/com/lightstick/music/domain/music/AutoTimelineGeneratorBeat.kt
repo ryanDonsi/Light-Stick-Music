@@ -5,6 +5,7 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.music.domain.music.beatdetector.BeatDetectorRouter
 import com.lightstick.music.domain.music.sectiondetector.SectionDetector
 import com.lightstick.music.domain.music.sectiondetector.SectionDetectorRouter
+import com.lightstick.music.domain.music.sectiondetector.SectionMeta
 import com.lightstick.music.domain.music.effectmatchingengine.EffectMatchingEngine
 import com.lightstick.music.domain.music.effectmatchingengine.EffectMatchingEngineRouter
 import com.lightstick.types.Color as LSColor
