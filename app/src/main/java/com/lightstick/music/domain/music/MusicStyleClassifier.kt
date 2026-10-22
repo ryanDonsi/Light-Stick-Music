@@ -2,6 +2,7 @@ package com.lightstick.music.domain.music
 
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.music.domain.music.beatdetector.BeatDetectorRouter
 import kotlin.math.sqrt
 
 /**

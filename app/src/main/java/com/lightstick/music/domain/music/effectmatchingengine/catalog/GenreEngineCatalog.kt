@@ -1,4 +1,8 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.effectmatchingengine.catalog
+
+import com.lightstick.music.domain.music.MusicStyleClassifier
+import com.lightstick.music.domain.music.sectiondetector.SectionDetector
+import com.lightstick.music.domain.music.effectmatchingengine.EffectMatchingEngine
 
 /**
  * 장르별 이펙트 엔진 매칭표 — 장르마다 "섹션 타입 → 엔진" 배정을 통째로 다른 EngineSet으로

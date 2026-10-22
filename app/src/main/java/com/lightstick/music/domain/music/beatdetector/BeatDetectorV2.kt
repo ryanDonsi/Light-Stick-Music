@@ -1,4 +1,4 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.beatdetector
 
 import android.media.MediaCodec
 import android.media.MediaExtractor

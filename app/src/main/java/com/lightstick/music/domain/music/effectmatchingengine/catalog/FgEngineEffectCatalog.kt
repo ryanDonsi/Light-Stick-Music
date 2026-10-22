@@ -1,5 +1,7 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.effectmatchingengine.catalog
 
+import com.lightstick.music.domain.music.sectiondetector.SectionDetector
+import com.lightstick.music.domain.music.effectmatchingengine.EffectMatchingEngine
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.LSEffectPayload
 

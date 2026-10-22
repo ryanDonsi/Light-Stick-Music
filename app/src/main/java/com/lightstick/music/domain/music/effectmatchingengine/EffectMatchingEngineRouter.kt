@@ -1,4 +1,6 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.effectmatchingengine
+
+import com.lightstick.music.domain.music.AutoTimelineConfig
 
 /**
  * EffectMatchingEngine 라우터 — 버전에 맞는 엔진 인스턴스를 선택해 반환한다.

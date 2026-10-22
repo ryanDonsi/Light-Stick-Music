@@ -14,7 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lightstick.music.domain.music.MusicStyleClassifier
-import com.lightstick.music.domain.music.SectionDetector
+import com.lightstick.music.domain.music.sectiondetector.SectionDetector
 import com.lightstick.music.domain.music.SectionMeta
 
 /**

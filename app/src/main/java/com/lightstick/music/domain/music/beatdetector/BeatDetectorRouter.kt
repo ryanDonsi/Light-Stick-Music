@@ -1,9 +1,10 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.beatdetector
 
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import com.lightstick.music.core.util.Log
+import com.lightstick.music.domain.music.AutoTimelineConfig
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.sqrt

@@ -25,7 +25,7 @@ import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
-import com.lightstick.music.domain.music.EffectMatchingEngineRouter
+import com.lightstick.music.domain.music.effectmatchingengine.EffectMatchingEngineRouter
 import com.lightstick.music.domain.music.SectionMeta
 import com.lightstick.music.domain.music.SectionMetaStorage
 import com.lightstick.music.domain.music.FftAudioProcessor

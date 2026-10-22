@@ -1,7 +1,13 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.effectmatchingengine
 
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
+import com.lightstick.music.domain.music.MusicStyleClassifier
+import com.lightstick.music.domain.music.sectiondetector.SectionDetector
+import com.lightstick.music.domain.music.effectmatchingengine.catalog.PaletteCatalog
+import com.lightstick.music.domain.music.effectmatchingengine.catalog.GenreEngineCatalog
+import com.lightstick.music.domain.music.effectmatchingengine.catalog.FgEngineEffectCatalog
+import com.lightstick.music.domain.music.effectmatchingengine.catalog.toPayload
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.LSEffectPayload
 

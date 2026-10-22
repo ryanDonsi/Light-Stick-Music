@@ -1,6 +1,7 @@
 package com.lightstick.music.domain.music
 
 import android.content.Context
+import com.lightstick.music.domain.music.sectiondetector.SectionDetector
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File

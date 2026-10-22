@@ -1,4 +1,6 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.sectiondetector
+
+import com.lightstick.music.domain.music.beatdetector.BeatDetectorRouter
 
 /**
  * SectionDetector 버전 라우터.

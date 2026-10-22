@@ -1,5 +1,6 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.sectiondetector
 
+import com.lightstick.music.domain.music.beatdetector.BeatDetectorRouter
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import kotlin.math.abs

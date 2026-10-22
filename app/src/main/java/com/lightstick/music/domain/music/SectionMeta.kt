@@ -1,5 +1,7 @@
 package com.lightstick.music.domain.music
 
+import com.lightstick.music.domain.music.sectiondetector.SectionDetector
+
 /**
  * 섹션 메타데이터 — UI 오버레이 표시 및 섹션별 이펙트 생성에 사용.
  * SectionDetectorV1 이 계산한 구간 특성값을 모두 포함한다.
