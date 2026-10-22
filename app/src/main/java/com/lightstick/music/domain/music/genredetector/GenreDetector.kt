@@ -1,7 +1,8 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.genredetector
 
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.music.domain.music.beatdetector.BeatDetectorRouter
 import kotlin.math.sqrt
 
 /**
@@ -18,17 +19,13 @@ import kotlin.math.sqrt
  *  5. ROCK      — 고음역 비율 높음 + energyFlux 큼
  *  6. POP       — catch-all
  */
-object MusicStyleClassifier {
+object GenreDetector {
 
     private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
     // ── 임계값 ────────────────────────────────────────────────────
 
     // BALLAD
-    // V4.3: 700ms(85.7 BPM) → 800ms(75 BPM)로 상향. IYKYK가 BeatDetector 오검출(85.7 BPM,
-    // 정답은 127.7 BPM)로 정확히 700ms 경계에 걸려 BALLAD로 오분류되던 문제 완화.
-    // 43곡 정답 기준 BPM 75~85.7(beatMs 700~800ms) 구간에 실제로 걸리는 곡이 없어
-    // 다른 발라드 판정에는 영향 없음.
     private const val BALLAD_BEAT_MS_MIN        = 800L
     private const val BALLAD_ENERGY_MAX          = 0.52f
     private const val BALLAD_ENERGY_MAX_SLOW     = 0.62f   // beatMs >= 900ms 완화

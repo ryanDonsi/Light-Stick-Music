@@ -1,4 +1,4 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.beatdetector
 
 import android.media.MediaCodec
 import android.media.MediaExtractor
@@ -389,35 +389,20 @@ object BeatDetectorV2 {
         if (halfLag >= minLag && bestAc > 0f) {
             val tempoRatio = bestMs.toFloat() / halfMs.toFloat()
 
-            // ── 명시적 2배 Octave Error (낮은 halfRatio + 강한 doubleRatio 확인) ────
-            // Madmom 기준 2배 오류 곡들:
-            // - 초혼: tempoRatio=1.98 halfRatio=0.618 doubleRatio=0.951
-            // - 진미령: tempoRatio=2.00 halfRatio=0.536 doubleRatio=1.313
-            // - 별보러가자: tempoRatio=2.00 halfRatio=0.556 doubleRatio=1.109
-            // - TOMBOY: tempoRatio=2.00 halfRatio=0.643 doubleRatio=1.094
-            //
-            // 보호 대상: "모든 날" (doubleRatio=0, HR=0.654 → 조건 제외)
-            //
-            // 핵심 메트릭:
-            // - 2배 오류는 낮은 halfRatio (< 0.70)
-            // - 2배 오류는 강한 doubleRatio (>= 0.95)
-            // - doubleRatio=0인 곡은 자동 제외되어 보호됨
+            // 2배 옥타브 오류 보정: 낮은 halfRatio + 강한 doubleRatio 확인
             if (tempoRatio in 1.95f..2.05f && halfRatio < 0.70f && doubleRatio >= 0.95f) {
                 return halfMs
             }
         }
 
-        // doubleTempoFix Refined V3: 신뢰도 기반 2배 오류 감지
-        // 거짓양성 제거: bestAc < 0.002 필터 + 신뢰도 비율 필터
+        // 신뢰도 기반 2배 오류 감지
         val doubleErrorRate = kotlin.math.abs(doubleMs.toFloat() / bestMs.toFloat() - 1.0f) * 100
 
-        // 신뢰도 필터 추가 (bestAc가 0.002 이상이면 회피 - 이미 높은 신뢰도)
         if (doubleLag <= maxLag && bestAc < 0.002f) {
-            // 신뢰도 비율 필터
             val doubleAcRatio = if (bestAc > 0f) doubleAc / bestAc else 0f
             val reliabilityFilterPass = (halfRatio >= 0.45f) || (halfRatio < 0.45f && doubleAcRatio >= 0.97f)
 
-            // doubleTempoFix 조건 1: 심각한 2배 오류 (오류율 > 50%)
+            // 조건 1: 심각한 2배 오류 (오류율 > 50%)
             if (doubleRatio > 0.5f &&
                 subBeatRatio < BPM_SUBBEAT_RATIO_MAX &&
                 doubleErrorRate > 50 &&
@@ -425,7 +410,7 @@ object BeatDetectorV2 {
                 return doubleMs
             }
 
-            // doubleTempoFix 조건 2: 중간 수준 오류 (25% < 오류율 ≤ 50%)
+            // 조건 2: 중간 수준 오류 (25% < 오류율 ≤ 50%)
             if (doubleRatio > 0.70f &&
                 subBeatRatio < BPM_SUBBEAT_RATIO_MAX &&
                 doubleErrorRate > 25 &&
@@ -435,9 +420,7 @@ object BeatDetectorV2 {
             }
         }
 
-        // doubleTempoFix 조건 3: 경계선 사례 (subBeatRatio 0.65~0.71, doubleRatio 0.85~0.95)
-        // 신뢰도 필터 추가: doubleAc >= bestAc * 0.95
-        // (진정한 2배 오류는 doubleAc가 bestAc와 비슷하거나 높음)
+        // 조건 3: 경계선 사례
         if (doubleLag <= maxLag &&
             doubleRatio >= 0.85f && doubleRatio <= 0.95f &&
             subBeatRatio >= 0.65f && subBeatRatio <= 0.71f &&

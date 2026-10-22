@@ -1,6 +1,8 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.sectiondetector.meta
 
 import android.content.Context
+import com.lightstick.music.domain.music.genredetector.GenreDetector
+import com.lightstick.music.domain.music.sectiondetector.SectionDetector
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -84,14 +86,8 @@ class SectionMetaStorage(private val version: Int) {
                 if (v != version) return@use null
 
                 val musicStyleOrdinal = input.readInt()
-                val musicStyles       = MusicStyleClassifier.MusicStyle.values()
+                val musicStyles       = GenreDetector.MusicStyle.values()
                 val songStyle         = musicStyles.getOrNull(musicStyleOrdinal)
-                // colorFamily는 바이너리에 저장하지 않는다 — musicId+songStyle이 있으면
-                // buildPalette()가 항상 결정론적으로 같은 계열을 골라주므로(지터 없음),
-                // 포맷/버전을 바꾸지 않고 로드 시점에 다시 계산한다.
-                val colorFamily = songStyle?.let {
-                    EffectMatchingEngineRouter.createEngine().buildPalette(musicId, it).colorFamily
-                }
 
                 val count = input.readInt()
                 val sections = ArrayList<SectionMeta>(count)
@@ -132,7 +128,6 @@ class SectionMetaStorage(private val version: Int) {
                             onsetDensity   = onsetDensity,
                             periodicity    = periodicity,
                             musicStyle     = if (idx == 0) songStyle else null,
-                            colorFamily    = if (idx == 0) colorFamily else null,
                             beatTimesMs    = beatTimesMs
                         )
                     )

@@ -1,9 +1,10 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.beatdetector
 
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import com.lightstick.music.core.util.Log
+import com.lightstick.music.domain.music.AutoTimelineConfig
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.sqrt
@@ -23,7 +24,7 @@ object BeatDetectorRouter {
 
     private const val TAG = "AutoTimeline_BeatDetectorRouter"
 
-    // IIR 필터 계수 (SectionDetector/MusicStyleClassifier 공통)
+    // IIR 필터 계수 (SectionDetector/GenreDetector 공통)
     private const val LOW_ALPHA     = 0.12f
     private const val MID_LP1_ALPHA = 0.35f
     private const val MID_LP2_ALPHA = 0.08f
@@ -51,7 +52,7 @@ object BeatDetectorRouter {
         val beatMs:      Long,
         val beatsPerBar: Int,
         val downbeatMs:  Long,
-        /** SectionDetector / MusicStyleClassifier 용 4밴드 Envelope (항상 포함) */
+        /** SectionDetector / GenreDetector 용 4밴드 Envelope (항상 포함) */
         val envelopes:   AudioEnvelopes? = null
     ) {
         data class Beat(val timeMs: Long, val confidence: Float)

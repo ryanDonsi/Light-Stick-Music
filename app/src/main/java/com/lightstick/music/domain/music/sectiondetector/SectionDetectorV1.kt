@@ -1,5 +1,6 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.sectiondetector
 
+import com.lightstick.music.domain.music.beatdetector.BeatDetectorRouter
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import kotlin.math.abs
@@ -9,13 +10,6 @@ import kotlin.math.sqrt
 
 /**
  * SectionDetectorV1 — SectionDetectorV0 속도 개선 버전
- *
- * V0 대비 주요 변경:
- *  - estimateBeatMsByAutocorr() 제거 → 전역 beatMs 직접 사용 (O(N²) → O(1))
- *  - estimatePeriodicityStrength() 전역 1회 계산 (윈도우마다 반복 → 전역 한 번)
- *  - subList() 슬라이싱 → 인덱스 직접 접근으로 allocation 최소화
- *  - STRIDE_MS 1000ms → 2000ms (처리 윈도우 수 절반)
- *  - novelty FloatArray를 IntArray 인덱스로 직접 참조
  */
 class SectionDetectorV1 : SectionDetector {
 
@@ -23,7 +17,7 @@ class SectionDetectorV1 : SectionDetector {
         private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 
         private const val WINDOW_MS      = 2_000L
-        private const val STRIDE_MS      = 2_000L   // V0=1000ms → 2배 스트라이드
+        private const val STRIDE_MS      = 2_000L
         private const val MIN_SECTION_MS  = 4_000L
         private const val COMPACT_MIN_MS  = 10_000L  // 10s 미만 파편 흡수
 
@@ -36,11 +30,8 @@ class SectionDetectorV1 : SectionDetector {
         private const val CLIMAX_MIN_CV         = 0.35f
         private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
 
-        // BREAK는 "음악이 순간적으로 끊기는" 짧은 구간만을 뜻한다. 조용하지만
-        // 몇십 초씩 이어지는 구간(코러스 뒤 잠깐 가라앉았다가 다시 쌓아올리는
-        // 구간 등)은 끊긴 게 아니라 구조적인 BRIDGE다. classifyType은 순수
-        // 에너지 점수만 보고 지속 시간을 모르므로, 병합된 최종 구간 기준으로
-        // 이 시간을 넘는 BREAK는 BRIDGE로 되돌린다.
+        // BREAK는 음악이 순간적으로 끊기는 짧은 구간만을 뜻한다. 병합된 최종 구간 기준으로
+        // 이 시간을 넘는 BREAK는 BRIDGE로 분류한다.
         private const val BREAK_MAX_MS = 8_000L
     }
 
@@ -94,9 +85,7 @@ class SectionDetectorV1 : SectionDetector {
         val lowTh  = if (frameScores.isNotEmpty()) percentile(frameScores, 0.35f) else 0f
         val highTh = if (frameScores.isNotEmpty()) percentile(frameScores, 0.70f) else 1f
         Log.d(TAG, "SectionDetectorV1 thresholds: lowTh=${"%.3f".format(lowTh)} highTh=${"%.3f".format(highTh)}")
-        // INTRO 경계 로직 개선용 진단 로그 — 병합/컴팩션 전 원시 2초 윈도우 단위 특성값.
-        // adb logcat | grep SectionDetectorV1 로 캡처해서 "노래가 실제로 시작되는 지점"에서
-        // energy/onset/activity/periodicity가 어떻게 움직이는지 확인하는 용도. 동작에는 영향 없음.
+        // 진단용 로그 — 병합/컴팩션 전 원시 윈도우 단위 특성값 (동작에는 영향 없음)
         windows.forEachIndexed { idx, w ->
             Log.d(TAG, "SectionDetectorV1 rawWindow[$idx] ${w.startMs}~${w.endMs} " +
                 "energy=${"%.3f".format(w.energy)} onset=${"%.3f".format(w.onsetDensity)} " +
@@ -224,8 +213,7 @@ class SectionDetectorV1 : SectionDetector {
 
     private fun classifyType(score: Float, lowTh: Float, highTh: Float): SectionDetector.SectionType {
         val bridgeTh = lowTh * 0.85f
-        // BRIDGE보다도 훨씬 조용한 구간(브레이크다운) — bridgeTh의 절반 이하.
-        // 1차 추정치라 실곡 튜닝이 더 필요할 수 있다.
+        // BRIDGE보다 훨씬 조용한 구간(브레이크다운) — bridgeTh의 절반 이하
         val breakTh  = lowTh * 0.45f
         return when {
             score >= highTh   -> SectionDetector.SectionType.CHORUS
@@ -235,8 +223,7 @@ class SectionDetectorV1 : SectionDetector {
         }
     }
 
-    // BREAK는 "순간적으로 끊기는" 구간만을 뜻하므로, 병합 후에도 BREAK_MAX_MS보다
-    // 길게 이어지면(=끊긴 게 아니라 조용하게 지속되는 구조적 구간) BRIDGE로 되돌린다.
+    // BREAK_MAX_MS보다 길게 이어지는 BREAK는 구조적 구간(BRIDGE)으로 되돌린다.
     private fun demoteLongBreaks(sections: List<FeatureWindow>): List<FeatureWindow> =
         sections.map { s ->
             if (s.sectionType == SectionDetector.SectionType.BREAK &&
@@ -245,9 +232,7 @@ class SectionDetectorV1 : SectionDetector {
             else s
         }
 
-    // 첫/마지막 구간은 위치상 INTRO/OUTRO가 기본값이지만, 이미 CHORUS로 명백하면
-    // (코러스로 시작/끝나는 곡) 위치보다 내용을 우선해 CHORUS를 유지한다.
-    // (Python GT의 demucs+msaf 경로와 동일한 철학 — beat_accuracy_checker.py 참고)
+    // 첫/마지막 구간은 기본적으로 INTRO/OUTRO이지만, 이미 CHORUS로 명백하면 CHORUS를 유지한다.
     private fun applyIntroOutro(sections: List<FeatureWindow>): List<FeatureWindow> {
         if (sections.size < 2) return sections
         val out = sections.toMutableList()

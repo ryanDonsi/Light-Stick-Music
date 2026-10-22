@@ -39,12 +39,7 @@ fun createFftPlayer(
     val renderersFactory: RenderersFactory = CustomRenderersFactory(context, processor)
     val player = ExoPlayer.Builder(context)
         .setRenderersFactory(renderersFactory)
-        // handleAudioFocus=true로 켜야 ExoPlayer가 오디오 포커스 변화(전화 수신/통화 중
-        // 등)를 직접 감지해서 자동 Pause/Resume을 처리한다. 이게 꺼져 있으면(기본값 false)
-        // 전화가 와도 플레이어가 전혀 반응하지 않는다(실측 피드백: "전화 올때 통화중일때
-        // Music Player가 Pause가 안되는데?"). 포커스를 잃으면 자동 Pause, 되찾으면 자동
-        // Resume되고, 그 결과가 Player.Listener.onPlayWhenReadyChanged의
-        // PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS로 전달된다.
+        // handleAudioFocus=true: 오디오 포커스 변화(전화 수신 등) 시 자동 Pause/Resume 처리.
         .setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)

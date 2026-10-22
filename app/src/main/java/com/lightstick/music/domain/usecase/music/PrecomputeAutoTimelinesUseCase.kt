@@ -8,8 +8,8 @@ import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.AutoTimelineGenerator
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat
-import com.lightstick.music.domain.music.SectionAwareGenerator
-import com.lightstick.music.domain.music.SectionMetaStorage
+import com.lightstick.music.domain.music.AutoTimelineGeneratorWithSections
+import com.lightstick.music.domain.music.sectiondetector.meta.SectionMetaStorage
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -72,7 +72,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
 
         // 통합 생성기 (AutoTimelineGeneratorBeat)는 AutoTimelineConfig 설정으로 모든 버전 지원
         val generator: AutoTimelineGenerator = AutoTimelineGeneratorBeat()
-        val sectionStorage = if (generator is SectionAwareGenerator) SectionMetaStorage(version) else null
+        val sectionStorage = if (generator is AutoTimelineGeneratorWithSections) SectionMetaStorage(version) else null
 
         Log.d(TAG, "생성기: AutoTimelineGeneratorBeat (effectRule=${AutoTimelineConfig.EFFECT_RULE_VERSION})")
 
@@ -112,7 +112,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                         }
 
                         try {
-                            val (frames, sections) = if (generator is SectionAwareGenerator) {
+                            val (frames, sections) = if (generator is AutoTimelineGeneratorWithSections) {
                                 generator.generateWithSections(file.absolutePath, musicId, paletteSize)
                             } else {
                                 generator.generate(file.absolutePath, musicId, paletteSize) to emptyList()

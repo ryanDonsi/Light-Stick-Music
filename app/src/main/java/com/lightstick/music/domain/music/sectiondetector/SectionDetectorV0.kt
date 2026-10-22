@@ -1,5 +1,6 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.sectiondetector
 
+import com.lightstick.music.domain.music.beatdetector.BeatDetectorRouter
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
 import kotlin.math.abs
@@ -37,7 +38,7 @@ class SectionDetectorV0 : SectionDetector {
 
         private const val ALIGN_SNAP_MS = 500L
 
-        // ── Climax detection (V8 로직) ───────────────────────────────
+        // ── Climax detection ───────────────────────────────
         private const val CLIMAX_WINDOW_HALF_MS = 4_000L
         private const val CLIMAX_MIN_CV         = 0.35f
         private const val CLIMAX_MIN_PEAK_RATIO = 2.0f
@@ -155,13 +156,13 @@ class SectionDetectorV0 : SectionDetector {
             val beatMsHint   = estimateBeatMsByAutocorr(novSlice, hopMs, MIN_BEAT_MS, MAX_BEAT_MS)
             val periodicity  = estimatePeriodicityStrength(novSlice, beatMsHint, hopMs)
 
-            // V8 방식: activity (에너지 변화) 계산
+            // activity(에너지 변화) 계산
             var activity = 0f
             var prevEnergy = if (fullSlice.isNotEmpty()) fullSlice[0] else 0f
             for (v in fullSlice) { activity += abs(v - prevEnergy); prevEnergy = v }
             activity = if (fullSlice.isNotEmpty()) activity / fullSlice.size else 0f
 
-            // V8 방식: score 계산 (mean*0.60 + activity*0.20 + maxV*0.10 + onsetBonus - lowPenalty)
+            // score 계산 (mean*0.60 + activity*0.20 + maxV*0.10 + onsetBonus - lowPenalty)
             val onsetBonus = (onsetDensity * 0.12f)
             val lowPenalty = (lowRatio * 0.08f).coerceIn(0f, 0.08f)
             val score = (energy * 0.60f + activity * 0.20f + peakEnergy * 0.10f + onsetBonus - lowPenalty)
@@ -198,7 +199,7 @@ class SectionDetectorV0 : SectionDetector {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // ② Section type classification (V8 방식)
+    // ② Section type classification
     // ──────────────────────────────────────────────────────────────
 
     private fun classifyType(score: Float, lowTh: Float, highTh: Float): SectionDetector.SectionType {
@@ -565,7 +566,7 @@ class SectionDetectorV0 : SectionDetector {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Climax detection (V8 로직 이식)
+    // Climax detection
     // ──────────────────────────────────────────────────────────────
 
     private fun detectClimaxMoments(
@@ -634,7 +635,7 @@ class SectionDetectorV0 : SectionDetector {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Percentile (V8 방식 임계값 계산)
+    // Percentile
     // ──────────────────────────────────────────────────────────────
 
     private fun percentile(values: List<Float>, p: Float): Float {

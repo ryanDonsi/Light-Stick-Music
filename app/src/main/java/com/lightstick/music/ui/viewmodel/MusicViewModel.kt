@@ -25,8 +25,9 @@ import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
-import com.lightstick.music.domain.music.SectionMeta
-import com.lightstick.music.domain.music.SectionMetaStorage
+import com.lightstick.music.domain.music.effectmatchingengine.EffectMatchingEngineRouter
+import com.lightstick.music.domain.music.sectiondetector.meta.SectionMeta
+import com.lightstick.music.domain.music.sectiondetector.meta.SectionMetaStorage
 import com.lightstick.music.domain.music.FftAudioProcessor
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.domain.music.createFftPlayer
@@ -100,6 +101,12 @@ class MusicViewModel @Inject constructor(
 
     private val _currentSections = MutableStateFlow<List<SectionMeta>?>(null)
     val currentSections: StateFlow<List<SectionMeta>?> = _currentSections.asStateFlow()
+
+    // 이 곡의 팔레트가 선택한 색 계열 이름(EffectMatchingEngine.Palette.colorFamily, 예
+    // "PURPLE"/"RED") — Effect Info 오버레이의 PALETTE 배지 표시용. SectionMeta는 섹션 감지
+    // 결과만 담고, 팔레트 관련 값은 EffectMatchingEngine에서 직접 가져와 별도로 보관한다.
+    private val _currentColorFamily = MutableStateFlow<String?>(null)
+    val currentColorFamily: StateFlow<String?> = _currentColorFamily.asStateFlow()
 
     private val _isSectionOverlayEnabled = MutableStateFlow(false)
     val isSectionOverlayEnabled: StateFlow<Boolean> = _isSectionOverlayEnabled.asStateFlow()
@@ -377,7 +384,14 @@ class MusicViewModel @Inject constructor(
 
         // 섹션 메타 비동기 로드 (오버레이용)
         viewModelScope.launch(Dispatchers.IO) {
-            _currentSections.value = SectionMetaStorage(ver).load(context, musicId)
+            val sections = SectionMetaStorage(ver).load(context, musicId)
+            _currentSections.value = sections
+            // colorFamily는 SectionMeta에 들어있지 않다 — 팔레트 관련 값은 전부
+            // EffectMatchingEngine이 관리하므로, musicStyle이 있으면 여기서 직접 물어본다
+            // (musicId+musicStyle이 있으면 buildPalette()가 결정론적으로 같은 값을 반환한다).
+            _currentColorFamily.value = sections?.firstOrNull()?.musicStyle?.let {
+                EffectMatchingEngineRouter.createEngine().buildPalette(musicId, it).colorFamily
+            }
         }
 
         ServiceController.startMusicEffectService(
