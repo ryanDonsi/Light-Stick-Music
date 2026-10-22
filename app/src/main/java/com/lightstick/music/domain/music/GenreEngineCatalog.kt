@@ -17,6 +17,14 @@ object GenreEngineCatalog {
         data class EnergyPercentile(val percentile: Float = 0.80f) : SelectionStrategy()
         /** 풀 순서 그대로 bar 인덱스로 고정 순환(해시/에너지 없이 1→2→3→4 식 연출). */
         object Sequential : SelectionStrategy()
+        /**
+         * 처음 basePoolSize개는 기본 순환(BarBlockRotation), 나머지는 에너지 상위 구간일 때만
+         * 등판하는 오버라이드. percentiles는 ascending 경계 목록 — percentiles[i]는
+         * pool[basePoolSize + i]에 대응(예: [0.80, 0.90] → 80%↑는 다음 엔진, 90%↑는 그다음 엔진).
+         * 실제 절대 에너지 경계값은 호출부가 percentile()로 각 비율마다 미리 계산해
+         * pickFromPool의 tierEnergyCutoffs로 넘겨줘야 한다.
+         */
+        data class TieredOverride(val basePoolSize: Int, val percentiles: List<Float>) : SelectionStrategy()
     }
 
     /** 섹션 타입 → 엔진 후보 목록 + (선택적) 후보 선택 전략. 새 세트를 만들려면 이 타입으로 하나 선언하면 된다. */
@@ -76,22 +84,34 @@ object GenreEngineCatalog {
         pool(type, musicStyle).first()
 
     /**
-     * 풀에서 전략에 맞게 하나를 고른다. blockIdx/barIdx/barEnergy/energyCutoff는 전략에 따라
-     * 선택적으로 쓰인다(에너지 계산 자체는 fullEnv가 필요해 호출부가 미리 구해서 넘겨준다).
+     * 풀에서 전략에 맞게 하나를 고른다. blockIdx/barIdx/barEnergy/energyCutoff/tierEnergyCutoffs는
+     * 전략에 따라 선택적으로 쓰인다(에너지 계산 자체는 fullEnv가 필요해 호출부가 미리 구해서
+     * 넘겨준다). tierEnergyCutoffs는 TieredOverride 전용 — 아직 쓰는 곳이 없어 기본값(빈 리스트)만
+     * 쓰이고, 쓰려면 호출부가 TieredOverride.percentiles 각각에 대해 percentile()로 절대 에너지
+     * 경계값을 미리 계산해서 넘겨줘야 한다.
      */
     fun pickFromPool(
         type: SectionDetector.SectionType, musicStyle: MusicStyleClassifier.MusicStyle,
-        barIdx: Int, blockIdx: Int, barEnergy: Float, energyCutoff: Float
+        barIdx: Int, blockIdx: Int, barEnergy: Float, energyCutoff: Float,
+        tierEnergyCutoffs: List<Float> = emptyList()
     ): EffectMatchingEngine.FgEngine {
         val candidates = pool(type, musicStyle)
         if (candidates.size <= 1) return candidates.first()
-        return when (strategyFor(type, musicStyle)) {
+        return when (val strategy = strategyFor(type, musicStyle)) {
             is SelectionStrategy.EnergyPercentile ->
                 if (barEnergy >= energyCutoff) candidates[1] else candidates[0]
             SelectionStrategy.Sequential ->
                 candidates[Math.floorMod(barIdx, candidates.size)]
             SelectionStrategy.BarBlockRotation ->
                 candidates[Math.floorMod(blockIdx, candidates.size)]
+            is SelectionStrategy.TieredOverride -> {
+                val baseSize = strategy.basePoolSize.coerceIn(1, candidates.size)
+                val overrideIdx = tierEnergyCutoffs.indices.lastOrNull { barEnergy >= tierEnergyCutoffs[it] }
+                if (overrideIdx != null && baseSize + overrideIdx < candidates.size)
+                    candidates[baseSize + overrideIdx]
+                else
+                    candidates[Math.floorMod(blockIdx, baseSize)]
+            }
         }
     }
 
