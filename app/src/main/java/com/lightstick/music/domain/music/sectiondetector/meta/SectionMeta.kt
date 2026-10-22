@@ -1,6 +1,7 @@
-package com.lightstick.music.domain.music.sectiondetector
+package com.lightstick.music.domain.music.sectiondetector.meta
 
 import com.lightstick.music.domain.music.genredetector.GenreDetector
+import com.lightstick.music.domain.music.sectiondetector.SectionDetector
 
 /**
  * 섹션 메타데이터 — UI 오버레이 표시 및 섹션별 이펙트 생성에 사용.

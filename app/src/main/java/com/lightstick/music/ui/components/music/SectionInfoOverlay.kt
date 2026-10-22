@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lightstick.music.domain.music.genredetector.GenreDetector
 import com.lightstick.music.domain.music.sectiondetector.SectionDetector
-import com.lightstick.music.domain.music.sectiondetector.SectionMeta
+import com.lightstick.music.domain.music.sectiondetector.meta.SectionMeta
 
 /**
  * 앨범 이미지 위에 겹쳐 표시되는 섹션 정보 오버레이.

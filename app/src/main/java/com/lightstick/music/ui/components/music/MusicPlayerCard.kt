@@ -28,7 +28,7 @@ import com.lightstick.music.R
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.TransmissionSource
-import com.lightstick.music.domain.music.sectiondetector.SectionMeta
+import com.lightstick.music.domain.music.sectiondetector.meta.SectionMeta
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
 

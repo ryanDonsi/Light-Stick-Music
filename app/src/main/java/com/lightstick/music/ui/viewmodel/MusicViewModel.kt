@@ -26,8 +26,8 @@ import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.effectmatchingengine.EffectMatchingEngineRouter
-import com.lightstick.music.domain.music.sectiondetector.SectionMeta
-import com.lightstick.music.domain.music.sectiondetector.SectionMetaStorage
+import com.lightstick.music.domain.music.sectiondetector.meta.SectionMeta
+import com.lightstick.music.domain.music.sectiondetector.meta.SectionMetaStorage
 import com.lightstick.music.domain.music.FftAudioProcessor
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.domain.music.createFftPlayer

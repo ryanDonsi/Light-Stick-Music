@@ -9,7 +9,7 @@ import com.lightstick.music.domain.music.AutoTimelineStorage
 import com.lightstick.music.domain.music.AutoTimelineGenerator
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat
 import com.lightstick.music.domain.music.SectionAwareGenerator
-import com.lightstick.music.domain.music.sectiondetector.SectionMetaStorage
+import com.lightstick.music.domain.music.sectiondetector.meta.SectionMetaStorage
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
