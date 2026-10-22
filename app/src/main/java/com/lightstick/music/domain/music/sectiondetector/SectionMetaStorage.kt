@@ -1,6 +1,7 @@
 package com.lightstick.music.domain.music.sectiondetector
 
 import android.content.Context
+import com.lightstick.music.domain.music.genredetector.GenreDetector
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -84,7 +85,7 @@ class SectionMetaStorage(private val version: Int) {
                 if (v != version) return@use null
 
                 val musicStyleOrdinal = input.readInt()
-                val musicStyles       = MusicStyleClassifier.MusicStyle.values()
+                val musicStyles       = GenreDetector.MusicStyle.values()
                 val songStyle         = musicStyles.getOrNull(musicStyleOrdinal)
 
                 val count = input.readInt()

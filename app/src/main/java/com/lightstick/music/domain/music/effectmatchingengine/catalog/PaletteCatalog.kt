@@ -1,6 +1,6 @@
 package com.lightstick.music.domain.music.effectmatchingengine.catalog
 
-import com.lightstick.music.domain.music.MusicStyleClassifier
+import com.lightstick.music.domain.music.genredetector.GenreDetector
 import com.lightstick.music.domain.music.effectmatchingengine.EffectMatchingEngine
 import com.lightstick.types.Color as LSColor
 
@@ -245,133 +245,133 @@ object PaletteCatalog {
     // ===== 장르별 팔레트 세트 (위 색상표를 Palette로 묶은 것 — 더 이상의 조합/계산 없음) =====
 
     private val BALLAD_SET_1 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "TEAL", musicStyle = MusicStyleClassifier.MusicStyle.BALLAD,
+        black = BLACK, white = WHITE, colorFamily = "TEAL", musicStyle = GenreDetector.MusicStyle.BALLAD,
         onPulse = BALLAD_SET_1_ONPULSE, blink = BALLAD_SET_1_BLINK, chorus = BALLAD_SET_1_CHORUS,
         breathVerse = BALLAD_SET_1_BREATH_VERSE, breathBridgeBallad = BALLAD_SET_1_BREATH_BRIDGE_BALLAD,
         breathDefault = BALLAD_SET_1_BREATH_DEFAULT, freeze = BALLAD_SET_1_FREEZE
     )
 
     private val BALLAD_SET_2 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "PURPLE", musicStyle = MusicStyleClassifier.MusicStyle.BALLAD,
+        black = BLACK, white = WHITE, colorFamily = "PURPLE", musicStyle = GenreDetector.MusicStyle.BALLAD,
         onPulse = BALLAD_SET_2_ONPULSE, blink = BALLAD_SET_2_BLINK, chorus = BALLAD_SET_2_CHORUS,
         breathVerse = BALLAD_SET_2_BREATH_VERSE, breathBridgeBallad = BALLAD_SET_2_BREATH_BRIDGE_BALLAD,
         breathDefault = BALLAD_SET_2_BREATH_DEFAULT, freeze = BALLAD_SET_2_FREEZE
     )
 
     private val BALLAD_SET_3 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "BLUE", musicStyle = MusicStyleClassifier.MusicStyle.BALLAD,
+        black = BLACK, white = WHITE, colorFamily = "BLUE", musicStyle = GenreDetector.MusicStyle.BALLAD,
         onPulse = BALLAD_SET_3_ONPULSE, blink = BALLAD_SET_3_BLINK, chorus = BALLAD_SET_3_CHORUS,
         breathVerse = BALLAD_SET_3_BREATH_VERSE, breathBridgeBallad = BALLAD_SET_3_BREATH_BRIDGE_BALLAD,
         breathDefault = BALLAD_SET_3_BREATH_DEFAULT, freeze = BALLAD_SET_3_FREEZE
     )
 
     private val EDM_SET_1 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "RED", musicStyle = MusicStyleClassifier.MusicStyle.EDM,
+        black = BLACK, white = WHITE, colorFamily = "RED", musicStyle = GenreDetector.MusicStyle.EDM,
         onPulse = EDM_SET_1_ONPULSE, blink = EDM_SET_1_BLINK, chorus = EDM_SET_1_CHORUS,
         breathVerse = EDM_SET_1_BREATH_VERSE, breathBridgeBallad = EDM_SET_1_BREATH_BRIDGE_BALLAD,
         breathDefault = EDM_SET_1_BREATH_DEFAULT, freeze = EDM_SET_1_FREEZE
     )
 
     private val EDM_SET_2 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "ORANGE_GOLD", musicStyle = MusicStyleClassifier.MusicStyle.EDM,
+        black = BLACK, white = WHITE, colorFamily = "ORANGE_GOLD", musicStyle = GenreDetector.MusicStyle.EDM,
         onPulse = EDM_SET_2_ONPULSE, blink = EDM_SET_2_BLINK, chorus = EDM_SET_2_CHORUS,
         breathVerse = EDM_SET_2_BREATH_VERSE, breathBridgeBallad = EDM_SET_2_BREATH_BRIDGE_BALLAD,
         breathDefault = EDM_SET_2_BREATH_DEFAULT, freeze = EDM_SET_2_FREEZE
     )
 
     private val EDM_SET_3 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "PURPLE", musicStyle = MusicStyleClassifier.MusicStyle.EDM,
+        black = BLACK, white = WHITE, colorFamily = "PURPLE", musicStyle = GenreDetector.MusicStyle.EDM,
         onPulse = EDM_SET_3_ONPULSE, blink = EDM_SET_3_BLINK, chorus = EDM_SET_3_CHORUS,
         breathVerse = EDM_SET_3_BREATH_VERSE, breathBridgeBallad = EDM_SET_3_BREATH_BRIDGE_BALLAD,
         breathDefault = EDM_SET_3_BREATH_DEFAULT, freeze = EDM_SET_3_FREEZE
     )
 
     private val DANCE_POP_SET_1 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "RED", musicStyle = MusicStyleClassifier.MusicStyle.DANCE_POP,
+        black = BLACK, white = WHITE, colorFamily = "RED", musicStyle = GenreDetector.MusicStyle.DANCE_POP,
         onPulse = DANCE_POP_SET_1_ONPULSE, blink = DANCE_POP_SET_1_BLINK, chorus = DANCE_POP_SET_1_CHORUS,
         breathVerse = DANCE_POP_SET_1_BREATH_VERSE, breathBridgeBallad = DANCE_POP_SET_1_BREATH_BRIDGE_BALLAD,
         breathDefault = DANCE_POP_SET_1_BREATH_DEFAULT, freeze = DANCE_POP_SET_1_FREEZE
     )
 
     private val DANCE_POP_SET_2 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "TEAL", musicStyle = MusicStyleClassifier.MusicStyle.DANCE_POP,
+        black = BLACK, white = WHITE, colorFamily = "TEAL", musicStyle = GenreDetector.MusicStyle.DANCE_POP,
         onPulse = DANCE_POP_SET_2_ONPULSE, blink = DANCE_POP_SET_2_BLINK, chorus = DANCE_POP_SET_2_CHORUS,
         breathVerse = DANCE_POP_SET_2_BREATH_VERSE, breathBridgeBallad = DANCE_POP_SET_2_BREATH_BRIDGE_BALLAD,
         breathDefault = DANCE_POP_SET_2_BREATH_DEFAULT, freeze = DANCE_POP_SET_2_FREEZE
     )
 
     private val DANCE_POP_SET_3 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "BLUE", musicStyle = MusicStyleClassifier.MusicStyle.DANCE_POP,
+        black = BLACK, white = WHITE, colorFamily = "BLUE", musicStyle = GenreDetector.MusicStyle.DANCE_POP,
         onPulse = DANCE_POP_SET_3_ONPULSE, blink = DANCE_POP_SET_3_BLINK, chorus = DANCE_POP_SET_3_CHORUS,
         breathVerse = DANCE_POP_SET_3_BREATH_VERSE, breathBridgeBallad = DANCE_POP_SET_3_BREATH_BRIDGE_BALLAD,
         breathDefault = DANCE_POP_SET_3_BREATH_DEFAULT, freeze = DANCE_POP_SET_3_FREEZE
     )
 
     private val POP_SET_1 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "PURPLE", musicStyle = MusicStyleClassifier.MusicStyle.POP,
+        black = BLACK, white = WHITE, colorFamily = "PURPLE", musicStyle = GenreDetector.MusicStyle.POP,
         onPulse = POP_SET_1_ONPULSE, blink = POP_SET_1_BLINK, chorus = POP_SET_1_CHORUS,
         breathVerse = POP_SET_1_BREATH_VERSE, breathBridgeBallad = POP_SET_1_BREATH_BRIDGE_BALLAD,
         breathDefault = POP_SET_1_BREATH_DEFAULT, freeze = POP_SET_1_FREEZE
     )
 
     private val POP_SET_2 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "RED", musicStyle = MusicStyleClassifier.MusicStyle.POP,
+        black = BLACK, white = WHITE, colorFamily = "RED", musicStyle = GenreDetector.MusicStyle.POP,
         onPulse = POP_SET_2_ONPULSE, blink = POP_SET_2_BLINK, chorus = POP_SET_2_CHORUS,
         breathVerse = POP_SET_2_BREATH_VERSE, breathBridgeBallad = POP_SET_2_BREATH_BRIDGE_BALLAD,
         breathDefault = POP_SET_2_BREATH_DEFAULT, freeze = POP_SET_2_FREEZE
     )
 
     private val POP_SET_3 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "ORANGE_GOLD", musicStyle = MusicStyleClassifier.MusicStyle.POP,
+        black = BLACK, white = WHITE, colorFamily = "ORANGE_GOLD", musicStyle = GenreDetector.MusicStyle.POP,
         onPulse = POP_SET_3_ONPULSE, blink = POP_SET_3_BLINK, chorus = POP_SET_3_CHORUS,
         breathVerse = POP_SET_3_BREATH_VERSE, breathBridgeBallad = POP_SET_3_BREATH_BRIDGE_BALLAD,
         breathDefault = POP_SET_3_BREATH_DEFAULT, freeze = POP_SET_3_FREEZE
     )
 
     private val POP_SET_4 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "TEAL", musicStyle = MusicStyleClassifier.MusicStyle.POP,
+        black = BLACK, white = WHITE, colorFamily = "TEAL", musicStyle = GenreDetector.MusicStyle.POP,
         onPulse = POP_SET_4_ONPULSE, blink = POP_SET_4_BLINK, chorus = POP_SET_4_CHORUS,
         breathVerse = POP_SET_4_BREATH_VERSE, breathBridgeBallad = POP_SET_4_BREATH_BRIDGE_BALLAD,
         breathDefault = POP_SET_4_BREATH_DEFAULT, freeze = POP_SET_4_FREEZE
     )
 
     private val POP_SET_5 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "BLUE", musicStyle = MusicStyleClassifier.MusicStyle.POP,
+        black = BLACK, white = WHITE, colorFamily = "BLUE", musicStyle = GenreDetector.MusicStyle.POP,
         onPulse = POP_SET_5_ONPULSE, blink = POP_SET_5_BLINK, chorus = POP_SET_5_CHORUS,
         breathVerse = POP_SET_5_BREATH_VERSE, breathBridgeBallad = POP_SET_5_BREATH_BRIDGE_BALLAD,
         breathDefault = POP_SET_5_BREATH_DEFAULT, freeze = POP_SET_5_FREEZE
     )
 
     private val HIPHOP_RNB_SET_1 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "PURPLE", musicStyle = MusicStyleClassifier.MusicStyle.HIPHOP_RNB,
+        black = BLACK, white = WHITE, colorFamily = "PURPLE", musicStyle = GenreDetector.MusicStyle.HIPHOP_RNB,
         onPulse = HIPHOP_RNB_SET_1_ONPULSE, blink = HIPHOP_RNB_SET_1_BLINK, chorus = HIPHOP_RNB_SET_1_CHORUS,
         breathVerse = HIPHOP_RNB_SET_1_BREATH_VERSE, breathBridgeBallad = HIPHOP_RNB_SET_1_BREATH_BRIDGE_BALLAD,
         breathDefault = HIPHOP_RNB_SET_1_BREATH_DEFAULT, freeze = HIPHOP_RNB_SET_1_FREEZE
     )
 
     private val HIPHOP_RNB_SET_2 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "BLUE", musicStyle = MusicStyleClassifier.MusicStyle.HIPHOP_RNB,
+        black = BLACK, white = WHITE, colorFamily = "BLUE", musicStyle = GenreDetector.MusicStyle.HIPHOP_RNB,
         onPulse = HIPHOP_RNB_SET_2_ONPULSE, blink = HIPHOP_RNB_SET_2_BLINK, chorus = HIPHOP_RNB_SET_2_CHORUS,
         breathVerse = HIPHOP_RNB_SET_2_BREATH_VERSE, breathBridgeBallad = HIPHOP_RNB_SET_2_BREATH_BRIDGE_BALLAD,
         breathDefault = HIPHOP_RNB_SET_2_BREATH_DEFAULT, freeze = HIPHOP_RNB_SET_2_FREEZE
     )
 
     private val HIPHOP_RNB_SET_3 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "TEAL", musicStyle = MusicStyleClassifier.MusicStyle.HIPHOP_RNB,
+        black = BLACK, white = WHITE, colorFamily = "TEAL", musicStyle = GenreDetector.MusicStyle.HIPHOP_RNB,
         onPulse = HIPHOP_RNB_SET_3_ONPULSE, blink = HIPHOP_RNB_SET_3_BLINK, chorus = HIPHOP_RNB_SET_3_CHORUS,
         breathVerse = HIPHOP_RNB_SET_3_BREATH_VERSE, breathBridgeBallad = HIPHOP_RNB_SET_3_BREATH_BRIDGE_BALLAD,
         breathDefault = HIPHOP_RNB_SET_3_BREATH_DEFAULT, freeze = HIPHOP_RNB_SET_3_FREEZE
     )
 
     private val ROCK_SET_1 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "RED", musicStyle = MusicStyleClassifier.MusicStyle.ROCK,
+        black = BLACK, white = WHITE, colorFamily = "RED", musicStyle = GenreDetector.MusicStyle.ROCK,
         onPulse = ROCK_SET_1_ONPULSE, blink = ROCK_SET_1_BLINK, chorus = ROCK_SET_1_CHORUS,
         breathVerse = ROCK_SET_1_BREATH_VERSE, breathBridgeBallad = ROCK_SET_1_BREATH_BRIDGE_BALLAD,
         breathDefault = ROCK_SET_1_BREATH_DEFAULT, freeze = ROCK_SET_1_FREEZE
     )
 
     private val ROCK_SET_2 = EffectMatchingEngine.Palette(
-        black = BLACK, white = WHITE, colorFamily = "ORANGE_GOLD", musicStyle = MusicStyleClassifier.MusicStyle.ROCK,
+        black = BLACK, white = WHITE, colorFamily = "ORANGE_GOLD", musicStyle = GenreDetector.MusicStyle.ROCK,
         onPulse = ROCK_SET_2_ONPULSE, blink = ROCK_SET_2_BLINK, chorus = ROCK_SET_2_CHORUS,
         breathVerse = ROCK_SET_2_BREATH_VERSE, breathBridgeBallad = ROCK_SET_2_BREATH_BRIDGE_BALLAD,
         breathDefault = ROCK_SET_2_BREATH_DEFAULT, freeze = ROCK_SET_2_FREEZE
@@ -381,17 +381,17 @@ object PaletteCatalog {
     // 고른다(select() 참고). POP은 전 계열을 후보로 두므로 그대로 기본값으로도 재사용한다.
     private val POP_PALETTE_SETS = listOf(POP_SET_1, POP_SET_2, POP_SET_3, POP_SET_4, POP_SET_5)
 
-    private val GENRE_PALETTE_SETS: Map<MusicStyleClassifier.MusicStyle, List<EffectMatchingEngine.Palette>> = mapOf(
-        MusicStyleClassifier.MusicStyle.BALLAD     to listOf(BALLAD_SET_1, BALLAD_SET_2, BALLAD_SET_3),
-        MusicStyleClassifier.MusicStyle.EDM        to listOf(EDM_SET_1, EDM_SET_2, EDM_SET_3),
-        MusicStyleClassifier.MusicStyle.DANCE_POP  to listOf(DANCE_POP_SET_1, DANCE_POP_SET_2, DANCE_POP_SET_3),
-        MusicStyleClassifier.MusicStyle.HIPHOP_RNB to listOf(HIPHOP_RNB_SET_1, HIPHOP_RNB_SET_2, HIPHOP_RNB_SET_3),
-        MusicStyleClassifier.MusicStyle.ROCK       to listOf(ROCK_SET_1, ROCK_SET_2),
-        MusicStyleClassifier.MusicStyle.POP        to POP_PALETTE_SETS
+    private val GENRE_PALETTE_SETS: Map<GenreDetector.MusicStyle, List<EffectMatchingEngine.Palette>> = mapOf(
+        GenreDetector.MusicStyle.BALLAD     to listOf(BALLAD_SET_1, BALLAD_SET_2, BALLAD_SET_3),
+        GenreDetector.MusicStyle.EDM        to listOf(EDM_SET_1, EDM_SET_2, EDM_SET_3),
+        GenreDetector.MusicStyle.DANCE_POP  to listOf(DANCE_POP_SET_1, DANCE_POP_SET_2, DANCE_POP_SET_3),
+        GenreDetector.MusicStyle.HIPHOP_RNB to listOf(HIPHOP_RNB_SET_1, HIPHOP_RNB_SET_2, HIPHOP_RNB_SET_3),
+        GenreDetector.MusicStyle.ROCK       to listOf(ROCK_SET_1, ROCK_SET_2),
+        GenreDetector.MusicStyle.POP        to POP_PALETTE_SETS
     )
 
     /** 장르별 팔레트 세트 후보군 중 seed로 하나를 결정론적으로 고른다. */
-    fun select(seed: Int, musicStyle: MusicStyleClassifier.MusicStyle): EffectMatchingEngine.Palette {
+    fun select(seed: Int, musicStyle: GenreDetector.MusicStyle): EffectMatchingEngine.Palette {
         val rawHue = (((seed.toLong() * 2654435761L) ushr 8) and 0x7FFFFFFFL).toInt()
         val sets = GENRE_PALETTE_SETS[musicStyle] ?: POP_PALETTE_SETS
         return sets[Math.floorMod(rawHue, sets.size)]

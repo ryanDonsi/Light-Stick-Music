@@ -1,6 +1,6 @@
 package com.lightstick.music.domain.music.effectmatchingengine
 
-import com.lightstick.music.domain.music.MusicStyleClassifier
+import com.lightstick.music.domain.music.genredetector.GenreDetector
 import com.lightstick.music.domain.music.sectiondetector.SectionDetector
 import com.lightstick.types.Color as LSColor
 
@@ -24,7 +24,7 @@ interface EffectMatchingEngine {
         val colorFamily: String,
         // 이 팔레트를 고를 때 쓴 장르 — GenreEngineCatalog가 섹션별 엔진 매칭을 장르별로
         // 고르는 데도 그대로 재사용한다.
-        val musicStyle: MusicStyleClassifier.MusicStyle,
+        val musicStyle: GenreDetector.MusicStyle,
         val onPulse: EffectColors,          // ON_PULSE(VERSE, 비발라드)
         val blink: EffectColors,            // BLINK(VERSE 고에너지 bar, 비발라드)
         val chorus: EffectColors,           // ON_TRANSIT_ROTATE(CHORUS)
@@ -41,7 +41,7 @@ interface EffectMatchingEngine {
     )
 
     /** 팔레트 생성. seed(musicId)와 musicStyle(장르)로 결정론적으로 색 계열을 고른다. */
-    fun buildPalette(seed: Int, musicStyle: MusicStyleClassifier.MusicStyle = MusicStyleClassifier.MusicStyle.POP): Palette
+    fun buildPalette(seed: Int, musicStyle: GenreDetector.MusicStyle = GenreDetector.MusicStyle.POP): Palette
 
     /** 섹션 그룹으로부터 이펙트 프레임(타임스탬프→페이로드) 생성. */
     fun buildFrames(

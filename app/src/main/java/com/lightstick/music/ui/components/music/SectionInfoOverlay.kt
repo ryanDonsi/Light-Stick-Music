@@ -13,7 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.lightstick.music.domain.music.MusicStyleClassifier
+import com.lightstick.music.domain.music.genredetector.GenreDetector
 import com.lightstick.music.domain.music.sectiondetector.SectionDetector
 import com.lightstick.music.domain.music.sectiondetector.SectionMeta
 
@@ -243,22 +243,22 @@ private fun changeColor(s: SectionDetector.ChangeStrength): Color = when (s) {
     SectionDetector.ChangeStrength.STRONG -> Color(0xFFFF7043)
 }
 
-private fun musicStyleLabel(style: MusicStyleClassifier.MusicStyle): String = when (style) {
-    MusicStyleClassifier.MusicStyle.EDM        -> "EDM"
-    MusicStyleClassifier.MusicStyle.DANCE_POP  -> "DANCE POP"
-    MusicStyleClassifier.MusicStyle.HIPHOP_RNB -> "HIPHOP / R&B"
-    MusicStyleClassifier.MusicStyle.BALLAD     -> "BALLAD"
-    MusicStyleClassifier.MusicStyle.ROCK       -> "ROCK"
-    MusicStyleClassifier.MusicStyle.POP        -> "POP"
+private fun musicStyleLabel(style: GenreDetector.MusicStyle): String = when (style) {
+    GenreDetector.MusicStyle.EDM        -> "EDM"
+    GenreDetector.MusicStyle.DANCE_POP  -> "DANCE POP"
+    GenreDetector.MusicStyle.HIPHOP_RNB -> "HIPHOP / R&B"
+    GenreDetector.MusicStyle.BALLAD     -> "BALLAD"
+    GenreDetector.MusicStyle.ROCK       -> "ROCK"
+    GenreDetector.MusicStyle.POP        -> "POP"
 }
 
-private fun musicStyleColor(style: MusicStyleClassifier.MusicStyle): Color = when (style) {
-    MusicStyleClassifier.MusicStyle.EDM        -> Color(0xFF00E5FF)  // Cyan
-    MusicStyleClassifier.MusicStyle.DANCE_POP  -> Color(0xFFE040FB)  // Purple
-    MusicStyleClassifier.MusicStyle.HIPHOP_RNB -> Color(0xFFFFD740)  // Amber
-    MusicStyleClassifier.MusicStyle.BALLAD     -> Color(0xFF69F0AE)  // Green
-    MusicStyleClassifier.MusicStyle.ROCK       -> Color(0xFFFF5252)  // Red
-    MusicStyleClassifier.MusicStyle.POP        -> Color(0xFF40C4FF)  // Light Blue
+private fun musicStyleColor(style: GenreDetector.MusicStyle): Color = when (style) {
+    GenreDetector.MusicStyle.EDM        -> Color(0xFF00E5FF)  // Cyan
+    GenreDetector.MusicStyle.DANCE_POP  -> Color(0xFFE040FB)  // Purple
+    GenreDetector.MusicStyle.HIPHOP_RNB -> Color(0xFFFFD740)  // Amber
+    GenreDetector.MusicStyle.BALLAD     -> Color(0xFF69F0AE)  // Green
+    GenreDetector.MusicStyle.ROCK       -> Color(0xFFFF5252)  // Red
+    GenreDetector.MusicStyle.POP        -> Color(0xFF40C4FF)  // Light Blue
 }
 
 // Palette.colorFamily(= EffectMatchingEngineV1의 장르별 팔레트 세트가 들고 있는 색 계열 이름)에 맞춰 배지 색을

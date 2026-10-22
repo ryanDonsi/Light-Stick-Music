@@ -1,4 +1,4 @@
-package com.lightstick.music.domain.music
+package com.lightstick.music.domain.music.genredetector
 
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.core.constants.AppConstants
@@ -19,7 +19,7 @@ import kotlin.math.sqrt
  *  5. ROCK      — 고음역 비율 높음 + energyFlux 큼
  *  6. POP       — catch-all
  */
-object MusicStyleClassifier {
+object GenreDetector {
 
     private const val TAG = AppConstants.Feature.AUTO_TIMELINE
 

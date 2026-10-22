@@ -2,7 +2,7 @@ package com.lightstick.music.domain.music.effectmatchingengine
 
 import com.lightstick.music.core.constants.AppConstants
 import com.lightstick.music.core.util.Log
-import com.lightstick.music.domain.music.MusicStyleClassifier
+import com.lightstick.music.domain.music.genredetector.GenreDetector
 import com.lightstick.music.domain.music.sectiondetector.SectionDetector
 import com.lightstick.music.domain.music.effectmatchingengine.catalog.PaletteCatalog
 import com.lightstick.music.domain.music.effectmatchingengine.catalog.GenreEngineCatalog
@@ -40,7 +40,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     )
 
     override fun buildPalette(
-        seed: Int, musicStyle: MusicStyleClassifier.MusicStyle
+        seed: Int, musicStyle: GenreDetector.MusicStyle
     ): EffectMatchingEngine.Palette {
         val palette = PaletteCatalog.select(seed, musicStyle)
         Log.d(TAG, "[Palette] style=$musicStyle set=${palette.colorFamily}")
@@ -76,7 +76,7 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
     private fun convertToResolvedSections(
         groups: List<EffectMatchingEngine.SectionGroup>,
         beatMs: Long,
-        musicStyle: MusicStyleClassifier.MusicStyle,
+        musicStyle: GenreDetector.MusicStyle,
         fullEnv: List<Float>,
         durationMs: Long,
         hopMs: Long

@@ -6,6 +6,7 @@ import com.lightstick.music.domain.music.beatdetector.BeatDetectorRouter
 import com.lightstick.music.domain.music.sectiondetector.SectionDetector
 import com.lightstick.music.domain.music.sectiondetector.SectionDetectorRouter
 import com.lightstick.music.domain.music.sectiondetector.SectionMeta
+import com.lightstick.music.domain.music.genredetector.GenreDetector
 import com.lightstick.music.domain.music.effectmatchingengine.EffectMatchingEngine
 import com.lightstick.music.domain.music.effectmatchingengine.EffectMatchingEngineRouter
 import com.lightstick.types.Color as LSColor
@@ -120,7 +121,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val sectionGroups = groupAnnotatedBeats(detectedAnnotated, durationMs)
 
         // 음악 스타일 분류
-        val musicStyle = MusicStyleClassifier.classify(
+        val musicStyle = GenreDetector.classify(
             lowEnv = lowEnv, midEnv = midEnv, fullEnv = fullEnv, highEnv = highEnv,
             beatMs = globalBeatMs, beats = beatInfo.beats, hopMs = effectiveHopMs
         ).style
@@ -129,8 +130,8 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, SectionAwareGenerator {
         val engine = EffectMatchingEngineRouter.createEngine()
         val palette = engine.buildPalette(musicId, musicStyle)
 
-        val isBalladMode = musicStyle == MusicStyleClassifier.MusicStyle.BALLAD
-                        || musicStyle == MusicStyleClassifier.MusicStyle.HIPHOP_RNB
+        val isBalladMode = musicStyle == GenreDetector.MusicStyle.BALLAD
+                        || musicStyle == GenreDetector.MusicStyle.HIPHOP_RNB
 
         val t0Effect = System.currentTimeMillis()
         val frames = engine.buildFrames(

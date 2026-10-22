@@ -1,6 +1,6 @@
 package com.lightstick.music.domain.music.effectmatchingengine
 
-import com.lightstick.music.domain.music.MusicStyleClassifier
+import com.lightstick.music.domain.music.genredetector.GenreDetector
 import com.lightstick.types.Color as LSColor
 import com.lightstick.types.LSEffectPayload
 
@@ -11,7 +11,7 @@ import com.lightstick.types.LSEffectPayload
 class EffectMatchingEngineV0 : EffectMatchingEngine {
 
     /** V0은 팔레트를 사용하지 않으므로 빈(고정) 팔레트 반환. */
-    override fun buildPalette(seed: Int, musicStyle: MusicStyleClassifier.MusicStyle): EffectMatchingEngine.Palette {
+    override fun buildPalette(seed: Int, musicStyle: GenreDetector.MusicStyle): EffectMatchingEngine.Palette {
         val white = LSColor(255, 255, 255)
         val black = LSColor(0, 0, 0)
         val trivial = EffectMatchingEngine.EffectColors(listOf(white), black)

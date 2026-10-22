@@ -1,6 +1,6 @@
 package com.lightstick.music.domain.music.effectmatchingengine.catalog
 
-import com.lightstick.music.domain.music.MusicStyleClassifier
+import com.lightstick.music.domain.music.genredetector.GenreDetector
 import com.lightstick.music.domain.music.sectiondetector.SectionDetector
 import com.lightstick.music.domain.music.effectmatchingengine.EffectMatchingEngine
 
@@ -63,28 +63,28 @@ object GenreEngineCatalog {
     )
 
     // 장르 → 세트 매핑. 새 세트를 하나 더 선언해 여기 값만 바꾸면 그 장르의 매칭을 통째로 교체할 수 있다.
-    private val GENRE_ENGINE_SETS: Map<MusicStyleClassifier.MusicStyle, EngineSet> = mapOf(
-        MusicStyleClassifier.MusicStyle.BALLAD     to BALLAD_SET,
-        MusicStyleClassifier.MusicStyle.HIPHOP_RNB to BALLAD_SET,
-        MusicStyleClassifier.MusicStyle.EDM        to DEFAULT_SET,
-        MusicStyleClassifier.MusicStyle.DANCE_POP  to DEFAULT_SET,
-        MusicStyleClassifier.MusicStyle.ROCK       to DEFAULT_SET,
-        MusicStyleClassifier.MusicStyle.POP        to DEFAULT_SET
+    private val GENRE_ENGINE_SETS: Map<GenreDetector.MusicStyle, EngineSet> = mapOf(
+        GenreDetector.MusicStyle.BALLAD     to BALLAD_SET,
+        GenreDetector.MusicStyle.HIPHOP_RNB to BALLAD_SET,
+        GenreDetector.MusicStyle.EDM        to DEFAULT_SET,
+        GenreDetector.MusicStyle.DANCE_POP  to DEFAULT_SET,
+        GenreDetector.MusicStyle.ROCK       to DEFAULT_SET,
+        GenreDetector.MusicStyle.POP        to DEFAULT_SET
     )
 
-    private fun setFor(musicStyle: MusicStyleClassifier.MusicStyle): EngineSet =
+    private fun setFor(musicStyle: GenreDetector.MusicStyle): EngineSet =
         GENRE_ENGINE_SETS[musicStyle] ?: DEFAULT_SET
 
     /** 장르의 EngineSet에서, 섹션 타입이 쓸 엔진 후보 목록. */
-    fun pool(type: SectionDetector.SectionType, musicStyle: MusicStyleClassifier.MusicStyle): List<EffectMatchingEngine.FgEngine> =
+    fun pool(type: SectionDetector.SectionType, musicStyle: GenreDetector.MusicStyle): List<EffectMatchingEngine.FgEngine> =
         setFor(musicStyle).pools.getValue(type)
 
     /** 이 섹션 타입이 풀에서 후보를 고를 때 쓸 전략. 선언 안 돼 있으면 BarBlockRotation. */
-    fun strategyFor(type: SectionDetector.SectionType, musicStyle: MusicStyleClassifier.MusicStyle): SelectionStrategy =
+    fun strategyFor(type: SectionDetector.SectionType, musicStyle: GenreDetector.MusicStyle): SelectionStrategy =
         setFor(musicStyle).strategies[type] ?: SelectionStrategy.BarBlockRotation
 
     /** 섹션의 기본 엔진 (pool의 첫 번째 값). */
-    fun assign(type: SectionDetector.SectionType, musicStyle: MusicStyleClassifier.MusicStyle): EffectMatchingEngine.FgEngine =
+    fun assign(type: SectionDetector.SectionType, musicStyle: GenreDetector.MusicStyle): EffectMatchingEngine.FgEngine =
         pool(type, musicStyle).first()
 
     /**
@@ -95,7 +95,7 @@ object GenreEngineCatalog {
      * 경계값을 미리 계산해서 넘겨줘야 한다.
      */
     fun pickFromPool(
-        type: SectionDetector.SectionType, musicStyle: MusicStyleClassifier.MusicStyle,
+        type: SectionDetector.SectionType, musicStyle: GenreDetector.MusicStyle,
         barIdx: Int, blockIdx: Int, barEnergy: Float, energyCutoff: Float,
         tierEnergyCutoffs: List<Float> = emptyList()
     ): EffectMatchingEngine.FgEngine {
