@@ -148,33 +148,33 @@ class EffectMatchingEngineV1 : EffectMatchingEngine {
             val enginePool  = GenreEngineCatalog.pool(section.type, palette.musicStyle)
             val barBlockLen = sectionBarBlockLen(section)
             val barMs = if (section.beatMs > 0L && beatsPerBar > 0) section.beatMs * beatsPerBar else 0L
+            val strategy = GenreEngineCatalog.strategyFor(section.type, palette.musicStyle)
 
-            // VERSE(비발라드)는 bar 블록 해시 순환 대신, bar 에너지로 ON_PULSE/BLINK를 고른다.
-            val verseBarEnergy: Map<Int, Float> =
-                if (section.type == SectionDetector.SectionType.VERSE && enginePool.size > 1 && barMs > 0L) {
+            // EnergyPercentile 전략일 때만 bar 에너지를 미리 계산해 percentile 기준값을 구한다
+            // (어떤 섹션/장르 세트가 이 전략을 쓰는지는 GenreEngineCatalog 선언이 결정한다).
+            val barEnergyByIdx: Map<Int, Float> =
+                if (strategy is GenreEngineCatalog.SelectionStrategy.EnergyPercentile && enginePool.size > 1 && barMs > 0L) {
                     effectiveBeats.map { barIndexAt(it, downbeatMs, section.beatMs, beatsPerBar) }.distinct()
                         .associateWith { barIdx ->
                             val barStartMs = downbeatMs + barIdx.toLong() * barMs
                             computeGroupEnergy(barStartMs, barStartMs + barMs, fullEnv, durationMs, hopMs)
                         }
                 } else emptyMap()
-            // 상위 20%(0.80 percentile) 이상 에너지인 bar만 BLINK, 나머지는 ON_PULSE.
-            val verseEnergyBlinkCutoff =
-                if (verseBarEnergy.isNotEmpty()) percentile(verseBarEnergy.values.toList(), 0.80f) else 0f
+            // barEnergyByIdx가 비어있으면(에너지 계산 불가) cutoff를 +무한대로 둬서 항상 풀의
+            // 첫 번째(기본) 엔진이 선택되게 한다 — 데이터 없다고 무조건 두 번째 엔진으로 가진 않도록.
+            val energyCutoff = if (barEnergyByIdx.isNotEmpty())
+                percentile(barEnergyByIdx.values.toList(), (strategy as? GenreEngineCatalog.SelectionStrategy.EnergyPercentile)?.percentile ?: 0.80f)
+            else Float.POSITIVE_INFINITY
 
             for ((beatIndex, t) in effectiveBeats.withIndex()) {
                 val barIdx = barIndexAt(t, downbeatMs, section.beatMs, beatsPerBar)
                 val beatEngine = when {
                     section.type == SectionDetector.SectionType.BRIDGE ->
                         GenreEngineCatalog.bridgePhaseEngine()
-                    section.type == SectionDetector.SectionType.VERSE && verseBarEnergy.isNotEmpty() -> {
-                        val energy = verseBarEnergy[barIdx] ?: 0f
-                        if (energy >= verseEnergyBlinkCutoff) EffectMatchingEngine.FgEngine.BLINK
-                        else EffectMatchingEngine.FgEngine.ON_PULSE
-                    }
                     enginePool.size > 1 -> {
                         val blockIdx = Math.floorDiv(barIdx, barBlockLen)
-                        enginePool[Math.floorMod(blockIdx, enginePool.size)]
+                        val barEnergy = barEnergyByIdx[barIdx] ?: 0f
+                        GenreEngineCatalog.pickFromPool(section.type, palette.musicStyle, barIdx, blockIdx, barEnergy, energyCutoff)
                     }
                     else -> section.engine
                 }
