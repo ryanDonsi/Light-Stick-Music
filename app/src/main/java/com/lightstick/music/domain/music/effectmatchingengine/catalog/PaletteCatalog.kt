@@ -67,16 +67,14 @@ object PaletteCatalog {
     private val BLACK = LSColor(0, 0, 0)
 
     // ===== [임시] 시연용 2계열 팔레트 — select()가 장르 무관하게 이 둘만 씀. 데모 끝나면
-    // select()를 GENRE_PALETTE_SETS 기반으로 되돌리면 복구된다(이 블록은 안 지워도 무해함). =====
-    private val WARM_PINK   = LSColor(255, 0, 127)   // 핑크
-    private val WARM_ORANGE = LSColor(255, 90, 0)    // 주황
-    private val WARM_AMBER  = LSColor(255, 190, 0)   // 호박색
+    // select()를 GENRE_PALETTE_SETS 기반으로 되돌리면 복구된다(이 블록은 안 지워도 무해함).
+    // WARM=빨강/노랑, COLD=파랑/보라. 각 쌍은 한 채널을 0↔255로 끝까지 벌려서(= 가능한 최대
+    // RGB 거리) 간격을 최대화함: RED-YELLOW는 G, BLUE-PURPLE은 R 채널만 다르게.
+    private val WARM_RED    = LSColor(255, 0, 0)     // 빨강
     private val WARM_YELLOW = LSColor(255, 255, 0)   // 노랑
 
-    private val COLD_GREEN  = LSColor(0, 255, 60)    // 초록
-    private val COLD_TEAL   = LSColor(0, 220, 180)   // 청록
-    private val COLD_BLUE   = LSColor(0, 110, 255)   // 파랑
-    private val COLD_PURPLE = LSColor(150, 0, 255)   // 보라
+    private val COLD_BLUE   = LSColor(0, 0, 255)     // 파랑
+    private val COLD_PURPLE = LSColor(255, 0, 255)   // 보라(마젠타 쪽으로 최대 분리)
 
     // ===== 이펙트별 색상표 (장르×세트×이펙트) =====
     // <장르>_SET_<번호>_<이펙트> 형태의 독립 상수. ONPULSE/CHORUS/BREATH_VERSE: fg가 bar/beat마다
@@ -402,14 +400,15 @@ object PaletteCatalog {
         GenreDetector.MusicStyle.POP        to POP_PALETTE_SETS
     )
 
-    // ===== [임시] 시연용 2계열 — 웜(핑크~노랑) / 콜드(초록~보라). BLINK의 bg는 반대 계열
-    // 색으로 둬서 전환이 극적으로 보이게 함. musicStyle은 select()에서 실제 장르로 덮어씀. =====
+    // ===== [임시] 시연용 2계열 — 웜(빨강/노랑) / 콜드(파랑/보라), 둘 다 채널 하나를 끝까지
+    // 벌려 간격을 최대화한 2색 구성. BLINK의 bg는 반대 계열 색으로 둬서 전환이 극적으로
+    // 보이게 함. musicStyle은 select()에서 실제 장르로 덮어씀. =====
     private val WARM_SET = EffectMatchingEngine.Palette(
         black = BLACK, white = WHITE, colorFamily = "WARM", musicStyle = GenreDetector.MusicStyle.POP,
-        onPulse  = EffectMatchingEngine.EffectColors(listOf(WARM_PINK, WARM_ORANGE, WARM_AMBER), BLACK),
-        blink    = EffectMatchingEngine.EffectColors(listOf(WARM_PINK, WARM_ORANGE, WARM_AMBER), COLD_PURPLE),
-        chorus   = EffectMatchingEngine.EffectColors(listOf(WHITE, WARM_ORANGE, WARM_PINK, WARM_AMBER), BLACK),
-        breathVerse         = EffectMatchingEngine.EffectColors(listOf(WARM_PINK, WARM_ORANGE, WARM_AMBER), BLACK),
+        onPulse  = EffectMatchingEngine.EffectColors(listOf(WARM_RED, WARM_YELLOW), BLACK),
+        blink    = EffectMatchingEngine.EffectColors(listOf(WARM_RED, WARM_YELLOW), COLD_BLUE),
+        chorus   = EffectMatchingEngine.EffectColors(listOf(WHITE, WARM_RED, WARM_YELLOW), BLACK),
+        breathVerse         = EffectMatchingEngine.EffectColors(listOf(WARM_RED, WARM_YELLOW), BLACK),
         breathBridgeBallad  = EffectMatchingEngine.EffectColors(listOf(WARM_YELLOW), BLACK),
         breathDefault       = EffectMatchingEngine.EffectColors(listOf(WARM_YELLOW), BLACK),
         freeze              = EffectMatchingEngine.EffectColors(listOf(WARM_YELLOW), BLACK)
@@ -417,10 +416,10 @@ object PaletteCatalog {
 
     private val COLD_SET = EffectMatchingEngine.Palette(
         black = BLACK, white = WHITE, colorFamily = "COLD", musicStyle = GenreDetector.MusicStyle.POP,
-        onPulse  = EffectMatchingEngine.EffectColors(listOf(COLD_GREEN, COLD_TEAL, COLD_BLUE), BLACK),
-        blink    = EffectMatchingEngine.EffectColors(listOf(COLD_GREEN, COLD_TEAL, COLD_BLUE), WARM_ORANGE),
-        chorus   = EffectMatchingEngine.EffectColors(listOf(WHITE, COLD_TEAL, COLD_GREEN, COLD_BLUE), BLACK),
-        breathVerse         = EffectMatchingEngine.EffectColors(listOf(COLD_GREEN, COLD_TEAL, COLD_BLUE), BLACK),
+        onPulse  = EffectMatchingEngine.EffectColors(listOf(COLD_BLUE, COLD_PURPLE), BLACK),
+        blink    = EffectMatchingEngine.EffectColors(listOf(COLD_BLUE, COLD_PURPLE), WARM_YELLOW),
+        chorus   = EffectMatchingEngine.EffectColors(listOf(WHITE, COLD_BLUE, COLD_PURPLE), BLACK),
+        breathVerse         = EffectMatchingEngine.EffectColors(listOf(COLD_BLUE, COLD_PURPLE), BLACK),
         breathBridgeBallad  = EffectMatchingEngine.EffectColors(listOf(COLD_PURPLE), BLACK),
         breathDefault       = EffectMatchingEngine.EffectColors(listOf(COLD_PURPLE), BLACK),
         freeze              = EffectMatchingEngine.EffectColors(listOf(COLD_PURPLE), BLACK)
