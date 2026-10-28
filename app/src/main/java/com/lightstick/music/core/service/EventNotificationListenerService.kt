@@ -48,6 +48,9 @@ class EventNotificationListenerService : NotificationListenerService() {
 
         // 스캔 지속 시간
         private const val SCAN_DURATION_SEC = 3
+
+        // 백그라운드 자동 재연결 대상 — 이름이 이 접미사로 끝나는 기기만 (RL 제외)
+        private val AUTO_RECONNECT_NAME_SUFFIXES = setOf("GL", "LS")
     }
 
     // 스캔 중 연결 시도한 MAC 주소 추적 (중복 connect 방지)
@@ -336,7 +339,11 @@ class EventNotificationListenerService : NotificationListenerService() {
         Log.i(TAG, "자동 재연결: 스캔 시작 (bonded ${bonded.size}개 대상)")
 
         LSBluetooth.startScan(scanTimeSeconds = SCAN_DURATION_SEC) { device ->
-            if (device.mac in bondedMacs && connectAttempted.add(device.mac)) {
+            val isAutoReconnectTarget = device.name?.let { name ->
+                AUTO_RECONNECT_NAME_SUFFIXES.any { suffix -> name.endsWith(suffix) }
+            } == true
+
+            if (isAutoReconnectTarget && device.mac in bondedMacs && connectAttempted.add(device.mac)) {
                 Log.i(TAG, "자동 재연결: ${device.name} (${device.mac}) 발견 → connect 시도")
                 device.connect(
                     onConnected = {
