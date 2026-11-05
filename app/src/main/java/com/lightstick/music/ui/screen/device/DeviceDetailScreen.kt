@@ -150,20 +150,23 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    if (broadcastingSupported) {
-                        SettingToggleItem(
-                            label = "Broadcasting Mode",
-                            description = "연결된 주변 응원봉에 신호를 전파해 함께 동작",
-                            checked = broadcastingEnabled,
-                            onCheckedChange = onBroadcastingToggle
-                        )
+                    SettingToggleItem(
+                        label = "Broadcasting Mode",
+                        description = if (broadcastingSupported)
+                            "연결된 주변 응원봉에 신호를 전파해 함께 동작"
+                        else
+                            "BLE 모드 응원봉에서만 설정 가능 (중계기는 항상 전파)",
+                        // 미지원(중계기)은 항상 전파되므로 ON으로 표시
+                        checked = if (broadcastingSupported) broadcastingEnabled else true,
+                        onCheckedChange = onBroadcastingToggle,
+                        enabled = broadcastingSupported
+                    )
 
-                        HorizontalDivider(
-                            modifier = Modifier.fillMaxWidth(),
-                            thickness = 1.dp,
-                            color = MaterialTheme.customColors.divider
-                        )
-                    }
+                    HorizontalDivider(
+                        modifier = Modifier.fillMaxWidth(),
+                        thickness = 1.dp,
+                        color = MaterialTheme.customColors.divider
+                    )
 
                     SettingLabel(
                         label = "FIND",
