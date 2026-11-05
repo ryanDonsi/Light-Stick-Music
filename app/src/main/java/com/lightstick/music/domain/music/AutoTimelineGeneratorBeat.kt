@@ -28,8 +28,6 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, AutoTimelineGeneratorWi
 
         /** duration은 u16(10ms 단위) */
         private const val MAX_DURATION_UNITS = 65_535
-        /** 다음 프레임 지연·지터 대비 여유 */
-        private const val DURATION_MARGIN_MS = 200L
 
         private const val MIN_BEAT_MS = AutoTimelineConfig.MIN_BEAT_MS
         private const val MAX_BEAT_MS = AutoTimelineConfig.MAX_BEAT_MS
@@ -197,7 +195,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, AutoTimelineGeneratorWi
 
     /**
      * 각 프레임에 duration(10ms 단위, SDK 2.1)을 채운다.
-     * 다음 프레임까지의 간격 + [DURATION_MARGIN_MS] 동안 유지하고 그 뒤 LED가 꺼지도록 해서,
+     * 다음 프레임까지의 간격만큼 유지하고 그 뒤 LED가 꺼지도록 해서,
      * 재생 중단·패킷 유실 시 LED가 켜진 채 남지 않게 한다. 중복 전송을 건너뛴 프레임도
      * "다음 실제 프레임"까지의 간격으로 계산되므로 중간에 꺼지지 않는다.
      * OFF 프레임과 마지막 프레임은 0(다음 명령까지 유지)으로 둔다.
@@ -207,7 +205,7 @@ class AutoTimelineGeneratorBeat : AutoTimelineGenerator, AutoTimelineGeneratorWi
             val next = frames.getOrNull(i + 1)?.first ?: return@mapIndexed t to bytes
             val payload = LSEffectPayload.fromByteArray(bytes)
             if (payload.effectType == EffectType.OFF) return@mapIndexed t to bytes
-            val units = ((next - t + DURATION_MARGIN_MS) / 10L).toInt().coerceIn(1, MAX_DURATION_UNITS)
+            val units = ((next - t) / 10L).toInt().coerceIn(1, MAX_DURATION_UNITS)
             t to payload.copy(duration = units).toByteArray()
         }
 
