@@ -129,7 +129,7 @@ object BlinkEffect : FgEngineEffect {
         return FrameSpec(Primitive.BLINK, fg, bg, period = msToBlinkPeriod(beatMs))
     }
 
-    override val isRepeatable = false
+    override val isRepeatable = true
 }
 
 /** BREATH: 발라드 BRIDGE/VERSE/그 외로 색과 랜덤딜레이가 구분된다. */

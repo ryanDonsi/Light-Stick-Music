@@ -66,6 +66,21 @@ object PaletteCatalog {
     private val WHITE = LSColor(255, 255, 255)
     private val BLACK = LSColor(0, 0, 0)
 
+    // ===== [임시] 시연용 2계열 팔레트 — select()가 장르 무관하게 이 둘만 씀. 데모 끝나면
+    // select()를 GENRE_PALETTE_SETS 기반으로 되돌리면 복구된다(이 블록은 안 지워도 무해함).
+    // WARM=핑크~노랑(hue 약 330°~60°, 계열 폭 약 90°), COLD=초록~보라(hue 약 120°~275°,
+    // 계열 폭 약 155°) — 둘 다 가장 널리 통용되는 색 이름으로 구성. BLINK bg는 반대 계열의
+    // YELLOW/BLUE로 고정해 전환이 극적으로 보이게 함.
+    private val WARM_PINK   = LSColor(255, 0, 125)   // 핑크
+    private val WARM_RED    = LSColor(255, 0, 0)     // 빨강
+    private val WARM_ORANGE = LSColor(255, 51, 0)    // 주황
+    private val WARM_YELLOW = LSColor(255, 255, 0)   // 노랑
+
+    private val COLD_GREEN  = LSColor(0, 255, 0)     // 초록
+    private val COLD_TEAL   = LSColor(0, 255, 255)   // 청록
+    private val COLD_BLUE   = LSColor(0, 0, 255)     // 파랑
+    private val COLD_PURPLE = LSColor(150, 0, 255)   // 보라
+
     // ===== 이펙트별 색상표 (장르×세트×이펙트) =====
     // <장르>_SET_<번호>_<이펙트> 형태의 독립 상수. ONPULSE/CHORUS/BREATH_VERSE: fg가 bar/beat마다
     // 순환. BLINK: ONPULSE와 같은 fg 순환에 bg만 달리함. BREATH_DEFAULT/FREEZE: fg 고정 1색.
@@ -390,10 +405,39 @@ object PaletteCatalog {
         GenreDetector.MusicStyle.POP        to POP_PALETTE_SETS
     )
 
+    // ===== [임시] 시연용 2계열 — 웜(PINK/RED/ORANGE/YELLOW) / 콜드(GREEN/TEAL/BLUE/PURPLE)
+    // 4색 구성. 트리오(순환 3색)는 각 계열의 "핵심 3색"(RED·ORANGE·YELLOW / TEAL·BLUE·
+    // PURPLE), 남는 1색(PINK/GREEN)은 accent(단색 전용)로 둠. BLINK의 bg는 YELLOW↔BLUE로
+    // 고정해 전환이 극적으로 보이게 함. musicStyle은 select()에서 실제 장르로 덮어씀. =====
+    private val WARM_SET = EffectMatchingEngine.Palette(
+        black = BLACK, white = WHITE, colorFamily = "WARM", musicStyle = GenreDetector.MusicStyle.POP,
+        onPulse  = EffectMatchingEngine.EffectColors(listOf(WARM_RED, WARM_ORANGE, WARM_YELLOW), BLACK),
+        blink    = EffectMatchingEngine.EffectColors(listOf(WARM_RED, WARM_ORANGE, WARM_YELLOW), COLD_BLUE),
+        chorus   = EffectMatchingEngine.EffectColors(listOf(WHITE, WARM_RED, WARM_YELLOW, WARM_ORANGE), BLACK),
+        breathVerse         = EffectMatchingEngine.EffectColors(listOf(WARM_RED, WARM_ORANGE, WARM_YELLOW), BLACK),
+        breathBridgeBallad  = EffectMatchingEngine.EffectColors(listOf(WARM_PINK), BLACK),
+        breathDefault       = EffectMatchingEngine.EffectColors(listOf(WARM_PINK), BLACK),
+        freeze              = EffectMatchingEngine.EffectColors(listOf(WARM_PINK), BLACK)
+    )
+
+    private val COLD_SET = EffectMatchingEngine.Palette(
+        black = BLACK, white = WHITE, colorFamily = "COLD", musicStyle = GenreDetector.MusicStyle.POP,
+        onPulse  = EffectMatchingEngine.EffectColors(listOf(COLD_TEAL, COLD_BLUE, COLD_PURPLE), BLACK),
+        blink    = EffectMatchingEngine.EffectColors(listOf(COLD_TEAL, COLD_BLUE, COLD_PURPLE), WARM_YELLOW),
+        chorus   = EffectMatchingEngine.EffectColors(listOf(WHITE, COLD_TEAL, COLD_PURPLE, COLD_BLUE), BLACK),
+        breathVerse         = EffectMatchingEngine.EffectColors(listOf(COLD_TEAL, COLD_BLUE, COLD_PURPLE), BLACK),
+        breathBridgeBallad  = EffectMatchingEngine.EffectColors(listOf(COLD_GREEN), BLACK),
+        breathDefault       = EffectMatchingEngine.EffectColors(listOf(COLD_GREEN), BLACK),
+        freeze              = EffectMatchingEngine.EffectColors(listOf(COLD_GREEN), BLACK)
+    )
+
     /** 장르별 팔레트 세트 후보군 중 seed로 하나를 결정론적으로 고른다. */
     fun select(seed: Int, musicStyle: GenreDetector.MusicStyle): EffectMatchingEngine.Palette {
         val rawHue = (((seed.toLong() * 2654435761L) ushr 8) and 0x7FFFFFFFL).toInt()
-        val sets = GENRE_PALETTE_SETS[musicStyle] ?: POP_PALETTE_SETS
-        return sets[Math.floorMod(rawHue, sets.size)]
+        // [임시] 데모용 — 장르 무관하게 WARM/COLD 2개만 사용. 되돌리려면 아래 2줄을 원래대로:
+        //   val sets = GENRE_PALETTE_SETS[musicStyle] ?: POP_PALETTE_SETS
+        //   return sets[Math.floorMod(rawHue, sets.size)]
+        val sets = listOf(WARM_SET, COLD_SET)
+        return sets[Math.floorMod(rawHue, sets.size)].copy(musicStyle = musicStyle)
     }
 }

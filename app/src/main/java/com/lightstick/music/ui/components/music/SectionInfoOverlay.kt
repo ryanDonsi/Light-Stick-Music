@@ -269,6 +269,8 @@ private fun colorFamilyColor(colorFamily: String): Color = when (colorFamily) {
     "ORANGE_GOLD" -> Color(0xFFFFC107)
     "TEAL"        -> Color(0xFF26C6DA)
     "BLUE"        -> Color(0xFF448AFF)
+    "WARM"        -> Color(0xFFFFAB40)  // [임시] 시연용 웜 팔레트
+    "COLD"        -> Color(0xFF40C4FF)  // [임시] 시연용 콜드 팔레트
     else          -> Color.White.copy(alpha = 0.60f)
 }
 
