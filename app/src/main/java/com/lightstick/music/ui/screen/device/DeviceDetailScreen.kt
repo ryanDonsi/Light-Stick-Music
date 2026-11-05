@@ -33,6 +33,7 @@ fun DeviceDetailScreen(
     callEventEnabled: Boolean,
     smsEventEnabled: Boolean,
     broadcastingEnabled: Boolean,
+    broadcastingSupported: Boolean,
     isOtaInProgress: Boolean,
     otaProgress: Int,
     onBackClick: () -> Unit,
@@ -149,18 +150,20 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    SettingToggleItem(
-                        label = "Broadcasting Mode",
-                        description = "연결된 주변 응원봉에 신호를 전파해 함께 동작",
-                        checked = broadcastingEnabled,
-                        onCheckedChange = onBroadcastingToggle
-                    )
+                    if (broadcastingSupported) {
+                        SettingToggleItem(
+                            label = "Broadcasting Mode",
+                            description = "연결된 주변 응원봉에 신호를 전파해 함께 동작",
+                            checked = broadcastingEnabled,
+                            onCheckedChange = onBroadcastingToggle
+                        )
 
-                    HorizontalDivider(
-                        modifier = Modifier.fillMaxWidth(),
-                        thickness = 1.dp,
-                        color = MaterialTheme.customColors.divider
-                    )
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            thickness = 1.dp,
+                            color = MaterialTheme.customColors.divider
+                        )
+                    }
 
                     SettingLabel(
                         label = "FIND",

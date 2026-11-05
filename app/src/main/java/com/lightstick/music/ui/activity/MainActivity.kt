@@ -492,6 +492,7 @@ fun AppNavigation(
                 callEventEnabled = callEventEnabled,
                 smsEventEnabled = smsEventEnabled,
                 broadcastingEnabled = broadcastingEnabled,
+                broadcastingSupported = deviceDetail?.supportsBroadcasting == true,
                 isOtaInProgress = isOtaInProgress,
                 otaProgress = otaProgress,
                 onBackClick = {

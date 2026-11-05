@@ -63,7 +63,6 @@ class PlayManualEffectUseCase @Inject constructor() {
         effectType: EffectViewModel.UiEffectType,
         settings: EffectViewModel.EffectSettings
     ): LSEffectPayload? {
-        val broadcastingValue = if (settings.broadcasting) 1 else 0
         val randomColorValue = if (settings.randomColor) 1 else 0
         val randomDelayValue = settings.randomDelay
 
@@ -73,15 +72,13 @@ class PlayManualEffectUseCase @Inject constructor() {
                     color = settings.color,
                     transit = settings.transit,
                     randomColor = randomColorValue,
-                    randomDelay = randomDelayValue,
-                    broadcasting = broadcastingValue
+                    randomDelay = randomDelayValue
                 )
             }
             is EffectViewModel.UiEffectType.Off -> {
                 LSEffectPayload.Effects.off(
                     transit = settings.transit,
-                    randomDelay = randomDelayValue,
-                    broadcasting = broadcastingValue
+                    randomDelay = randomDelayValue
                 )
             }
             is EffectViewModel.UiEffectType.Strobe -> {
@@ -90,8 +87,7 @@ class PlayManualEffectUseCase @Inject constructor() {
                     color = settings.color,
                     backgroundColor = settings.backgroundColor,
                     randomColor = randomColorValue,
-                    randomDelay = randomDelayValue,
-                    broadcasting = broadcastingValue
+                    randomDelay = randomDelayValue
                 )
             }
             is EffectViewModel.UiEffectType.Blink -> {
@@ -100,8 +96,7 @@ class PlayManualEffectUseCase @Inject constructor() {
                     color = settings.color,
                     backgroundColor = settings.backgroundColor,
                     randomColor = randomColorValue,
-                    randomDelay = randomDelayValue,
-                    broadcasting = broadcastingValue
+                    randomDelay = randomDelayValue
                 )
             }
             is EffectViewModel.UiEffectType.Breath -> {
@@ -110,8 +105,7 @@ class PlayManualEffectUseCase @Inject constructor() {
                     color = settings.color,
                     backgroundColor = settings.backgroundColor,
                     randomColor = randomColorValue,
-                    randomDelay = randomDelayValue,
-                    broadcasting = broadcastingValue
+                    randomDelay = randomDelayValue
                 )
             }
             is EffectViewModel.UiEffectType.Custom -> {
@@ -121,15 +115,13 @@ class PlayManualEffectUseCase @Inject constructor() {
                             color = settings.color,
                             transit = settings.transit,
                             randomColor = randomColorValue,
-                            randomDelay = randomDelayValue,
-                            broadcasting = broadcastingValue
+                            randomDelay = randomDelayValue
                         )
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.OFF -> {
                         LSEffectPayload.Effects.off(
                             transit = settings.transit,
-                            randomDelay = randomDelayValue,
-                            broadcasting = broadcastingValue
+                            randomDelay = randomDelayValue
                         )
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.STROBE -> {
@@ -138,8 +130,7 @@ class PlayManualEffectUseCase @Inject constructor() {
                             color = settings.color,
                             backgroundColor = settings.backgroundColor,
                             randomColor = randomColorValue,
-                            randomDelay = randomDelayValue,
-                            broadcasting = broadcastingValue
+                            randomDelay = randomDelayValue
                         )
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.BLINK -> {
@@ -148,8 +139,7 @@ class PlayManualEffectUseCase @Inject constructor() {
                             color = settings.color,
                             backgroundColor = settings.backgroundColor,
                             randomColor = randomColorValue,
-                            randomDelay = randomDelayValue,
-                            broadcasting = broadcastingValue
+                            randomDelay = randomDelayValue
                         )
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.BREATH -> {
@@ -158,8 +148,7 @@ class PlayManualEffectUseCase @Inject constructor() {
                             color = settings.color,
                             backgroundColor = settings.backgroundColor,
                             randomColor = randomColorValue,
-                            randomDelay = randomDelayValue,
-                            broadcasting = broadcastingValue
+                            randomDelay = randomDelayValue
                         )
                     }
                 }

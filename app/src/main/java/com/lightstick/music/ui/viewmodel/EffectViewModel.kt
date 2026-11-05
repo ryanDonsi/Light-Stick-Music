@@ -52,8 +52,7 @@ private data class EffectSettingsDto(
     val colorR: Int = 255, val colorG: Int = 255, val colorB: Int = 255,
     val bgColorR: Int = 0, val bgColorG: Int = 0, val bgColorB: Int = 0,
     val period: Int = 10, val transit: Int = 0,
-    val randomColor: Boolean = false, val randomDelay: Int = 0,
-    val broadcasting: Boolean = true
+    val randomColor: Boolean = false, val randomDelay: Int = 0
 )
 
 @Serializable
@@ -570,16 +569,14 @@ class EffectViewModel @Inject constructor(
         val period:          Int             = 10,
         val transit:         Int             = 0,
         val randomColor:     Boolean         = false,
-        val randomDelay:     Int             = 0,
-        val broadcasting:    Boolean         = true
+        val randomDelay:     Int             = 0
     ) {
         fun toJson(): String = json.encodeToString(
             EffectSettingsDto(
                 colorR = color.r,             colorG = color.g,             colorB = color.b,
                 bgColorR = backgroundColor.r, bgColorG = backgroundColor.g, bgColorB = backgroundColor.b,
                 period = period,              transit = transit,
-                randomColor = randomColor,    randomDelay = randomDelay,
-                broadcasting = broadcasting
+                randomColor = randomColor,    randomDelay = randomDelay
             )
         )
 
@@ -600,8 +597,7 @@ class EffectViewModel @Inject constructor(
                     color           = LightStickColor(dto.colorR, dto.colorG, dto.colorB),
                     backgroundColor = LightStickColor(dto.bgColorR, dto.bgColorG, dto.bgColorB),
                     period          = dto.period,       transit      = dto.transit,
-                    randomColor     = dto.randomColor,  randomDelay  = dto.randomDelay,
-                    broadcasting    = dto.broadcasting
+                    randomColor     = dto.randomColor,  randomDelay  = dto.randomDelay
                 )
             }
         }
