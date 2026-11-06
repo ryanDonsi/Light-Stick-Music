@@ -52,7 +52,8 @@ private data class EffectSettingsDto(
     val colorR: Int = 255, val colorG: Int = 255, val colorB: Int = 255,
     val bgColorR: Int = 0, val bgColorG: Int = 0, val bgColorB: Int = 0,
     val period: Int = 10, val transit: Int = 0,
-    val randomColor: Boolean = false, val randomDelay: Int = 0
+    val randomColor: Boolean = false, val randomDelay: Int = 0,
+    val duration: Int = 0
 )
 
 @Serializable
@@ -569,14 +570,17 @@ class EffectViewModel @Inject constructor(
         val period:          Int             = 10,
         val transit:         Int             = 0,
         val randomColor:     Boolean         = false,
-        val randomDelay:     Int             = 0
+        val randomDelay:     Int             = 0,
+        /** 이펙트 유지 시간(10ms 단위, 0=다음 명령까지 유지) — SDK 2.1 LSEffectPayload.duration */
+        val duration:        Int             = 0
     ) {
         fun toJson(): String = json.encodeToString(
             EffectSettingsDto(
                 colorR = color.r,             colorG = color.g,             colorB = color.b,
                 bgColorR = backgroundColor.r, bgColorG = backgroundColor.g, bgColorB = backgroundColor.b,
                 period = period,              transit = transit,
-                randomColor = randomColor,    randomDelay = randomDelay
+                randomColor = randomColor,    randomDelay = randomDelay,
+                duration = duration
             )
         )
 
@@ -597,7 +601,8 @@ class EffectViewModel @Inject constructor(
                     color           = LightStickColor(dto.colorR, dto.colorG, dto.colorB),
                     backgroundColor = LightStickColor(dto.bgColorR, dto.bgColorG, dto.bgColorB),
                     period          = dto.period,       transit      = dto.transit,
-                    randomColor     = dto.randomColor,  randomDelay  = dto.randomDelay
+                    randomColor     = dto.randomColor,  randomDelay  = dto.randomDelay,
+                    duration        = dto.duration
                 )
             }
         }

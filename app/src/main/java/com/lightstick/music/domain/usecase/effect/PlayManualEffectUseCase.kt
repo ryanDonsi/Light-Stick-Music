@@ -72,7 +72,8 @@ class PlayManualEffectUseCase @Inject constructor() {
                     color = settings.color,
                     transit = settings.transit,
                     randomColor = randomColorValue,
-                    randomDelay = randomDelayValue
+                    randomDelay = randomDelayValue,
+                    duration = settings.duration
                 )
             }
             is EffectViewModel.UiEffectType.Off -> {
@@ -87,7 +88,8 @@ class PlayManualEffectUseCase @Inject constructor() {
                     color = settings.color,
                     backgroundColor = settings.backgroundColor,
                     randomColor = randomColorValue,
-                    randomDelay = randomDelayValue
+                    randomDelay = randomDelayValue,
+                    duration = settings.duration
                 )
             }
             is EffectViewModel.UiEffectType.Blink -> {
@@ -96,7 +98,8 @@ class PlayManualEffectUseCase @Inject constructor() {
                     color = settings.color,
                     backgroundColor = settings.backgroundColor,
                     randomColor = randomColorValue,
-                    randomDelay = randomDelayValue
+                    randomDelay = randomDelayValue,
+                    duration = settings.duration
                 )
             }
             is EffectViewModel.UiEffectType.Breath -> {
@@ -105,7 +108,8 @@ class PlayManualEffectUseCase @Inject constructor() {
                     color = settings.color,
                     backgroundColor = settings.backgroundColor,
                     randomColor = randomColorValue,
-                    randomDelay = randomDelayValue
+                    randomDelay = randomDelayValue,
+                    duration = settings.duration
                 )
             }
             is EffectViewModel.UiEffectType.Custom -> {
@@ -115,7 +119,8 @@ class PlayManualEffectUseCase @Inject constructor() {
                             color = settings.color,
                             transit = settings.transit,
                             randomColor = randomColorValue,
-                            randomDelay = randomDelayValue
+                            randomDelay = randomDelayValue,
+                            duration = settings.duration
                         )
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.OFF -> {
@@ -130,7 +135,8 @@ class PlayManualEffectUseCase @Inject constructor() {
                             color = settings.color,
                             backgroundColor = settings.backgroundColor,
                             randomColor = randomColorValue,
-                            randomDelay = randomDelayValue
+                            randomDelay = randomDelayValue,
+                            duration = settings.duration
                         )
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.BLINK -> {
@@ -139,7 +145,8 @@ class PlayManualEffectUseCase @Inject constructor() {
                             color = settings.color,
                             backgroundColor = settings.backgroundColor,
                             randomColor = randomColorValue,
-                            randomDelay = randomDelayValue
+                            randomDelay = randomDelayValue,
+                            duration = settings.duration
                         )
                     }
                     EffectViewModel.UiEffectType.BaseEffectType.BREATH -> {
@@ -148,7 +155,8 @@ class PlayManualEffectUseCase @Inject constructor() {
                             color = settings.color,
                             backgroundColor = settings.backgroundColor,
                             randomColor = randomColorValue,
-                            randomDelay = randomDelayValue
+                            randomDelay = randomDelayValue,
+                            duration = settings.duration
                         )
                     }
                 }

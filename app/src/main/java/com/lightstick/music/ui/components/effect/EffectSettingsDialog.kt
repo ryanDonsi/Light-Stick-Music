@@ -99,6 +99,7 @@ private fun OnEffectSettingsContent(
             checked = settings.randomColor,
             onCheckedChange = { onSettingsChange(settings.copy(randomColor = it)) }
         )
+        DurationSliderItem(settings, onSettingsChange)
     }
 }
 
@@ -152,5 +153,32 @@ private fun PeriodicEffectSettingsContent(
             checked = settings.randomColor,
             onCheckedChange = { onSettingsChange(settings.copy(randomColor = it)) }
         )
+        DurationSliderItem(settings, onSettingsChange)
     }
 }
+
+/**
+ * DURATION 슬라이더 — 이펙트를 유지할 시간(10ms 단위). 0이면 다음 명령까지 유지(무한).
+ * 0 초과 값이면 해당 시간 뒤에 LED가 꺼진다. (SDK 2.1 LSEffectPayload.duration)
+ */
+@Composable
+private fun DurationSliderItem(
+    settings: EffectViewModel.EffectSettings,
+    onSettingsChange: (EffectViewModel.EffectSettings) -> Unit
+) {
+    val valueText = if (settings.duration == 0) "무한 유지"
+    else String.format(java.util.Locale.US, "%.2f", settings.duration / 100.0) + "s"
+    EffectSliderItem(
+        icon = R.drawable.ic_duration,
+        iconTint = Color(0xFFFF8A65),
+        label = "DURATION  $valueText",
+        value = settings.duration,
+        onValueChange = { onSettingsChange(settings.copy(duration = it)) },
+        valueRange = 0..DURATION_MAX_UNITS,
+        steps = 0,
+        labels = listOf("무한", "5s", "10s")
+    )
+}
+
+/** 슬라이더 최대값: 1000 × 10ms = 10초 */
+private const val DURATION_MAX_UNITS = 1000

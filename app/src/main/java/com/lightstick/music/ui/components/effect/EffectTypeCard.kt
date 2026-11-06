@@ -194,6 +194,7 @@ private fun EffectParameters(
                 ParameterItem(R.drawable.ic_transit, formatSeconds(effectSettings.transit), if (isSelected) Color(0xFFA774FF) else iconTint, textColor)
                 ParameterItem(R.drawable.ic_random, formatSeconds(effectSettings.randomDelay), if (isSelected) Color(0xFF84E366) else iconTint, textColor)
                 ParameterItem(R.drawable.ic_color, if (effectSettings.randomColor) "R" else "-", if (isSelected) Color(0xFF22D3EE) else iconTint, textColor)
+                ParameterItem(R.drawable.ic_duration, formatDuration(effectSettings.duration), if (isSelected) Color(0xFFFF8A65) else iconTint, textColor)
             }
             is EffectViewModel.UiEffectType.Off -> {
                 ParameterItem(R.drawable.ic_transit, formatSeconds(effectSettings.transit), if (isSelected) Color(0xFFA774FF) else iconTint, textColor)
@@ -204,6 +205,7 @@ private fun EffectParameters(
                 ParameterItem(R.drawable.ic_period, formatSeconds(effectSettings.period), if (isSelected) Color(0xFFFFD46F) else iconTint, textColor)
                 ParameterItem(R.drawable.ic_random, formatSeconds(effectSettings.randomDelay), if (isSelected) Color(0xFF84E366) else iconTint, textColor)
                 ParameterItem(R.drawable.ic_color, if (effectSettings.randomColor) "R" else "-", if (isSelected) Color(0xFF22D3EE) else iconTint, textColor)
+                ParameterItem(R.drawable.ic_duration, formatDuration(effectSettings.duration), if (isSelected) Color(0xFFFF8A65) else iconTint, textColor)
             }
             is EffectViewModel.UiEffectType.Custom -> {
                 val baseUiEffect = when (effect.baseType) {
@@ -294,6 +296,10 @@ private fun formatSeconds(value: Int): String {
     val seconds = value * 0.1
     return String.format(Locale.US, "%.1f", seconds).removeSuffix(".0") + "s"
 }
+
+/** duration(10ms 단위) 표시: 0=무한(∞), 그 외 초 단위 */
+private fun formatDuration(units: Int): String =
+    if (units == 0) "∞" else String.format(Locale.US, "%.2f", units / 100.0).trimEnd('0').trimEnd('.') + "s"
 
 private fun Color.luminance(): Float {
     return (0.299f * red + 0.587f * green + 0.114f * blue)
