@@ -51,7 +51,11 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
 import com.lightstick.music.ui.viewmodel.GameViewModel
 import com.lightstick.music.core.permission.PermissionManager
 import androidx.media3.common.util.UnstableApi
+import androidx.navigation.NamedNavArgument
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
+import androidx.compose.ui.window.DialogProperties
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.navigation.navArgument
 import com.lightstick.music.ui.screen.music.MusicControlScreen
@@ -61,6 +65,7 @@ import com.lightstick.music.ui.components.common.CustomNavigationBar
 import com.lightstick.music.ui.layout.applyDeviceOrientation
 import com.lightstick.music.ui.layout.isTabletLandscape
 import com.lightstick.music.ui.screen.tablet.TabletMainScreen
+import com.lightstick.music.ui.screen.tablet.TabletPopupFrame
 import com.lightstick.music.ui.components.common.CustomToast
 import com.lightstick.music.ui.components.common.ToastState
 import com.lightstick.music.ui.components.common.rememberToastState
@@ -276,6 +281,30 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * 태블릿에서는 팝업(Dialog 목적지, 폰 폭의 카드)으로, 폰에서는 일반 화면으로 등록한다.
+ * 내용은 같은 Composable을 쓰므로 폰과 동일하게 구성된다.
+ */
+private fun NavGraphBuilder.popupOrScreen(
+    route: String,
+    popup: Boolean,
+    onDismiss: () -> Unit,
+    arguments: List<NamedNavArgument> = emptyList(),
+    content: @Composable (NavBackStackEntry) -> Unit
+) {
+    if (popup) {
+        dialog(
+            route = route,
+            arguments = arguments,
+            dialogProperties = DialogProperties(usePlatformDefaultWidth = false)
+        ) { entry ->
+            TabletPopupFrame(onDismiss = onDismiss) { content(entry) }
+        }
+    } else {
+        composable(route = route, arguments = arguments) { entry -> content(entry) }
+    }
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 fun AppNavigation(
@@ -290,6 +319,13 @@ fun AppNavigation(
 ) {
     val context = LocalContext.current
     val tablet = isTabletLandscape()
+
+    // 팝업 바깥 클릭으로 닫기 — 펌웨어 업데이트(OTA) 중에는 닫지 않는다
+    val otaInProgressMap by deviceViewModel.otaInProgress.collectAsState()
+    val isAnyOtaInProgress = otaInProgressMap.values.any { it }
+    val dismissPopup: () -> Unit = {
+        if (!isAnyOtaInProgress) navController.popBackStack()
+    }
 
     NavHost(
         navController = navController,
@@ -330,14 +366,14 @@ fun AppNavigation(
             }
         }
 
-        composable("game") {
+        popupOrScreen("game", popup = tablet, onDismiss = dismissPopup) {
             GameScreen(
                 viewModel = gameViewModel,
                 onBack = if (tablet) ({ navController.popBackStack() }) else null
             )
         }
 
-        composable("deviceList") {
+        popupOrScreen("deviceList", popup = tablet, onDismiss = dismissPopup) {
             var showConnectDialog by remember { mutableStateOf(false) }
             var showReconnectDialog by remember { mutableStateOf(false) }
             var selectedDevice by remember { mutableStateOf<Device?>(null) }
@@ -411,13 +447,15 @@ fun AppNavigation(
             }
         }
 
-        composable(
+        popupOrScreen(
             route = "deviceDetail/{deviceMac}",
+            popup = tablet,
+            onDismiss = dismissPopup,
             arguments = listOf(
                 navArgument("deviceMac") { type = NavType.StringType }
             )
         ) { backStackEntry ->
-            val deviceMac = backStackEntry.arguments?.getString("deviceMac") ?: return@composable
+            val deviceMac = backStackEntry.arguments?.getString("deviceMac") ?: return@popupOrScreen
 
             // 상세화면에 머무는 동안 스캔을 멈춰 RSSI 갱신에 따른 불필요한 DIS 재처리를 방지
             DisposableEffect(Unit) {
@@ -438,7 +476,7 @@ fun AppNavigation(
                 LaunchedEffect(Unit) {
                     navController.popBackStack()
                 }
-                return@composable
+                return@popupOrScreen
             }
 
             val isConnected = connectionStates[deviceMac] == true
