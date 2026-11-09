@@ -57,7 +57,9 @@ fun DeviceListScreen(
     onDeviceSelected: (Device) -> Unit,
     onRequestEffectsDirectory: () -> Unit = {},
     /** 태블릿 스타일: 타이틀 "디바이스 설정"을 왼쪽 정렬로, 돌아가기 버튼 없이(우측 점 세 개 메뉴는 유지) */
-    tabletStyle: Boolean = false
+    tabletStyle: Boolean = false,
+    /** 지정하면 타이틀 왼쪽에 돌아가기 버튼을 보여준다 (태블릿 전체 화면 설정: 메인 화면으로 이동) */
+    onBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
@@ -96,7 +98,8 @@ fun DeviceListScreen(
         topBar = {
             CustomTopBar(
                 title = if (tabletStyle) "디바이스 설정" else "Device Setting",
-                showBackButton = false,
+                showBackButton = onBack != null,
+                onBackClick = onBack,
                 titleAlignStart = tabletStyle,
                 actionContent = {
                     Box {

@@ -56,7 +56,8 @@ fun CustomTopBar(
                 style = MaterialTheme.customTextStyles.topBarLarge,
                 color = MaterialTheme.customColors.onSurface,
                 textAlign = if (titleAlignStart) TextAlign.Start else TextAlign.Center,
-                modifier = if (titleAlignStart) Modifier.padding(start = 16.dp) else Modifier
+                // 왼쪽 정렬일 때는 돌아가기 버튼이 있으면 그 오른쪽에서 시작한다
+                modifier = if (titleAlignStart) Modifier.padding(start = if (showBackButton) 52.dp else 16.dp) else Modifier
             )
         }
 

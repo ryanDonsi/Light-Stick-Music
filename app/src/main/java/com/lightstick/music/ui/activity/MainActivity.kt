@@ -52,6 +52,12 @@ import com.lightstick.music.ui.viewmodel.GameViewModel
 import com.lightstick.music.core.permission.PermissionManager
 import androidx.media3.common.util.UnstableApi
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.ui.unit.dp
+import com.lightstick.music.ui.theme.customColors
 import androidx.navigation.NamedNavArgument
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraphBuilder
@@ -69,6 +75,8 @@ import com.lightstick.device.Device
 import com.lightstick.music.ui.components.common.CustomNavigationBar
 import com.lightstick.music.ui.layout.applyDeviceOrientation
 import com.lightstick.music.ui.layout.isTabletLandscape
+import com.lightstick.music.ui.screen.tablet.TabletDetailPlaceholder
+import com.lightstick.music.ui.screen.tablet.TabletFullScreen
 import com.lightstick.music.ui.screen.tablet.TabletMainScreen
 import com.lightstick.music.ui.screen.tablet.TabletPopupFrame
 import com.lightstick.music.ui.components.common.CustomToast
@@ -289,8 +297,9 @@ class MainActivity : ComponentActivity() {
 /**
  * 디바이스 목록(Device Setting) 화면 본문 — 폰의 화면 이동 경로와 태블릿 팝업 양쪽에서 같이 쓴다.
  *
- * @param tablet 태블릿 스타일(타이틀 "디바이스 설정" 왼쪽 정렬, 돌아가기 버튼 없음)
- * @param onOpenDetail 지정하면 기기 상세를 화면 이동 대신 이 콜백으로 연다 (태블릿: 옆 패널에 표시)
+ * @param tablet 태블릿 스타일(타이틀 "디바이스 설정" 왼쪽 정렬)
+ * @param onOpenDetail 지정하면 기기 상세를 화면 이동 대신 이 콜백으로 연다 (태블릿: 오른쪽 상세 영역에 표시)
+ * @param onBack 지정하면 타이틀 왼쪽에 돌아가기 버튼을 보여준다 (태블릿: 메인 화면으로)
  */
 @Composable
 private fun DeviceListPane(
@@ -299,7 +308,8 @@ private fun DeviceListPane(
     onRequestEffectsDirectory: () -> Unit,
     onShowToast: (String) -> Unit,
     tablet: Boolean,
-    onOpenDetail: ((String) -> Unit)? = null
+    onOpenDetail: ((String) -> Unit)? = null,
+    onBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     var showConnectDialog by remember { mutableStateOf(false) }
@@ -318,6 +328,7 @@ private fun DeviceListPane(
         },
         onRequestEffectsDirectory = onRequestEffectsDirectory,
         tabletStyle = tablet,
+        onBack = onBack,
         onDeviceSelected = { device: Device ->
             if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                 onShowToast("BLUETOOTH_CONNECT 권한 없음")
@@ -689,31 +700,43 @@ fun AppNavigation(
 
         composable("deviceList") {
             if (tablet) {
-                // 태블릿: 기기 목록 카드 옆(왼쪽)에 상세 카드를 나란히 보여준다. 어느 기기의 상세인지는 이 화면의 상태로 들고 있어서
-                // 목록의 스크롤·대화상자가 상세를 열고 닫아도 유지된다.
+                // 태블릿: 메인 화면을 덮는 전체 화면. 왼쪽 기기 목록 / 오른쪽 상세(상세 보기를 누르면 표시).
+                // 어느 기기의 상세인지는 이 화면의 상태로 들고 있어서 목록의 스크롤·대화상자가 유지된다.
                 var detailMac by rememberSaveable { mutableStateOf<String?>(null) }
-                val openedMac = detailMac
-                val detailContent: (@Composable () -> Unit)? =
-                    if (openedMac == null) null else ({
-                        DeviceDetailPane(
-                            deviceMac = openedMac,
-                            navController = navController,
-                            deviceViewModel = deviceViewModel,
-                            onClose = { detailMac = null }
+                TabletFullScreen {
+                    Row(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
+                        Box(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
+                            DeviceListPane(
+                                navController = navController,
+                                deviceViewModel = deviceViewModel,
+                                onRequestEffectsDirectory = onRequestEffectsDirectory,
+                                onShowToast = onShowToast,
+                                tablet = true,
+                                onOpenDetail = { detailMac = it },
+                                // 돌아가기 → 메인 화면. 펌웨어 업데이트 중에는 이동하지 않는다
+                                onBack = { if (!isAnyOtaInProgress) navController.popBackStack() }
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .fillMaxHeight()
+                                .background(MaterialTheme.customColors.divider)
                         )
-                    })
-                TabletPopupFrame(
-                    onDismiss = dismissPopup,
-                    detail = detailContent
-                ) {
-                    DeviceListPane(
-                        navController = navController,
-                        deviceViewModel = deviceViewModel,
-                        onRequestEffectsDirectory = onRequestEffectsDirectory,
-                        onShowToast = onShowToast,
-                        tablet = true,
-                        onOpenDetail = { detailMac = it }
-                    )
+                        Box(modifier = Modifier.weight(0.6f).fillMaxHeight()) {
+                            val openedMac = detailMac
+                            if (openedMac != null) {
+                                DeviceDetailPane(
+                                    deviceMac = openedMac,
+                                    navController = navController,
+                                    deviceViewModel = deviceViewModel,
+                                    onClose = { detailMac = null }
+                                )
+                            } else {
+                                TabletDetailPlaceholder("기기의 상세 보기를 누르면 이곳에 표시됩니다")
+                            }
+                        }
+                    }
                 }
             } else {
                 DeviceListPane(
