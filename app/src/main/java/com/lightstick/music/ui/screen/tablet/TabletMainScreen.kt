@@ -60,7 +60,7 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
  * ┌──────────────────────────────────────────────┐
  * │ [아이콘] GLOWSYNC   EFFECT LIST  AUTO EFFECT  [🎮] [⚙] │  ← 타이틀 (패널별 타이틀은 없음)
  * ├────────────────┬─────────────┬───────────────┤
- * │ Effect Control │ Music List  │ Music Player  │
+ * │ Music Player   │ Music List  │ Effect Control│
  * └────────────────┴─────────────┴───────────────┘
  *
  * 세 패널은 폰 화면(EffectScreen / MusicListScreen / MusicControlScreen)을 그대로 재사용하고,
@@ -134,12 +134,11 @@ fun TabletMainScreen(
                 modifier = Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.spacedBy(PANE_GAP)
             ) {
-                Pane(modifier = Modifier.width(effectWidth)) {
-                    EffectScreen(
-                        viewModel = effectViewModel,
-                        navController = navController,
-                        embedded = true,
-                        listRequestToken = listRequestToken
+                Pane(modifier = Modifier.width(playerWidth)) {
+                    MusicControlScreen(
+                        viewModel = musicViewModel,
+                        onNavigateToMusicList = {},
+                        embedded = true
                     )
                 }
                 Pane(modifier = Modifier.weight(1f)) {
@@ -149,11 +148,12 @@ fun TabletMainScreen(
                         embedded = true
                     )
                 }
-                Pane(modifier = Modifier.width(playerWidth)) {
-                    MusicControlScreen(
-                        viewModel = musicViewModel,
-                        onNavigateToMusicList = {},
-                        embedded = true
+                Pane(modifier = Modifier.width(effectWidth)) {
+                    EffectScreen(
+                        viewModel = effectViewModel,
+                        navController = navController,
+                        embedded = true,
+                        listRequestToken = listRequestToken
                     )
                 }
             }
