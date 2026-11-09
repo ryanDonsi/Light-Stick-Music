@@ -5,12 +5,14 @@ import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.systemBars
@@ -36,6 +38,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.lightstick.music.ui.theme.customColors
 
@@ -47,6 +50,7 @@ import com.lightstick.music.ui.theme.customColors
  *
  *  - 위치: 메인 화면의 맨 오른쪽 패널 자리 — 위는 타이틀 바 바로 아래, 아래는 시스템 내비게이션 바 위
  *  - 폭: 메인 화면의 맨 오른쪽 패널 폭과 같다 (전체 폭 - 좌우 여백 - 패널 간격) × [EFFECT_WIDTH_FRACTION]
+ *  - [detail] 이 있으면 카드를 두 장으로 — 오른쪽 [content], 그 왼쪽 옆에 [detail]
  *  - 위에서 아래로 펼쳐지며 나타난다
  *  - 닫기: 카드 바깥을 누르면 [onDismiss]. 단, 타이틀 바 영역은 제외한다(그 영역의 아이콘이 알아서 동작하도록).
  *    누름을 소비하지 않고 관찰만 하므로, 바깥의 버튼은 그대로 눌린다.
@@ -54,6 +58,8 @@ import com.lightstick.music.ui.theme.customColors
 @Composable
 fun TabletPopupFrame(
     onDismiss: () -> Unit,
+    /** 있으면 [content] 카드 왼쪽 옆에 같은 크기의 카드로 나란히 표시한다 (예: 기기 목록 옆의 상세 화면) */
+    detail: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     val density = LocalDensity.current
@@ -100,19 +106,34 @@ fun TabletPopupFrame(
                 modifier = Modifier.align(Alignment.TopEnd),
                 enter = expandVertically(expandFrom = Alignment.Top) + fadeIn()
             ) {
-                Box(
+                Row(
                     modifier = Modifier
-                        .width(popupWidth)
                         .fillMaxHeight()
-                        .onGloballyPositioned { cardBounds = it.boundsInRoot() }
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.customColors.surface)
-                        // 안쪽 TopBar가 시스템 바 여백을 또 더하지 않게 소비한다
-                        .consumeWindowInsets(WindowInsets.systemBars)
+                        .onGloballyPositioned { cardBounds = it.boundsInRoot() },
+                    horizontalArrangement = Arrangement.spacedBy(PANE_GAP)
                 ) {
-                    content()
+                    if (detail != null) {
+                        PopupCard(popupWidth) { detail() }
+                    }
+                    PopupCard(popupWidth) { content() }
                 }
             }
         }
+    }
+}
+
+/** 팝업 카드 한 장: 둥근 모서리 패널, 시스템 바 인셋은 바깥에서 이미 적용했으므로 소비한다 */
+@Composable
+private fun PopupCard(width: Dp, content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .width(width)
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.customColors.surface)
+            // 안쪽 TopBar가 시스템 바 여백을 또 더하지 않게 소비한다
+            .consumeWindowInsets(WindowInsets.systemBars)
+    ) {
+        content()
     }
 }

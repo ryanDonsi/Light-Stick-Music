@@ -36,7 +36,9 @@ fun CustomTopBar(
     onActionClick: (() -> Unit)? = null,
     actionTextColor: Color = MaterialTheme.customColors.secondary,
     actionContent: (@Composable () -> Unit)? = null,
-    backgroundColor: Color = MaterialTheme.customColors.surface
+    backgroundColor: Color = MaterialTheme.customColors.surface,
+    /** true면 타이틀을 가운데가 아니라 왼쪽에 정렬한다 */
+    titleAlignStart: Boolean = false
 ) {
     Box(
         modifier = modifier
@@ -47,13 +49,14 @@ fun CustomTopBar(
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+            contentAlignment = if (titleAlignStart) Alignment.CenterStart else Alignment.Center
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.customTextStyles.topBarLarge,
                 color = MaterialTheme.customColors.onSurface,
-                textAlign = TextAlign.Center
+                textAlign = if (titleAlignStart) TextAlign.Start else TextAlign.Center,
+                modifier = if (titleAlignStart) Modifier.padding(start = 16.dp) else Modifier
             )
         }
 

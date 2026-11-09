@@ -51,6 +51,7 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
 import com.lightstick.music.ui.viewmodel.GameViewModel
 import com.lightstick.music.core.permission.PermissionManager
 import androidx.media3.common.util.UnstableApi
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.navigation.NamedNavArgument
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraphBuilder
@@ -286,6 +287,311 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
+ * 디바이스 목록(Device Setting) 화면 본문 — 폰의 화면 이동 경로와 태블릿 팝업 양쪽에서 같이 쓴다.
+ *
+ * @param tablet 태블릿 스타일(타이틀 "디바이스 설정" 왼쪽 정렬, 돌아가기 버튼 없음)
+ * @param onOpenDetail 지정하면 기기 상세를 화면 이동 대신 이 콜백으로 연다 (태블릿: 옆 패널에 표시)
+ */
+@Composable
+private fun DeviceListPane(
+    navController: NavHostController,
+    deviceViewModel: DeviceViewModel,
+    onRequestEffectsDirectory: () -> Unit,
+    onShowToast: (String) -> Unit,
+    tablet: Boolean,
+    onOpenDetail: ((String) -> Unit)? = null
+) {
+    val context = LocalContext.current
+    var showConnectDialog by remember { mutableStateOf(false) }
+    var showReconnectDialog by remember { mutableStateOf(false) }
+    var selectedDevice by remember { mutableStateOf<Device?>(null) }
+
+    val connectedDevices by deviceViewModel.connectedDeviceCount.collectAsState()
+    val connectionStates by deviceViewModel.connectionStates.collectAsState()
+
+    DeviceListScreen(
+        viewModel = deviceViewModel,
+        navController = navController,
+        onNavigateToDetail = { device ->
+            if (onOpenDetail != null) onOpenDetail(device.mac)
+            else navController.navigate("deviceDetail/${device.mac}")
+        },
+        onRequestEffectsDirectory = onRequestEffectsDirectory,
+        tabletStyle = tablet,
+        onDeviceSelected = { device: Device ->
+            if (!PermissionManager.hasBluetoothConnectPermission(context)) {
+                onShowToast("BLUETOOTH_CONNECT 권한 없음")
+                return@DeviceListScreen
+            }
+
+            selectedDevice = device
+            val isConnected = connectionStates[device.mac] == true
+
+            if (isConnected) {
+                @SuppressLint("MissingPermission")
+                deviceViewModel.toggleConnection(context, device)
+            } else {
+                if (connectedDevices > 0) {
+                    showReconnectDialog = true
+                } else {
+                    showConnectDialog = true
+                }
+            }
+        }
+    )
+
+    if (showConnectDialog && selectedDevice != null) {
+        ConnectConfirmDialog(
+            deviceName = selectedDevice!!.name ?: "Unknown Device",
+            onDismiss = {
+                showConnectDialog = false
+                selectedDevice = null
+            },
+            onConfirm = {
+                showConnectDialog = false
+                @SuppressLint("MissingPermission")
+                deviceViewModel.toggleConnection(context, selectedDevice!!)
+                selectedDevice = null
+            }
+        )
+    }
+
+    if (showReconnectDialog && selectedDevice != null) {
+        val devices by deviceViewModel.devices.collectAsState()
+        val currentConnectedDevice = devices.find { connectionStates[it.mac] == true }
+
+        ReconnectConfirmDialog(
+            currentDeviceName = currentConnectedDevice?.name ?: "Unknown Device",
+            onDismiss = {
+                showReconnectDialog = false
+                selectedDevice = null
+            },
+            onConfirm = {
+                showReconnectDialog = false
+                @SuppressLint("MissingPermission")
+                deviceViewModel.toggleConnection(context, selectedDevice!!)
+                selectedDevice = null
+            }
+        )
+    }
+
+}
+
+/** 디바이스 상세 화면 본문 — 폰의 화면 이동 경로와 태블릿의 옆 패널 양쪽에서 같이 쓴다. */
+@OptIn(UnstableApi::class)
+@Composable
+private fun DeviceDetailPane(
+    deviceMac: String,
+    navController: NavHostController,
+    deviceViewModel: DeviceViewModel,
+    /** 상세 화면을 닫는 동작 — 폰: 이전 화면으로, 태블릿: 옆 패널만 닫기 */
+    onClose: () -> Unit = { navController.popBackStack() }
+) {
+    val context = LocalContext.current
+
+    // 상세화면에 머무는 동안 스캔을 멈춰 RSSI 갱신에 따른 불필요한 DIS 재처리를 방지
+    DisposableEffect(Unit) {
+        deviceViewModel.stopScan()
+        onDispose {
+            deviceViewModel.startScan(context)
+        }
+    }
+
+    val devices by deviceViewModel.devices.collectAsState()
+    val connectionStates by deviceViewModel.connectionStates.collectAsState()
+    val deviceDetails by deviceViewModel.deviceDetails.collectAsState()
+
+    val device = devices.find { it.mac == deviceMac }
+    val deviceDetail = deviceDetails[deviceMac]
+
+    if (device == null) {
+        LaunchedEffect(Unit) {
+            onClose()
+        }
+        return
+    }
+
+    val isConnected = connectionStates[deviceMac] == true
+    LaunchedEffect(isConnected) {
+        if (!isConnected) {
+            onClose()
+        }
+    }
+
+    val otaVersionCheck by deviceViewModel.otaVersionCheck.collectAsState()
+
+    // TODO: 최종 구현 시 서버 API로 최신 버전 조회 + 다운로드 URL 수신으로 대체
+    val otaFilePicker = rememberLauncherForActivityResult(
+        object : ActivityResultContracts.OpenDocument() {
+            override fun createIntent(context: android.content.Context, input: Array<String>): Intent {
+                return super.createIntent(context, input).apply {
+                    putExtra(
+                        DocumentsContract.EXTRA_INITIAL_URI,
+                        Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ADownload")
+                    )
+                }
+            }
+        }
+    ) { uri ->
+        uri?.let { deviceViewModel.checkFirmwareVersion(context, device, it) }
+    }
+
+    var showDisconnectDialog by remember { mutableStateOf(false) }
+    var showDeviceInfoDialog by remember { mutableStateOf(false) }
+    var showOtaUpdateDialog by remember { mutableStateOf(false) }
+    var showOtaLatestDialog by remember { mutableStateOf(false) }
+    var showFindDialog by remember { mutableStateOf(false) }
+    var showGroupAssignDialog by remember { mutableStateOf(false) }
+
+    var otaDialogCurrentVersion by remember { mutableStateOf("") }
+    var otaDialogNewVersion by remember { mutableStateOf("") }
+
+    LaunchedEffect(otaVersionCheck) {
+        otaVersionCheck?.let { check ->
+            otaDialogCurrentVersion = check.deviceVersion
+            otaDialogNewVersion     = check.fileVersion
+            if (check.isUpdateAvailable) {
+                showOtaUpdateDialog = true
+            } else {
+                showOtaLatestDialog = true
+            }
+            deviceViewModel.clearOtaVersionCheck()
+        }
+    }
+
+    val callEventEnabled = deviceDetail?.callEventEnabled
+        ?: DevicePreferences.getCallEventEnabled(deviceMac)
+    val smsEventEnabled = deviceDetail?.smsEventEnabled
+        ?: DevicePreferences.getSmsEventEnabled(deviceMac)
+    val broadcastingEnabled = deviceDetail?.broadcasting
+        ?: DevicePreferences.getBroadcasting(deviceMac)
+
+    val otaInProgressMap by deviceViewModel.otaInProgress.collectAsState()
+    val otaProgressMap   by deviceViewModel.otaProgress.collectAsState()
+    val isGroupEffectAllowed by deviceViewModel.isGroupEffectAllowed.collectAsState()
+    val isOtaInProgress  = otaInProgressMap[deviceMac] == true
+    val otaProgress      = otaProgressMap[deviceMac] ?: 0
+
+    BackHandler(enabled = isOtaInProgress) { /* OTA 진행 중 뒤로가기 차단 */ }
+
+    DeviceDetailScreen(
+        deviceName = device.name ?: "Unknown Device",
+        macAddress = device.mac,
+        rssi = device.rssi ?: 0,
+        batteryLevel = deviceDetail?.batteryLevel,
+        deviceInfo = deviceDetail,
+        callEventEnabled = callEventEnabled,
+        smsEventEnabled = smsEventEnabled,
+        broadcastingEnabled = broadcastingEnabled,
+        broadcastingSupported = deviceDetail?.supportsBroadcasting == true,
+        isOtaInProgress = isOtaInProgress,
+        otaProgress = otaProgress,
+        onBackClick = {
+            if (!isOtaInProgress) onClose()
+        },
+        onDisconnectClick = {
+            showDisconnectDialog = true
+        },
+        onDeviceInfoClick = {
+            deviceViewModel.refreshDeviceInfo(deviceMac)
+            showDeviceInfoDialog = true
+        },
+        onCallEventToggle = { enabled ->
+            deviceViewModel.toggleCallEvent(device, enabled)
+        },
+        onSmsEventToggle = { enabled ->
+            deviceViewModel.toggleSmsEvent(device, enabled)
+        },
+        onBroadcastingToggle = { enabled ->
+            deviceViewModel.toggleBroadcasting(device, enabled)
+        },
+        onFindClick = {
+            showFindDialog = true
+        },
+        isGroupEffectAllowed = isGroupEffectAllowed,
+        onGroupAssignClick = {
+            showGroupAssignDialog = true
+        },
+        onOtaUpdateClick = {
+            otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
+        },
+        onAbortOta = {
+            deviceViewModel.abortOta(device)
+        }
+    )
+
+    if (showDisconnectDialog) {
+        DisconnectConfirmDialog(
+            deviceName = device.name ?: "Unknown Device",
+            onDismiss = { showDisconnectDialog = false },
+            onConfirm = {
+                showDisconnectDialog = false
+                @SuppressLint("MissingPermission")
+                deviceViewModel.toggleConnection(context, device)
+            }
+        )
+    }
+
+    if (showDeviceInfoDialog) {
+        DeviceInfoDialog(
+            name = deviceDetail?.deviceInfo?.modelName ?: "Unknown",
+            model = deviceDetail?.deviceInfo?.modelNumber ?: "Unknown",
+            firmware = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
+            manufacturer = deviceDetail?.deviceInfo?.manufacturer ?: "Unknown",
+            onDismiss = { showDeviceInfoDialog = false }
+        )
+    }
+
+    if (showFindDialog) {
+        FindEffectConfirmDialog(
+            onDismiss = { showFindDialog = false },
+            onConfirm = {
+                showFindDialog = false
+                deviceViewModel.sendFindEffect(device)
+            }
+        )
+    }
+
+    if (showGroupAssignDialog) {
+        val groupCount by deviceViewModel.groupCount.collectAsState()
+        GroupAssignDialog(
+            groupCount = groupCount,
+            onGroupCountChange = { deviceViewModel.setGroupCount(it) },
+            onDismiss = { showGroupAssignDialog = false },
+            onConfirm = { groupId ->
+                deviceViewModel.sendGroupSetting(device, groupId)
+            }
+        )
+    }
+
+    // TODO: 최종 구현 — 서버 API에서 버전 + 다운로드 URL 조회, 확인 시 파일 다운로드 후 startPendingOta()
+    if (showOtaUpdateDialog) {
+        OtaUpdateConfirmDialog(
+            deviceName     = device.name ?: "Unknown Device",
+            currentVersion = otaDialogCurrentVersion,
+            newVersion     = otaDialogNewVersion,
+            onDismiss = {
+                showOtaUpdateDialog = false
+                deviceViewModel.clearOtaVersionCheck()
+            },
+            onConfirm = {
+                showOtaUpdateDialog = false
+                deviceViewModel.startPendingOta(device)
+            }
+        )
+    }
+
+    if (showOtaLatestDialog) {
+        OtaVersionInfoDialog(
+            deviceName = device.name ?: "Unknown Device",
+            version    = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
+            onDismiss  = { showOtaLatestDialog = false }
+        )
+    }
+
+}
+
+/**
  * 태블릿에서는 메인 화면 위에 겹치는 팝업(맨 오른쪽 패널 자리의 카드)으로, 폰에서는 일반 화면으로 등록한다.
  * 내용은 같은 Composable을 쓰므로 폰과 동일하게 구성된다.
  *
@@ -381,289 +687,54 @@ fun AppNavigation(
             )
         }
 
-        popupOrScreen("deviceList", popup = tablet, onDismiss = dismissPopup) {
-            var showConnectDialog by remember { mutableStateOf(false) }
-            var showReconnectDialog by remember { mutableStateOf(false) }
-            var selectedDevice by remember { mutableStateOf<Device?>(null) }
-
-            val connectedDevices by deviceViewModel.connectedDeviceCount.collectAsState()
-            val connectionStates by deviceViewModel.connectionStates.collectAsState()
-
-            DeviceListScreen(
-                viewModel = deviceViewModel,
-                navController = navController,
-                onNavigateToDetail = { device ->
-                    navController.navigate("deviceDetail/${device.mac}")
-                },
-                onRequestEffectsDirectory = onRequestEffectsDirectory,
-                onBack = if (tablet) ({ navController.popBackStack() }) else null,
-                onDeviceSelected = { device: Device ->
-                    if (!PermissionManager.hasBluetoothConnectPermission(context)) {
-                        onShowToast("BLUETOOTH_CONNECT 권한 없음")
-                        return@DeviceListScreen
-                    }
-
-                    selectedDevice = device
-                    val isConnected = connectionStates[device.mac] == true
-
-                    if (isConnected) {
-                        @SuppressLint("MissingPermission")
-                        deviceViewModel.toggleConnection(context, device)
-                    } else {
-                        if (connectedDevices > 0) {
-                            showReconnectDialog = true
-                        } else {
-                            showConnectDialog = true
-                        }
-                    }
+        composable("deviceList") {
+            if (tablet) {
+                // 태블릿: 기기 목록 카드 옆(왼쪽)에 상세 카드를 나란히 보여준다. 어느 기기의 상세인지는 이 화면의 상태로 들고 있어서
+                // 목록의 스크롤·대화상자가 상세를 열고 닫아도 유지된다.
+                var detailMac by rememberSaveable { mutableStateOf<String?>(null) }
+                val openedMac = detailMac
+                val detailContent: (@Composable () -> Unit)? =
+                    if (openedMac == null) null else ({
+                        DeviceDetailPane(
+                            deviceMac = openedMac,
+                            navController = navController,
+                            deviceViewModel = deviceViewModel,
+                            onClose = { detailMac = null }
+                        )
+                    })
+                TabletPopupFrame(
+                    onDismiss = dismissPopup,
+                    detail = detailContent
+                ) {
+                    DeviceListPane(
+                        navController = navController,
+                        deviceViewModel = deviceViewModel,
+                        onRequestEffectsDirectory = onRequestEffectsDirectory,
+                        onShowToast = onShowToast,
+                        tablet = true,
+                        onOpenDetail = { detailMac = it }
+                    )
                 }
-            )
-
-            if (showConnectDialog && selectedDevice != null) {
-                ConnectConfirmDialog(
-                    deviceName = selectedDevice!!.name ?: "Unknown Device",
-                    onDismiss = {
-                        showConnectDialog = false
-                        selectedDevice = null
-                    },
-                    onConfirm = {
-                        showConnectDialog = false
-                        @SuppressLint("MissingPermission")
-                        deviceViewModel.toggleConnection(context, selectedDevice!!)
-                        selectedDevice = null
-                    }
-                )
-            }
-
-            if (showReconnectDialog && selectedDevice != null) {
-                val devices by deviceViewModel.devices.collectAsState()
-                val currentConnectedDevice = devices.find { connectionStates[it.mac] == true }
-
-                ReconnectConfirmDialog(
-                    currentDeviceName = currentConnectedDevice?.name ?: "Unknown Device",
-                    onDismiss = {
-                        showReconnectDialog = false
-                        selectedDevice = null
-                    },
-                    onConfirm = {
-                        showReconnectDialog = false
-                        @SuppressLint("MissingPermission")
-                        deviceViewModel.toggleConnection(context, selectedDevice!!)
-                        selectedDevice = null
-                    }
+            } else {
+                DeviceListPane(
+                    navController = navController,
+                    deviceViewModel = deviceViewModel,
+                    onRequestEffectsDirectory = onRequestEffectsDirectory,
+                    onShowToast = onShowToast,
+                    tablet = false
                 )
             }
         }
 
-        popupOrScreen(
+        // 폰 전용: 기기 상세는 별도 화면으로 이동한다 (태블릿은 위 목록 카드 옆 패널을 쓴다)
+        composable(
             route = "deviceDetail/{deviceMac}",
-            popup = tablet,
-            onDismiss = dismissPopup,
             arguments = listOf(
                 navArgument("deviceMac") { type = NavType.StringType }
             )
         ) { backStackEntry ->
-            val deviceMac = backStackEntry.arguments?.getString("deviceMac") ?: return@popupOrScreen
-
-            // 상세화면에 머무는 동안 스캔을 멈춰 RSSI 갱신에 따른 불필요한 DIS 재처리를 방지
-            DisposableEffect(Unit) {
-                deviceViewModel.stopScan()
-                onDispose {
-                    deviceViewModel.startScan(context)
-                }
-            }
-
-            val devices by deviceViewModel.devices.collectAsState()
-            val connectionStates by deviceViewModel.connectionStates.collectAsState()
-            val deviceDetails by deviceViewModel.deviceDetails.collectAsState()
-
-            val device = devices.find { it.mac == deviceMac }
-            val deviceDetail = deviceDetails[deviceMac]
-
-            if (device == null) {
-                LaunchedEffect(Unit) {
-                    navController.popBackStack()
-                }
-                return@popupOrScreen
-            }
-
-            val isConnected = connectionStates[deviceMac] == true
-            LaunchedEffect(isConnected) {
-                if (!isConnected) {
-                    navController.popBackStack()
-                }
-            }
-
-            val otaVersionCheck by deviceViewModel.otaVersionCheck.collectAsState()
-
-            // TODO: 최종 구현 시 서버 API로 최신 버전 조회 + 다운로드 URL 수신으로 대체
-            val otaFilePicker = rememberLauncherForActivityResult(
-                object : ActivityResultContracts.OpenDocument() {
-                    override fun createIntent(context: android.content.Context, input: Array<String>): Intent {
-                        return super.createIntent(context, input).apply {
-                            putExtra(
-                                DocumentsContract.EXTRA_INITIAL_URI,
-                                Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ADownload")
-                            )
-                        }
-                    }
-                }
-            ) { uri ->
-                uri?.let { deviceViewModel.checkFirmwareVersion(context, device, it) }
-            }
-
-            var showDisconnectDialog by remember { mutableStateOf(false) }
-            var showDeviceInfoDialog by remember { mutableStateOf(false) }
-            var showOtaUpdateDialog by remember { mutableStateOf(false) }
-            var showOtaLatestDialog by remember { mutableStateOf(false) }
-            var showFindDialog by remember { mutableStateOf(false) }
-            var showGroupAssignDialog by remember { mutableStateOf(false) }
-
-            var otaDialogCurrentVersion by remember { mutableStateOf("") }
-            var otaDialogNewVersion by remember { mutableStateOf("") }
-
-            LaunchedEffect(otaVersionCheck) {
-                otaVersionCheck?.let { check ->
-                    otaDialogCurrentVersion = check.deviceVersion
-                    otaDialogNewVersion     = check.fileVersion
-                    if (check.isUpdateAvailable) {
-                        showOtaUpdateDialog = true
-                    } else {
-                        showOtaLatestDialog = true
-                    }
-                    deviceViewModel.clearOtaVersionCheck()
-                }
-            }
-
-            val callEventEnabled = deviceDetail?.callEventEnabled
-                ?: DevicePreferences.getCallEventEnabled(deviceMac)
-            val smsEventEnabled = deviceDetail?.smsEventEnabled
-                ?: DevicePreferences.getSmsEventEnabled(deviceMac)
-            val broadcastingEnabled = deviceDetail?.broadcasting
-                ?: DevicePreferences.getBroadcasting(deviceMac)
-
-            val otaInProgressMap by deviceViewModel.otaInProgress.collectAsState()
-            val otaProgressMap   by deviceViewModel.otaProgress.collectAsState()
-            val isGroupEffectAllowed by deviceViewModel.isGroupEffectAllowed.collectAsState()
-            val isOtaInProgress  = otaInProgressMap[deviceMac] == true
-            val otaProgress      = otaProgressMap[deviceMac] ?: 0
-
-            BackHandler(enabled = isOtaInProgress) { /* OTA 진행 중 뒤로가기 차단 */ }
-
-            DeviceDetailScreen(
-                deviceName = device.name ?: "Unknown Device",
-                macAddress = device.mac,
-                rssi = device.rssi ?: 0,
-                batteryLevel = deviceDetail?.batteryLevel,
-                deviceInfo = deviceDetail,
-                callEventEnabled = callEventEnabled,
-                smsEventEnabled = smsEventEnabled,
-                broadcastingEnabled = broadcastingEnabled,
-                broadcastingSupported = deviceDetail?.supportsBroadcasting == true,
-                isOtaInProgress = isOtaInProgress,
-                otaProgress = otaProgress,
-                onBackClick = {
-                    if (!isOtaInProgress) navController.popBackStack()
-                },
-                onDisconnectClick = {
-                    showDisconnectDialog = true
-                },
-                onDeviceInfoClick = {
-                    deviceViewModel.refreshDeviceInfo(deviceMac)
-                    showDeviceInfoDialog = true
-                },
-                onCallEventToggle = { enabled ->
-                    deviceViewModel.toggleCallEvent(device, enabled)
-                },
-                onSmsEventToggle = { enabled ->
-                    deviceViewModel.toggleSmsEvent(device, enabled)
-                },
-                onBroadcastingToggle = { enabled ->
-                    deviceViewModel.toggleBroadcasting(device, enabled)
-                },
-                onFindClick = {
-                    showFindDialog = true
-                },
-                isGroupEffectAllowed = isGroupEffectAllowed,
-                onGroupAssignClick = {
-                    showGroupAssignDialog = true
-                },
-                onOtaUpdateClick = {
-                    otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
-                },
-                onAbortOta = {
-                    deviceViewModel.abortOta(device)
-                }
-            )
-
-            if (showDisconnectDialog) {
-                DisconnectConfirmDialog(
-                    deviceName = device.name ?: "Unknown Device",
-                    onDismiss = { showDisconnectDialog = false },
-                    onConfirm = {
-                        showDisconnectDialog = false
-                        @SuppressLint("MissingPermission")
-                        deviceViewModel.toggleConnection(context, device)
-                    }
-                )
-            }
-
-            if (showDeviceInfoDialog) {
-                DeviceInfoDialog(
-                    name = deviceDetail?.deviceInfo?.modelName ?: "Unknown",
-                    model = deviceDetail?.deviceInfo?.modelNumber ?: "Unknown",
-                    firmware = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
-                    manufacturer = deviceDetail?.deviceInfo?.manufacturer ?: "Unknown",
-                    onDismiss = { showDeviceInfoDialog = false }
-                )
-            }
-
-            if (showFindDialog) {
-                FindEffectConfirmDialog(
-                    onDismiss = { showFindDialog = false },
-                    onConfirm = {
-                        showFindDialog = false
-                        deviceViewModel.sendFindEffect(device)
-                    }
-                )
-            }
-
-            if (showGroupAssignDialog) {
-                val groupCount by deviceViewModel.groupCount.collectAsState()
-                GroupAssignDialog(
-                    groupCount = groupCount,
-                    onGroupCountChange = { deviceViewModel.setGroupCount(it) },
-                    onDismiss = { showGroupAssignDialog = false },
-                    onConfirm = { groupId ->
-                        deviceViewModel.sendGroupSetting(device, groupId)
-                    }
-                )
-            }
-
-            // TODO: 최종 구현 — 서버 API에서 버전 + 다운로드 URL 조회, 확인 시 파일 다운로드 후 startPendingOta()
-            if (showOtaUpdateDialog) {
-                OtaUpdateConfirmDialog(
-                    deviceName     = device.name ?: "Unknown Device",
-                    currentVersion = otaDialogCurrentVersion,
-                    newVersion     = otaDialogNewVersion,
-                    onDismiss = {
-                        showOtaUpdateDialog = false
-                        deviceViewModel.clearOtaVersionCheck()
-                    },
-                    onConfirm = {
-                        showOtaUpdateDialog = false
-                        deviceViewModel.startPendingOta(device)
-                    }
-                )
-            }
-
-            if (showOtaLatestDialog) {
-                OtaVersionInfoDialog(
-                    deviceName = device.name ?: "Unknown Device",
-                    version    = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
-                    onDismiss  = { showOtaLatestDialog = false }
-                )
-            }
+            val deviceMac = backStackEntry.arguments?.getString("deviceMac") ?: return@composable
+            DeviceDetailPane(deviceMac, navController, deviceViewModel)
         }
     }
     }
