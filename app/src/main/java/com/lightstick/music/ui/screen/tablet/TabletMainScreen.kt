@@ -118,7 +118,7 @@ fun TabletMainScreen(
                 .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Pane(modifier = Modifier.weight(1f)) {
+            Pane(modifier = Modifier.weight(PANE_WEIGHT_EFFECT)) {
                 EffectScreen(
                     viewModel = effectViewModel,
                     navController = navController,
@@ -126,14 +126,14 @@ fun TabletMainScreen(
                     listRequestToken = listRequestToken
                 )
             }
-            Pane(modifier = Modifier.weight(1f)) {
+            Pane(modifier = Modifier.weight(PANE_WEIGHT_LIST)) {
                 MusicListScreen(
                     viewModel = musicViewModel,
                     onNavigateBack = {},
                     embedded = true
                 )
             }
-            Pane(modifier = Modifier.weight(1.1f)) {
+            Pane(modifier = Modifier.weight(PANE_WEIGHT_PLAYER)) {
                 MusicControlScreen(
                     viewModel = musicViewModel,
                     onNavigateToMusicList = {},
@@ -238,3 +238,9 @@ private fun Pane(modifier: Modifier, content: @Composable () -> Unit) {
 
 /** 타이틀 바 높이 (EfxCreator 의 TopAppBar 와 같은 64dp) */
 private val TITLE_BAR_HEIGHT = 64.dp
+
+// 3단 패널 가로 폭 비율 = 3 : 4 : 3 (Effect Control : Music List : Music Player).
+// Music Player 는 앨범 아트가 폭만큼 정사각형으로 커지므로, 폭을 좁혀야 세로로 잘리지 않고 한 화면에 들어간다.
+private const val PANE_WEIGHT_EFFECT = 3f
+private const val PANE_WEIGHT_LIST = 4f
+private const val PANE_WEIGHT_PLAYER = 3f
