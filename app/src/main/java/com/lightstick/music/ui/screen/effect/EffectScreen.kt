@@ -296,7 +296,8 @@ fun EffectScreen(
                             }
                         },
                         onRetryClick       = { viewModel.retryAutoScan(context) },
-                        isScrolled         = isScrolled,
+                        // 태블릿 패널(embedded)은 처음부터 작은(축소) 크기로 고정한다
+                        isScrolled         = isScrolled || embedded,
                         selectedEffect     = selectedEffect,
                         effectSettings     = previewSettings,
                         isPlaying          = isPlaying || overrideSettings != null,
