@@ -255,12 +255,12 @@ private fun Pane(modifier: Modifier, content: @Composable () -> Unit) {
 }
 
 /** 타이틀 바 높이 (EfxCreator 의 TopAppBar 와 같은 64dp) */
-private val TITLE_BAR_HEIGHT = 64.dp
+internal val TITLE_BAR_HEIGHT = 64.dp
 
-private val PANE_GAP = 12.dp
+internal val PANE_GAP = 12.dp
 
 /** Effect Control 패널이 차지하는 가로 비율 */
-private const val EFFECT_WIDTH_FRACTION = 0.3f
+internal const val EFFECT_WIDTH_FRACTION = 0.3f
 
 /** Music List 패널 최소 폭 — 이보다 좁아지지 않게 Music Player 폭을 줄인다 */
 private val LIST_MIN_WIDTH = 280.dp

@@ -296,7 +296,11 @@ private fun NavGraphBuilder.popupOrScreen(
         dialog(
             route = route,
             arguments = arguments,
-            dialogProperties = DialogProperties(usePlatformDefaultWidth = false)
+            // 창을 시스템 바 뒤까지 그리고(인셋은 TabletPopupFrame 이 직접 적용), 폭은 화면 전체를 쓴다
+            dialogProperties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
         ) { entry ->
             TabletPopupFrame(onDismiss = onDismiss) { content(entry) }
         }
