@@ -54,8 +54,12 @@ import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NamedNavArgument
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraphBuilder
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.navigation.NavType
-import androidx.compose.ui.window.DialogProperties
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.navigation.navArgument
 import com.lightstick.music.ui.screen.music.MusicControlScreen
@@ -282,8 +286,11 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * 태블릿에서는 팝업(Dialog 목적지, 폰 폭의 카드)으로, 폰에서는 일반 화면으로 등록한다.
+ * 태블릿에서는 메인 화면 위에 겹치는 팝업(맨 오른쪽 패널 자리의 카드)으로, 폰에서는 일반 화면으로 등록한다.
  * 내용은 같은 Composable을 쓰므로 폰과 동일하게 구성된다.
+ *
+ * 팝업은 별도 창(Dialog)이 아니라 같은 창 안의 겹침이라, 팝업이 떠 있는 동안에도 상단 타이틀의
+ * 게임·설정 아이콘 등이 바로 눌린다.
  */
 private fun NavGraphBuilder.popupOrScreen(
     route: String,
@@ -292,20 +299,12 @@ private fun NavGraphBuilder.popupOrScreen(
     arguments: List<NamedNavArgument> = emptyList(),
     content: @Composable (NavBackStackEntry) -> Unit
 ) {
-    if (popup) {
-        dialog(
-            route = route,
-            arguments = arguments,
-            // 창을 시스템 바 뒤까지 그리고(인셋은 TabletPopupFrame 이 직접 적용), 폭은 화면 전체를 쓴다
-            dialogProperties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false
-            )
-        ) { entry ->
+    composable(route = route, arguments = arguments) { entry ->
+        if (popup) {
             TabletPopupFrame(onDismiss = onDismiss) { content(entry) }
+        } else {
+            content(entry)
         }
-    } else {
-        composable(route = route, arguments = arguments) { entry -> content(entry) }
     }
 }
 
@@ -331,15 +330,20 @@ fun AppNavigation(
         if (!isAnyOtaInProgress) navController.popBackStack()
     }
 
+    val navHost: @Composable (Modifier) -> Unit = { navModifier ->
     NavHost(
         navController = navController,
         startDestination = "effect",
-        modifier = modifier
+        modifier = navModifier,
+        // 기본 전환(페이드 700ms)을 폰에서는 그대로 두고, 태블릿 팝업은 자체 펼침 애니메이션을 쓰므로 끈다
+        enterTransition = if (tablet) ({ EnterTransition.None }) else ({ fadeIn(animationSpec = tween(700)) }),
+        exitTransition = if (tablet) ({ ExitTransition.None }) else ({ fadeOut(animationSpec = tween(700)) }),
+        popEnterTransition = if (tablet) ({ EnterTransition.None }) else ({ fadeIn(animationSpec = tween(700)) }),
+        popExitTransition = if (tablet) ({ ExitTransition.None }) else ({ fadeOut(animationSpec = tween(700)) })
     ) {
         composable("music") {
             if (tablet) {
-                // 태블릿은 Effect Control / Music List / Music Player를 한 화면에 보여준다
-                TabletMainScreen(navController, effectViewModel, musicViewModel, onShowToast)
+                // 태블릿 메인 화면은 NavHost 밖(아래층)에 항상 깔려 있다 — 여기는 비워 둔다
             } else {
                 MusicControlScreen(
                     viewModel = musicViewModel,
@@ -361,7 +365,7 @@ fun AppNavigation(
 
         composable("effect") {
             if (tablet) {
-                TabletMainScreen(navController, effectViewModel, musicViewModel, onShowToast)
+                // 태블릿 메인 화면은 NavHost 밖(아래층)에 항상 깔려 있다 — 팝업이 없을 때는 비워 둔다
             } else {
                 EffectScreen(
                     viewModel = effectViewModel,
@@ -661,5 +665,19 @@ fun AppNavigation(
                 )
             }
         }
+    }
+    }
+
+    if (tablet) {
+        // 아래층: 3단 메인 화면(항상 표시) / 위층: 팝업이 있을 때만 그려지는 NavHost
+        Box(modifier = modifier) {
+            TabletMainScreen(
+                navController, effectViewModel, musicViewModel, onShowToast,
+                navigationLocked = isAnyOtaInProgress
+            )
+            navHost(Modifier.fillMaxSize())
+        }
+    } else {
+        navHost(modifier)
     }
 }

@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import com.lightstick.music.R
 import com.lightstick.music.ui.components.common.AppIcon
 import com.lightstick.music.ui.screen.effect.EffectScreen
@@ -72,7 +73,9 @@ fun TabletMainScreen(
     navController: NavController,
     effectViewModel: EffectViewModel,
     musicViewModel: MusicViewModel,
-    onShowToast: (String) -> Unit
+    onShowToast: (String) -> Unit,
+    /** true면 게임·설정 아이콘으로 화면을 바꾸지 않는다 (펌웨어 업데이트 중) */
+    navigationLocked: Boolean = false
 ) {
     // 상단 타이틀의 EFFECT LIST / AUTO EFFECT 버튼 상태 (폰의 LIST / AUTO 와 같은 규칙, 라벨만 태블릿용)
     val isEffectBlocked by effectViewModel.isEffectBlocked.collectAsState()
@@ -81,6 +84,22 @@ fun TabletMainScreen(
     val isDeviceConnected =
         deviceConnectionState is EffectViewModel.DeviceConnectionState.Connected
     var listRequestToken by remember { mutableIntStateOf(0) }
+
+    // 상단 게임·설정 아이콘: 같은 아이콘을 다시 누르면 팝업을 닫고, 다른 아이콘을 누르면 팝업을 바꾼다
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    fun togglePopup(route: String) {
+        if (navigationLocked) return
+        val isSamePopup = currentRoute == route ||
+            (route == "deviceList" && currentRoute?.startsWith("deviceDetail") == true)
+        if (isSamePopup) {
+            navController.popBackStack("effect", inclusive = false)
+        } else {
+            navController.navigate(route) {
+                popUpTo("effect") { inclusive = false }
+                launchSingleTop = true
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -102,12 +121,8 @@ fun TabletMainScreen(
                     else "자동 연출 기능을 중지합니다."
                 )
             },
-            onGameClick = {
-                navController.navigate("game") { launchSingleTop = true }
-            },
-            onSettingsClick = {
-                navController.navigate("deviceList") { launchSingleTop = true }
-            }
+            onGameClick = { togglePopup("game") },
+            onSettingsClick = { togglePopup("deviceList") }
         )
 
         // 타이틀이 상태바 영역을 이미 처리했으므로, 각 패널 안쪽 TopBar가 상태바 여백을 또 더하지 않게 소비한다.
