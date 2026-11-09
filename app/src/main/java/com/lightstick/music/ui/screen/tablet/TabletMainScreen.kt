@@ -221,7 +221,8 @@ private fun TabletTitleBar(
                     painter = painterResource(id = R.drawable.ic_setting),
                     contentDescription = "디바이스 설정",
                     tint = MaterialTheme.customColors.onSurface,
-                    modifier = Modifier.size(32.dp)
+                    // 톱니바퀴 그림은 아이콘 영역의 약 60%만 차지해서(게임 아이콘은 약 83%) 같은 눈높이로 보이게 40dp로 그린다
+                    modifier = Modifier.size(40.dp)
                 )
             }
         }
