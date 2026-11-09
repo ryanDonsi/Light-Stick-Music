@@ -58,6 +58,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.ui.unit.dp
 import com.lightstick.music.ui.theme.customColors
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.navigation.NamedNavArgument
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraphBuilder
@@ -76,6 +79,7 @@ import com.lightstick.music.ui.components.common.CustomNavigationBar
 import com.lightstick.music.ui.layout.applyDeviceOrientation
 import com.lightstick.music.ui.layout.isTabletLandscape
 import com.lightstick.music.ui.screen.tablet.TabletDetailPlaceholder
+import com.lightstick.music.ui.screen.tablet.TabletDeviceSettingsTitleBar
 import com.lightstick.music.ui.screen.tablet.TabletFullScreen
 import com.lightstick.music.ui.screen.tablet.TabletMainScreen
 import com.lightstick.music.ui.screen.tablet.TabletPopupFrame
@@ -309,7 +313,9 @@ private fun DeviceListPane(
     onShowToast: (String) -> Unit,
     tablet: Boolean,
     onOpenDetail: ((String) -> Unit)? = null,
-    onBack: (() -> Unit)? = null
+    onBack: (() -> Unit)? = null,
+    showTopBar: Boolean = true,
+    folderDialogRequest: Int = 0
 ) {
     val context = LocalContext.current
     var showConnectDialog by remember { mutableStateOf(false) }
@@ -329,6 +335,8 @@ private fun DeviceListPane(
         onRequestEffectsDirectory = onRequestEffectsDirectory,
         tabletStyle = tablet,
         onBack = onBack,
+        showTopBar = showTopBar,
+        folderDialogRequest = folderDialogRequest,
         onDeviceSelected = { device: Device ->
             if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                 onShowToast("BLUETOOTH_CONNECT 권한 없음")
@@ -396,7 +404,8 @@ private fun DeviceDetailPane(
     navController: NavHostController,
     deviceViewModel: DeviceViewModel,
     /** 상세 화면을 닫는 동작 — 폰: 이전 화면으로, 태블릿: 옆 패널만 닫기 */
-    onClose: () -> Unit = { navController.popBackStack() }
+    onClose: () -> Unit = { navController.popBackStack() },
+    showTopBar: Boolean = true
 ) {
     val context = LocalContext.current
 
@@ -497,6 +506,7 @@ private fun DeviceDetailPane(
         broadcastingSupported = deviceDetail?.supportsBroadcasting == true,
         isOtaInProgress = isOtaInProgress,
         otaProgress = otaProgress,
+        showTopBar = showTopBar,
         onBackClick = {
             if (!isOtaInProgress) onClose()
         },
@@ -704,37 +714,47 @@ fun AppNavigation(
                 // 태블릿: 메인 화면을 덮는 전체 화면. 왼쪽 기기 목록 / 오른쪽 상세(상세 보기를 누르면 표시).
                 // 어느 기기의 상세인지는 이 화면의 상태로 들고 있어서 목록의 스크롤·대화상자가 유지된다.
                 var detailMac by rememberSaveable { mutableStateOf<String?>(null) }
+                var folderRequest by remember { mutableIntStateOf(0) }
                 TabletFullScreen {
-                    Row(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
-                        Box(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
-                            DeviceListPane(
-                                navController = navController,
-                                deviceViewModel = deviceViewModel,
-                                onRequestEffectsDirectory = onRequestEffectsDirectory,
-                                onShowToast = onShowToast,
-                                tablet = true,
-                                onOpenDetail = { detailMac = it },
-                                // 돌아가기 → 메인 화면. 펌웨어 업데이트 중에는 이동하지 않는다
-                                onBack = { if (!isAnyOtaInProgress) navController.popBackStack() }
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .width(1.dp)
-                                .fillMaxHeight()
-                                .background(MaterialTheme.customColors.divider)
+                    Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
+                        // 전체 폭 타이틀 바 하나: [←] 디바이스 설정 ……… [⋮]  (목록·상세는 각자의 타이틀 바를 그리지 않는다)
+                        TabletDeviceSettingsTitleBar(
+                            // 돌아가기 → 메인 화면. 펌웨어 업데이트 중에는 이동하지 않는다
+                            onBack = { if (!isAnyOtaInProgress) navController.popBackStack() },
+                            onEffectFolderSetting = { folderRequest++ }
                         )
-                        Box(modifier = Modifier.weight(0.6f).fillMaxHeight()) {
-                            val openedMac = detailMac
-                            if (openedMac != null) {
-                                DeviceDetailPane(
-                                    deviceMac = openedMac,
+                        Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                            Box(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
+                                DeviceListPane(
                                     navController = navController,
                                     deviceViewModel = deviceViewModel,
-                                    onClose = { detailMac = null }
+                                    onRequestEffectsDirectory = onRequestEffectsDirectory,
+                                    onShowToast = onShowToast,
+                                    tablet = true,
+                                    onOpenDetail = { detailMac = it },
+                                    showTopBar = false,
+                                    folderDialogRequest = folderRequest
                                 )
-                            } else {
-                                TabletDetailPlaceholder("기기의 상세 보기를 누르면 이곳에 표시됩니다")
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .width(1.dp)
+                                    .fillMaxHeight()
+                                    .background(MaterialTheme.customColors.divider)
+                            )
+                            Box(modifier = Modifier.weight(0.6f).fillMaxHeight()) {
+                                val openedMac = detailMac
+                                if (openedMac != null) {
+                                    DeviceDetailPane(
+                                        deviceMac = openedMac,
+                                        navController = navController,
+                                        deviceViewModel = deviceViewModel,
+                                        onClose = { detailMac = null },
+                                        showTopBar = false
+                                    )
+                                } else {
+                                    TabletDetailPlaceholder("기기의 상세 보기를 누르면 이곳에 표시됩니다")
+                                }
                             }
                         }
                     }

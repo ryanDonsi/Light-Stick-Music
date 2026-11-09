@@ -20,16 +20,28 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import com.lightstick.music.ui.components.common.CustomTopBar
 import com.lightstick.music.ui.theme.customColors
+import com.lightstick.music.ui.theme.customTextStyles
 
 /**
  * 태블릿에서 게임 모드를 폰 화면 그대로 띄우는 팝업 프레임.
@@ -128,4 +140,55 @@ fun TabletDetailPlaceholder(text: String) {
             color = MaterialTheme.customColors.onSurface.copy(alpha = 0.5f)
         )
     }
+}
+
+/**
+ * 태블릿 디바이스 설정 화면의 전체 폭 타이틀 바: `[←] 디바이스 설정 ……… [⋮]`.
+ * 왼쪽 정렬 타이틀, 돌아가기 → 메인 화면, 점 세 개 메뉴(이펙트 파일 폴더 설정).
+ */
+@Composable
+fun TabletDeviceSettingsTitleBar(
+    onBack: () -> Unit,
+    onEffectFolderSetting: () -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    CustomTopBar(
+        title = "디바이스 설정",
+        showBackButton = true,
+        onBackClick = onBack,
+        titleAlignStart = true,
+        actionContent = {
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "더보기",
+                        tint = MaterialTheme.customColors.onSurface
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    containerColor = MaterialTheme.customColors.surface
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "이펙트 파일 폴더 설정",
+                                style = MaterialTheme.customTextStyles.topBarSmall,
+                                color = MaterialTheme.customColors.onSurface
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            onEffectFolderSetting()
+                        }
+                    )
+                }
+            }
+        }
+    )
 }

@@ -47,15 +47,19 @@ fun DeviceDetailScreen(
     onGroupAssignClick: () -> Unit,
     onOtaUpdateClick: () -> Unit,
     onAbortOta: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** false면 상단 타이틀 바를 그리지 않는다 (태블릿 설정 화면: 전체 폭 타이틀 바를 위에 따로 둠) */
+    showTopBar: Boolean = true
 ) {
     Scaffold(
         topBar = {
-            CustomTopBar(
-                title = "연결된 기기",
-                showBackButton = true,
-                onBackClick = onBackClick
-            )
+            if (showTopBar) {
+                CustomTopBar(
+                    title = "연결된 기기",
+                    showBackButton = true,
+                    onBackClick = onBackClick
+                )
+            }
         },
         containerColor = MaterialTheme.customColors.background
     ) { paddingValues ->
