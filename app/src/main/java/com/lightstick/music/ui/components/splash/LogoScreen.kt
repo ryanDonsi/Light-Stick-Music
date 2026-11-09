@@ -15,6 +15,9 @@ import com.lightstick.music.R
 import com.lightstick.music.ui.theme.customColors
 import kotlinx.coroutines.delay
 
+/** 스플래시 로고 폭 — 진행 바 최대 폭(로고의 120%)의 기준이기도 하다 */
+val SPLASH_LOGO_WIDTH = 240.dp
+
 /**
  * 로고 화면 컴포넌트
  * - GLOWSYNC 로고를 중앙에 표시
@@ -42,7 +45,7 @@ fun LogoScreen(
             contentDescription = "GLOWSYNC Logo",
             contentScale = ContentScale.Fit,
             modifier = Modifier
-                .width(240.dp)
+                .width(SPLASH_LOGO_WIDTH)
                 .height(80.dp)
         )
     }

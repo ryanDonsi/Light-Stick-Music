@@ -55,11 +55,16 @@ fun ProgressSection(
             }
         }
 
+        // 진행 바는 로고 폭의 120%를 넘지 않게 한다(넓은 화면에서 너무 길어지지 않게). 좁은 화면에서는 좌우 32dp 여백을 우선한다.
         CommonProgressBar(
             progress = calculatedProgress,
             modifier = Modifier
-                .fillMaxWidth()
                 .padding(horizontal = 32.dp)
+                .widthIn(max = SPLASH_LOGO_WIDTH * PROGRESS_MAX_WIDTH_RATIO)
+                .fillMaxWidth()
         )
     }
 }
+
+/** 진행 바 최대 폭 = 로고 폭 × 이 비율 */
+private const val PROGRESS_MAX_WIDTH_RATIO = 1.2f
