@@ -335,7 +335,7 @@ fun AppNavigation(
         composable("music") {
             if (tablet) {
                 // 태블릿은 Effect Control / Music List / Music Player를 한 화면에 보여준다
-                TabletMainScreen(navController, effectViewModel, musicViewModel)
+                TabletMainScreen(navController, effectViewModel, musicViewModel, onShowToast)
             } else {
                 MusicControlScreen(
                     viewModel = musicViewModel,
@@ -357,7 +357,7 @@ fun AppNavigation(
 
         composable("effect") {
             if (tablet) {
-                TabletMainScreen(navController, effectViewModel, musicViewModel)
+                TabletMainScreen(navController, effectViewModel, musicViewModel, onShowToast)
             } else {
                 EffectScreen(
                     viewModel = effectViewModel,

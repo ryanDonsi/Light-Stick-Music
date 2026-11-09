@@ -14,7 +14,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import com.lightstick.music.R
-import com.lightstick.music.ui.components.common.TopBarCentered
 import com.lightstick.music.ui.components.common.TopBarWithBack
 import com.lightstick.music.ui.components.common.CustomToast
 import com.lightstick.music.ui.components.common.rememberToastState
@@ -58,14 +57,8 @@ fun MusicListScreen(
             }
             val autoColor = if (isAutoModeEnabled) Secondary else Color.Gray
 
-            if (embedded) {
-                TopBarCentered(
-                    title      = "Music List",
-                    actionText = "AUTO",
-                    onActionClick = onAutoClick,
-                    actionTextColor = autoColor
-                )
-            } else {
+            // 태블릿 패널(embedded)에서는 타이틀·AUTO를 상단 타이틀 바로 올렸으므로 TopBar를 그리지 않는다
+            if (!embedded) {
                 TopBarWithBack(
                     title      = "Music List",
                     onBackClick = onNavigateBack,

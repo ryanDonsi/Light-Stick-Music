@@ -54,7 +54,11 @@ import kotlinx.coroutines.yield
 @Composable
 fun EffectScreen(
     viewModel: EffectViewModel = viewModel(),
-    navController: NavController
+    navController: NavController,
+    /** true면 태블릿 패널로 쓰인다 — 자체 TopBar(타이틀/LIST)를 그리지 않는다 */
+    embedded: Boolean = false,
+    /** 태블릿 상단 타이틀의 EFFECT LIST 버튼이 누를 때마다 1씩 올려 보내는 값 (0은 요청 없음) */
+    listRequestToken: Int = 0
 ) {
     val context = LocalContext.current
 
@@ -226,28 +230,41 @@ fun EffectScreen(
 
     val isEffectEnabled = isDeviceConnected && !isEffectBlocked
 
+    // 태블릿 상단 타이틀의 EFFECT LIST 버튼 — 폰의 LIST 버튼과 같은 동작
+    LaunchedEffect(listRequestToken) {
+        if (listRequestToken > 0) {
+            if (isEffectBlocked) {
+                viewModel.selectEffectList(context, -1)
+            } else if (isDeviceConnected) {
+                showEffectListSheet = true
+            }
+        }
+    }
+
     val previewSettings = overrideSettings ?: currentSettings
 
     Box(modifier = Modifier.fillMaxSize()) {
 
         Column(modifier = Modifier.fillMaxSize()) {
 
-            TopBarCentered(
-                title       = "Effect Control",
-                actionText  = "LIST",
-                actionTextColor = when {
-                    isEffectBlocked   -> Color.Gray
-                    isDeviceConnected -> MaterialTheme.customColors.secondary
-                    else              -> Color.Gray
-                },
-                onActionClick = {
-                    if (isEffectBlocked) {
-                        viewModel.selectEffectList(context, -1)
-                    } else if (isDeviceConnected) {
-                        showEffectListSheet = true
+            if (!embedded) {
+                TopBarCentered(
+                    title       = "Effect Control",
+                    actionText  = "LIST",
+                    actionTextColor = when {
+                        isEffectBlocked   -> Color.Gray
+                        isDeviceConnected -> MaterialTheme.customColors.secondary
+                        else              -> Color.Gray
+                    },
+                    onActionClick = {
+                        if (isEffectBlocked) {
+                            viewModel.selectEffectList(context, -1)
+                        } else if (isDeviceConnected) {
+                            showEffectListSheet = true
+                        }
                     }
-                }
-            )
+                )
+            }
 
             Box(
                 modifier = Modifier

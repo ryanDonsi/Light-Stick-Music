@@ -5,7 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -22,7 +25,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,7 +46,9 @@ import com.lightstick.music.R
 import com.lightstick.music.ui.screen.effect.EffectScreen
 import com.lightstick.music.ui.screen.music.MusicControlScreen
 import com.lightstick.music.ui.screen.music.MusicListScreen
+import com.lightstick.music.ui.theme.Secondary
 import com.lightstick.music.ui.theme.customColors
+import com.lightstick.music.ui.theme.customTextStyles
 import com.lightstick.music.ui.viewmodel.EffectViewModel
 import com.lightstick.music.ui.viewmodel.MusicViewModel
 
@@ -43,7 +56,7 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
  * 태블릿(가로) 메인 화면.
  *
  * ┌──────────────────────────────────────────────┐
- * │ GLOWSYNC 로고                        [🎮] [⚙] │  ← 타이틀 (우측 상단: 게임 모드 / Device Setting)
+ * │ GLOWSYNC   EFFECT LIST  AUTO EFFECT  [🎮] [⚙] │  ← 타이틀 (패널별 타이틀은 없음)
  * ├────────────────┬─────────────┬───────────────┤
  * │ Effect Control │ Music List  │ Music Player  │
  * └────────────────┴─────────────┴───────────────┘
@@ -56,14 +69,37 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
 fun TabletMainScreen(
     navController: NavController,
     effectViewModel: EffectViewModel,
-    musicViewModel: MusicViewModel
+    musicViewModel: MusicViewModel,
+    onShowToast: (String) -> Unit
 ) {
+    // 상단 타이틀의 EFFECT LIST / AUTO EFFECT 버튼 상태 (폰의 LIST / AUTO 와 같은 규칙, 라벨만 태블릿용)
+    val isEffectBlocked by effectViewModel.isEffectBlocked.collectAsState()
+    val deviceConnectionState by effectViewModel.deviceConnectionState.collectAsState()
+    val isAutoModeEnabled by musicViewModel.isAutoModeEnabled.collectAsState()
+    val isDeviceConnected =
+        deviceConnectionState is EffectViewModel.DeviceConnectionState.Connected
+    var listRequestToken by remember { mutableIntStateOf(0) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.customColors.surface)
     ) {
         TabletTitleBar(
+            effectListColor = when {
+                isEffectBlocked -> Color.Gray
+                isDeviceConnected -> MaterialTheme.customColors.secondary
+                else -> Color.Gray
+            },
+            onEffectListClick = { listRequestToken++ },
+            autoEffectColor = if (isAutoModeEnabled) Secondary else Color.Gray,
+            onAutoEffectClick = {
+                val enabled = musicViewModel.toggleAutoMode()
+                onShowToast(
+                    if (enabled) "자동 연출 기능을 실행합니다."
+                    else "자동 연출 기능을 중지합니다."
+                )
+            },
             onGameClick = {
                 navController.navigate("game") { launchSingleTop = true }
             },
@@ -86,7 +122,9 @@ fun TabletMainScreen(
             Pane(modifier = Modifier.weight(1f)) {
                 EffectScreen(
                     viewModel = effectViewModel,
-                    navController = navController
+                    navController = navController,
+                    embedded = true,
+                    listRequestToken = listRequestToken
                 )
             }
             Pane(modifier = Modifier.weight(1f)) {
@@ -107,9 +145,16 @@ fun TabletMainScreen(
     }
 }
 
-/** 상단 타이틀: 좌측 GLOWSYNC 로고, 우측 게임·설정 아이콘 */
+/** 상단 타이틀: 좌측 GLOWSYNC 로고, 우측 EFFECT LIST · AUTO EFFECT · 게임 · 설정 */
 @Composable
-private fun TabletTitleBar(onGameClick: () -> Unit, onSettingsClick: () -> Unit) {
+private fun TabletTitleBar(
+    effectListColor: Color,
+    onEffectListClick: () -> Unit,
+    autoEffectColor: Color,
+    onAutoEffectClick: () -> Unit,
+    onGameClick: () -> Unit,
+    onSettingsClick: () -> Unit
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -128,12 +173,15 @@ private fun TabletTitleBar(onGameClick: () -> Unit, onSettingsClick: () -> Unit)
                 .aspectRatio(LOGO_ASPECT_RATIO)
         )
 
-        // 우측 상단: 게임 아이콘 + 설정 아이콘 (설정이 가장 오른쪽)
+        // 우측 상단: EFFECT LIST · AUTO EFFECT 텍스트 버튼 + 게임 · 설정 아이콘 (설정이 가장 오른쪽)
         Row(
             modifier = Modifier.align(Alignment.CenterEnd),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            TitleTextButton(text = "EFFECT LIST", color = effectListColor, onClick = onEffectListClick)
+            TitleTextButton(text = "AUTO EFFECT", color = autoEffectColor, onClick = onAutoEffectClick)
+            Spacer(modifier = Modifier.width(8.dp))
             IconButton(
                 onClick = onGameClick,
                 modifier = Modifier.size(44.dp)
@@ -157,6 +205,18 @@ private fun TabletTitleBar(onGameClick: () -> Unit, onSettingsClick: () -> Unit)
                 )
             }
         }
+    }
+}
+
+/** 타이틀 바의 텍스트 버튼 (폰 TopBar 의 액션 텍스트와 같은 스타일) */
+@Composable
+private fun TitleTextButton(text: String, color: Color, onClick: () -> Unit) {
+    TextButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 8.dp)) {
+        Text(
+            text = text,
+            style = MaterialTheme.customTextStyles.topBarSmall,
+            color = color
+        )
     }
 }
 

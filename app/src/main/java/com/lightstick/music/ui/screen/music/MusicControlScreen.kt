@@ -35,7 +35,7 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
 fun MusicControlScreen(
     viewModel: MusicViewModel,
     onNavigateToMusicList: () -> Unit,
-    /** true면 태블릿 패널로 쓰인다 — 타이틀을 Music Player로, MUSIC LIST 이동 버튼은 숨김(목록이 옆 패널에 있음) */
+    /** true면 태블릿 패널로 쓰인다 — TopBar와 MUSIC LIST 이동 버튼은 숨김(목록이 옆 패널에 있고 AUTO는 상단 타이틀에 있음) */
     embedded: Boolean = false
 ) {
     val nowPlaying              by viewModel.nowPlaying.collectAsState()
@@ -53,20 +53,23 @@ fun MusicControlScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            TopBarCentered(
-                title      = if (embedded) "Music Player" else "Music Control",
-                actionText = "AUTO",
-                onActionClick = {
-                    val newState = viewModel.toggleAutoMode()
-                    val message  = if (newState) {
-                        "자동 연출 기능을 실행합니다."
-                    } else {
-                        "자동 연출 기능을 중지합니다."
-                    }
-                    toastState.show(message)
-                },
-                actionTextColor = if (isAutoModeEnabled) Secondary else Color.Gray
-            )
+            // 태블릿 패널(embedded)에서는 타이틀·AUTO를 상단 타이틀 바로 올렸으므로 TopBar를 그리지 않는다
+            if (!embedded) {
+                TopBarCentered(
+                    title      = "Music Control",
+                    actionText = "AUTO",
+                    onActionClick = {
+                        val newState = viewModel.toggleAutoMode()
+                        val message  = if (newState) {
+                            "자동 연출 기능을 실행합니다."
+                        } else {
+                            "자동 연출 기능을 중지합니다."
+                        }
+                        toastState.show(message)
+                    },
+                    actionTextColor = if (isAutoModeEnabled) Secondary else Color.Gray
+                )
+            }
 
             Box(
                 modifier = Modifier
