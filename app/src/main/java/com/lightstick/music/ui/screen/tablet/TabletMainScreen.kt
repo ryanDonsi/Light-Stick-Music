@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -190,7 +192,7 @@ private fun TabletTitleBar(
                 modifier = Modifier.size(44.dp)
             ) {
                 Icon(
-                    painter = painterResource(id = R.drawable.ic_game_controller),
+                    imageVector = Icons.Default.SportsEsports,
                     contentDescription = "게임 모드",
                     tint = MaterialTheme.customColors.onSurface,
                     modifier = Modifier.size(32.dp)
