@@ -283,6 +283,8 @@ fun EffectScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp)
+                        // 태블릿 패널(embedded): 목록이 패널 아래 끝에 붙어 잘리지 않게, 다른 패널과 같은 12dp 아래 여백을 둔다
+                        .padding(bottom = if (embedded) 12.dp else 0.dp)
                         .nestedScroll(nestedScrollConnection)
                 ) {
                     Spacer(modifier = Modifier.height(12.dp))

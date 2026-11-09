@@ -84,7 +84,8 @@ fun MusicListScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 24.dp),
+                        // 태블릿 패널(embedded)은 다른 패널과 위·아래 시작/끝 선을 맞추기 위해 위아래 여백을 12dp로 통일
+                        .padding(horizontal = 16.dp, vertical = if (embedded) 12.dp else 24.dp),
                     verticalArrangement = Arrangement.Top
                 ) {
                     if (musicList.isEmpty()) {
