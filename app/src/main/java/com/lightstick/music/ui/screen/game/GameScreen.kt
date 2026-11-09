@@ -87,7 +87,9 @@ import com.lightstick.music.ui.viewmodel.GameViewModel
 fun GameScreen(
     viewModel: GameViewModel,
     /** 태블릿처럼 하단 탭이 없는 화면에서 돌아가기 버튼을 보여줄 때 지정 */
-    onBack: (() -> Unit)? = null
+    onBack: (() -> Unit)? = null,
+    /** false면 상단 타이틀 바(Game Mode)를 그리지 않는다 (태블릿 팝업) */
+    showTitleBar: Boolean = true
 ) {
     val selectedMode          by viewModel.selectedMode.collectAsState()
     val selectedDifficulty    by viewModel.selectedDifficulty.collectAsState()
@@ -119,14 +121,16 @@ fun GameScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            CustomTopBar(
-                title = "Game Mode",
-                showBackButton = onBack != null,
-                onBackClick = onBack,
-                actionText = null,
-                onActionClick = { showStopDialog = true },
-                actionTextColor = MaterialTheme.colorScheme.error
-            )
+            if (showTitleBar) {
+                CustomTopBar(
+                    title = "Game Mode",
+                    showBackButton = onBack != null,
+                    onBackClick = onBack,
+                    actionText = null,
+                    onActionClick = { showStopDialog = true },
+                    actionTextColor = MaterialTheme.colorScheme.error
+                )
+            }
 
             GameStatusBanner(
                 bleState = bleState,

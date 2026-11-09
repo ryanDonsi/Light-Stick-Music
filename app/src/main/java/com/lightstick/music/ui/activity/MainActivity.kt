@@ -694,7 +694,8 @@ fun AppNavigation(
         popupOrScreen("game", popup = tablet, onDismiss = dismissPopup) {
             GameScreen(
                 viewModel = gameViewModel,
-                onBack = if (tablet) ({ navController.popBackStack() }) else null
+                // 태블릿 팝업은 타이틀 없이 내용만 보여준다 (닫기: 팝업 바깥 또는 게임 아이콘 다시 누르기)
+                showTitleBar = !tablet
             )
         }
 
