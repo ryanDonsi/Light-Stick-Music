@@ -3,6 +3,7 @@ package com.lightstick.music.ui.screen.tablet
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -37,6 +38,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.coerceAtLeast
+import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
@@ -108,37 +111,51 @@ fun TabletMainScreen(
         )
 
         // 타이틀이 상태바 영역을 이미 처리했으므로, 각 패널 안쪽 TopBar가 상태바 여백을 또 더하지 않게 소비한다.
-        // 하단 내비게이션 바 여백은 이 Row가 한 번만 적용한다.
-        Row(
+        // 하단 내비게이션 바 여백은 이 컨테이너가 한 번만 적용한다.
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .consumeWindowInsets(WindowInsets.statusBars)
                 .navigationBarsPadding()
-                .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(start = PANE_GAP, end = PANE_GAP, bottom = PANE_GAP)
         ) {
-            Pane(modifier = Modifier.weight(PANE_WEIGHT_EFFECT)) {
-                EffectScreen(
-                    viewModel = effectViewModel,
-                    navController = navController,
-                    embedded = true,
-                    listRequestToken = listRequestToken
-                )
-            }
-            Pane(modifier = Modifier.weight(PANE_WEIGHT_LIST)) {
-                MusicListScreen(
-                    viewModel = musicViewModel,
-                    onNavigateBack = {},
-                    embedded = true
-                )
-            }
-            Pane(modifier = Modifier.weight(PANE_WEIGHT_PLAYER)) {
-                MusicControlScreen(
-                    viewModel = musicViewModel,
-                    onNavigateToMusicList = {},
-                    embedded = true
-                )
+            // 패널 폭 배분:
+            //  1) Effect Control = 전체의 30% (고정 비율)
+            //  2) Music Player   = 높이에 맞춘 폭 — 앨범 아트가 폭만큼 정사각형으로 커지므로,
+            //                      폭을 (패널 높이 - 아트 외 세로 요소 합) 으로 잡아 하단이 잘리지 않고 딱 맞게 한다
+            //  3) Music List     = 나머지 전부
+            val totalWidth = maxWidth - PANE_GAP * 2
+            val effectWidth = totalWidth * EFFECT_WIDTH_FRACTION
+            val playerWidthMax = (totalWidth - effectWidth - LIST_MIN_WIDTH).coerceAtLeast(PLAYER_MIN_WIDTH)
+            val playerWidth = (maxHeight - PLAYER_HEIGHT_OVERHEAD).coerceIn(PLAYER_MIN_WIDTH, playerWidthMax)
+
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(PANE_GAP)
+            ) {
+                Pane(modifier = Modifier.width(effectWidth)) {
+                    EffectScreen(
+                        viewModel = effectViewModel,
+                        navController = navController,
+                        embedded = true,
+                        listRequestToken = listRequestToken
+                    )
+                }
+                Pane(modifier = Modifier.weight(1f)) {
+                    MusicListScreen(
+                        viewModel = musicViewModel,
+                        onNavigateBack = {},
+                        embedded = true
+                    )
+                }
+                Pane(modifier = Modifier.width(playerWidth)) {
+                    MusicControlScreen(
+                        viewModel = musicViewModel,
+                        onNavigateToMusicList = {},
+                        embedded = true
+                    )
+                }
             }
         }
     }
@@ -239,8 +256,22 @@ private fun Pane(modifier: Modifier, content: @Composable () -> Unit) {
 /** 타이틀 바 높이 (EfxCreator 의 TopAppBar 와 같은 64dp) */
 private val TITLE_BAR_HEIGHT = 64.dp
 
-// 3단 패널 가로 폭 비율 = 3 : 4 : 3 (Effect Control : Music List : Music Player).
-// Music Player 는 앨범 아트가 폭만큼 정사각형으로 커지므로, 폭을 좁혀야 세로로 잘리지 않고 한 화면에 들어간다.
-private const val PANE_WEIGHT_EFFECT = 3f
-private const val PANE_WEIGHT_LIST = 4f
-private const val PANE_WEIGHT_PLAYER = 3f
+private val PANE_GAP = 12.dp
+
+/** Effect Control 패널이 차지하는 가로 비율 */
+private const val EFFECT_WIDTH_FRACTION = 0.3f
+
+/** Music List 패널 최소 폭 — 이보다 좁아지지 않게 Music Player 폭을 줄인다 */
+private val LIST_MIN_WIDTH = 280.dp
+
+/** Music Player 패널 최소 폭 */
+private val PLAYER_MIN_WIDTH = 240.dp
+
+/**
+ * Music Player 패널 폭 = 패널 높이 - 이 값.
+ * 앨범 아트 한 변 = 폭 - 96dp(화면 좌우 16×2 + 카드 안쪽 32×2) 이고,
+ * 아트 외 세로 요소의 합은 약 364dp(위 여백 24 + 카드 안쪽 32×2 + 간격 24·8·24 + 제목 28 + 아티스트 24 +
+ * 탐색 바 40 + 버튼 64 + EFFECT INFO 줄 40 + 아래 여백 24)이다. 따라서 폭 = 높이 - 364 + 96 = 높이 - 268.
+ * 글꼴 크기 차이를 흡수하도록 8dp 여유를 더해 276dp 로 둔다.
+ */
+private val PLAYER_HEIGHT_OVERHEAD = 276.dp
