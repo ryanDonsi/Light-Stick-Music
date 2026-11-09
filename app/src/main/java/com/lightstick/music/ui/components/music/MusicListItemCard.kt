@@ -124,7 +124,10 @@ fun MusicListItemCard(
                         fontSize   = 15.sp,
                         color      = MaterialTheme.customColors.onSurface,
                         maxLines   = 1,
-                        overflow   = TextOverflow.Ellipsis
+                        overflow   = TextOverflow.Ellipsis,
+                        // EFX 뱃지가 먼저 자리를 잡고, 제목은 남는 폭 안에서만 줄임표로 잘린다
+                        // (제목이 길어도 뒤따르는 EFX 뱃지가 밀려나지 않게 한다)
+                        modifier   = Modifier.weight(1f, fill = false)
                     )
                     if (musicItem.hasEffect) {
                         Surface(
