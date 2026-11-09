@@ -41,16 +41,20 @@ object EffectSettingsPreferences {
         }
     }
 
-    /** 커스텀 이펙트/프리셋 색상 키를 제외한, 이펙트별 설정 키 → JSON 목록 */
+    /**
+     * 커스텀 이펙트/프리셋 색상 키를 제외한, 이펙트별 설정 키 → JSON 목록.
+     * 과거 버전이 남긴 Int 등 String이 아닌 값이 있어도 getString이 ClassCastException을
+     * 던지지 않도록, 저장된 값의 타입을 확인해 String 값만 가져온다.
+     */
     fun getAllEffectSettingsEntries(context: Context): Map<String, String> {
         val prefs = getPreferences(context)
-        return prefs.all.keys
-            .filter {
-                it != PrefsKeys.KEY_CUSTOM_EFFECTS &&
-                        !it.startsWith(PrefsKeys.KEY_FG_PRESET_PREFIX) &&
-                        !it.startsWith(PrefsKeys.KEY_BG_PRESET_PREFIX)
+        return prefs.all.entries
+            .filter { (key, _) ->
+                key != PrefsKeys.KEY_CUSTOM_EFFECTS &&
+                        !key.startsWith(PrefsKeys.KEY_FG_PRESET_PREFIX) &&
+                        !key.startsWith(PrefsKeys.KEY_BG_PRESET_PREFIX)
             }
-            .mapNotNull { key -> prefs.getString(key, null)?.let { key to it } }
+            .mapNotNull { (key, value) -> (value as? String)?.let { key to it } }
             .toMap()
     }
 

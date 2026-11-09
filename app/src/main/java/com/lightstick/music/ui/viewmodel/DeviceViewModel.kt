@@ -300,6 +300,7 @@ class DeviceViewModel @Inject constructor(
             // 구형 펌웨어(FF06 미지원) → 중계기 모드로 간주(fail-open)
             deviceModes.remove(device.mac)
             recomputeGroupEffectAllowed()
+            setBroadcastingSupported(device.mac, false)
             return
         }
         device.readDeviceMode { result ->
@@ -307,6 +308,8 @@ class DeviceViewModel @Inject constructor(
                 Log.i(TAG, "readDeviceMode: ${device.mac} → $mode")
                 deviceModes[device.mac] = mode
                 recomputeGroupEffectAllowed()
+                if (mode == DeviceMode.BLE) applyBroadcastingOnConnect(device)
+                else setBroadcastingSupported(device.mac, false)
             }.onFailure { error ->
                 Log.w(TAG, "readDeviceMode 실패: ${device.mac} - ${error.message}")
             }
@@ -335,7 +338,7 @@ class DeviceViewModel @Inject constructor(
 
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[mac]
-            if (existing != null) this[mac] = existing.copy(isConnected = false)
+            if (existing != null) this[mac] = existing.copy(isConnected = false, supportsBroadcasting = false)
         }
 
         if (_otaInProgress.value.containsKey(mac)) {
@@ -675,15 +678,55 @@ class DeviceViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 전파 여부(FF09) 토글 — BLE 모드 응원봉 전용.
+     * 설정은 연결 단위이므로 앱에도 저장해 두고, 재연결 시 [applyBroadcastingOnConnect]로 다시 적용한다.
+     */
     fun toggleBroadcasting(device: Device, enabled: Boolean) {
+        // BLE 모드 + FF09 지원 기기에서만 동작 (UI에서도 비활성)
+        if (_deviceDetails.value[device.mac]?.supportsBroadcasting != true) {
+            Log.w(TAG, "toggleBroadcasting 무시: FF09 미지원/중계기 모드 ${device.mac}")
+            return
+        }
         DevicePreferences.setBroadcasting(device.mac, enabled)
+
+        if (device.supportsBroadcasting() && !device.setBroadcasting(enabled)) {
+            Log.w(TAG, "setBroadcasting($enabled) 실패: ${device.mac}")
+        }
 
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             val existing = this[device.mac]
             this[device.mac] = existing?.copy(broadcasting = enabled)
                 ?: buildDeviceDetailInfo(device, broadcasting = enabled)
         }
+    }
 
+    private fun setBroadcastingSupported(mac: String, supported: Boolean) {
+        _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
+            this[mac]?.let { this[mac] = it.copy(supportsBroadcasting = supported) }
+        }
+    }
+
+    /**
+     * 연결 직후 FF09 적용. 응원봉은 연결할 때마다 true로 초기화되므로
+     * 저장된 값이 false(연결된 응원봉만 반응)인 경우에만 다시 써 준다.
+     * 중계기는 FF09가 없어 [Device.supportsBroadcasting]이 false → 호출하지 않는다.
+     */
+    private fun applyBroadcastingOnConnect(device: Device) {
+        val supported = device.supportsBroadcasting()
+        _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
+            val existing = this[device.mac] ?: buildDeviceDetailInfo(device)
+            this[device.mac] = existing.copy(supportsBroadcasting = supported)
+        }
+        if (!supported) return
+
+        val desired = DevicePreferences.getBroadcasting(device.mac)
+        if (!desired && !device.setBroadcasting(false)) {
+            Log.w(TAG, "setBroadcasting(false) 실패: ${device.mac}")
+        }
+        _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
+            this[device.mac]?.let { this[device.mac] = it.copy(broadcasting = desired) }
+        }
     }
 
     /**

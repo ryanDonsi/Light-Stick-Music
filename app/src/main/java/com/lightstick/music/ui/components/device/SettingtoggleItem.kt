@@ -21,6 +21,7 @@ import com.lightstick.music.ui.components.common.CustomSwitch
  * @param description 설명 텍스트 (회색, nullable)
  * @param checked 토글 상태
  * @param onCheckedChange 토글 변경 콜백
+ * @param enabled false면 비활성(흐리게 표시, 조작 불가)
  */
 @Composable
 fun SettingToggleItem(
@@ -28,7 +29,8 @@ fun SettingToggleItem(
     description: String? = null,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     Row(
         modifier = modifier
@@ -40,12 +42,14 @@ fun SettingToggleItem(
         SettingLabel(
             label = label,
             description = description,
+            enabled = enabled,
             modifier = Modifier.weight(1f)
         )
 
         CustomSwitch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = onCheckedChange,
+            enabled = enabled
         )
     }
 }

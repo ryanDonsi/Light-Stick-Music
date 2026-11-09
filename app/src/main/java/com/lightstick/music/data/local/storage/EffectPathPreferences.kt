@@ -1,6 +1,7 @@
 package com.lightstick.music.data.local.storage
 
 import android.content.Context
+import com.lightstick.music.core.util.SafHelper
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -115,21 +116,9 @@ object EffectPathPreferences {
     /**
      * 디렉토리 선택 Intent 생성 (수동 선택용)
      */
-    fun createDirectoryPickerIntent(): Intent {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-            addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val musicUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic%2FEffects")
-            intent.putExtra("android.provider.extra.INITIAL_URI", musicUri)
-        }
-
-        return intent
-    }
+    fun createDirectoryPickerIntent(): Intent =
+        // 시작 위치를 Music 폴더로 지정 (Android 16 삼성 태블릿에서 루트 시작 시 선택이 막히는 문제 회피)
+        SafHelper.createMusicDirectoryPickerIntent()
 
     /**
      * Effects 디렉토리의 모든 EFX 파일 목록 가져오기

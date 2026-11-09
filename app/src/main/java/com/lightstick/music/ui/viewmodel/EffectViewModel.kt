@@ -53,7 +53,7 @@ private data class EffectSettingsDto(
     val bgColorR: Int = 0, val bgColorG: Int = 0, val bgColorB: Int = 0,
     val period: Int = 10, val transit: Int = 0,
     val randomColor: Boolean = false, val randomDelay: Int = 0,
-    val broadcasting: Boolean = true
+    val duration: Int = 0
 )
 
 @Serializable
@@ -571,7 +571,8 @@ class EffectViewModel @Inject constructor(
         val transit:         Int             = 0,
         val randomColor:     Boolean         = false,
         val randomDelay:     Int             = 0,
-        val broadcasting:    Boolean         = true
+        /** 이펙트 유지 시간(10ms 단위, 0=다음 명령까지 유지) — SDK 2.1 LSEffectPayload.duration */
+        val duration:        Int             = 0
     ) {
         fun toJson(): String = json.encodeToString(
             EffectSettingsDto(
@@ -579,7 +580,7 @@ class EffectViewModel @Inject constructor(
                 bgColorR = backgroundColor.r, bgColorG = backgroundColor.g, bgColorB = backgroundColor.b,
                 period = period,              transit = transit,
                 randomColor = randomColor,    randomDelay = randomDelay,
-                broadcasting = broadcasting
+                duration = duration
             )
         )
 
@@ -601,7 +602,7 @@ class EffectViewModel @Inject constructor(
                     backgroundColor = LightStickColor(dto.bgColorR, dto.bgColorG, dto.bgColorB),
                     period          = dto.period,       transit      = dto.transit,
                     randomColor     = dto.randomColor,  randomDelay  = dto.randomDelay,
-                    broadcasting    = dto.broadcasting
+                    duration        = dto.duration
                 )
             }
         }

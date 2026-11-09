@@ -24,9 +24,11 @@ import com.lightstick.music.ui.theme.customColors
 fun CustomSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     Switch(
+        enabled = enabled,
         modifier = modifier
             .width(38.dp)
             .height(22.dp),

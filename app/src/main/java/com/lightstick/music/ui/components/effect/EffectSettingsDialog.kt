@@ -1,6 +1,21 @@
 package com.lightstick.music.ui.components.effect
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.KeyboardType
+import com.lightstick.music.ui.theme.customColors
+import java.util.Locale
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -99,6 +114,7 @@ private fun OnEffectSettingsContent(
             checked = settings.randomColor,
             onCheckedChange = { onSettingsChange(settings.copy(randomColor = it)) }
         )
+        DurationInputItem(settings, onSettingsChange)
     }
 }
 
@@ -152,5 +168,63 @@ private fun PeriodicEffectSettingsContent(
             checked = settings.randomColor,
             onCheckedChange = { onSettingsChange(settings.copy(randomColor = it)) }
         )
+        DurationInputItem(settings, onSettingsChange)
     }
 }
+
+/**
+ * DURATION 숫자 입력 — 이펙트를 유지할 시간(10ms 단위 원시 값, SDK 2.1 LSEffectPayload.duration).
+ * 0(기본값)이면 다음 명령까지 유지(무한), 0 초과면 해당 시간 뒤에 LED가 꺼진다. 최대 65535(≈655초).
+ */
+@Composable
+private fun DurationInputItem(
+    settings: EffectViewModel.EffectSettings,
+    onSettingsChange: (EffectViewModel.EffectSettings) -> Unit
+) {
+    // 입력 중 빈 칸을 허용하기 위해 텍스트는 로컬 상태로 두고, 비어 있으면 0으로 저장한다
+    var text by remember { mutableStateOf(settings.duration.toString()) }
+    val ms = settings.duration * 10L
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_duration),
+                contentDescription = null,
+                tint = Color(0xFFFF8A65),
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                text = "DURATION",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.customColors.onSurfaceVariant
+            )
+        }
+        OutlinedTextField(
+            value = text,
+            onValueChange = { input ->
+                val digits = input.filter { it.isDigit() }.take(5)
+                val value = (digits.toIntOrNull() ?: 0).coerceAtMost(DURATION_MAX)
+                text = if (digits.isEmpty()) "" else value.toString()
+                onSettingsChange(settings.copy(duration = value))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            placeholder = { Text("0") },
+            suffix = { Text("× 10ms") },
+            supportingText = {
+                Text(
+                    if (settings.duration == 0) "0 = 다음 명령까지 유지(무한)"
+                    else "= ${ms}ms (${String.format(Locale.US, "%.2f", ms / 1000.0)}s) 뒤에 LED OFF"
+                )
+            }
+        )
+    }
+}
+
+/** duration 최대값 (u16) */
+private const val DURATION_MAX = 65535

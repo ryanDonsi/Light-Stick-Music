@@ -3,6 +3,7 @@ package com.lightstick.music.core.util
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.os.Build
 import com.lightstick.music.core.util.Log
 import androidx.documentfile.provider.DocumentFile
@@ -21,6 +22,32 @@ object SafHelper {
 
     private const val TAG = "SafHelper"
 
+    private const val FOLDER_PICKER_TAG = "FolderPicker"
+
+    /**
+     * 폴더 선택기의 시작 위치(Music 폴더).
+     * 시작 위치 없이 열면 시스템이 막은 내장 저장소 루트에서 시작해 "이 폴더를 사용할 수 없음"이 뜨고
+     * 하위 폴더도 만들 수 없는 기기(Android 16 삼성 태블릿)가 있어, Music 폴더에서 시작시킨다.
+     * EXTRA_INITIAL_URI 는 tree URI 가 아니라 document URI 형태여야 한다.
+     */
+    fun pickerStartUri(): Uri = DocumentsContract.buildDocumentUri(
+        "com.android.externalstorage.documents", "primary:Music"
+    )
+
+    /** 폴더 선택기를 열 때 기기·시작 위치를 로그로 남긴다 (태그 FolderPicker, 항상 출력) */
+    fun logPickerOpen(startUri: Uri?) {
+        android.util.Log.d(
+            FOLDER_PICKER_TAG,
+            "open: startUri=$startUri sdk=${Build.VERSION.SDK_INT} " +
+                "manufacturer=${Build.MANUFACTURER} model=${Build.MODEL}"
+        )
+    }
+
+    /** 폴더 선택 결과를 로그로 남긴다 */
+    fun logPickerResult(resultCode: Int, uri: Uri?) {
+        android.util.Log.d(FOLDER_PICKER_TAG, "result: resultCode=$resultCode uri=$uri")
+    }
+
     /**
      * 디렉토리 선택 Intent 생성
      *
@@ -36,8 +63,9 @@ object SafHelper {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && initialUri != null) {
-            intent.putExtra("android.provider.extra.INITIAL_URI", initialUri)
+            intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
         }
+        logPickerOpen(initialUri)
 
         return intent
     }
@@ -45,12 +73,8 @@ object SafHelper {
     /**
      * Music 폴더를 초기 위치로 하는 디렉토리 선택 Intent
      */
-    fun createMusicDirectoryPickerIntent(): Intent {
-        val musicUri = Uri.parse(
-            "content://com.android.externalstorage.documents/tree/primary%3AMusic"
-        )
-        return createDirectoryPickerIntent(musicUri)
-    }
+    fun createMusicDirectoryPickerIntent(): Intent =
+        createDirectoryPickerIntent(pickerStartUri())
 
     /**
      * URI에 대한 영구 권한 요청
