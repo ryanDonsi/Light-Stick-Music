@@ -190,7 +190,7 @@ private fun TabletTitleBar(
                 modifier = Modifier.size(44.dp)
             ) {
                 Icon(
-                    painter = painterResource(id = R.drawable.ic_navi_game),
+                    painter = painterResource(id = R.drawable.ic_game_controller),
                     contentDescription = "게임 모드",
                     tint = MaterialTheme.customColors.onSurface,
                     modifier = Modifier.size(32.dp)
