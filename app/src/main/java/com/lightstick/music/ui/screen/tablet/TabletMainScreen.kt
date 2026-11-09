@@ -1,6 +1,5 @@
 package com.lightstick.music.ui.screen.tablet
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,12 +35,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
 import com.lightstick.music.R
+import com.lightstick.music.ui.components.common.AppIcon
 import com.lightstick.music.ui.screen.effect.EffectScreen
 import com.lightstick.music.ui.screen.music.MusicControlScreen
 import com.lightstick.music.ui.screen.music.MusicListScreen
@@ -56,7 +55,7 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
  * 태블릿(가로) 메인 화면.
  *
  * ┌──────────────────────────────────────────────┐
- * │ GLOWSYNC   EFFECT LIST  AUTO EFFECT  [🎮] [⚙] │  ← 타이틀 (패널별 타이틀은 없음)
+ * │ [아이콘] GLOWSYNC   EFFECT LIST  AUTO EFFECT  [🎮] [⚙] │  ← 타이틀 (패널별 타이틀은 없음)
  * ├────────────────┬─────────────┬───────────────┤
  * │ Effect Control │ Music List  │ Music Player  │
  * └────────────────┴─────────────┴───────────────┘
@@ -145,7 +144,7 @@ fun TabletMainScreen(
     }
 }
 
-/** 상단 타이틀: 좌측 GLOWSYNC 로고, 우측 EFFECT LIST · AUTO EFFECT · 게임 · 설정 */
+/** 상단 타이틀: 좌측 앱 아이콘 + 앱 이름, 우측 EFFECT LIST · AUTO EFFECT · 게임 · 설정 */
 @Composable
 private fun TabletTitleBar(
     effectListColor: Color,
@@ -155,23 +154,27 @@ private fun TabletTitleBar(
     onGameClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
+    // Light-Stick-EfxCreator 의 타이틀(Material TopAppBar)과 같은 규격:
+    // 높이 64dp, 시작 여백 16dp·끝 여백 4dp, 런처 아이콘 36dp + 간격 12dp + 앱 이름(titleLarge)
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .height(64.dp)
-            .padding(horizontal = 24.dp)
+            .height(TITLE_BAR_HEIGHT)
+            .padding(start = 16.dp, end = 4.dp)
     ) {
-        // logo_glowsync 는 앱 아이콘과 같은 GLOWSYNC 워드마크(앱 이름 포함)
-        Image(
-            painter = painterResource(id = R.drawable.logo_glowsync),
-            contentDescription = stringResourceAppName(),
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .height(24.dp)
-                .aspectRatio(LOGO_ASPECT_RATIO)
-        )
+        Row(
+            modifier = Modifier.align(Alignment.CenterStart),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AppIcon(size = 36.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = stringResource(R.string.app_name),
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.customColors.onSurface
+            )
+        }
 
         // 우측 상단: EFFECT LIST · AUTO EFFECT 텍스트 버튼 + 게임 · 설정 아이콘 (설정이 가장 오른쪽)
         Row(
@@ -233,9 +236,5 @@ private fun Pane(modifier: Modifier, content: @Composable () -> Unit) {
     }
 }
 
-/** logo_glowsync.png 가로:세로 = 225:32 */
-private const val LOGO_ASPECT_RATIO = 225f / 32f
-
-@Composable
-private fun stringResourceAppName(): String =
-    androidx.compose.ui.res.stringResource(R.string.app_name)
+/** 타이틀 바 높이 (EfxCreator 의 TopAppBar 와 같은 64dp) */
+private val TITLE_BAR_HEIGHT = 64.dp
