@@ -42,6 +42,7 @@ import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.ui.screen.effect.EffectScreen
 import com.lightstick.music.ui.screen.device.DeviceListScreen
 import com.lightstick.music.ui.theme.LightStickMusicTheme
+import com.lightstick.music.core.util.SafHelper
 import com.lightstick.music.data.local.storage.EffectPathPreferences
 import com.lightstick.music.data.local.preferences.DevicePreferences
 import com.lightstick.music.ui.viewmodel.EffectViewModel
@@ -89,6 +90,7 @@ class MainActivity : ComponentActivity() {
     private val directoryPickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        SafHelper.logPickerResult(result.resultCode, result.data?.data)
         if (result.resultCode == RESULT_OK) {
             result.data?.data?.let { uri ->
                 EffectPathPreferences.saveDirectoryUri(this, uri)

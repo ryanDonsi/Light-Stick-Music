@@ -5,8 +5,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.lightstick.music.R
 import com.lightstick.music.ui.components.common.BaseDialog
 import com.lightstick.music.ui.theme.customColors
 
@@ -272,6 +274,14 @@ fun EffectFolderGuideDialog(
             text = "EFX 파일이 저장된 폴더를 지정하면\n음악 재생 시 EFX 이펙트가 연동됩니다.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.customColors.onSurface,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = stringResource(R.string.effect_folder_picker_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.customColors.onSurface.copy(alpha = 0.6f),
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
         )

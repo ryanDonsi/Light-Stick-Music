@@ -22,4 +22,7 @@
     <string name="effect_error_connect_failed">연결 실패: %1$s</string>
     <string name="effect_error_effectlist_play_failed">EffectList 재생 실패: %1$s</string>
     <string name="effect_error_effect_send_failed">Effect 전송 실패: %1$s</string>
+
+    <!-- Folder picker -->
+    <string name="effect_folder_picker_hint">"이 폴더를 사용할 수 없음"이 나오면 Android가 보호하는 폴더입니다(저장소 최상위, Download 등). Music 안의 폴더를 선택해 주세요.</string>
 </resources>
