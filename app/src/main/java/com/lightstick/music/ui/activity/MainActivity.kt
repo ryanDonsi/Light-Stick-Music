@@ -58,6 +58,9 @@ import com.lightstick.music.ui.screen.music.MusicControlScreen
 import com.lightstick.music.ui.screen.music.MusicListScreen
 import com.lightstick.device.Device
 import com.lightstick.music.ui.components.common.CustomNavigationBar
+import com.lightstick.music.ui.layout.applyDeviceOrientation
+import com.lightstick.music.ui.layout.isTabletLandscape
+import com.lightstick.music.ui.screen.tablet.TabletMainScreen
 import com.lightstick.music.ui.components.common.CustomToast
 import com.lightstick.music.ui.components.common.ToastState
 import com.lightstick.music.ui.components.common.rememberToastState
@@ -117,6 +120,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyDeviceOrientation()
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
@@ -193,12 +197,13 @@ class MainActivity : ComponentActivity() {
 
                 val toast = rememberToastState()
                 toastState = toast
+                val tablet = isTabletLandscape()
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     Scaffold(
                         contentWindowInsets = WindowInsets(0),
                         bottomBar = {
-                            if (currentRoute != "musicList" && !currentRoute.startsWith("deviceDetail")) {
+                            if (!tablet && currentRoute != "musicList" && !currentRoute.startsWith("deviceDetail")) {
                                 CustomNavigationBar(
                                     modifier = Modifier.navigationBarsPadding(),
                                     selectedRoute = currentRoute,
@@ -284,6 +289,7 @@ fun AppNavigation(
     onShowToast: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val tablet = isTabletLandscape()
 
     NavHost(
         navController = navController,
@@ -291,12 +297,17 @@ fun AppNavigation(
         modifier = modifier
     ) {
         composable("music") {
-            MusicControlScreen(
-                viewModel = musicViewModel,
-                onNavigateToMusicList = {
-                    navController.navigate("musicList")
-                }
-            )
+            if (tablet) {
+                // 태블릿은 Effect Control / Music List / Music Player를 한 화면에 보여준다
+                TabletMainScreen(navController, effectViewModel, musicViewModel)
+            } else {
+                MusicControlScreen(
+                    viewModel = musicViewModel,
+                    onNavigateToMusicList = {
+                        navController.navigate("musicList")
+                    }
+                )
+            }
         }
 
         composable("musicList") {
@@ -309,10 +320,14 @@ fun AppNavigation(
         }
 
         composable("effect") {
-            EffectScreen(
-                viewModel = effectViewModel,
-                navController = navController
-            )
+            if (tablet) {
+                TabletMainScreen(navController, effectViewModel, musicViewModel)
+            } else {
+                EffectScreen(
+                    viewModel = effectViewModel,
+                    navController = navController
+                )
+            }
         }
 
         composable("game") {
@@ -334,6 +349,7 @@ fun AppNavigation(
                     navController.navigate("deviceDetail/${device.mac}")
                 },
                 onRequestEffectsDirectory = onRequestEffectsDirectory,
+                onBack = if (tablet) ({ navController.popBackStack() }) else null,
                 onDeviceSelected = { device: Device ->
                     if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                         onShowToast("BLUETOOTH_CONNECT 권한 없음")

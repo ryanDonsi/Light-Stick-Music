@@ -6,6 +6,7 @@ import com.lightstick.music.core.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import com.lightstick.music.ui.layout.applyDeviceOrientation
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
@@ -72,6 +73,7 @@ class SplashActivity : ComponentActivity() {
         installSplashScreen()
 
         super.onCreate(savedInstanceState)
+        applyDeviceOrientation()
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
 

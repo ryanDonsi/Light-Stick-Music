@@ -55,7 +55,9 @@ fun DeviceListScreen(
     navController: NavController,
     onNavigateToDetail: (Device) -> Unit = {},
     onDeviceSelected: (Device) -> Unit,
-    onRequestEffectsDirectory: () -> Unit = {}
+    onRequestEffectsDirectory: () -> Unit = {},
+    /** 태블릿처럼 하단 탭이 없는 화면에서 돌아가기 버튼을 보여줄 때 지정 */
+    onBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
@@ -94,7 +96,8 @@ fun DeviceListScreen(
         topBar = {
             CustomTopBar(
                 title = "Device Setting",
-                showBackButton = false,
+                showBackButton = onBack != null,
+                onBackClick = onBack,
                 actionContent = {
                     Box {
                         IconButton(

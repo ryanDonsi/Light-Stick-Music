@@ -34,7 +34,9 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
 @Composable
 fun MusicControlScreen(
     viewModel: MusicViewModel,
-    onNavigateToMusicList: () -> Unit
+    onNavigateToMusicList: () -> Unit,
+    /** true면 태블릿 패널로 쓰인다 — 타이틀을 Music Player로, MUSIC LIST 이동 버튼은 숨김(목록이 옆 패널에 있음) */
+    embedded: Boolean = false
 ) {
     val nowPlaying              by viewModel.nowPlaying.collectAsState()
     val isPlaying               by viewModel.isPlaying.collectAsState()
@@ -52,7 +54,7 @@ fun MusicControlScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             TopBarCentered(
-                title      = "Music Control",
+                title      = if (embedded) "Music Player" else "Music Control",
                 actionText = "AUTO",
                 onActionClick = {
                     val newState = viewModel.toggleAutoMode()
@@ -128,29 +130,31 @@ fun MusicControlScreen(
                             )
                         }
 
-                        // 음악 목록 이동
-                        TextButton(
-                            onClick        = onNavigateToMusicList,
-                            contentPadding = PaddingValues(
-                                start  = 0.dp,
-                                top    = 8.dp,
-                                end    = 0.dp,
-                                bottom = 8.dp
-                            )
-                        ) {
-                            Text(
-                                text       = "MUSIC LIST",
-                                style      = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color      = Color.White
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector        = Icons.Filled.ChevronRight,
-                                contentDescription = null,
-                                tint               = Color.White,
-                                modifier           = Modifier.size(28.dp)
-                            )
+                        if (!embedded) {
+                            // 음악 목록 이동
+                            TextButton(
+                                onClick        = onNavigateToMusicList,
+                                contentPadding = PaddingValues(
+                                    start  = 0.dp,
+                                    top    = 8.dp,
+                                    end    = 0.dp,
+                                    bottom = 8.dp
+                                )
+                            ) {
+                                Text(
+                                    text       = "MUSIC LIST",
+                                    style      = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color      = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector        = Icons.Filled.ChevronRight,
+                                    contentDescription = null,
+                                    tint               = Color.White,
+                                    modifier           = Modifier.size(28.dp)
+                                )
+                            }
                         }
                     }
                 }

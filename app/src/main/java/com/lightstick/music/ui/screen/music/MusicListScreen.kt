@@ -14,6 +14,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import com.lightstick.music.R
+import com.lightstick.music.ui.components.common.TopBarCentered
 import com.lightstick.music.ui.components.common.TopBarWithBack
 import com.lightstick.music.ui.components.common.CustomToast
 import com.lightstick.music.ui.components.common.rememberToastState
@@ -31,7 +32,9 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
 @Composable
 fun MusicListScreen(
     viewModel: MusicViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    /** true면 태블릿 패널로 쓰인다 — 뒤로가기 없는 중앙 정렬 타이틀 */
+    embedded: Boolean = false
 ) {
     val musicList         by viewModel.musicList.collectAsState()
     val nowPlaying        by viewModel.nowPlaying.collectAsState()
@@ -47,18 +50,30 @@ fun MusicListScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            TopBarWithBack(
-                title      = "Music List",
-                onBackClick = onNavigateBack,
-                actionText = "AUTO",
-                onActionClick = {
-                    val newState = viewModel.toggleAutoMode()
-                    val message  = if (newState) "자동 연출 기능을 실행합니다."
-                    else          "자동 연출 기능을 중지합니다."
-                    toastState.show(message)
-                },
-                actionTextColor = if (isAutoModeEnabled) Secondary else Color.Gray
-            )
+            val onAutoClick: () -> Unit = {
+                val newState = viewModel.toggleAutoMode()
+                val message  = if (newState) "자동 연출 기능을 실행합니다."
+                else          "자동 연출 기능을 중지합니다."
+                toastState.show(message)
+            }
+            val autoColor = if (isAutoModeEnabled) Secondary else Color.Gray
+
+            if (embedded) {
+                TopBarCentered(
+                    title      = "Music List",
+                    actionText = "AUTO",
+                    onActionClick = onAutoClick,
+                    actionTextColor = autoColor
+                )
+            } else {
+                TopBarWithBack(
+                    title      = "Music List",
+                    onBackClick = onNavigateBack,
+                    actionText = "AUTO",
+                    onActionClick = onAutoClick,
+                    actionTextColor = autoColor
+                )
+            }
 
             Box(
                 modifier = Modifier
