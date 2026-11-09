@@ -331,7 +331,10 @@ fun AppNavigation(
         }
 
         composable("game") {
-            GameScreen(viewModel = gameViewModel)
+            GameScreen(
+                viewModel = gameViewModel,
+                onBack = if (tablet) ({ navController.popBackStack() }) else null
+            )
         }
 
         composable("deviceList") {

@@ -75,6 +75,7 @@ import com.lightstick.music.ui.components.common.BaseDialog
 import com.lightstick.music.ui.components.common.ButtonStyle
 import com.lightstick.music.ui.components.common.CommonProgressBar
 import com.lightstick.music.ui.components.common.CustomToast
+import com.lightstick.music.ui.components.common.CustomTopBar
 import com.lightstick.music.ui.components.common.TopBarCentered
 import com.lightstick.music.ui.components.common.rememberToastState
 import com.lightstick.music.ui.components.game.GameTutorialDialog
@@ -83,7 +84,11 @@ import com.lightstick.music.ui.theme.customTextStyles
 import com.lightstick.music.ui.viewmodel.GameViewModel
 
 @Composable
-fun GameScreen(viewModel: GameViewModel) {
+fun GameScreen(
+    viewModel: GameViewModel,
+    /** 태블릿처럼 하단 탭이 없는 화면에서 돌아가기 버튼을 보여줄 때 지정 */
+    onBack: (() -> Unit)? = null
+) {
     val selectedMode          by viewModel.selectedMode.collectAsState()
     val selectedDifficulty    by viewModel.selectedDifficulty.collectAsState()
     val selectedRounds        by viewModel.selectedRounds.collectAsState()
@@ -114,8 +119,10 @@ fun GameScreen(viewModel: GameViewModel) {
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            TopBarCentered(
+            CustomTopBar(
                 title = "Game Mode",
+                showBackButton = onBack != null,
+                onBackClick = onBack,
                 actionText = null,
                 onActionClick = { showStopDialog = true },
                 actionTextColor = MaterialTheme.colorScheme.error

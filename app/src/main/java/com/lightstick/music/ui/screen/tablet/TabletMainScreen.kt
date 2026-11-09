@@ -43,7 +43,7 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
  * 태블릿(가로) 메인 화면.
  *
  * ┌──────────────────────────────────────────────┐
- * │ GLOWSYNC 로고                            [⚙] │  ← 타이틀 (우측 상단 설정 = Device Setting)
+ * │ GLOWSYNC 로고                        [🎮] [⚙] │  ← 타이틀 (우측 상단: 게임 모드 / Device Setting)
  * ├────────────────┬─────────────┬───────────────┤
  * │ Effect Control │ Music List  │ Music Player  │
  * └────────────────┴─────────────┴───────────────┘
@@ -64,6 +64,9 @@ fun TabletMainScreen(
             .background(MaterialTheme.customColors.surface)
     ) {
         TabletTitleBar(
+            onGameClick = {
+                navController.navigate("game") { launchSingleTop = true }
+            },
             onSettingsClick = {
                 navController.navigate("deviceList") { launchSingleTop = true }
             }
@@ -104,9 +107,9 @@ fun TabletMainScreen(
     }
 }
 
-/** 상단 타이틀: 좌측 GLOWSYNC 로고, 우측 설정 아이콘 */
+/** 상단 타이틀: 좌측 GLOWSYNC 로고, 우측 게임·설정 아이콘 */
 @Composable
-private fun TabletTitleBar(onSettingsClick: () -> Unit) {
+private fun TabletTitleBar(onGameClick: () -> Unit, onSettingsClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -125,18 +128,34 @@ private fun TabletTitleBar(onSettingsClick: () -> Unit) {
                 .aspectRatio(LOGO_ASPECT_RATIO)
         )
 
-        IconButton(
-            onClick = onSettingsClick,
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .size(44.dp)
+        // 우측 상단: 게임 아이콘 + 설정 아이콘 (설정이 가장 오른쪽)
+        Row(
+            modifier = Modifier.align(Alignment.CenterEnd),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_setting),
-                contentDescription = "디바이스 설정",
-                tint = MaterialTheme.customColors.onSurface,
-                modifier = Modifier.size(32.dp)
-            )
+            IconButton(
+                onClick = onGameClick,
+                modifier = Modifier.size(44.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_navi_game),
+                    contentDescription = "게임 모드",
+                    tint = MaterialTheme.customColors.onSurface,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            IconButton(
+                onClick = onSettingsClick,
+                modifier = Modifier.size(44.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_setting),
+                    contentDescription = "디바이스 설정",
+                    tint = MaterialTheme.customColors.onSurface,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
         }
     }
 }
