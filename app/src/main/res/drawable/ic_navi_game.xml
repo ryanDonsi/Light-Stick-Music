@@ -5,27 +5,16 @@
     android:viewportWidth="40"
     android:viewportHeight="50">
 
-    <!-- Controller body (outer) -->
-    <path
-        android:pathData="M27.5,6H12.5C9.46,6 7,8.46 7,11.5v7C7,21.54 9.46,24 12.5,24h15C30.54,24 33,21.54 33,18.5v-7C33,8.46 30.54,6 27.5,6zM31,18.5C31,20.43 29.43,22 27.5,22H12.5C10.57,22 9,20.43 9,18.5v-7C9,9.57 10.57,8 12.5,8h15C29.43,8 31,9.57 31,11.5V18.5z"
-        android:fillColor="@android:color/white"/>
-    <!-- D-pad -->
-    <path
-        android:pathData="M15,11.5h-1.5v-1.5h-2v1.5H10v2h1.5v1.5h2v-1.5H15V11.5z"
-        android:fillColor="@android:color/white"/>
-    <!-- Action buttons -->
-    <path
-        android:pathData="M26,11.5m-1.25,0a1.25,1.25 0,1 1,2.5 0a1.25,1.25 0,1 1,-2.5 0"
-        android:fillColor="@android:color/white"/>
-    <path
-        android:pathData="M28.75,14.25m-1.25,0a1.25,1.25 0,1 1,2.5 0a1.25,1.25 0,1 1,-2.5 0"
-        android:fillColor="@android:color/white"/>
-    <path
-        android:pathData="M23.25,14.25m-1.25,0a1.25,1.25 0,1 1,2.5 0a1.25,1.25 0,1 1,-2.5 0"
-        android:fillColor="@android:color/white"/>
-    <path
-        android:pathData="M26,17m-1.25,0a1.25,1.25 0,1 1,2.5 0a1.25,1.25 0,1 1,-2.5 0"
-        android:fillColor="@android:color/white"/>
+    <!-- Material Symbols "sports_esports" (Outlined) — 960 단위 아이콘을 원래 컨트롤러가 있던 상단 영역(약 26x18)에 맞춰 축소·배치 -->
+    <group
+        android:scaleX="0.03266"
+        android:scaleY="0.03266"
+        android:translateX="4.32"
+        android:translateY="30.68">
+        <path
+            android:pathData="M182-200q-51 0-79-35.5T82-322l42-300q9-60 53.5-99T282-760h396q60 0 104.5 39t53.5 99l42 300q7 51-21 86.5T778-200q-21 0-39-7.5T706-230l-90-90H344l-90 90q-15 15-33 22.5t-39 7.5Zm16-86 114-114h336l114 114q2 2 16 6 11 0 17.5-6.5T800-304l-44-308q-4-29-26-48.5T678-680H282q-30 0-52 19.5T204-612l-44 308q-2 11 4.5 17.5T182-280q2 0 16-6Zm510.5-165.5Q720-463 720-480t-11.5-28.5Q697-520 680-520t-28.5 11.5Q640-497 640-480t11.5 28.5Q663-440 680-440t28.5-11.5Zm-80-120Q640-583 640-600t-11.5-28.5Q617-640 600-640t-28.5 11.5Q560-617 560-600t11.5 28.5Q583-560 600-560t28.5-11.5ZM310-440h60v-70h70v-60h-70v-70h-60v70h-70v60h70v70Zm170-40Z"
+            android:fillColor="@android:color/white"/>
+    </group>
 
     <!-- Text "G" (C shifted -20.19) + spur to make G -->
     <path

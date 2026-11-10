@@ -47,15 +47,19 @@ fun DeviceDetailScreen(
     onGroupAssignClick: () -> Unit,
     onOtaUpdateClick: () -> Unit,
     onAbortOta: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** false면 상단 타이틀 바를 그리지 않는다 (태블릿 설정 화면: 전체 폭 타이틀 바를 위에 따로 둠) */
+    showTopBar: Boolean = true
 ) {
     Scaffold(
         topBar = {
-            CustomTopBar(
-                title = "연결된 기기",
-                showBackButton = true,
-                onBackClick = onBackClick
-            )
+            if (showTopBar) {
+                CustomTopBar(
+                    title = "연결된 기기",
+                    showBackButton = true,
+                    onBackClick = onBackClick
+                )
+            }
         },
         containerColor = MaterialTheme.customColors.background
     ) { paddingValues ->
@@ -150,23 +154,21 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    SettingToggleItem(
-                        label = "Broadcasting Mode",
-                        description = if (broadcastingSupported)
-                            "연결된 주변 응원봉에 신호를 전파해 함께 동작"
-                        else
-                            "BLE 모드 응원봉에서만 설정 가능 (중계기는 항상 전파)",
-                        // 미지원(중계기)은 항상 전파되므로 ON으로 표시
-                        checked = if (broadcastingSupported) broadcastingEnabled else true,
-                        onCheckedChange = onBroadcastingToggle,
-                        enabled = broadcastingSupported
-                    )
+                    // BLE 모드 응원봉(FF09 지원)에서만 보인다. 중계기·구형 펌웨어(미지원)에서는 메뉴 자체를 숨긴다.
+                    if (broadcastingSupported) {
+                        SettingToggleItem(
+                            label = "Broadcasting Mode",
+                            description = "연결된 주변 응원봉에 신호를 전파해 함께 동작",
+                            checked = broadcastingEnabled,
+                            onCheckedChange = onBroadcastingToggle
+                        )
 
-                    HorizontalDivider(
-                        modifier = Modifier.fillMaxWidth(),
-                        thickness = 1.dp,
-                        color = MaterialTheme.customColors.divider
-                    )
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            thickness = 1.dp,
+                            color = MaterialTheme.customColors.divider
+                        )
+                    }
 
                     SettingLabel(
                         label = "FIND",

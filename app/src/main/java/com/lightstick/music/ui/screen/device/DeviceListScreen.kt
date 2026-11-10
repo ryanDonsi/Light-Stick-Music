@@ -55,7 +55,15 @@ fun DeviceListScreen(
     navController: NavController,
     onNavigateToDetail: (Device) -> Unit = {},
     onDeviceSelected: (Device) -> Unit,
-    onRequestEffectsDirectory: () -> Unit = {}
+    onRequestEffectsDirectory: () -> Unit = {},
+    /** 태블릿 스타일: 타이틀 "디바이스 설정"을 왼쪽 정렬로, 돌아가기 버튼 없이(우측 점 세 개 메뉴는 유지) */
+    tabletStyle: Boolean = false,
+    /** 지정하면 타이틀 왼쪽에 돌아가기 버튼을 보여준다 (태블릿 전체 화면 설정: 메인 화면으로 이동) */
+    onBack: (() -> Unit)? = null,
+    /** false면 상단 타이틀 바를 그리지 않는다 (태블릿 설정 화면: 전체 폭 타이틀 바를 위에 따로 둠) */
+    showTopBar: Boolean = true,
+    /** 바깥 타이틀 바의 점 세 개 메뉴에서 "이펙트 파일 폴더 설정"을 누를 때마다 1씩 올려 보내는 값 (0은 요청 없음) */
+    folderDialogRequest: Int = 0
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
@@ -76,6 +84,11 @@ fun DeviceListScreen(
         connectionStates[device.mac] != true
     }
 
+    // 바깥(태블릿 전체 폭 타이틀 바)의 메뉴에서 온 폴더 설정 요청
+    LaunchedEffect(folderDialogRequest) {
+        if (folderDialogRequest > 0) showEffectFolderDialog = true
+    }
+
     val listState = rememberLazyListState()
     val canScrollUp = { listState.canScrollBackward }
 
@@ -92,43 +105,47 @@ fun DeviceListScreen(
 
     Scaffold(
         topBar = {
-            CustomTopBar(
-                title = "Device Setting",
-                showBackButton = false,
-                actionContent = {
-                    Box {
-                        IconButton(
-                            onClick = { showMenu = true },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "더보기",
-                                tint = MaterialTheme.customColors.onSurface
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false },
-                            containerColor = MaterialTheme.customColors.surface
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = "이펙트 파일 폴더 설정",
-                                        style = MaterialTheme.customTextStyles.topBarSmall,
-                                        color = MaterialTheme.customColors.onSurface
-                                    )
-                                },
-                                onClick = {
-                                    showMenu = false
-                                    showEffectFolderDialog = true
-                                }
-                            )
+            if (showTopBar) {
+                CustomTopBar(
+                    title = if (tabletStyle) "디바이스 설정" else "Device Setting",
+                    showBackButton = onBack != null,
+                    onBackClick = onBack,
+                    titleAlignStart = tabletStyle,
+                    actionContent = {
+                        Box {
+                            IconButton(
+                                onClick = { showMenu = true },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "더보기",
+                                    tint = MaterialTheme.customColors.onSurface
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false },
+                                containerColor = MaterialTheme.customColors.surface
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "이펙트 파일 폴더 설정",
+                                            style = MaterialTheme.customTextStyles.topBarSmall,
+                                            color = MaterialTheme.customColors.onSurface
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        showEffectFolderDialog = true
+                                    }
+                                )
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         },
         containerColor = MaterialTheme.customColors.background
     ) { paddingValues ->

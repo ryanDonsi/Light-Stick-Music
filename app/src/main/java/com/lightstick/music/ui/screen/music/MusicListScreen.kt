@@ -31,7 +31,9 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
 @Composable
 fun MusicListScreen(
     viewModel: MusicViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    /** true면 태블릿 패널로 쓰인다 — 뒤로가기 없는 중앙 정렬 타이틀 */
+    embedded: Boolean = false
 ) {
     val musicList         by viewModel.musicList.collectAsState()
     val nowPlaying        by viewModel.nowPlaying.collectAsState()
@@ -47,18 +49,24 @@ fun MusicListScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            TopBarWithBack(
-                title      = "Music List",
-                onBackClick = onNavigateBack,
-                actionText = "AUTO",
-                onActionClick = {
-                    val newState = viewModel.toggleAutoMode()
-                    val message  = if (newState) "자동 연출 기능을 실행합니다."
-                    else          "자동 연출 기능을 중지합니다."
-                    toastState.show(message)
-                },
-                actionTextColor = if (isAutoModeEnabled) Secondary else Color.Gray
-            )
+            val onAutoClick: () -> Unit = {
+                val newState = viewModel.toggleAutoMode()
+                val message  = if (newState) "자동 연출 기능을 실행합니다."
+                else          "자동 연출 기능을 중지합니다."
+                toastState.show(message)
+            }
+            val autoColor = if (isAutoModeEnabled) Secondary else Color.Gray
+
+            // 태블릿 패널(embedded)에서는 타이틀·AUTO를 상단 타이틀 바로 올렸으므로 TopBar를 그리지 않는다
+            if (!embedded) {
+                TopBarWithBack(
+                    title      = "Music List",
+                    onBackClick = onNavigateBack,
+                    actionText = "AUTO",
+                    onActionClick = onAutoClick,
+                    actionTextColor = autoColor
+                )
+            }
 
             Box(
                 modifier = Modifier
@@ -76,7 +84,8 @@ fun MusicListScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 24.dp),
+                        // 태블릿 패널(embedded)은 다른 패널과 위·아래 시작/끝 선을 맞추기 위해 위아래 여백을 12dp로 통일
+                        .padding(horizontal = 16.dp, vertical = if (embedded) 12.dp else 24.dp),
                     verticalArrangement = Arrangement.Top
                 ) {
                     if (musicList.isEmpty()) {

@@ -34,7 +34,9 @@ import com.lightstick.music.ui.viewmodel.MusicViewModel
 @Composable
 fun MusicControlScreen(
     viewModel: MusicViewModel,
-    onNavigateToMusicList: () -> Unit
+    onNavigateToMusicList: () -> Unit,
+    /** true면 태블릿 패널로 쓰인다 — TopBar와 MUSIC LIST 이동 버튼은 숨김(목록이 옆 패널에 있고 AUTO는 상단 타이틀에 있음) */
+    embedded: Boolean = false
 ) {
     val nowPlaying              by viewModel.nowPlaying.collectAsState()
     val isPlaying               by viewModel.isPlaying.collectAsState()
@@ -51,20 +53,23 @@ fun MusicControlScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            TopBarCentered(
-                title      = "Music Control",
-                actionText = "AUTO",
-                onActionClick = {
-                    val newState = viewModel.toggleAutoMode()
-                    val message  = if (newState) {
-                        "자동 연출 기능을 실행합니다."
-                    } else {
-                        "자동 연출 기능을 중지합니다."
-                    }
-                    toastState.show(message)
-                },
-                actionTextColor = if (isAutoModeEnabled) Secondary else Color.Gray
-            )
+            // 태블릿 패널(embedded)에서는 타이틀·AUTO를 상단 타이틀 바로 올렸으므로 TopBar를 그리지 않는다
+            if (!embedded) {
+                TopBarCentered(
+                    title      = "Music Control",
+                    actionText = "AUTO",
+                    onActionClick = {
+                        val newState = viewModel.toggleAutoMode()
+                        val message  = if (newState) {
+                            "자동 연출 기능을 실행합니다."
+                        } else {
+                            "자동 연출 기능을 중지합니다."
+                        }
+                        toastState.show(message)
+                    },
+                    actionTextColor = if (isAutoModeEnabled) Secondary else Color.Gray
+                )
+            }
 
             Box(
                 modifier = Modifier
@@ -80,13 +85,16 @@ fun MusicControlScreen(
                 )
 
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 24.dp),
+                    // 태블릿 패널(embedded)은 스크롤하지 않고, 카드가 패널 높이를 꽉 채우게 한다 (하단 잘림 방지)
+                    modifier = (if (embedded) Modifier.fillMaxSize()
+                                else Modifier.fillMaxWidth().verticalScroll(rememberScrollState()))
+                        .padding(horizontal = 16.dp, vertical = if (embedded) 12.dp else 24.dp),
                     verticalArrangement = Arrangement.Top
                 ) {
-                    Box(modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = if (embedded) Modifier.fillMaxWidth().weight(1f)
+                                   else Modifier.fillMaxWidth()
+                    ) {
                         MusicPlayerCard(
                             musicItem        = nowPlaying,
                             isPlaying        = isPlaying,
@@ -96,11 +104,12 @@ fun MusicControlScreen(
                             onPlayPauseClick = { viewModel.togglePlayPause() },
                             onNextClick      = { viewModel.playNext() },
                             onSeekTo         = { position -> viewModel.seekTo(position) },
-                            modifier         = Modifier.fillMaxWidth(),
+                            modifier         = if (embedded) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
                             latestTransmission      = latestTransmission,
                             sections                = currentSections,
                             isSectionOverlayEnabled = isSectionOverlayEnabled,
-                            colorFamily             = currentColorFamily
+                            colorFamily             = currentColorFamily,
+                            fitHeight               = embedded
                         )
                     }
 
@@ -128,29 +137,31 @@ fun MusicControlScreen(
                             )
                         }
 
-                        // 음악 목록 이동
-                        TextButton(
-                            onClick        = onNavigateToMusicList,
-                            contentPadding = PaddingValues(
-                                start  = 0.dp,
-                                top    = 8.dp,
-                                end    = 0.dp,
-                                bottom = 8.dp
-                            )
-                        ) {
-                            Text(
-                                text       = "MUSIC LIST",
-                                style      = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color      = Color.White
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector        = Icons.Filled.ChevronRight,
-                                contentDescription = null,
-                                tint               = Color.White,
-                                modifier           = Modifier.size(28.dp)
-                            )
+                        if (!embedded) {
+                            // 음악 목록 이동
+                            TextButton(
+                                onClick        = onNavigateToMusicList,
+                                contentPadding = PaddingValues(
+                                    start  = 0.dp,
+                                    top    = 8.dp,
+                                    end    = 0.dp,
+                                    bottom = 8.dp
+                                )
+                            ) {
+                                Text(
+                                    text       = "MUSIC LIST",
+                                    style      = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color      = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector        = Icons.Filled.ChevronRight,
+                                    contentDescription = null,
+                                    tint               = Color.White,
+                                    modifier           = Modifier.size(28.dp)
+                                )
+                            }
                         }
                     }
                 }
