@@ -33,6 +33,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import com.lightstick.types.Color as LightStickColor
 import com.lightstick.types.Colors
+import com.lightstick.music.domain.ble.TransmissionSource
+import com.lightstick.types.EffectType
+import com.lightstick.types.LSEffectPayload
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
@@ -150,6 +153,8 @@ class EffectViewModel @Inject constructor(
     val isEffectBlocked: StateFlow<Boolean> = _isEffectBlocked.asStateFlow()
 
     private var effectListJob: Job? = null
+    /** duration(응원봉이 스스로 꺼지는 시간)이 끝날 때 카드 선택 상태를 해제하는 타이머 */
+    private var durationEndJob: Job? = null
     private var scanJob: Job? = null
 
     init {
@@ -304,6 +309,10 @@ class EffectViewModel @Inject constructor(
             return
         }
 
+        // 새로 보내는 이펙트는 이전 이펙트의 종료 타이머를 취소한다
+        durationEndJob?.cancel()
+        durationEndJob = null
+
         viewModelScope.launch {
             try {
                 val settings = effectSettingsMapInternal[getEffectKey(effectType)]
@@ -331,6 +340,7 @@ class EffectViewModel @Inject constructor(
                 ).onSuccess {
                     _isPlaying.value                = true
                     _selectedEffectListNumber.value = null
+                    scheduleDurationEnd(effectType, settings)
                 }.onFailure { error ->
                     _errorMessage.value = "Effect 전송 실패: ${error.message}"
                 }
@@ -340,7 +350,45 @@ class EffectViewModel @Inject constructor(
         }
     }
 
+    /**
+     * duration(10ms 단위, 0=무한 유지)이 0보다 크면 응원봉이 그 시간 뒤에 스스로 꺼진다.
+     * 앱의 카드도 같은 시점에 "선택/재생 중" 상태를 해제해서 실제 응원봉 상태와 맞춘다.
+     * (이미 꺼졌으므로 OFF 를 다시 보내지는 않는다. OFF 이펙트와 이펙트 리스트는 대상이 아니다.)
+     */
+    private fun scheduleDurationEnd(effectType: UiEffectType, settings: EffectSettings) {
+        val isOff = effectType is UiEffectType.Off ||
+            (effectType is UiEffectType.Custom && effectType.baseType == UiEffectType.BaseEffectType.OFF)
+        if (isOff || settings.duration <= 0) return
+
+        durationEndJob?.cancel()
+        durationEndJob = viewModelScope.launch {
+            delay(settings.duration * 10L)
+            // 그 사이 다른 이펙트로 바뀌었거나 이미 멈췄다면 건드리지 않는다
+            if (_selectedEffect.value == effectType && _isPlaying.value) {
+                _isPlaying.value      = false
+                _selectedEffect.value = null
+                // 상단 연결 카드의 미리보기는 마지막 전송 기록(latestTransmission)을 따라가므로, 꺼졌다는 기록도 남긴다
+                BleTransmissionMonitor.latestTransmission.value
+                    ?.takeIf { it.source == TransmissionSource.PAYLOAD_EFFECT }
+                    ?.let { last ->
+                        BleTransmissionMonitor.recordTransmission(
+                            BleTransmissionEvent(
+                                source     = TransmissionSource.PAYLOAD_EFFECT,
+                                deviceMac  = last.deviceMac,
+                                effectType = EffectType.OFF,
+                                payload    = LSEffectPayload.Effects.off(),
+                                transit    = 0,
+                                metadata   = mapOf("type" to "duration_end")
+                            )
+                        )
+                    }
+            }
+        }
+    }
+
     fun stopEffect(context: Context) {
+        durationEndJob?.cancel()
+        durationEndJob = null
         viewModelScope.launch {
             stopEffectUseCase(context = context, effectListJob = effectListJob)
                 .onSuccess {

@@ -731,7 +731,7 @@ private fun animateOnEffect(
         animatable.animateTo(
             targetValue = 1f,
             animationSpec = tween(
-                durationMillis = transit.coerceAtLeast(0) * 100,
+                durationMillis = (transit.coerceAtLeast(0) * UI_TIME_UNIT_MS).roundToInt(),
                 easing = LinearEasing
             )
         )
@@ -780,7 +780,7 @@ private fun animateOffEffect(
         animatable.animateTo(
             targetValue = 1f,
             animationSpec = tween(
-                durationMillis = transit.coerceAtLeast(0) * 100,
+                durationMillis = (transit.coerceAtLeast(0) * UI_TIME_UNIT_MS).roundToInt(),
                 easing = LinearEasing
             )
         )
@@ -818,8 +818,7 @@ private fun animatePeriodicEffect(
     val resolvedFg = if (randomColor) rememberRandomHueColor() else fgColor
     val resolvedBg = bgColor
 
-    val uiPeriodScale = 103.7f
-    val duration = (period * uiPeriodScale).roundToInt().coerceAtLeast(104)
+    val duration = (period * UI_TIME_UNIT_MS).roundToInt().coerceAtLeast(UI_TIME_UNIT_MS.roundToInt())
 
     LaunchedEffect(effectName, fgColor, bgColor, period, randomColor, fgThreshold) {
     }
@@ -875,8 +874,7 @@ private fun animateBreathEffect(
 
     val isFirstCycle = remember(animationKey) { mutableStateOf(true) }
 
-    val uiPeriodScale = 104.5f
-    val duration = (period * uiPeriodScale).roundToInt().coerceAtLeast(105)
+    val duration = (period * UI_TIME_UNIT_MS).roundToInt().coerceAtLeast(UI_TIME_UNIT_MS.roundToInt())
 
     LaunchedEffect(animationKey) {
     }
@@ -1094,3 +1092,9 @@ private fun RoundedIconBox(
         content()
     }
 }
+
+/**
+ * 미리보기 애니메이션의 시간 단위(ms). transit(ON/OFF)과 period(STROBE/BLINK/BREATH) 값 1이 이 시간에 해당한다.
+ * 응원봉의 실제 동작 시간에 맞추기 위해 한 곳에서 관리한다 (이전에는 103.7 / 104.5 / 100 으로 제각각이었다).
+ */
+private const val UI_TIME_UNIT_MS = 100f
