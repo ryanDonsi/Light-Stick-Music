@@ -18,6 +18,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.lightstick.music.ui.theme.customColors
 
+/** 대화상자 최대 폭 — 폰 화면(약 360~412dp)에서는 영향이 없고, 태블릿에서만 폭이 제한된다 */
+private val DIALOG_MAX_WIDTH = 420.dp
+
 @Composable
 fun BaseDialog(
     title: String? = null,
@@ -43,6 +46,9 @@ fun BaseDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
+                // 태블릿처럼 넓은 화면에서는 폰 대화상자 폭 정도로 제한하고 가운데에 둔다 (폰은 이 폭보다 좁아 그대로)
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = DIALOG_MAX_WIDTH)
                 .wrapContentHeight()
         ) {
 
@@ -180,6 +186,9 @@ fun BaseDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
+                // 태블릿처럼 넓은 화면에서는 폰 대화상자 폭 정도로 제한하고 가운데에 둔다 (폰은 이 폭보다 좁아 그대로)
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = DIALOG_MAX_WIDTH)
                 .wrapContentHeight()
         ) {
             Box(
