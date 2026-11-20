@@ -133,6 +133,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // 다른 앱(EfxCreator 등)이 연결해 둔 응원봉 이어받기
+        if (PermissionManager.hasBluetoothConnectPermission(this) &&
+            com.lightstick.LSBluetooth.connectedCount() == 0
+        ) {
+            com.lightstick.music.app.LightStickMusicApp.restoreSystemConnections(this)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         if (PermissionManager.hasStoragePermission(this)) {

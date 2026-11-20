@@ -19,6 +19,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -309,6 +310,20 @@ class EventNotificationListenerService : NotificationListenerService() {
 
         if (LSBluetooth.connectedCount() > 0) {
             Log.d(TAG, "자동 재연결: 이미 연결됨 (${LSBluetooth.connectedCount()}개) → 스킵")
+            DeviceStatusNotificationManager.ensureNotificationVisible(this)
+            return
+        }
+
+        // 다른 앱이 연결해 둔 응원봉 이어받기 (스캔 전 복원 후 최대 3초 확인)
+        withContext(Dispatchers.Main) {
+            com.lightstick.music.app.LightStickMusicApp.restoreSystemConnections(applicationContext)
+        }
+        repeat(6) {
+            if (LSBluetooth.connectedCount() > 0) return@repeat
+            delay(500L)
+        }
+        if (LSBluetooth.connectedCount() > 0) {
+            Log.d(TAG, "자동 재연결: 시스템 연결 이어받음 → 스캔 스킵")
             DeviceStatusNotificationManager.ensureNotificationVisible(this)
             return
         }
