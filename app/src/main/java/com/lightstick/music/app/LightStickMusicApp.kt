@@ -49,6 +49,7 @@ class LightStickMusicApp : Application() {
         try {
             initializeSDK()
             initializePreferences()
+            com.lightstick.music.core.sync.DeviceDisconnectSync.register(this)
         } catch (e: Exception) {
             Log.e(TAG, "Initialization failed: ${e.message}", e)
         }
