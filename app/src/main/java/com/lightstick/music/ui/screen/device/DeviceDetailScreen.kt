@@ -48,6 +48,10 @@ fun DeviceDetailScreen(
     /** FF0A(Control) 지원 기기에서만 true — false면 SYSTEM OFF 메뉴를 숨긴다 */
     systemOffSupported: Boolean,
     onSystemOffClick: () -> Unit,
+    /** 공연 모드(SHOW_ENTER/SHOW_EXIT) — FF0A 지원 기기에서만 보인다 */
+    showModeSupported: Boolean,
+    showModeEnabled: Boolean,
+    onShowModeToggle: (Boolean) -> Unit,
     onOtaUpdateClick: () -> Unit,
     onAbortOta: () -> Unit,
     modifier: Modifier = Modifier,
@@ -200,6 +204,22 @@ fun DeviceDetailScreen(
                         thickness = 1.dp,
                         color = MaterialTheme.customColors.divider
                     )
+
+                    // FF0A 지원(펌웨어 2.200+) 기기에서만 보인다.
+                    if (showModeSupported) {
+                        SettingToggleItem(
+                            label = "공연 모드",
+                            description = "신호가 닿는 모든 응원봉의 버튼 입력을 제한 (전원 버튼 제외)",
+                            checked = showModeEnabled,
+                            onCheckedChange = onShowModeToggle
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            thickness = 1.dp,
+                            color = MaterialTheme.customColors.divider
+                        )
+                    }
 
                     // FF0A 지원(펌웨어 2.200+) 기기에서만 보인다. 복구 불가 동작이라 확인 다이얼로그를 거친다.
                     if (systemOffSupported) {

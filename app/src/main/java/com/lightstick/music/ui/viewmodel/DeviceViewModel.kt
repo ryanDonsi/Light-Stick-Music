@@ -92,6 +92,13 @@ class DeviceViewModel @Inject constructor(
     @Suppress("unused")
     val otaProgress: StateFlow<Map<String, Int>> = _otaProgress.asStateFlow()
 
+    /**
+     * 공연 모드(SHOW_ENTER/SHOW_EXIT) 켜짐 상태 — 앱이 마지막으로 보낸 값(mac 기준, 메모리만).
+     * 응원봉은 ACK/상태 통지가 없어 실제 상태를 읽을 수 없다. 연결이 끊기면 알 수 없으므로 끈 것으로 표시한다.
+     */
+    private val _showModeEnabled = MutableStateFlow<Set<String>>(emptySet())
+    val showModeEnabled: StateFlow<Set<String>> = _showModeEnabled.asStateFlow()
+
     private val _otaInProgress = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     @Suppress("unused")
     val otaInProgress: StateFlow<Map<String, Boolean>> = _otaInProgress.asStateFlow()
@@ -332,6 +339,7 @@ class DeviceViewModel @Inject constructor(
         Log.d(TAG, "onDeviceDisconnectedFromSdk: $mac fwAtDisconnect=$fwAtDisconnect")
         connectedDevices.remove(mac)
         deviceModes.remove(mac)
+        _showModeEnabled.value = _showModeEnabled.value - mac
         recomputeGroupEffectAllowed()
         updateConnectionState(mac, false)
         stopBatteryMonitoring(mac)
@@ -699,6 +707,31 @@ class DeviceViewModel @Inject constructor(
             this[device.mac] = existing?.copy(broadcasting = enabled)
                 ?: buildDeviceDetailInfo(device, broadcasting = enabled)
         }
+    }
+
+    /**
+     * 공연 모드 토글(FF0A SHOW_ENTER / SHOW_EXIT).
+     * 공연 모드 중에는 응원봉이 전원 버튼 외의 버튼 입력을 무시한다. 신호가 닿는 모든 응원봉이 대상(groupMask=0).
+     * 명령은 멱등이라 상태가 어긋나 있어도 다시 보내면 맞춰진다.
+     * @return 전송을 제출했으면 true (이때만 표시 상태를 바꾼다)
+     */
+    @SuppressLint("MissingPermission")
+    fun toggleShowMode(device: Device, enabled: Boolean): Boolean {
+        if (_otaInProgress.value[device.mac] == true) {
+            Log.w(TAG, "toggleShowMode 무시: OTA 진행 중 ${device.mac}")
+            return false
+        }
+        if (!device.supportsControl()) {
+            Log.w(TAG, "toggleShowMode 무시: FF0A 미지원(펌웨어 < 2.200) ${device.mac}")
+            return false
+        }
+        val ok = if (enabled) device.showEnter() else device.showExit()
+        Log.i(TAG, "${if (enabled) "SHOW_ENTER" else "SHOW_EXIT"} ${device.mac} → $ok")
+        if (ok) {
+            _showModeEnabled.value =
+                if (enabled) _showModeEnabled.value + device.mac else _showModeEnabled.value - device.mac
+        }
+        return ok
     }
 
     /**

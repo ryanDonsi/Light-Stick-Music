@@ -495,6 +495,7 @@ private fun DeviceDetailPane(
     val otaInProgressMap by deviceViewModel.otaInProgress.collectAsState()
     val otaProgressMap   by deviceViewModel.otaProgress.collectAsState()
     val isGroupEffectAllowed by deviceViewModel.isGroupEffectAllowed.collectAsState()
+    val showModeSet by deviceViewModel.showModeEnabled.collectAsState()
     val isOtaInProgress  = otaInProgressMap[deviceMac] == true
     val otaProgress      = otaProgressMap[deviceMac] ?: 0
 
@@ -538,6 +539,11 @@ private fun DeviceDetailPane(
         isGroupEffectAllowed = isGroupEffectAllowed,
         onGroupAssignClick = {
             showGroupAssignDialog = true
+        },
+        showModeSupported = systemOffSupported,
+        showModeEnabled = deviceMac in showModeSet,
+        onShowModeToggle = { enabled ->
+            deviceViewModel.toggleShowMode(device, enabled)
         },
         systemOffSupported = systemOffSupported,
         onSystemOffClick = {
