@@ -1,6 +1,8 @@
 package com.lightstick.music.app
 
 import android.app.Application
+import android.content.Context
+import com.lightstick.music.BuildConfig
 import com.lightstick.music.core.util.Log
 import com.lightstick.LSBluetooth
 import com.lightstick.config.DeviceFilter
@@ -17,6 +19,29 @@ class LightStickMusicApp : Application() {
 
     companion object {
         private const val TAG = AppConstants.Feature.APP
+
+        /** 이름이 "LS"/"GL"/"RL"로 끝나는 디바이스만 허용 ("LS"는 구 제품군 호환용) */
+        fun deviceFilter(): DeviceFilter = DeviceFilter.Builder()
+            .addName("LS", DeviceFilter.MatchMode.ENDS_WITH)
+            .addName("GL", DeviceFilter.MatchMode.ENDS_WITH)
+            .addName("RL", DeviceFilter.MatchMode.ENDS_WITH)
+            .build()
+
+        /**
+         * 다른 앱이 이미 연결해 둔 응원봉을 이어받는다.
+         * initialize()는 2회차부터 초기화를 건너뛰고 시스템 연결 복원만 재수행한다.
+         * 연결은 비동기이므로 결과는 연결 이벤트로 전달된다. (메인 스레드에서 호출)
+         */
+        fun restoreSystemConnections(context: Context) {
+            try {
+                LSBluetooth.initialize(
+                    context = context.applicationContext,
+                    deviceFilter = deviceFilter()
+                )
+            } catch (e: SecurityException) {
+                Log.w(TAG, "restore without permission: ${e.message}")
+            }
+        }
     }
 
     override fun onCreate() {
@@ -25,6 +50,7 @@ class LightStickMusicApp : Application() {
         try {
             initializeSDK()
             initializePreferences()
+            com.lightstick.music.core.sync.DeviceDisconnectSync.register(this)
         } catch (e: Exception) {
             Log.e(TAG, "Initialization failed: ${e.message}", e)
         }
@@ -37,18 +63,10 @@ class LightStickMusicApp : Application() {
      * - name이 null인 디바이스는 SDK 레벨에서 자동 거부
      */
     private fun initializeSDK() {
-        LSBluetooth.setDebugLoggingEnabled(true)
+        // SDK 로그는 debug 빌드에서만 사용 (release, releaseTest 는 BuildConfig.DEBUG=false)
+        LSBluetooth.setDebugLoggingEnabled(BuildConfig.DEBUG)
 
-        val filter = DeviceFilter.Builder()
-            .addName("LS", DeviceFilter.MatchMode.ENDS_WITH)
-            .addName("GL", DeviceFilter.MatchMode.ENDS_WITH)
-            .addName("RL", DeviceFilter.MatchMode.ENDS_WITH)
-            .build()
-
-        LSBluetooth.initialize(
-            context = applicationContext,
-            deviceFilter = filter
-        )
+        restoreSystemConnections(applicationContext)
     }
 
     /**
