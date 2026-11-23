@@ -47,3 +47,6 @@
 -dontwarn java.awt.**
 -dontwarn be.tarsos.dsp.io.jvm.**
 -dontwarn org.jtransforms.**
+# JTransforms 의존 라이브러리(JLargeArrays)가 참조하는 JVM 내부 클래스 (Android 에 없음)
+-dontwarn sun.misc.**
+-dontwarn pl.edu.icm.jlargearrays.**

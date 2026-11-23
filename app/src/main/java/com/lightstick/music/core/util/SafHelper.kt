@@ -1,5 +1,6 @@
 package com.lightstick.music.core.util
 
+import com.lightstick.music.BuildConfig
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -34,8 +35,9 @@ object SafHelper {
         "com.android.externalstorage.documents", "primary:Music"
     )
 
-    /** 폴더 선택기를 열 때 기기·시작 위치를 로그로 남긴다 (태그 FolderPicker, 항상 출력) */
+    /** 폴더 선택기를 열 때 기기·시작 위치를 로그로 남긴다 (태그 FolderPicker, debug 빌드에서만 출력) */
     fun logPickerOpen(startUri: Uri?) {
+        if (!BuildConfig.DEBUG) return
         android.util.Log.d(
             FOLDER_PICKER_TAG,
             "open: startUri=$startUri sdk=${Build.VERSION.SDK_INT} " +
@@ -45,6 +47,7 @@ object SafHelper {
 
     /** 폴더 선택 결과를 로그로 남긴다 */
     fun logPickerResult(resultCode: Int, uri: Uri?) {
+        if (!BuildConfig.DEBUG) return
         android.util.Log.d(FOLDER_PICKER_TAG, "result: resultCode=$resultCode uri=$uri")
     }
 

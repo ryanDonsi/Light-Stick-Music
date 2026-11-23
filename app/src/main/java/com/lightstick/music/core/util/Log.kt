@@ -1,5 +1,6 @@
 package com.lightstick.music.core.util
 
+import com.lightstick.music.BuildConfig
 import com.lightstick.music.core.constants.AppConstants
 import android.util.Log as AndroidLog
 
@@ -17,7 +18,9 @@ import android.util.Log as AndroidLog
  *   D  →  LOG_ENABLED && TAG in LOG_ENABLED_FEATURES
  *   I  →  LOG_ENABLED && TAG in LOG_ENABLED_FEATURES
  *   W  →  LOG_ENABLED && TAG in LOG_ENABLED_FEATURES
- *   E  →  항상 출력 (릴리즈에서도 크래시 추적 필요)
+ *   E  →  BuildConfig.DEBUG 일 때만 출력
+ *
+ * 릴리즈(release, releaseTest) 빌드에서는 모든 레벨(E 포함)이 출력되지 않는다.
  *
  * TAG 는 반드시 AppConstants.Feature 상수를 사용하세요:
  *   private const val TAG = AppConstants.Feature.BLE_COORDINATOR
@@ -29,7 +32,7 @@ object Log {
      * LOG_ENABLED = true 이고 LOG_ENABLED_FEATURES 에 포함된 경우만 허용
      */
     private fun isLoggable(tag: String): Boolean {
-        return AppConstants.LOG_ENABLED && tag in AppConstants.LOG_ENABLED_FEATURES
+        return BuildConfig.DEBUG && AppConstants.LOG_ENABLED && tag in AppConstants.LOG_ENABLED_FEATURES
     }
 
     fun v(tag: String, msg: String): Int {
@@ -95,11 +98,18 @@ object Log {
         return 0
     }
 
+    // 릴리즈(release, releaseTest)에서는 E 레벨도 출력하지 않음 (BuildConfig.DEBUG=false)
     fun e(tag: String, msg: String): Int {
-        return AndroidLog.e(tag, msg)
+        if (BuildConfig.DEBUG) {
+            return AndroidLog.e(tag, msg)
+        }
+        return 0
     }
 
     fun e(tag: String, msg: String, tr: Throwable): Int {
-        return AndroidLog.e(tag, msg, tr)
+        if (BuildConfig.DEBUG) {
+            return AndroidLog.e(tag, msg, tr)
+        }
+        return 0
     }
 }
