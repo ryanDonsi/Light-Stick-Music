@@ -21,7 +21,6 @@ import com.lightstick.music.data.local.preferences.SectionOverlayPreferences
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
 import com.lightstick.music.domain.ble.BleTransmissionMonitor
-import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.domain.effect.EffectEngineController
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
@@ -36,7 +35,6 @@ import com.lightstick.music.domain.usecase.music.LoadEfxUseCase
 import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
 import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
 import com.lightstick.efx.MusicId
-import com.lightstick.types.LSEffectPayload
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -422,14 +420,9 @@ class MusicViewModel @Inject constructor(
             player.pause()
             _isPlaying.value = false
             if (_isAutoModeEnabled.value) {
+                // 일시정지 시 off를 보내지 않는다(기기는 마지막 이펙트 상태 유지).
+                // 재개 시점의 현재 위치 이펙트 재전송은 resyncEffectsOnResume()에서 처리한다.
                 EffectEngineController.pauseEffects(context)
-                // pause 중엔 마지막 이펙트가 기기에 계속 반복 재생되지 않도록 명시적으로 off.
-                // resume 시 SDK의 pendingResyncAfterManualEffect가 현재 위치 프레임으로 자동 복원한다.
-                EffectEngineController.sendEffect(
-                    context = context,
-                    payload = LSEffectPayload.Effects.off(),
-                    source = TransmissionSource.TIMELINE_EFFECT
-                )
             }
         } else {
             player.play()
@@ -460,6 +453,9 @@ class MusicViewModel @Inject constructor(
             _nowPlaying.value?.let { loadTimelineForCurrentTrack(File(it.filePath)) }
             Log.d(TAG, "Resume: timeline reload (device reports timeline not loaded)")
         }
+        // 현재 위치에 해당하는 이펙트가 있으면 새로 보내고, 없으면 resume만 한다.
+        // (resume 전에 보내야 SDK가 전송 억제를 풀고 현재 프레임을 재전송한다)
+        EffectEngineController.resendActiveEffectBeforeResume(context, player.currentPosition)
         EffectEngineController.resumeEffects(context)
         // 전화 중단 후 재개 등 상황에서 이펙트 재동기화
         // 1. 현재 위치로 Seek 실행 (Timeline 인덱스 초기화)
