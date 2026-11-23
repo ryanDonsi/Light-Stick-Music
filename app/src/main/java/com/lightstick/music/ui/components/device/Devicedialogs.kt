@@ -199,6 +199,32 @@ fun FindEffectConfirmDialog(
 }
 
 /**
+ * 5-1. 전원 끄기(SYSTEM_OFF) 확인 다이얼로그
+ *
+ * 복구 불가 동작이므로 범위와 결과를 명시하고, 기본 포커스 동작(바깥 터치/뒤로가기 닫기)은 유지한다.
+ * - 2버튼: "취소" / "전원 끄기"
+ */
+@Composable
+fun SystemOffConfirmDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    BaseDialog(
+        title = "전원 끄기",
+        subtitle = "신호가 닿는 모든 응원봉의 전원이 꺼집니다.\n" +
+                "꺼진 응원봉은 앱에서 다시 켤 수 없고,\n" +
+                "응원봉의 버튼으로 직접 켜야 합니다.\n\n" +
+                "전원을 끌까요?",
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
+        confirmText = "전원 끄기",
+        dismissText = "취소",
+        scrollable = false,
+        content = null
+    )
+}
+
+/**
  * 6-1. 최신버전 다이얼로그
  *
  * Figma: "기기의 이름(버전)은 업데이트를 진행하시겠습니까?"

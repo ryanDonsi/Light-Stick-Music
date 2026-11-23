@@ -95,6 +95,7 @@ import com.lightstick.music.ui.components.device.GroupAssignDialog
 import com.lightstick.music.ui.components.device.OtaUpdateConfirmDialog
 import com.lightstick.music.ui.components.device.OtaVersionInfoDialog
 import com.lightstick.music.ui.components.device.ReconnectConfirmDialog
+import com.lightstick.music.ui.components.device.SystemOffConfirmDialog
 import com.lightstick.music.ui.screen.device.DeviceDetailScreen
 import com.lightstick.music.ui.screen.game.GameScreen
 
@@ -461,6 +462,11 @@ private fun DeviceDetailPane(
     var showOtaUpdateDialog by remember { mutableStateOf(false) }
     var showOtaLatestDialog by remember { mutableStateOf(false) }
     var showFindDialog by remember { mutableStateOf(false) }
+    var showSystemOffDialog by remember { mutableStateOf(false) }
+    // FF0A(Control) 지원 여부 — 서비스 디스커버리 후 정해지므로 DIS 갱신(deviceDetail) 시 다시 확인한다.
+    val systemOffSupported = remember(deviceMac, deviceDetail) {
+        runCatching { device.supportsControl() }.getOrDefault(false)
+    }
     var showGroupAssignDialog by remember { mutableStateOf(false) }
 
     var otaDialogCurrentVersion by remember { mutableStateOf("") }
@@ -533,6 +539,10 @@ private fun DeviceDetailPane(
         onGroupAssignClick = {
             showGroupAssignDialog = true
         },
+        systemOffSupported = systemOffSupported,
+        onSystemOffClick = {
+            showSystemOffDialog = true
+        },
         onOtaUpdateClick = {
             otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
         },
@@ -569,6 +579,16 @@ private fun DeviceDetailPane(
             onConfirm = {
                 showFindDialog = false
                 deviceViewModel.sendFindEffect(device)
+            }
+        )
+    }
+
+    if (showSystemOffDialog) {
+        SystemOffConfirmDialog(
+            onDismiss = { showSystemOffDialog = false },
+            onConfirm = {
+                showSystemOffDialog = false
+                deviceViewModel.systemOff(device)
             }
         )
     }

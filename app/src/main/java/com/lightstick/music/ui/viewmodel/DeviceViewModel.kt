@@ -701,6 +701,27 @@ class DeviceViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 공연 제어 SYSTEM_OFF(FF0A) — 복구 불가(꺼진 응원봉은 버튼으로만 켤 수 있다).
+     * 호출 전에 UI에서 사용자 확인을 반드시 거쳐야 한다(SDK는 확인 절차를 제공하지 않음).
+     * groupMask=0 → 중계기/Master를 통해 도달하는 모든 응원봉이 대상(연결된 기기 1대가 아님).
+     * 중계기 자신은 대상이 아니며, BLE 모드 Master는 꺼지면서 연결이 끊어진다.
+     */
+    @SuppressLint("MissingPermission")
+    fun systemOff(device: Device): Boolean {
+        if (_otaInProgress.value[device.mac] == true) {
+            Log.w(TAG, "systemOff 무시: OTA 진행 중 ${device.mac}")
+            return false
+        }
+        if (!device.supportsControl()) {
+            Log.w(TAG, "systemOff 무시: FF0A 미지원(펌웨어 < 2.200) ${device.mac}")
+            return false
+        }
+        val ok = device.systemOff()
+        Log.i(TAG, "systemOff 전송 ${device.mac} → $ok")
+        return ok
+    }
+
     private fun setBroadcastingSupported(mac: String, supported: Boolean) {
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             this[mac]?.let { this[mac] = it.copy(supportsBroadcasting = supported) }

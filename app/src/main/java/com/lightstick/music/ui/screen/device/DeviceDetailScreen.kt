@@ -45,6 +45,9 @@ fun DeviceDetailScreen(
     onFindClick: () -> Unit,
     isGroupEffectAllowed: Boolean,
     onGroupAssignClick: () -> Unit,
+    /** FF0A(Control) 지원 기기에서만 true — false면 SYSTEM OFF 메뉴를 숨긴다 */
+    systemOffSupported: Boolean,
+    onSystemOffClick: () -> Unit,
     onOtaUpdateClick: () -> Unit,
     onAbortOta: () -> Unit,
     modifier: Modifier = Modifier,
@@ -197,6 +200,22 @@ fun DeviceDetailScreen(
                         thickness = 1.dp,
                         color = MaterialTheme.customColors.divider
                     )
+
+                    // FF0A 지원(펌웨어 2.200+) 기기에서만 보인다. 복구 불가 동작이라 확인 다이얼로그를 거친다.
+                    if (systemOffSupported) {
+                        SettingLabel(
+                            label = "SYSTEM OFF",
+                            description = "신호가 닿는 모든 응원봉의 전원을 끔 (앱에서 다시 켤 수 없음)",
+                            enabled = !isOtaInProgress,
+                            onClick = onSystemOffClick
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            thickness = 1.dp,
+                            color = MaterialTheme.customColors.divider
+                        )
+                    }
 
                     Column(
                         modifier = Modifier.fillMaxWidth(),
