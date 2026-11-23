@@ -327,14 +327,11 @@ object EffectEngineController {
     /**
      * [positionMs] 시점에 유효한 타임라인 이펙트를 반환한다. 없으면 null.
      * - 마지막으로 시작된(timestampMs <= positionMs) 프레임을 대상으로 한다.
-     * - duration(10ms 단위)이 0이면 다음 프레임까지 유지, 0이 아니면 만료 전까지만 유효하다.
+     * - SDK 타임라인 전송은 프레임의 duration을 항상 0(다음 프레임까지 유지)으로 덮어쓰므로
+     *   duration 만료 판단은 하지 않는다. 재전송 때도 같은 규칙을 맞춘다([resendActiveEffectBeforeResume]).
      */
-    fun activeTimelineEffectAt(positionMs: Long): LSEffectPayload? {
-        val entry = cachedTimeline.lastOrNull { it.timestampMs <= positionMs } ?: return null
-        val duration = entry.payload.duration
-        if (duration != 0 && positionMs >= entry.timestampMs + duration * 10L) return null
-        return entry.payload
-    }
+    fun activeTimelineEffectAt(positionMs: Long): LSEffectPayload? =
+        cachedTimeline.lastOrNull { it.timestampMs <= positionMs }?.payload
 
     /**
      * 재개 직전에 호출한다. 현재 위치에 해당하는 이펙트가 있으면 새로 전송하고, 없으면 아무것도 하지 않는다.
@@ -347,7 +344,8 @@ object EffectEngineController {
             return false
         }
         Log.d(TAG, "[resume] posMs=$positionMs 해당 이펙트 재전송 type=${payload.effectType}")
-        return sendEffect(context, payload, TransmissionSource.TIMELINE_EFFECT)
+        // SDK 타임라인 프레임과 동일하게 duration=0으로 보낸다(sendEffect는 duration을 덮어쓰지 않음).
+        return sendEffect(context, payload.copy(duration = 0), TransmissionSource.TIMELINE_EFFECT)
     }
 
     fun pauseEffects(context: Context) {
