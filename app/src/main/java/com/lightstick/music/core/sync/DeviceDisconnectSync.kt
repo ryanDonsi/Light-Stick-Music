@@ -14,6 +14,13 @@ import com.lightstick.music.core.util.Log
  *
  * - 사용자가 직접 해제했을 때만 상대 앱에 명시적 브로드캐스트로 알린다.
  * - 받은 앱은 해당 MAC 의 자기 연결만 SDK 로 직접 끊는다 (다시 알리지 않음 → 반복 방지).
+ *
+ * TODO(보류): 서명 기반 보호는 현재 적용하지 않음 (RECEIVER_EXPORTED, 권한 없음).
+ *  - 하는 일이 "연결 해제"뿐이라 위험이 낮아 보류 결정.
+ *  - 추후 적용 시: 두 앱(Music/EfxCreator)의 앱 서명 키(Play 앱 무결성 > 앱 서명 SHA-256)가
+ *    같은지 먼저 확인 → 같으면 signature 수준 커스텀 권한으로 송수신 보호, 다르면 적용 불가.
+ *  - 서명이 다른 상태에서 signature 권한을 쓰면 정상 연동도 막힌다.
+ *  - 같은 키 공유는 키 유출/교체 시 두 앱이 함께 영향받는 단점이 있으므로 유의.
  */
 object DeviceDisconnectSync {
     private const val TAG = "DisconnectSync"
