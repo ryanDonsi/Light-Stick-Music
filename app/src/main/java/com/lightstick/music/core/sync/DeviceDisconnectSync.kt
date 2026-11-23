@@ -7,7 +7,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import androidx.core.content.ContextCompat
 import com.lightstick.LSBluetooth
-import com.lightstick.music.core.util.Log
+import android.util.Log
+import com.lightstick.music.BuildConfig
 
 /**
  * 연결 해제 연동 (Light-Stick-EfxCreator 와 규칙 동일)
@@ -28,7 +29,13 @@ object DeviceDisconnectSync {
     const val EXTRA_MAC = "mac"
     private const val PEER_PACKAGE = "com.efxcreator"
 
+    // 앱 Log 래퍼는 TAG 화이트리스트로 걸러지므로, 연동 진단용으로 직접 출력 (debug 빌드 한정)
+    private fun dlog(msg: String) {
+        if (BuildConfig.DEBUG) Log.d(TAG, msg)
+    }
+
     fun notifyPeer(context: Context, mac: String) {
+        dlog("send DISCONNECT -> $PEER_PACKAGE mac=$mac")
         try {
             context.sendBroadcast(
                 Intent(ACTION).setPackage(PEER_PACKAGE).putExtra(EXTRA_MAC, mac)
@@ -41,13 +48,16 @@ object DeviceDisconnectSync {
     /** 앱 실행 중에만 필요하므로 동적 등록 (앱을 깨우지 않음) */
     @SuppressLint("MissingPermission")
     fun register(context: Context) {
+        dlog("register receiver")
         ContextCompat.registerReceiver(
             context.applicationContext,
             object : BroadcastReceiver() {
                 override fun onReceive(ctx: Context, intent: Intent) {
                     val mac = intent.getStringExtra(EXTRA_MAC) ?: return
+                    val connected = runCatching { LSBluetooth.connectedDevices() }.getOrDefault(emptyList())
+                    dlog("recv DISCONNECT mac=$mac, connected=${connected.map { it.mac }}")
                     runCatching {
-                        LSBluetooth.connectedDevices().firstOrNull { it.mac == mac }
+                        connected.firstOrNull { it.mac.equals(mac, ignoreCase = true) }
                             ?.let { it.stopTimeline(); it.disconnect() }
                     }.onFailure { Log.w(TAG, "disconnect failed: ${it.message}") }
                 }
