@@ -23,9 +23,15 @@ android {
 
         multiDexEnabled = true
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 전화/문자 알림(CALL/SMS Event) 이펙트 기능 — 디버그 빌드에서만 켠다(release, 그 외 빌드 타입은 꺼짐)
+        buildConfigField("boolean", "ENABLE_EVENT_NOTIFICATION", "false")
     }
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "ENABLE_EVENT_NOTIFICATION", "true")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -38,6 +44,7 @@ android {
     buildFeatures {
         compose = true
         viewBinding = true
+        buildConfig = true
     }
 
     composeOptions {

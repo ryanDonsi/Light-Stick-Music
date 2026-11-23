@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.lightstick.music.BuildConfig
 import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.ui.components.common.BaseButton
 import com.lightstick.music.ui.components.common.ButtonStyle
@@ -135,31 +136,34 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    SettingToggleItem(
-                        label = "CALL Event",
-                        description = "전화벨이 울릴 때 특정 이팩트를 전달",
-                        checked = callEventEnabled,
-                        onCheckedChange = onCallEventToggle
-                    )
+                    // 알림 기능(CALL/SMS Event)은 디버그 빌드에서만 노출·동작한다 (release 계열 빌드에서는 숨김)
+                    if (BuildConfig.ENABLE_EVENT_NOTIFICATION) {
+                        SettingToggleItem(
+                            label = "CALL Event",
+                            description = "전화벨이 울릴 때 특정 이팩트를 전달",
+                            checked = callEventEnabled,
+                            onCheckedChange = onCallEventToggle
+                        )
 
-                    HorizontalDivider(
-                        modifier = Modifier.fillMaxWidth(),
-                        thickness = 1.dp,
-                        color = MaterialTheme.customColors.divider
-                    )
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            thickness = 1.dp,
+                            color = MaterialTheme.customColors.divider
+                        )
 
-                    SettingToggleItem(
-                        label = "SMS Event",
-                        description = "SMS 수신 시 특정 이팩트를 전달",
-                        checked = smsEventEnabled,
-                        onCheckedChange = onSmsEventToggle
-                    )
+                        SettingToggleItem(
+                            label = "SMS Event",
+                            description = "SMS 수신 시 특정 이팩트를 전달",
+                            checked = smsEventEnabled,
+                            onCheckedChange = onSmsEventToggle
+                        )
 
-                    HorizontalDivider(
-                        modifier = Modifier.fillMaxWidth(),
-                        thickness = 1.dp,
-                        color = MaterialTheme.customColors.divider
-                    )
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            thickness = 1.dp,
+                            color = MaterialTheme.customColors.divider
+                        )
+                    }
 
                     // BLE 모드 응원봉(FF09 지원)에서만 보인다. 중계기·구형 펌웨어(미지원)에서는 메뉴 자체를 숨긴다.
                     if (broadcastingSupported) {

@@ -8,6 +8,7 @@ import android.service.notification.StatusBarNotification
 import java.util.Locale
 import com.lightstick.LSBluetooth
 import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.music.BuildConfig
 import com.lightstick.music.core.manager.DeviceEventEffectSender
 import com.lightstick.music.core.manager.DeviceStatusNotificationManager
 import com.lightstick.music.core.permission.PermissionManager
@@ -69,6 +70,8 @@ class EventNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        // CALL/SMS Event 이펙트는 디버그 빌드에서만 동작한다. (이 서비스의 상태 알림·자동 재연결은 그대로 유지)
+        if (!BuildConfig.ENABLE_EVENT_NOTIFICATION) return
         if (sbn.packageName == packageName) return
 
         val category = sbn.notification.category
@@ -110,6 +113,7 @@ class EventNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        if (!BuildConfig.ENABLE_EVENT_NOTIFICATION) return
         if (sbn.notification.category == Notification.CATEGORY_CALL) {
             Log.i(TAG, "[notification removed] CATEGORY_CALL 제거됨 [${sbn.packageName}] → 전화 종료 → 이펙트 정지")
             if (!hasAnyEnabledDevice { DevicePreferences.getCallEventEnabled(it) }) return
