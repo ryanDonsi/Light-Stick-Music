@@ -395,6 +395,9 @@ private fun calculateEffectColorFromTransmission(
 ): EffectColorData? {
     val lastAnimationKeyRef = remember { mutableStateOf<String?>(null) }
 
+    // 전송된 payload 의 SPF(1프레임 길이, ms)를 따라간다. SPF 100(기본)이면 period·transit 1단위 = 100ms
+    val frameMs = transmission.payload.spf.coerceAtLeast(1).toFloat()
+
     fun staticColorData(color: Color): EffectColorData {
         val gradientColor =
             if (color.isBlack()) null else lerp(color, backgroundColor, 0.2f)
@@ -414,7 +417,7 @@ private fun calculateEffectColorFromTransmission(
                 EffectType.ON -> {
                     val transit = transmission.transit ?: 10
                     val targetColor = transmission.color?.toComposeColor() ?: Color.White
-                    val animKey = "TX_ON_${transit}_${targetColor.toArgb()}"
+                    val animKey = "TX_ON_${transit}_${targetColor.toArgb()}_${frameMs.toInt()}"
 
                     if (lastAnimationKeyRef.value == animKey &&
                         currentDisplayedColorRef.value == targetColor
@@ -429,14 +432,15 @@ private fun calculateEffectColorFromTransmission(
                             transit = transit,
                             randomColor = false,
                             onColorUpdate = { lastColorRef.value = it },
-                            backgroundColor = backgroundColor
+                            backgroundColor = backgroundColor,
+                            frameMs = frameMs
                         )
                     }
                 }
 
                 EffectType.OFF -> {
                     val transit = transmission.transit ?: 10
-                    val animKey = "TX_OFF_$transit"
+                    val animKey = "TX_OFF_${transit}_${frameMs.toInt()}"
 
                     if (lastAnimationKeyRef.value == animKey &&
                         currentDisplayedColorRef.value.isBlack()
@@ -449,7 +453,8 @@ private fun calculateEffectColorFromTransmission(
                             fromColor = currentDisplayedColorRef.value,
                             transit = transit,
                             onColorUpdate = { lastColorRef.value = it },
-                            backgroundColor = backgroundColor
+                            backgroundColor = backgroundColor,
+                            frameMs = frameMs
                         )
                     }
                 }
@@ -460,7 +465,7 @@ private fun calculateEffectColorFromTransmission(
                         if (period <= 10) 0.1f
                         else 1f / period.coerceAtLeast(1).toFloat()
 
-                    lastAnimationKeyRef.value = "TX_STROBE_$period"
+                    lastAnimationKeyRef.value = "TX_STROBE_${period}_${frameMs.toInt()}"
 
                     animatePeriodicEffect(
                         effectName = "STROBE",
@@ -469,14 +474,15 @@ private fun calculateEffectColorFromTransmission(
                         period = period,
                         randomColor = false,
                         fgThreshold = fgThreshold,
-                        backgroundColor = backgroundColor
+                        backgroundColor = backgroundColor,
+                        frameMs = frameMs
                     )
                 }
 
                 EffectType.BLINK -> {
                     val period = transmission.period ?: 20
 
-                    lastAnimationKeyRef.value = "TX_BLINK_$period"
+                    lastAnimationKeyRef.value = "TX_BLINK_${period}_${frameMs.toInt()}"
 
                     animatePeriodicEffect(
                         effectName = "BLINK",
@@ -485,7 +491,8 @@ private fun calculateEffectColorFromTransmission(
                         period = period,
                         randomColor = false,
                         fgThreshold = 0.5f,
-                        backgroundColor = backgroundColor
+                        backgroundColor = backgroundColor,
+                        frameMs = frameMs
                     )
                 }
 
@@ -493,7 +500,7 @@ private fun calculateEffectColorFromTransmission(
                     val period = transmission.period ?: 40
                     val fgColor = transmission.color?.toComposeColor() ?: Color.White
                     val bgColor = transmission.backgroundColor?.toComposeColor() ?: Color.Black
-                    val animKey = "TX_BREATH_${period}_${fgColor.toArgb()}_${bgColor.toArgb()}"
+                    val animKey = "TX_BREATH_${period}_${fgColor.toArgb()}_${bgColor.toArgb()}_${frameMs.toInt()}"
 
                     lastAnimationKeyRef.value = animKey
 
@@ -505,7 +512,8 @@ private fun calculateEffectColorFromTransmission(
                         period = period,
                         randomColor = false,
                         backgroundColor = backgroundColor,
-                        onColorUpdate = { lastColorRef.value = it }
+                        onColorUpdate = { lastColorRef.value = it },
+                        frameMs = frameMs
                     )
                 }
 
@@ -720,7 +728,9 @@ private fun animateOnEffect(
     transit: Int,
     randomColor: Boolean,
     onColorUpdate: (Color) -> Unit,
-    backgroundColor: Color
+    backgroundColor: Color,
+    /** 1프레임의 길이(ms) = payload 의 SPF. period·transit 1단위가 이 시간에 해당한다 */
+    frameMs: Float = UI_TIME_UNIT_MS
 ): EffectColorData {
     val fixedStartColor = remember(animationKey) { fromColor }
     val animatable = remember(animationKey) { Animatable(0f) }
@@ -731,7 +741,7 @@ private fun animateOnEffect(
         animatable.animateTo(
             targetValue = 1f,
             animationSpec = tween(
-                durationMillis = (transit.coerceAtLeast(0) * UI_TIME_UNIT_MS).roundToInt(),
+                durationMillis = (transit.coerceAtLeast(0) * frameMs).roundToInt(),
                 easing = LinearEasing
             )
         )
@@ -764,7 +774,9 @@ private fun animateOffEffect(
     fromColor: Color,
     transit: Int,
     onColorUpdate: (Color) -> Unit,
-    backgroundColor: Color
+    backgroundColor: Color,
+    /** 1프레임의 길이(ms) = payload 의 SPF. period·transit 1단위가 이 시간에 해당한다 */
+    frameMs: Float = UI_TIME_UNIT_MS
 ): EffectColorData {
     val fixedStartColor = remember(animationKey) {
         fromColor.copy(alpha = 1f)
@@ -780,7 +792,7 @@ private fun animateOffEffect(
         animatable.animateTo(
             targetValue = 1f,
             animationSpec = tween(
-                durationMillis = (transit.coerceAtLeast(0) * UI_TIME_UNIT_MS).roundToInt(),
+                durationMillis = (transit.coerceAtLeast(0) * frameMs).roundToInt(),
                 easing = LinearEasing
             )
         )
@@ -813,12 +825,14 @@ private fun animatePeriodicEffect(
     period: Int,
     randomColor: Boolean,
     fgThreshold: Float,
-    backgroundColor: Color
+    backgroundColor: Color,
+    /** 1프레임의 길이(ms) = payload 의 SPF. period·transit 1단위가 이 시간에 해당한다 */
+    frameMs: Float = UI_TIME_UNIT_MS
 ): EffectColorData {
     val resolvedFg = if (randomColor) rememberRandomHueColor() else fgColor
     val resolvedBg = bgColor
 
-    val duration = (period * UI_TIME_UNIT_MS).roundToInt().coerceAtLeast(UI_TIME_UNIT_MS.roundToInt())
+    val duration = (period * frameMs).roundToInt().coerceAtLeast(frameMs.roundToInt().coerceAtLeast(1))
 
     LaunchedEffect(effectName, fgColor, bgColor, period, randomColor, fgThreshold) {
     }
@@ -858,7 +872,9 @@ private fun animateBreathEffect(
     period: Int,
     randomColor: Boolean,
     backgroundColor: Color,
-    onColorUpdate: (Color) -> Unit
+    onColorUpdate: (Color) -> Unit,
+    /** 1프레임의 길이(ms) = payload 의 SPF. period·transit 1단위가 이 시간에 해당한다 */
+    frameMs: Float = UI_TIME_UNIT_MS
 ): EffectColorData {
     if (period <= 0) {
         return EffectColorData(
@@ -874,7 +890,7 @@ private fun animateBreathEffect(
 
     val isFirstCycle = remember(animationKey) { mutableStateOf(true) }
 
-    val duration = (period * UI_TIME_UNIT_MS).roundToInt().coerceAtLeast(UI_TIME_UNIT_MS.roundToInt())
+    val duration = (period * frameMs).roundToInt().coerceAtLeast(frameMs.roundToInt().coerceAtLeast(1))
 
     LaunchedEffect(animationKey) {
     }
@@ -1094,7 +1110,8 @@ private fun RoundedIconBox(
 }
 
 /**
- * 미리보기 애니메이션의 시간 단위(ms). transit(ON/OFF)과 period(STROBE/BLINK/BREATH) 값 1이 이 시간에 해당한다.
- * 응원봉의 실제 동작 시간에 맞추기 위해 한 곳에서 관리한다 (이전에는 103.7 / 104.5 / 100 으로 제각각이었다).
+ * 미리보기 애니메이션의 기본 시간 단위(ms) = SPF 기본값 100. transit(ON/OFF)과 period(STROBE/BLINK/BREATH) 값 1이 이 시간에 해당한다.
+ * 전송된 payload 가 있으면 그 payload 의 SPF 가 우선한다 (frameMs 파라미터).
+ * 이펙트 카드를 눌러 미리보는 경우처럼 payload 가 없을 때는 이 기본값을 쓴다.
  */
 private const val UI_TIME_UNIT_MS = 100f

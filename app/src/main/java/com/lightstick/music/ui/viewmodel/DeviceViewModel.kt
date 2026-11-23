@@ -518,6 +518,10 @@ class DeviceViewModel @Inject constructor(
                 if (sendShowExitIfNeeded(device)) delay(SHOW_EXIT_DISCONNECT_DELAY_MS)
 
                 disconnectDeviceUseCase(context, device)
+                    .onSuccess {
+                        // 사용자 해제만 상대 앱(EfxCreator)에 알림 (앱 종료 정리/연결 끊김은 보내지 않음)
+                        com.lightstick.music.core.sync.DeviceDisconnectSync.notifyPeer(context, device.mac)
+                    }
                     .onFailure { error -> Log.e(TAG, "Disconnect failed: ${error.message}") }
 
             } catch (e: Exception) {

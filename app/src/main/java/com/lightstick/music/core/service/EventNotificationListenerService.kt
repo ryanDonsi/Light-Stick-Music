@@ -8,7 +8,6 @@ import android.service.notification.StatusBarNotification
 import java.util.Locale
 import com.lightstick.LSBluetooth
 import com.lightstick.music.core.constants.AppConstants
-import com.lightstick.music.BuildConfig
 import com.lightstick.music.core.manager.DeviceEventEffectSender
 import com.lightstick.music.core.manager.DeviceStatusNotificationManager
 import com.lightstick.music.core.permission.PermissionManager
@@ -20,6 +19,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -70,8 +70,6 @@ class EventNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        // CALL/SMS Event 이펙트는 디버그 빌드에서만 동작한다. (이 서비스의 상태 알림·자동 재연결은 그대로 유지)
-        if (!BuildConfig.ENABLE_EVENT_NOTIFICATION) return
         if (sbn.packageName == packageName) return
 
         val category = sbn.notification.category
@@ -113,7 +111,6 @@ class EventNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        if (!BuildConfig.ENABLE_EVENT_NOTIFICATION) return
         if (sbn.notification.category == Notification.CATEGORY_CALL) {
             Log.i(TAG, "[notification removed] CATEGORY_CALL 제거됨 [${sbn.packageName}] → 전화 종료 → 이펙트 정지")
             if (!hasAnyEnabledDevice { DevicePreferences.getCallEventEnabled(it) }) return
@@ -313,6 +310,20 @@ class EventNotificationListenerService : NotificationListenerService() {
 
         if (LSBluetooth.connectedCount() > 0) {
             Log.d(TAG, "자동 재연결: 이미 연결됨 (${LSBluetooth.connectedCount()}개) → 스킵")
+            DeviceStatusNotificationManager.ensureNotificationVisible(this)
+            return
+        }
+
+        // 다른 앱이 연결해 둔 응원봉 이어받기 (스캔 전 복원 후 최대 3초 확인)
+        withContext(Dispatchers.Main) {
+            com.lightstick.music.app.LightStickMusicApp.restoreSystemConnections(applicationContext)
+        }
+        repeat(6) {
+            if (LSBluetooth.connectedCount() > 0) return@repeat
+            delay(500L)
+        }
+        if (LSBluetooth.connectedCount() > 0) {
+            Log.d(TAG, "자동 재연결: 시스템 연결 이어받음 → 스캔 스킵")
             DeviceStatusNotificationManager.ensureNotificationVisible(this)
             return
         }

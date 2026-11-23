@@ -235,13 +235,24 @@ class EffectViewModel @Inject constructor(
                     return@launch
                 }
 
+                // 다른 앱이 연결한 응원봉 이어받기: 복원 후 최대 6초(0.5초 × 12) 대기
+                // (연결된 응원봉은 광고를 멈추므로 스캔으로는 찾을 수 없음)
                 @SuppressLint("MissingPermission")
-                val sdkConnected = try {
+                fun sdkConnectedDevices() = try {
                     com.lightstick.LSBluetooth.connectedDevices()
                 } catch (_: Exception) { emptyList() }
+
+                if (sdkConnectedDevices().isEmpty()) {
+                    _deviceConnectionState.value = DeviceConnectionState.Scanning
+                    com.lightstick.music.app.LightStickMusicApp.restoreSystemConnections(context)
+                    repeat(12) {
+                        if (sdkConnectedDevices().isNotEmpty()) return@repeat
+                        delay(500L)
+                    }
+                }
+                val sdkConnected = sdkConnectedDevices()
                 if (sdkConnected.isNotEmpty()) {
-                    val device = sdkConnected.first()
-                    _deviceConnectionState.value = DeviceConnectionState.Connected(device)
+                    _deviceConnectionState.value = DeviceConnectionState.Connected(sdkConnected.first())
                     return@launch
                 }
 

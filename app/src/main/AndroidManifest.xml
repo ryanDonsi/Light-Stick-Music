@@ -82,16 +82,11 @@
             </intent-filter>
         </receiver>
 
-        <!-- Event Notification Listener (전화/메시지 감지 — READ_PHONE_STATE/RECEIVE_SMS 대체) -->
-        <!-- 설정 > 앱 > 특별 앱 접근 > 알림 접근에서 사용자가 허용 -->
-        <service
-            android:name=".core.service.EventNotificationListenerService"
-            android:exported="true"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
+        <!--
+          Event Notification Listener(통화/문자 감지 + 주기적 자동 재연결)는 debug 빌드 전용.
+          선언은 src/debug/AndroidManifest.xml 에 있다. release 에는 선언하지 않으므로
+          알림 접근 설정 화면에 앱이 나타나지 않는다. (코드는 main 에 남겨 두고 선언만 분리)
+        -->
 
     </application>
 

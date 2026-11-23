@@ -136,8 +136,8 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    // 알림 기능(CALL/SMS Event)은 디버그 빌드에서만 노출·동작한다 (release 계열 빌드에서는 숨김)
-                    if (BuildConfig.ENABLE_EVENT_NOTIFICATION) {
+                    // 알림 기능(CALL/SMS Event)은 debug 빌드에서만 노출한다 (release/releaseTest 는 알림 접근 서비스를 선언하지 않아 동작하지 않음)
+                    if (BuildConfig.DEBUG) {
                         SettingToggleItem(
                             label = "CALL Event",
                             description = "전화벨이 울릴 때 특정 이팩트를 전달",

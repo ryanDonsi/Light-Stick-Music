@@ -3,6 +3,7 @@ package com.lightstick.music.ui.activity
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import com.lightstick.music.BuildConfig
 import android.provider.DocumentsContract
 import android.os.Bundle
 import android.provider.Settings
@@ -134,6 +135,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // 다른 앱(EfxCreator 등)이 연결해 둔 응원봉 이어받기
+        if (PermissionManager.hasBluetoothConnectPermission(this) &&
+            com.lightstick.LSBluetooth.connectedCount() == 0
+        ) {
+            com.lightstick.music.app.LightStickMusicApp.restoreSystemConnections(this)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         if (PermissionManager.hasStoragePermission(this)) {
@@ -147,7 +158,10 @@ class MainActivity : ComponentActivity() {
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        DeviceStatusNotificationManager.start(this)
+        // 기기 상태 알림은 debug 빌드에서만 제공 (release 는 백그라운드 알림/자동 재연결 기능 제외)
+        if (BuildConfig.DEBUG) {
+            DeviceStatusNotificationManager.start(this)
+        }
         PermissionManager.logPermissionStatus(this, "MainActivity")
 
         deviceViewModel
@@ -185,7 +199,8 @@ class MainActivity : ComponentActivity() {
                 val lifecycleOwner = LocalLifecycleOwner.current
                 DisposableEffect(lifecycleOwner) {
                     val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_RESUME) {
+                        // 알림 접근 권한 안내는 debug 빌드에서만 (release 는 서비스 미선언)
+                        if (BuildConfig.DEBUG && event == Lifecycle.Event.ON_RESUME) {
                             showNotificationListenerGuide =
                                 !PermissionManager.hasNotificationListenerPermission(this@MainActivity)
                         }
