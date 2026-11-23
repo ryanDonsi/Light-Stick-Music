@@ -33,6 +33,19 @@ android {
                 "proguard-rules.pro"
             )
         }
+
+        // 릴리즈 동작 확인용 테스트 빌드 (배포 금지)
+        // - release 설정을 그대로 따르므로 BuildConfig.DEBUG=false, src/debug 매니페스트 미적용
+        //   (알림 접근 서비스/상태 알림/자동 재연결 제외)
+        // - 설치 가능하도록 debug 키로 서명. 배포용 서명은 release + 업로드 키로 별도 수행
+        // - applicationId 는 그대로 둠 (앱 간 해제 브로드캐스트가 패키지명으로 대상을 지정하기 때문)
+        //   → debug/release 빌드와 동시 설치는 불가, 서로 덮어씀
+        // 빌드/설치: ./gradlew installReleaseTest
+        create("releaseTest") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
     }
 
     buildFeatures {
