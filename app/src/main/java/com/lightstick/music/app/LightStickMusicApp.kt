@@ -2,6 +2,7 @@ package com.lightstick.music.app
 
 import android.app.Application
 import android.content.Context
+import com.lightstick.music.BuildConfig
 import com.lightstick.music.core.util.Log
 import com.lightstick.LSBluetooth
 import com.lightstick.config.DeviceFilter
@@ -62,7 +63,8 @@ class LightStickMusicApp : Application() {
      * - name이 null인 디바이스는 SDK 레벨에서 자동 거부
      */
     private fun initializeSDK() {
-        LSBluetooth.setDebugLoggingEnabled(true)
+        // SDK 로그는 debug 빌드에서만 사용 (release, releaseTest 는 BuildConfig.DEBUG=false)
+        LSBluetooth.setDebugLoggingEnabled(BuildConfig.DEBUG)
 
         restoreSystemConnections(applicationContext)
     }
