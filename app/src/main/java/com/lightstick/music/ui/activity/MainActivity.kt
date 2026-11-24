@@ -88,6 +88,7 @@ import com.lightstick.music.ui.components.common.CustomToast
 import com.lightstick.music.ui.components.common.ToastState
 import com.lightstick.music.ui.components.common.rememberToastState
 import com.lightstick.music.ui.components.device.ConnectConfirmDialog
+import com.lightstick.music.ui.components.device.ControlUnsupportedDialog
 import com.lightstick.music.ui.components.device.DeviceInfoDialog
 import com.lightstick.music.ui.components.device.DisconnectConfirmDialog
 import com.lightstick.music.ui.components.device.EffectFolderGuideDialog
@@ -478,10 +479,10 @@ private fun DeviceDetailPane(
     var showOtaLatestDialog by remember { mutableStateOf(false) }
     var showFindDialog by remember { mutableStateOf(false) }
     var showSystemOffDialog by remember { mutableStateOf(false) }
-    // FF0A(Control) 지원 여부 — 서비스 디스커버리 후 정해지므로 DIS 갱신(deviceDetail) 시 다시 확인한다.
-    val systemOffSupported = remember(deviceMac, deviceDetail) {
+    var showControlUnsupportedDialog by remember { mutableStateOf(false) }
+    // FF0A(Control) 지원 여부는 조작 시점에 확인한다 (서비스 디스커버리 완료 여부에 따라 달라질 수 있음)
+    fun isControlSupported(): Boolean =
         runCatching { device.supportsControl() }.getOrDefault(false)
-    }
     var showGroupAssignDialog by remember { mutableStateOf(false) }
 
     var otaDialogCurrentVersion by remember { mutableStateOf("") }
@@ -555,14 +556,14 @@ private fun DeviceDetailPane(
         onGroupAssignClick = {
             showGroupAssignDialog = true
         },
-        showModeSupported = systemOffSupported,
         showModeEnabled = deviceMac in showModeSet,
         onShowModeToggle = { enabled ->
-            deviceViewModel.toggleShowMode(device, enabled)
+            if (isControlSupported()) deviceViewModel.toggleShowMode(device, enabled)
+            else showControlUnsupportedDialog = true
         },
-        systemOffSupported = systemOffSupported,
         onSystemOffClick = {
-            showSystemOffDialog = true
+            if (isControlSupported()) showSystemOffDialog = true
+            else showControlUnsupportedDialog = true
         },
         onOtaUpdateClick = {
             otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
@@ -602,6 +603,10 @@ private fun DeviceDetailPane(
                 deviceViewModel.sendFindEffect(device)
             }
         )
+    }
+
+    if (showControlUnsupportedDialog) {
+        ControlUnsupportedDialog(onDismiss = { showControlUnsupportedDialog = false })
     }
 
     if (showSystemOffDialog) {

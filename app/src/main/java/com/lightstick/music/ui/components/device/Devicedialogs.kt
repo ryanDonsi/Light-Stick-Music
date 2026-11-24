@@ -199,6 +199,28 @@ fun FindEffectConfirmDialog(
 }
 
 /**
+ * 5-0. 공연 제어 미지원 안내 다이얼로그
+ *
+ * 공연 모드 / SYSTEM OFF는 Control(FF0A, 펌웨어 2.200 이상) 지원 기기에서만 동작한다.
+ * - 1버튼: "확인"
+ */
+@Composable
+fun ControlUnsupportedDialog(
+    onDismiss: () -> Unit
+) {
+    BaseDialog(
+        title = "지원하지 않는 기능",
+        subtitle = "연결된 기기가 공연 제어를 지원하지 않습니다.\n" +
+                "펌웨어를 2.200 이상으로 업데이트한 뒤\n" +
+                "사용해 주세요.",
+        onDismiss = onDismiss,
+        confirmText = "확인",
+        scrollable = false,
+        content = null
+    )
+}
+
+/**
  * 5-1. 전원 끄기(SYSTEM_OFF) 확인 다이얼로그
  *
  * 복구 불가 동작이므로 범위와 결과를 명시하고, 기본 포커스 동작(바깥 터치/뒤로가기 닫기)은 유지한다.

@@ -46,11 +46,9 @@ fun DeviceDetailScreen(
     onFindClick: () -> Unit,
     isGroupEffectAllowed: Boolean,
     onGroupAssignClick: () -> Unit,
-    /** FF0A(Control) 지원 기기에서만 true — false면 SYSTEM OFF 메뉴를 숨긴다 */
-    systemOffSupported: Boolean,
+    /** FF0A(Control) 미지원 기기에서는 호출 쪽에서 경고를 띄우고 동작을 막는다 */
     onSystemOffClick: () -> Unit,
-    /** 공연 모드(SHOW_ENTER/SHOW_EXIT) — FF0A 지원 기기에서만 보인다 */
-    showModeSupported: Boolean,
+    /** 공연 모드(SHOW_ENTER/SHOW_EXIT) */
     showModeEnabled: Boolean,
     onShowModeToggle: (Boolean) -> Unit,
     onOtaUpdateClick: () -> Unit,
@@ -209,37 +207,33 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    // FF0A 지원(펌웨어 2.200+) 기기에서만 보인다.
-                    if (showModeSupported) {
-                        SettingToggleItem(
-                            label = "공연 모드",
-                            description = "신호가 닿는 모든 응원봉의 버튼 입력을 제한 (전원 버튼 제외)",
-                            checked = showModeEnabled,
-                            onCheckedChange = onShowModeToggle
-                        )
+                    // FF0A(펌웨어 2.200+) 지원 기기에서만 동작한다. 항상 보이지만 미지원 기기는 경고 후 막는다.
+                    SettingToggleItem(
+                        label = "공연 모드",
+                        description = "신호가 닿는 모든 응원봉의 버튼 입력을 제한 (전원 버튼 제외)",
+                        checked = showModeEnabled,
+                        onCheckedChange = onShowModeToggle
+                    )
 
-                        HorizontalDivider(
-                            modifier = Modifier.fillMaxWidth(),
-                            thickness = 1.dp,
-                            color = MaterialTheme.customColors.divider
-                        )
-                    }
+                    HorizontalDivider(
+                        modifier = Modifier.fillMaxWidth(),
+                        thickness = 1.dp,
+                        color = MaterialTheme.customColors.divider
+                    )
 
-                    // FF0A 지원(펌웨어 2.200+) 기기에서만 보인다. 복구 불가 동작이라 확인 다이얼로그를 거친다.
-                    if (systemOffSupported) {
-                        SettingLabel(
-                            label = "SYSTEM OFF",
-                            description = "신호가 닿는 모든 응원봉의 전원을 끔 (앱에서 다시 켤 수 없음)",
-                            enabled = !isOtaInProgress,
-                            onClick = onSystemOffClick
-                        )
+                    // 복구 불가 동작이라 확인 다이얼로그를 거친다. 미지원 기기는 그 전에 경고 후 막는다.
+                    SettingLabel(
+                        label = "SYSTEM OFF",
+                        description = "신호가 닿는 모든 응원봉의 전원을 끔 (앱에서 다시 켤 수 없음)",
+                        enabled = !isOtaInProgress,
+                        onClick = onSystemOffClick
+                    )
 
-                        HorizontalDivider(
-                            modifier = Modifier.fillMaxWidth(),
-                            thickness = 1.dp,
-                            color = MaterialTheme.customColors.divider
-                        )
-                    }
+                    HorizontalDivider(
+                        modifier = Modifier.fillMaxWidth(),
+                        thickness = 1.dp,
+                        color = MaterialTheme.customColors.divider
+                    )
 
                     Column(
                         modifier = Modifier.fillMaxWidth(),
