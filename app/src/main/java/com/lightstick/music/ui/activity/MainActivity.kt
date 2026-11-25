@@ -332,7 +332,8 @@ private fun DeviceListPane(
     onOpenDetail: ((String) -> Unit)? = null,
     onBack: (() -> Unit)? = null,
     showTopBar: Boolean = true,
-    folderDialogRequest: Int = 0
+    folderDialogRequest: Int = 0,
+    bleTuningRequest: Int = 0
 ) {
     val context = LocalContext.current
     var showConnectDialog by remember { mutableStateOf(false) }
@@ -354,6 +355,7 @@ private fun DeviceListPane(
         onBack = onBack,
         showTopBar = showTopBar,
         folderDialogRequest = folderDialogRequest,
+        bleTuningRequest = bleTuningRequest,
         onDeviceSelected = { device: Device ->
             if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                 onShowToast("BLUETOOTH_CONNECT 권한 없음")
@@ -761,13 +763,15 @@ fun AppNavigation(
                 // 어느 기기의 상세인지는 이 화면의 상태로 들고 있어서 목록의 스크롤·대화상자가 유지된다.
                 var detailMac by rememberSaveable { mutableStateOf<String?>(null) }
                 var folderRequest by remember { mutableIntStateOf(0) }
+                var bleTuningRequest by remember { mutableIntStateOf(0) }
                 TabletFullScreen {
                     Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
                         // 전체 폭 타이틀 바 하나: [←] 디바이스 설정 ……… [⋮]  (목록·상세는 각자의 타이틀 바를 그리지 않는다)
                         TabletDeviceSettingsTitleBar(
                             // 돌아가기 → 메인 화면. 펌웨어 업데이트 중에는 이동하지 않는다
                             onBack = { if (!isAnyOtaInProgress) navController.popBackStack() },
-                            onEffectFolderSetting = { folderRequest++ }
+                            onEffectFolderSetting = { folderRequest++ },
+                            onBleTuning = { bleTuningRequest++ }
                         )
                         Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
                             Box(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
@@ -779,7 +783,8 @@ fun AppNavigation(
                                     tablet = true,
                                     onOpenDetail = { detailMac = it },
                                     showTopBar = false,
-                                    folderDialogRequest = folderRequest
+                                    folderDialogRequest = folderRequest,
+                                    bleTuningRequest = bleTuningRequest
                                 )
                             }
                             Box(

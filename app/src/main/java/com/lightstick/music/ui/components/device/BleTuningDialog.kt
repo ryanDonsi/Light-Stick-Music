@@ -3,7 +3,6 @@ package com.lightstick.music.ui.components.device
 import android.annotation.SuppressLint
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +22,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.lightstick.LSBluetooth
 import com.lightstick.device.CommandQueueStats
+import com.lightstick.device.Device
 import com.lightstick.music.data.local.preferences.BleTuningPreferences
 import com.lightstick.music.ui.components.common.BaseButton
 import com.lightstick.music.ui.components.common.BaseDialog
@@ -32,22 +32,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 /**
- * BLE 전송 설정 다이얼로그 (디버그 빌드 전용 — 기기 상세 화면의 디버그 항목에서만 연다).
+ * BLE 전송 설정 다이얼로그 (디버그 빌드 전용 — 디바이스 설정 화면의 ⋮ 메뉴에서만 연다).
  *
- * SDK 의 GATT 명령 큐 값을 바꾸고, 이 기기의 큐 상태(대기/피크/드롭/치환/실행)를 보면서 튜닝한다.
+ * SDK 의 GATT 명령 큐 값을 바꾸고, 연결된 모든 기기의 큐 상태(대기/피크/드롭/치환/실행)를 보면서 튜닝한다.
  * - 전송 간격(0~1000ms, 기본 50): 한 명령이 끝난 뒤 다음 명령까지의 최소 간격
  * - 큐 크기(1~256, 기본 8): 기기별 대기 명령 최대 개수. 초과하면 가장 오래된 대기 명령이 버려진다
  *
- * 두 값은 모든 기기에 즉시 적용되며(연결된 기기 포함), [BleTuningPreferences]에 저장되어
- * 앱 시작 때 복원된다. 큐는 FF02 이펙트뿐 아니라 그 기기의 모든 GATT 작업이 공유한다.
- *
- * @param macAddress 큐 상태를 조회할 기기의 MAC
+ * **두 값은 모든 기기에 공통**이며 즉시 적용된다(연결된 기기 포함). 기기별로 따로 정할 수 없다.
+ * 값은 [BleTuningPreferences]에 저장되어 앱 시작 때 복원된다. 큐는 기기마다 따로 있고
+ * FF02 이펙트뿐 아니라 그 기기의 모든 GATT 작업이 공유한다 — 아래 상태 목록은 기기별이다.
  */
 @Composable
-fun BleTuningDialog(
-    macAddress: String,
-    onDismiss: () -> Unit
-) {
+fun BleTuningDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
 
     var intervalText by remember { mutableStateOf(LSBluetooth.getCommandIntervalMs().toString()) }
@@ -55,17 +51,17 @@ fun BleTuningDialog(
     var status by remember {
         mutableStateOf("현재 적용: ${LSBluetooth.getCommandIntervalMs()}ms / 큐 ${LSBluetooth.getCommandQueueSize()}")
     }
-    var stats by remember { mutableStateOf<CommandQueueStats?>(null) }
+    var deviceStats by remember { mutableStateOf<List<Pair<Device, CommandQueueStats?>>>(emptyList()) }
 
     val interval = intervalText.toLongOrNull()
     val queue = queueText.toIntOrNull()
     val intervalOk = interval != null && interval in 0L..LSBluetooth.MAX_COMMAND_INTERVAL_MS
     val queueOk = queue != null && queue in 1..LSBluetooth.MAX_COMMAND_QUEUE_SIZE
 
-    // 다이얼로그가 떠 있는 동안 이 기기의 큐 상태를 주기적으로 갱신한다
-    LaunchedEffect(macAddress) {
+    // 다이얼로그가 떠 있는 동안 연결된 모든 기기의 큐 상태를 주기적으로 갱신한다
+    LaunchedEffect(Unit) {
         while (isActive) {
-            stats = findDevice(macAddress)?.getCommandQueueStats()
+            deviceStats = connectedDevices().map { it to it.getCommandQueueStats() }
             delay(500)
         }
     }
@@ -94,8 +90,9 @@ fun BleTuningDialog(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                text = "GATT 명령 큐 값입니다. 큐 하나를 이펙트뿐 아니라 읽기·게임·OTA 등 그 기기의 모든 GATT 작업이 " +
-                    "공유하며, 연결된 기기에도 즉시 적용되고 다음 실행 때 복원됩니다.",
+                text = "아래 값은 연결된 모든 기기에 공통으로 적용됩니다(기기별 설정 불가). " +
+                    "GATT 명령 큐는 기기마다 따로 있고, 이펙트뿐 아니라 읽기·게임·OTA 등 그 기기의 모든 GATT 작업이 공유합니다. " +
+                    "값은 저장되어 다음 실행 때 복원됩니다.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.customColors.onSurfaceVariant
             )
@@ -117,7 +114,7 @@ fun BleTuningDialog(
             OutlinedTextField(
                 value = queueText,
                 onValueChange = { queueText = it.filter(Char::isDigit).take(3) },
-                label = { Text("큐 크기 (대기 명령 수)") },
+                label = { Text("큐 크기 (기기당 대기 명령 수)") },
                 supportingText = {
                     Text("1~${LSBluetooth.MAX_COMMAND_QUEUE_SIZE}, 기본 ${LSBluetooth.DEFAULT_COMMAND_QUEUE_SIZE} (초과 시 오래된 명령 버려짐)")
                 },
@@ -142,74 +139,94 @@ fun BleTuningDialog(
                 color = MaterialTheme.customColors.primary
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                BaseButton(
-                    text = "기본값",
-                    onClick = {
-                        applyValues(
-                            LSBluetooth.DEFAULT_COMMAND_INTERVAL_MS,
-                            LSBluetooth.DEFAULT_COMMAND_QUEUE_SIZE
-                        )
-                    },
-                    style = ButtonStyle.SURFACE,
-                    modifier = Modifier.weight(1f).height(44.dp)
-                )
-                BaseButton(
-                    text = "통계 초기화",
-                    onClick = {
-                        findDevice(macAddress)?.resetCommandQueueStats()
-                        stats = findDevice(macAddress)?.getCommandQueueStats()
-                    },
-                    style = ButtonStyle.SURFACE,
-                    modifier = Modifier.weight(1f).height(44.dp)
-                )
-            }
+            BaseButton(
+                text = "기본값으로 초기화",
+                onClick = {
+                    applyValues(
+                        LSBluetooth.DEFAULT_COMMAND_INTERVAL_MS,
+                        LSBluetooth.DEFAULT_COMMAND_QUEUE_SIZE
+                    )
+                },
+                style = ButtonStyle.SURFACE,
+                modifier = Modifier.fillMaxWidth().height(44.dp)
+            )
 
-            QueueStatsSection(stats)
+            QueueStatsSection(
+                deviceStats = deviceStats,
+                onResetStats = {
+                    connectedDevices().forEach { it.resetCommandQueueStats() }
+                    deviceStats = connectedDevices().map { it to it.getCommandQueueStats() }
+                }
+            )
         }
     }
 }
 
-/** 이 기기의 큐 상태. `dropped`가 0이 아니면 오버플로로 명령이 유실된 것이다 */
+/** 연결된 기기별 큐 상태. `dropped`가 0이 아니면 오버플로로 명령이 유실된 것이다 */
 @Composable
-private fun QueueStatsSection(stats: CommandQueueStats?) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun QueueStatsSection(
+    deviceStats: List<Pair<Device, CommandQueueStats?>>,
+    onResetStats: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
-            text = "이 기기의 큐 상태",
+            text = "기기별 큐 상태",
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.customColors.onSurface
         )
-        if (stats == null) {
+
+        if (deviceStats.isEmpty()) {
             Text(
-                text = "기기가 연결되어 있지 않습니다",
+                text = "연결된 기기가 없습니다",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.customColors.onSurfaceVariant
             )
             return
         }
-        val dropColor = if (stats.dropped > 0) MaterialTheme.customColors.error
-        else MaterialTheme.customColors.onSurfaceVariant
-        Text(
-            text = "대기 ${stats.pending} · 피크 ${stats.peakPending} · 실행 ${stats.executed} · 치환 ${stats.replaced}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.customColors.onSurfaceVariant
-        )
-        Text(
-            text = "드롭(유실) ${stats.dropped}",
-            style = MaterialTheme.typography.bodySmall,
-            color = dropColor
+
+        deviceStats.forEach { (device, stats) ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = device.name?.takeIf { it.isNotBlank() } ?: device.mac,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.customColors.onSurface
+                )
+                if (stats == null) {
+                    Text(
+                        text = "상태를 읽을 수 없습니다",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.customColors.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        text = "대기 ${stats.pending} · 피크 ${stats.peakPending} · 실행 ${stats.executed} · 치환 ${stats.replaced}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.customColors.onSurfaceVariant
+                    )
+                    Text(
+                        text = "드롭(유실) ${stats.dropped}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (stats.dropped > 0) MaterialTheme.customColors.error
+                        else MaterialTheme.customColors.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        BaseButton(
+            text = "통계 초기화",
+            onClick = onResetStats,
+            style = ButtonStyle.SURFACE,
+            modifier = Modifier.fillMaxWidth().height(44.dp)
         )
     }
 }
 
-/** 연결된 기기 중 [mac] 에 해당하는 기기 (권한이 없거나 조회에 실패하면 null) */
+/** 연결된 기기 목록 (권한이 없거나 조회에 실패하면 빈 목록) */
 @SuppressLint("MissingPermission")
-private fun findDevice(mac: String) =
+private fun connectedDevices(): List<Device> =
     try {
-        LSBluetooth.connectedDevices().firstOrNull { it.mac == mac }
+        LSBluetooth.connectedDevices()
     } catch (_: Throwable) {
-        null
+        emptyList()
     }

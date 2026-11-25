@@ -17,7 +17,9 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.NavController
 import com.lightstick.music.core.permission.PermissionManager
 import com.lightstick.music.data.local.storage.EffectPathPreferences
+import com.lightstick.music.BuildConfig
 import com.lightstick.music.ui.components.common.BaseDialog
+import com.lightstick.music.ui.components.device.BleTuningDialog
 import com.lightstick.music.ui.components.common.CustomTopBar
 import com.lightstick.music.ui.components.common.StretchPullRefreshContainer
 import com.lightstick.music.ui.components.device.*
@@ -63,11 +65,14 @@ fun DeviceListScreen(
     /** false면 상단 타이틀 바를 그리지 않는다 (태블릿 설정 화면: 전체 폭 타이틀 바를 위에 따로 둠) */
     showTopBar: Boolean = true,
     /** 바깥 타이틀 바의 점 세 개 메뉴에서 "이펙트 파일 폴더 설정"을 누를 때마다 1씩 올려 보내는 값 (0은 요청 없음) */
-    folderDialogRequest: Int = 0
+    folderDialogRequest: Int = 0,
+    /** 바깥 타이틀 바의 점 세 개 메뉴에서 "BLE 전송 설정"(디버그 전용)을 누를 때마다 1씩 올려 보내는 값 (0은 요청 없음) */
+    bleTuningRequest: Int = 0
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
     var showEffectFolderDialog by remember { mutableStateOf(false) }
+    var showBleTuningDialog by remember { mutableStateOf(false) }
     val devices by viewModel.devices.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
     val connectionStates by viewModel.connectionStates.collectAsState()
@@ -87,6 +92,13 @@ fun DeviceListScreen(
     // 바깥(태블릿 전체 폭 타이틀 바)의 메뉴에서 온 폴더 설정 요청
     LaunchedEffect(folderDialogRequest) {
         if (folderDialogRequest > 0) showEffectFolderDialog = true
+    }
+    // 바깥(태블릿 전체 폭 타이틀 바)의 메뉴에서 온 BLE 전송 설정 요청 (디버그 빌드 전용)
+    LaunchedEffect(bleTuningRequest) {
+        if (BuildConfig.DEBUG && bleTuningRequest > 0) showBleTuningDialog = true
+    }
+    if (BuildConfig.DEBUG && showBleTuningDialog) {
+        BleTuningDialog(onDismiss = { showBleTuningDialog = false })
     }
 
     val listState = rememberLazyListState()
@@ -141,6 +153,22 @@ fun DeviceListScreen(
                                         showEffectFolderDialog = true
                                     }
                                 )
+                                // 모든 기기에 공통인 전송 설정이라 기기 상세가 아니라 여기에 둔다 (디버그 빌드에서만 보인다)
+                                if (BuildConfig.DEBUG) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "BLE 전송 설정",
+                                                style = MaterialTheme.customTextStyles.topBarSmall,
+                                                color = MaterialTheme.customColors.onSurface
+                                            )
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            showBleTuningDialog = true
+                                        }
+                                    )
+                                }
                             }
                         }
                     }

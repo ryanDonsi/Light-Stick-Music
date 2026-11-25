@@ -1,5 +1,6 @@
 package com.lightstick.music.ui.screen.tablet
 
+import com.lightstick.music.BuildConfig
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.expandVertically
@@ -149,7 +150,9 @@ fun TabletDetailPlaceholder(text: String) {
 @Composable
 fun TabletDeviceSettingsTitleBar(
     onBack: () -> Unit,
-    onEffectFolderSetting: () -> Unit
+    onEffectFolderSetting: () -> Unit,
+    /** 지정하면 디버그 빌드에서만 "BLE 전송 설정" 메뉴 항목을 보여준다 */
+    onBleTuning: (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
     CustomTopBar(
@@ -187,6 +190,21 @@ fun TabletDeviceSettingsTitleBar(
                             onEffectFolderSetting()
                         }
                     )
+                    if (BuildConfig.DEBUG && onBleTuning != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "BLE 전송 설정",
+                                    style = MaterialTheme.customTextStyles.topBarSmall,
+                                    color = MaterialTheme.customColors.onSurface
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                onBleTuning()
+                            }
+                        )
+                    }
                 }
             }
         }
