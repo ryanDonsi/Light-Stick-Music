@@ -35,7 +35,7 @@ import kotlinx.coroutines.isActive
  * BLE 전송 설정 다이얼로그 (디버그 빌드 전용 — 디바이스 설정 화면의 ⋮ 메뉴에서만 연다).
  *
  * SDK 의 GATT 명령 큐 값을 바꾸고, 연결된 모든 기기의 큐 상태(대기/피크/드롭/치환/실행)를 보면서 튜닝한다.
- * - 전송 간격(0~1000ms, 기본 50): 한 명령이 끝난 뒤 다음 명령까지의 최소 간격
+ * - 최소 전송 간격(0~1000ms, 기본 50): 한 명령이 끝난 뒤 다음 명령까지 최소한 기다리는 시간 (배수로 올림되지 않는 하한값)
  * - 큐 크기(1~256, 기본 8): 기기별 대기 명령 최대 개수. 초과하면 가장 오래된 대기 명령이 버려진다
  *
  * **두 값은 모든 기기에 공통**이며 즉시 적용된다(연결된 기기 포함). 기기별로 따로 정할 수 없다.
@@ -100,9 +100,9 @@ fun BleTuningDialog(onDismiss: () -> Unit) {
             OutlinedTextField(
                 value = intervalText,
                 onValueChange = { intervalText = it.filter(Char::isDigit).take(4) },
-                label = { Text("전송 간격 (ms)") },
+                label = { Text("최소 전송 간격 (ms)") },
                 supportingText = {
-                    Text("0~${LSBluetooth.MAX_COMMAND_INTERVAL_MS}, 기본 ${LSBluetooth.DEFAULT_COMMAND_INTERVAL_MS} (0 = 간격 없음)")
+                    Text("0~${LSBluetooth.MAX_COMMAND_INTERVAL_MS}, 기본 ${LSBluetooth.DEFAULT_COMMAND_INTERVAL_MS} (0 = 제한 없음)")
                 },
                 isError = !intervalOk,
                 singleLine = true,
@@ -127,7 +127,7 @@ fun BleTuningDialog(onDismiss: () -> Unit) {
 
             if (interval != null && queue != null && intervalOk && queueOk) {
                 Text(
-                    text = "예상 최대 지연 ≈ 큐 × 간격 = ${queue * interval}ms",
+                    text = "예상 최대 지연 ≈ 큐 × 최소 전송 간격 = ${queue * interval}ms",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.customColors.onSurface
                 )
