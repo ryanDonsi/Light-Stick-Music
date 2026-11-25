@@ -36,6 +36,11 @@ object PrefsKeys {
     /** GroupPreferences */
     const val PREFS_GROUP = "group_settings"
 
+    /** BleTuningPreferences — 디버그 빌드 전용 BLE 전송 설정 (SDK는 값을 저장하지 않는다) */
+    const val PREFS_BLE_TUNING = "ble_tuning"
+    const val KEY_BLE_CMD_INTERVAL_MS = "command_interval_ms"
+    const val KEY_BLE_CMD_QUEUE_SIZE = "command_queue_size"
+
     const val KEY_IS_INITIALIZED = "is_initialized"
     const val KEY_MUSIC_COUNT    = "music_count"
     const val KEY_EFFECT_COUNT   = "effect_count"

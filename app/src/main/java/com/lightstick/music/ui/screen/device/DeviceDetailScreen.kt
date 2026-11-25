@@ -17,6 +17,7 @@ import com.lightstick.music.ui.components.common.ButtonStyle
 import com.lightstick.music.ui.components.common.CustomChip
 import com.lightstick.music.ui.components.common.CustomTopBar
 import com.lightstick.music.ui.components.common.CommonProgressBar
+import com.lightstick.music.ui.components.device.BleTuningDialog
 import com.lightstick.music.ui.components.device.DeviceInfoHeader
 import com.lightstick.music.ui.components.device.SettingLabel
 import com.lightstick.music.ui.components.device.SettingToggleItem
@@ -57,6 +58,12 @@ fun DeviceDetailScreen(
     /** false면 상단 타이틀 바를 그리지 않는다 (태블릿 설정 화면: 전체 폭 타이틀 바를 위에 따로 둠) */
     showTopBar: Boolean = true
 ) {
+    // 디버그 빌드 전용 BLE 전송 설정 다이얼로그 (release/releaseTest 에서는 열 방법이 없다)
+    var showBleTuning by remember { mutableStateOf(false) }
+    if (BuildConfig.DEBUG && showBleTuning) {
+        BleTuningDialog(macAddress = macAddress, onDismiss = { showBleTuning = false })
+    }
+
     Scaffold(
         topBar = {
             if (showTopBar) {
@@ -154,6 +161,18 @@ fun DeviceDetailScreen(
                             description = "SMS 수신 시 특정 이팩트를 전달",
                             checked = smsEventEnabled,
                             onCheckedChange = onSmsEventToggle
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            thickness = 1.dp,
+                            color = MaterialTheme.customColors.divider
+                        )
+
+                        SettingLabel(
+                            label = "BLE 전송 설정",
+                            description = "GATT 명령 전송 간격 · 큐 크기 · 큐 상태 확인 (디버그)",
+                            onClick = { showBleTuning = true }
                         )
 
                         HorizontalDivider(

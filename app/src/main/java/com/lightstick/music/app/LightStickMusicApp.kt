@@ -7,6 +7,7 @@ import com.lightstick.music.core.util.Log
 import com.lightstick.LSBluetooth
 import com.lightstick.config.DeviceFilter
 import com.lightstick.music.core.constants.AppConstants
+import com.lightstick.music.data.local.preferences.BleTuningPreferences
 import com.lightstick.music.data.local.preferences.DevicePreferences
 import dagger.hilt.android.HiltAndroidApp
 
@@ -65,6 +66,17 @@ class LightStickMusicApp : Application() {
     private fun initializeSDK() {
         // SDK 로그는 debug 빌드에서만 사용 (release, releaseTest 는 BuildConfig.DEBUG=false)
         LSBluetooth.setDebugLoggingEnabled(BuildConfig.DEBUG)
+
+        // 디버그 빌드: 기기 상세 > BLE 전송 설정에서 저장한 전송 간격/큐 크기를 복원한다.
+        // (SDK 는 값을 저장하지 않으며, release/releaseTest 는 SDK 기본값 50ms / 8 을 그대로 쓴다)
+        if (BuildConfig.DEBUG) {
+            try {
+                LSBluetooth.setCommandIntervalMs(BleTuningPreferences.getCommandIntervalMs(applicationContext))
+                LSBluetooth.setCommandQueueSize(BleTuningPreferences.getCommandQueueSize(applicationContext))
+            } catch (e: IllegalArgumentException) {
+                Log.w(TAG, "저장된 BLE 전송 설정이 범위를 벗어나 기본값을 사용합니다: ${e.message}")
+            }
+        }
 
         restoreSystemConnections(applicationContext)
     }
