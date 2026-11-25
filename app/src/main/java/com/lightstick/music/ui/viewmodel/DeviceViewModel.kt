@@ -10,6 +10,8 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.os.Handler
+import android.os.Looper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.lightstick.music.core.constants.AppConstants
@@ -57,6 +59,9 @@ class DeviceViewModel @Inject constructor(
 
     companion object {
         private const val TAG = AppConstants.Feature.VM_DEVICE
+
+        /** SHOW_EXIT(Write With Response)가 나간 뒤 연결을 끊기까지 기다리는 시간 — 바로 끊으면 쓰기가 취소될 수 있다 */
+        private const val SHOW_EXIT_DISCONNECT_DELAY_MS = 300L
     }
 
     private val _devices = MutableStateFlow<List<Device>>(emptyList())
@@ -91,6 +96,13 @@ class DeviceViewModel @Inject constructor(
     private val _otaProgress = MutableStateFlow<Map<String, Int>>(emptyMap())
     @Suppress("unused")
     val otaProgress: StateFlow<Map<String, Int>> = _otaProgress.asStateFlow()
+
+    /**
+     * 공연 모드(SHOW_ENTER/SHOW_EXIT) 켜짐 상태 — 앱이 마지막으로 보낸 값(mac 기준, 메모리만).
+     * 응원봉은 ACK/상태 통지가 없어 실제 상태를 읽을 수 없다. 연결이 끊기면 알 수 없으므로 끈 것으로 표시한다.
+     */
+    private val _showModeEnabled = MutableStateFlow<Set<String>>(emptySet())
+    val showModeEnabled: StateFlow<Set<String>> = _showModeEnabled.asStateFlow()
 
     private val _otaInProgress = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     @Suppress("unused")
@@ -332,6 +344,7 @@ class DeviceViewModel @Inject constructor(
         Log.d(TAG, "onDeviceDisconnectedFromSdk: $mac fwAtDisconnect=$fwAtDisconnect")
         connectedDevices.remove(mac)
         deviceModes.remove(mac)
+        _showModeEnabled.value = _showModeEnabled.value - mac
         recomputeGroupEffectAllowed()
         updateConnectionState(mac, false)
         stopBatteryMonitoring(mac)
@@ -500,6 +513,9 @@ class DeviceViewModel @Inject constructor(
                 if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                     Log.w(TAG, "BLUETOOTH_CONNECT permission not available"); return@launch
                 }
+
+                // 이 기기로 공연 모드를 켠 상태면 해제를 먼저 보내고, 전송이 나갈 시간을 준 뒤 끊는다.
+                if (sendShowExitIfNeeded(device)) delay(SHOW_EXIT_DISCONNECT_DELAY_MS)
 
                 disconnectDeviceUseCase(context, device)
                     .onSuccess {
@@ -705,6 +721,71 @@ class DeviceViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 공연 모드 토글(FF0A SHOW_ENTER / SHOW_EXIT).
+     * 공연 모드 중에는 응원봉이 전원 버튼 외의 버튼 입력을 무시한다. 신호가 닿는 모든 응원봉이 대상(groupMask=0).
+     * 명령은 멱등이라 상태가 어긋나 있어도 다시 보내면 맞춰진다.
+     * @return 전송을 제출했으면 true (이때만 표시 상태를 바꾼다)
+     */
+    @SuppressLint("MissingPermission")
+    fun toggleShowMode(device: Device, enabled: Boolean): Boolean {
+        if (_otaInProgress.value[device.mac] == true) {
+            Log.w(TAG, "toggleShowMode 무시: OTA 진행 중 ${device.mac}")
+            return false
+        }
+        if (!device.supportsControl()) {
+            Log.w(TAG, "toggleShowMode 무시: FF0A 미지원(펌웨어 < 2.200) ${device.mac}")
+            return false
+        }
+        val ok = if (enabled) device.showEnter() else device.showExit()
+        Log.i(TAG, "${if (enabled) "SHOW_ENTER" else "SHOW_EXIT"} ${device.mac} → $ok")
+        if (ok) {
+            _showModeEnabled.value =
+                if (enabled) _showModeEnabled.value + device.mac else _showModeEnabled.value - device.mac
+        }
+        return ok
+    }
+
+    /**
+     * 이 기기로 공연 모드를 켠 상태(앱이 SHOW_ENTER를 보낸 기기)면 연결을 끊기 전에 SHOW_EXIT를 보낸다.
+     * 연결이 끊긴 뒤에는 FF0A를 쓸 수 없고, 공연 모드는 응원봉이 재부팅될 때까지 남기 때문이다.
+     * @return SHOW_EXIT 전송을 제출했으면 true (호출자는 전송이 나갈 시간을 준 뒤 끊는다)
+     */
+    @SuppressLint("MissingPermission")
+    private fun sendShowExitIfNeeded(device: Device): Boolean {
+        if (device.mac !in _showModeEnabled.value) return false
+        _showModeEnabled.value = _showModeEnabled.value - device.mac
+        return try {
+            val ok = device.supportsControl() && device.showExit()
+            Log.i(TAG, "연결 해제 전 SHOW_EXIT ${device.mac} → $ok")
+            ok
+        } catch (e: Exception) {
+            Log.e(TAG, "연결 해제 전 SHOW_EXIT 실패 ${device.mac}: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * 공연 제어 SYSTEM_OFF(FF0A) — 복구 불가(꺼진 응원봉은 버튼으로만 켤 수 있다).
+     * 호출 전에 UI에서 사용자 확인을 반드시 거쳐야 한다(SDK는 확인 절차를 제공하지 않음).
+     * groupMask=0 → 중계기/Master를 통해 도달하는 모든 응원봉이 대상(연결된 기기 1대가 아님).
+     * 중계기 자신은 대상이 아니며, BLE 모드 Master는 꺼지면서 연결이 끊어진다.
+     */
+    @SuppressLint("MissingPermission")
+    fun systemOff(device: Device): Boolean {
+        if (_otaInProgress.value[device.mac] == true) {
+            Log.w(TAG, "systemOff 무시: OTA 진행 중 ${device.mac}")
+            return false
+        }
+        if (!device.supportsControl()) {
+            Log.w(TAG, "systemOff 무시: FF0A 미지원(펌웨어 < 2.200) ${device.mac}")
+            return false
+        }
+        val ok = device.systemOff()
+        Log.i(TAG, "systemOff 전송 ${device.mac} → $ok")
+        return ok
+    }
+
     private fun setBroadcastingSupported(mac: String, supported: Boolean) {
         _deviceDetails.value = _deviceDetails.value.toMutableMap().apply {
             this[mac]?.let { this[mac] = it.copy(supportsBroadcasting = supported) }
@@ -906,11 +987,21 @@ class DeviceViewModel @Inject constructor(
         batteryMonitoringJobs.clear()
 
         if (PermissionManager.hasBluetoothConnectPermission(context)) {
-            connectedDevices.values.forEach { device ->
-                try {
-                    disconnectDeviceUseCase(context, device)
-                } catch (e: Exception) {
-                    Log.e(TAG, "   Error disconnecting ${device.mac}: ${e.message}")
+            val handler = Handler(Looper.getMainLooper())
+            connectedDevices.values.toList().forEach { device ->
+                val disconnectNow = {
+                    try {
+                        disconnectDeviceUseCase(context, device)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "   Error disconnecting ${device.mac}: ${e.message}")
+                    }
+                }
+                // 앱 종료 시 공연 모드를 켠 기기는 SHOW_EXIT를 먼저 보내고, 전송이 나간 뒤에 끊는다.
+                // (viewModelScope는 이미 취소되었으므로 Handler로 지연한다)
+                if (sendShowExitIfNeeded(device)) {
+                    handler.postDelayed({ disconnectNow() }, SHOW_EXIT_DISCONNECT_DELAY_MS)
+                } else {
+                    disconnectNow()
                 }
             }
         }

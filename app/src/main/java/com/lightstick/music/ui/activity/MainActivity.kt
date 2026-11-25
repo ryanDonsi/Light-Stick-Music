@@ -88,6 +88,7 @@ import com.lightstick.music.ui.components.common.CustomToast
 import com.lightstick.music.ui.components.common.ToastState
 import com.lightstick.music.ui.components.common.rememberToastState
 import com.lightstick.music.ui.components.device.ConnectConfirmDialog
+import com.lightstick.music.ui.components.device.ControlUnsupportedDialog
 import com.lightstick.music.ui.components.device.DeviceInfoDialog
 import com.lightstick.music.ui.components.device.DisconnectConfirmDialog
 import com.lightstick.music.ui.components.device.EffectFolderGuideDialog
@@ -96,6 +97,7 @@ import com.lightstick.music.ui.components.device.GroupAssignDialog
 import com.lightstick.music.ui.components.device.OtaUpdateConfirmDialog
 import com.lightstick.music.ui.components.device.OtaVersionInfoDialog
 import com.lightstick.music.ui.components.device.ReconnectConfirmDialog
+import com.lightstick.music.ui.components.device.SystemOffConfirmDialog
 import com.lightstick.music.ui.screen.device.DeviceDetailScreen
 import com.lightstick.music.ui.screen.game.GameScreen
 
@@ -330,7 +332,8 @@ private fun DeviceListPane(
     onOpenDetail: ((String) -> Unit)? = null,
     onBack: (() -> Unit)? = null,
     showTopBar: Boolean = true,
-    folderDialogRequest: Int = 0
+    folderDialogRequest: Int = 0,
+    bleTuningRequest: Int = 0
 ) {
     val context = LocalContext.current
     var showConnectDialog by remember { mutableStateOf(false) }
@@ -352,6 +355,7 @@ private fun DeviceListPane(
         onBack = onBack,
         showTopBar = showTopBar,
         folderDialogRequest = folderDialogRequest,
+        bleTuningRequest = bleTuningRequest,
         onDeviceSelected = { device: Device ->
             if (!PermissionManager.hasBluetoothConnectPermission(context)) {
                 onShowToast("BLUETOOTH_CONNECT 권한 없음")
@@ -476,6 +480,11 @@ private fun DeviceDetailPane(
     var showOtaUpdateDialog by remember { mutableStateOf(false) }
     var showOtaLatestDialog by remember { mutableStateOf(false) }
     var showFindDialog by remember { mutableStateOf(false) }
+    var showSystemOffDialog by remember { mutableStateOf(false) }
+    var showControlUnsupportedDialog by remember { mutableStateOf(false) }
+    // FF0A(Control) 지원 여부는 조작 시점에 확인한다 (서비스 디스커버리 완료 여부에 따라 달라질 수 있음)
+    fun isControlSupported(): Boolean =
+        runCatching { device.supportsControl() }.getOrDefault(false)
     var showGroupAssignDialog by remember { mutableStateOf(false) }
 
     var otaDialogCurrentVersion by remember { mutableStateOf("") }
@@ -504,6 +513,7 @@ private fun DeviceDetailPane(
     val otaInProgressMap by deviceViewModel.otaInProgress.collectAsState()
     val otaProgressMap   by deviceViewModel.otaProgress.collectAsState()
     val isGroupEffectAllowed by deviceViewModel.isGroupEffectAllowed.collectAsState()
+    val showModeSet by deviceViewModel.showModeEnabled.collectAsState()
     val isOtaInProgress  = otaInProgressMap[deviceMac] == true
     val otaProgress      = otaProgressMap[deviceMac] ?: 0
 
@@ -548,6 +558,15 @@ private fun DeviceDetailPane(
         onGroupAssignClick = {
             showGroupAssignDialog = true
         },
+        showModeEnabled = deviceMac in showModeSet,
+        onShowModeToggle = { enabled ->
+            if (isControlSupported()) deviceViewModel.toggleShowMode(device, enabled)
+            else showControlUnsupportedDialog = true
+        },
+        onSystemOffClick = {
+            if (isControlSupported()) showSystemOffDialog = true
+            else showControlUnsupportedDialog = true
+        },
         onOtaUpdateClick = {
             otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
         },
@@ -584,6 +603,20 @@ private fun DeviceDetailPane(
             onConfirm = {
                 showFindDialog = false
                 deviceViewModel.sendFindEffect(device)
+            }
+        )
+    }
+
+    if (showControlUnsupportedDialog) {
+        ControlUnsupportedDialog(onDismiss = { showControlUnsupportedDialog = false })
+    }
+
+    if (showSystemOffDialog) {
+        SystemOffConfirmDialog(
+            onDismiss = { showSystemOffDialog = false },
+            onConfirm = {
+                showSystemOffDialog = false
+                deviceViewModel.systemOff(device)
             }
         )
     }
@@ -730,13 +763,15 @@ fun AppNavigation(
                 // 어느 기기의 상세인지는 이 화면의 상태로 들고 있어서 목록의 스크롤·대화상자가 유지된다.
                 var detailMac by rememberSaveable { mutableStateOf<String?>(null) }
                 var folderRequest by remember { mutableIntStateOf(0) }
+                var bleTuningRequest by remember { mutableIntStateOf(0) }
                 TabletFullScreen {
                     Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
                         // 전체 폭 타이틀 바 하나: [←] 디바이스 설정 ……… [⋮]  (목록·상세는 각자의 타이틀 바를 그리지 않는다)
                         TabletDeviceSettingsTitleBar(
                             // 돌아가기 → 메인 화면. 펌웨어 업데이트 중에는 이동하지 않는다
                             onBack = { if (!isAnyOtaInProgress) navController.popBackStack() },
-                            onEffectFolderSetting = { folderRequest++ }
+                            onEffectFolderSetting = { folderRequest++ },
+                            onBleTuning = { bleTuningRequest++ }
                         )
                         Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
                             Box(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
@@ -748,7 +783,8 @@ fun AppNavigation(
                                     tablet = true,
                                     onOpenDetail = { detailMac = it },
                                     showTopBar = false,
-                                    folderDialogRequest = folderRequest
+                                    folderDialogRequest = folderRequest,
+                                    bleTuningRequest = bleTuningRequest
                                 )
                             }
                             Box(

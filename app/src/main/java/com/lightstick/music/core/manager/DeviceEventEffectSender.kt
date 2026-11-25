@@ -82,13 +82,10 @@ object DeviceEventEffectSender {
             return
         }
 
+        // 이벤트 이펙트는 타임라인/수동 이펙트가 없을 때만 보낸다(위 isEffectActive 가드).
+        // 따라서 여기서 타임라인을 pause/resume 할 필요가 없고, 해서도 안 된다 — SDK 의 pauseTimeline()은
+        // 신호가 닿는 모든 응원봉에 Control PAUSE 를 방송한다(BLE 모드 FF09=0 이어도 전파됨).
         val appContext = context.applicationContext
-        val wasTimelineActive = EffectEngineController.isTimelineActive()
-
-        if (wasTimelineActive) {
-            EffectEngineController.pauseEffects(appContext)
-            Log.d(TAG, "[SMS] 자동 타임라인 일시정지")
-        }
 
         val payload = LSEffectPayload.Effects.blink(
             period = 10,
@@ -109,10 +106,6 @@ object DeviceEventEffectSender {
                 // 보내 "블링크가 기기에 영구히 남는" 상태를 방지한다.
                 val offPayload = LSEffectPayload.Effects.off()
                 sendToDevices(context = appContext, eventTag = "SMS_END", payload = offPayload, targetMacs = targetMacs)
-            }
-            if (wasTimelineActive) {
-                EffectEngineController.resumeEffects(appContext)
-                Log.d(TAG, "[SMS] 자동 타임라인 재개")
             }
         }
     }

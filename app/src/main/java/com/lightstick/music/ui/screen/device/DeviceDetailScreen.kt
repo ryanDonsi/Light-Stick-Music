@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.lightstick.music.BuildConfig
 import com.lightstick.music.data.model.DeviceDetailInfo
 import com.lightstick.music.ui.components.common.BaseButton
 import com.lightstick.music.ui.components.common.ButtonStyle
@@ -45,6 +46,11 @@ fun DeviceDetailScreen(
     onFindClick: () -> Unit,
     isGroupEffectAllowed: Boolean,
     onGroupAssignClick: () -> Unit,
+    /** FF0A(Control) 미지원 기기에서는 호출 쪽에서 경고를 띄우고 동작을 막는다 */
+    onSystemOffClick: () -> Unit,
+    /** 공연 모드(SHOW_ENTER/SHOW_EXIT) */
+    showModeEnabled: Boolean,
+    onShowModeToggle: (Boolean) -> Unit,
     onOtaUpdateClick: () -> Unit,
     onAbortOta: () -> Unit,
     modifier: Modifier = Modifier,
@@ -128,31 +134,34 @@ fun DeviceDetailScreen(
                         color = MaterialTheme.customColors.divider
                     )
 
-                    SettingToggleItem(
-                        label = "CALL Event",
-                        description = "전화벨이 울릴 때 특정 이팩트를 전달",
-                        checked = callEventEnabled,
-                        onCheckedChange = onCallEventToggle
-                    )
+                    // 알림 기능(CALL/SMS Event)은 debug 빌드에서만 노출한다 (release/releaseTest 는 알림 접근 서비스를 선언하지 않아 동작하지 않음)
+                    if (BuildConfig.DEBUG) {
+                        SettingToggleItem(
+                            label = "CALL Event",
+                            description = "전화벨이 울릴 때 특정 이팩트를 전달",
+                            checked = callEventEnabled,
+                            onCheckedChange = onCallEventToggle
+                        )
 
-                    HorizontalDivider(
-                        modifier = Modifier.fillMaxWidth(),
-                        thickness = 1.dp,
-                        color = MaterialTheme.customColors.divider
-                    )
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            thickness = 1.dp,
+                            color = MaterialTheme.customColors.divider
+                        )
 
-                    SettingToggleItem(
-                        label = "SMS Event",
-                        description = "SMS 수신 시 특정 이팩트를 전달",
-                        checked = smsEventEnabled,
-                        onCheckedChange = onSmsEventToggle
-                    )
+                        SettingToggleItem(
+                            label = "SMS Event",
+                            description = "SMS 수신 시 특정 이팩트를 전달",
+                            checked = smsEventEnabled,
+                            onCheckedChange = onSmsEventToggle
+                        )
 
-                    HorizontalDivider(
-                        modifier = Modifier.fillMaxWidth(),
-                        thickness = 1.dp,
-                        color = MaterialTheme.customColors.divider
-                    )
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            thickness = 1.dp,
+                            color = MaterialTheme.customColors.divider
+                        )
+                    }
 
                     // BLE 모드 응원봉(FF09 지원)에서만 보인다. 중계기·구형 펌웨어(미지원)에서는 메뉴 자체를 숨긴다.
                     if (broadcastingSupported) {
@@ -190,6 +199,34 @@ fun DeviceDetailScreen(
                             "BLE Only 모드에서는 지원하지 않는 기능입니다",
                         enabled = isGroupEffectAllowed,
                         onClick = onGroupAssignClick
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.fillMaxWidth(),
+                        thickness = 1.dp,
+                        color = MaterialTheme.customColors.divider
+                    )
+
+                    // FF0A(펌웨어 2.200+) 지원 기기에서만 동작한다. 항상 보이지만 미지원 기기는 경고 후 막는다.
+                    SettingToggleItem(
+                        label = "공연 모드",
+                        description = "신호가 닿는 모든 응원봉의 버튼 입력을 제한 (전원 버튼 제외)",
+                        checked = showModeEnabled,
+                        onCheckedChange = onShowModeToggle
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.fillMaxWidth(),
+                        thickness = 1.dp,
+                        color = MaterialTheme.customColors.divider
+                    )
+
+                    // 복구 불가 동작이라 확인 다이얼로그를 거친다. 미지원 기기는 그 전에 경고 후 막는다.
+                    SettingLabel(
+                        label = "SYSTEM OFF",
+                        description = "신호가 닿는 모든 응원봉의 전원을 끔 (앱에서 다시 켤 수 없음)",
+                        enabled = !isOtaInProgress,
+                        onClick = onSystemOffClick
                     )
 
                     HorizontalDivider(

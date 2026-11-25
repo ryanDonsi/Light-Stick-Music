@@ -324,6 +324,30 @@ object EffectEngineController {
         }
     }
 
+    /**
+     * [positionMs] 시점에 유효한 타임라인 이펙트를 반환한다. 없으면 null.
+     * - 마지막으로 시작된(timestampMs <= positionMs) 프레임을 대상으로 한다.
+     * - SDK 타임라인 전송은 프레임의 duration을 항상 0(다음 프레임까지 유지)으로 덮어쓰므로
+     *   duration 만료 판단은 하지 않는다. 재전송 때도 같은 규칙을 맞춘다([resendActiveEffectBeforeResume]).
+     */
+    fun activeTimelineEffectAt(positionMs: Long): LSEffectPayload? =
+        cachedTimeline.lastOrNull { it.timestampMs <= positionMs }?.payload
+
+    /**
+     * 재개 직전에 호출한다. 현재 위치에 해당하는 이펙트가 있으면 새로 전송하고, 없으면 아무것도 하지 않는다.
+     * 반드시 [resumeEffects]보다 먼저 호출해야 한다 — sendEffect()는 SDK 내부에서 타임라인 전송을
+     * 억제하는데, resumeTimeline()이 그 억제를 해제하고 현재 프레임을 재전송하기 때문이다.
+     */
+    fun resendActiveEffectBeforeResume(context: Context, positionMs: Long): Boolean {
+        val payload = activeTimelineEffectAt(positionMs) ?: run {
+            Log.d(TAG, "[resume] posMs=$positionMs 해당 이펙트 없음 → resume만")
+            return false
+        }
+        Log.d(TAG, "[resume] posMs=$positionMs 해당 이펙트 재전송 type=${payload.effectType}")
+        // SDK 타임라인 프레임과 동일하게 duration=0으로 보낸다(sendEffect는 duration을 덮어쓰지 않음).
+        return sendEffect(context, payload.copy(duration = 0), TransmissionSource.TIMELINE_EFFECT)
+    }
+
     fun pauseEffects(context: Context) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
         resolveAllDevices(context).forEach {
