@@ -365,6 +365,9 @@ class DeviceViewModel @Inject constructor(
      * onFound 콜백에서 호출됩니다.
      */
     private fun applyScannedDevice(device: Device) {
+        // 스캔 결과마다 RSSI 로 다시 정렬하면 카드가 계속 자리를 바꿔 다른 기기를 누를 수 있다.
+        // 이미 있는 기기는 제자리에서 값만 바꾸고, 새 기기는 끝에 붙인다(발견 순서 유지).
+        // 정렬은 연결 상태가 바뀔 때만 한다([updateConnectionState]).
         val current = _devices.value.toMutableList()
         val idx = current.indexOfFirst { it.mac == device.mac }
         if (idx >= 0) {
@@ -372,10 +375,7 @@ class DeviceViewModel @Inject constructor(
         } else {
             current.add(device)
         }
-        _devices.value = current.sortedWith(
-            compareByDescending<Device> { _connectionStates.value[it.mac] ?: false }
-                .thenByDescending { it.rssi ?: -100 }
-        )
+        _devices.value = current
     }
 
     /**
