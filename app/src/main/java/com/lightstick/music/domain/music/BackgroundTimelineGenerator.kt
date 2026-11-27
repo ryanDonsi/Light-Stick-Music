@@ -60,7 +60,7 @@ object BackgroundTimelineGenerator {
         val appContext = context.applicationContext
         job = scope.launch {
             try {
-                PrecomputeAutoTimelinesUseCase()(
+                PrecomputeAutoTimelinesUseCase().invoke(
                     context     = appContext,
                     musicFiles  = musicFiles,
                     maxParallel = MAX_PARALLEL,
