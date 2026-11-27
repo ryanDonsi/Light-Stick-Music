@@ -354,8 +354,8 @@ class MusicViewModel @Inject constructor(
         try {
             retriever.setDataSource(path)
             art = retriever.embeddedPicture?.let { bytes ->
-                val cacheFile = File(context.cacheDir, "${title.hashCode()}.jpg")
-                cacheFile.writeBytes(bytes)
+                val cacheFile = FileHelper.albumArtCacheFile(context, path)
+                if (!cacheFile.exists() || cacheFile.length() != bytes.size.toLong()) cacheFile.writeBytes(bytes)
                 cacheFile.absolutePath
             }
             duration = retriever.extractMetadata(

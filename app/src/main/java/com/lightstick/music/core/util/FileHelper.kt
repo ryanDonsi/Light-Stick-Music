@@ -207,6 +207,15 @@ object FileHelper {
     }
 
     /**
+     * 곡 경로별 앨범아트 캐시 파일. 예전에는 제목 해시를 파일명으로 써서 제목이 같은 곡이
+     * 서로의 앨범아트를 덮어썼다. 경로 + 파일 크기로 구분한다.
+     */
+    fun albumArtCacheFile(context: Context, audioPath: String): File {
+        val size = File(audioPath).length()
+        return File(context.cacheDir, "art_${Integer.toHexString(audioPath.hashCode())}_$size.jpg")
+    }
+
+    /**
      * 음악 스캔 허용 디렉토리 목록 (canonical path).
      * MediaStore 쿼리 결과와 파일시스템 탐색 양쪽에서 동일하게 사용한다.
      */

@@ -257,8 +257,8 @@ class SplashViewModel @Inject constructor(
                 try {
                     retriever.setDataSource(entry.path)
                     art = retriever.embeddedPicture?.let {
-                        val file = File(context.cacheDir, "${entry.title.hashCode()}.jpg")
-                        file.writeBytes(it)
+                        val file = FileHelper.albumArtCacheFile(context, entry.path)
+                        if (!file.exists() || file.length() != it.size.toLong()) file.writeBytes(it)
                         file.absolutePath
                     }
                     val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
