@@ -49,6 +49,35 @@ object MusicIdCache {
     /** 실패하면 null. */
     fun getOrNull(file: File): Int? = runCatching { get(file) }.getOrNull()
 
+    /**
+     * 더 이상 맞지 않는 항목(파일이 없어졌거나 크기·수정 시각이 바뀐 경로)을 지우고 디스크 파일을 다시 쓴다.
+     * 파일 존재 확인을 하므로 IO 스레드에서 부른다.
+     */
+    fun pruneStale() {
+        ensureLoaded()
+        val f = store
+        synchronized(lock) {
+            val before = cache.size
+            cache.keys.removeAll { key ->
+                val file = File(key.path)
+                !file.exists() || file.length() != key.size || file.lastModified() != key.modified
+            }
+            val removed = before - cache.size
+            if (f != null && (removed > 0 || f.exists())) rewrite(f)
+            if (removed > 0) Log.d(TAG, "pruned $removed stale entries")
+        }
+    }
+
+    private fun rewrite(f: File) {
+        runCatching {
+            val tmp = File(f.parentFile, "$FILE_NAME.tmp")
+            tmp.bufferedWriter().use { w ->
+                cache.forEach { (k, id) -> w.write("${k.path}\t${k.size}\t${k.modified}\t$id\n") }
+            }
+            tmp.renameTo(f)
+        }.onFailure { Log.w(TAG, "rewrite failed: ${it.message}") }
+    }
+
     private fun ensureLoaded() {
         if (loaded) return
         synchronized(lock) {

@@ -101,6 +101,8 @@ object BackgroundTimelineGenerator {
                         }
                     }
                 )
+                // 생성이 끝나 목록 곡들의 musicId 가 모두 캐시에 있으니 여기서 정리한다
+                AutoTimelineCleanup.run(appContext, musicFiles)
             } catch (t: Throwable) {
                 Log.e(TAG, "generation failed: ${t.message}")
             } finally {
