@@ -132,7 +132,7 @@ class MusicViewModel @Inject constructor(
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_READY) publishPosition()
-            if (state == Player.STATE_ENDED) playNext()
+            if (state == Player.STATE_ENDED) onTrackEnded()
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -600,14 +600,41 @@ class MusicViewModel @Inject constructor(
         return newState
     }
 
+    /** 현재 곡의 목록 위치. 재스캔으로 MusicItem 이 새로 만들어져도 찾도록 경로로 비교한다. */
+    private fun currentIndex(): Int {
+        val path = _nowPlaying.value?.filePath ?: return -1
+        return _musicList.value.indexOfFirst { it.filePath == path }
+    }
+
     fun playNext() {
-        val index = _musicList.value.indexOfFirst { it == _nowPlaying.value }
+        val index = currentIndex()
+        if (index < 0) return  // 현재 곡이 목록에 없으면 첫 곡으로 튀지 않는다
         _musicList.value.getOrNull(index + 1)?.let { playMusic(it) }
     }
 
     fun playPrevious() {
-        val index = _musicList.value.indexOfFirst { it == _nowPlaying.value }
+        val index = currentIndex()
+        if (index < 0) return
         _musicList.value.getOrNull(index - 1)?.let { playMusic(it) }
+    }
+
+    /**
+     * 곡이 끝났을 때. 다음 곡이 있으면 이어서 재생하고, 마지막 곡이면 재생 상태를 끄고
+     * 타임라인을 멈춘다(예전에는 isPlaying=true 로 남아 화면/알림이 재생 중으로 보였다).
+     */
+    private fun onTrackEnded() {
+        val index = currentIndex()
+        val next = if (index >= 0) _musicList.value.getOrNull(index + 1) else null
+        if (next != null) {
+            playMusic(next)
+            return
+        }
+        _isPlaying.value = false
+        if (_isAutoModeEnabled.value) EffectEngineController.pauseEffects(context)
+        player.pause()
+        player.seekTo(0)
+        _currentPosition.value = 0
+        updateNotificationProgress()
     }
 
     fun seekTo(position: Long) {
