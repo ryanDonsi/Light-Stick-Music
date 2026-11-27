@@ -30,6 +30,7 @@ import com.lightstick.music.domain.music.sectiondetector.meta.SectionMetaStorage
 import com.lightstick.music.domain.music.FftAudioProcessor
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.domain.music.MusicIdCache
+import com.lightstick.music.domain.music.BackgroundTimelineGenerator
 import com.lightstick.music.domain.music.createFftPlayer
 import com.lightstick.music.domain.usecase.device.ObserveDeviceStatesUseCase
 import com.lightstick.music.domain.usecase.music.HandleSeekUseCase
@@ -138,6 +139,10 @@ class MusicViewModel @Inject constructor(
     private val _duration = MutableStateFlow(0)
     val duration: StateFlow<Int> = _duration.asStateFlow()
 
+    /** 백그라운드 자동 타임라인 생성 진행 상태 (음악 목록 상단 표시용) */
+    val autoTimelineProgress: StateFlow<BackgroundTimelineGenerator.Progress> =
+        BackgroundTimelineGenerator.progress
+
     val latestTransmission: StateFlow<BleTransmissionEvent?> =
         BleTransmissionMonitor.latestTransmission
 
@@ -218,6 +223,11 @@ class MusicViewModel @Inject constructor(
         }
 
         viewModelScope.launch { monitorPosition() }
+
+        // 백그라운드에서 자동 타임라인이 만들어지면, 지금 FFT 로 재생 중인 그 곡에 바로 적용한다
+        viewModelScope.launch {
+            BackgroundTimelineGenerator.completed.collect { path -> onAutoTimelineGenerated(path) }
+        }
 
         // 곡 재생 중 새로 연결된 기기에도 현재 타임라인을 실어 준다
         viewModelScope.launch {
@@ -354,6 +364,9 @@ class MusicViewModel @Inject constructor(
             lastScanKey = scanKey
             Log.d(TAG, "loadMusic: done — ${musicItems.count { it.hasEffect }}/${musicItems.size} songs have EFX")
 
+            // 앱 실행 중 새로 추가된 곡도 자동 타임라인을 만든다(이미 만든 곡은 건너뜀, 이미 돌고 있으면 무시)
+            BackgroundTimelineGenerator.start(context, musicItems.map { File(it.filePath) })
+
             // 재생 중인 곡의 hasEffect도 함께 갱신
             val playing = _nowPlaying.value
             if (playing != null) {
@@ -468,6 +481,20 @@ class MusicViewModel @Inject constructor(
             } else {
                 Log.w(TAG, "자동 타임라인 없음 (v=$ver) → FFT 폴백")
             }
+        }
+    }
+
+    private suspend fun onAutoTimelineGenerated(path: String) {
+        val current = _nowPlaying.value ?: return
+        if (current.filePath != path || !_isAutoModeEnabled.value) return
+        if (EffectEngineController.isTimelineActive()) return // EFX 등 이미 타임라인으로 재생 중
+
+        Log.d(TAG, "자동 타임라인 생성 완료 → 재생 중인 곡에 적용: $path")
+        val musicFile = File(path)
+        loadTimelineForCurrentTrack(musicFile)
+        loadSectionMeta(musicFile)
+        if (player.isPlaying) {
+            updatePlaybackPositionUseCase(context, player.currentPosition).logFailure("auto timeline apply sync")
         }
     }
 

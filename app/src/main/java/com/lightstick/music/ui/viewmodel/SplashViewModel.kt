@@ -16,7 +16,7 @@ import com.lightstick.music.data.model.InitializationState
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.data.model.SplashState
 import com.lightstick.music.domain.music.MusicEffectManager
-import com.lightstick.music.domain.usecase.music.PrecomputeAutoTimelinesUseCase
+import com.lightstick.music.domain.music.BackgroundTimelineGenerator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
@@ -36,7 +36,6 @@ private const val MEDIA_SCAN_TIMEOUT_MS = 10_000L
 @HiltViewModel
 class SplashViewModel @Inject constructor(
     application: Application,
-    private val precomputeAutoTimelinesUseCase: PrecomputeAutoTimelinesUseCase
 ) : AndroidViewModel(application) {
 
     private val context = application.applicationContext
@@ -103,25 +102,9 @@ class SplashViewModel @Inject constructor(
 
                 val musicFiles = matchedList.map { File(it.filePath) }
 
-                withContext(Dispatchers.Main.immediate) {
-                    val st = InitializationState.PrecomputingTimelines(0, 0)
-                    _state.value = st
-                    _splashState.value = SplashState.Initializing(st)
-                }
-
-                withContext(Dispatchers.IO) {
-                    precomputeAutoTimelinesUseCase(
-                        context = context,
-                        musicFiles = musicFiles,
-                        onProgress = { processed, total2, fileName ->
-                            viewModelScope.launch(Dispatchers.Main.immediate) {
-                                val st = InitializationState.PrecomputingTimelines(processed, total2, fileName)
-                                _state.value = st
-                                _splashState.value = SplashState.Initializing(st)
-                            }
-                        }
-                    )
-                }
+                // 자동 타임라인 생성은 앱 전역 범위에서 이어서 한다 — 스플래시는 기다리지 않는다.
+                // 아직 타임라인이 없는 곡은 FFT 연출로 재생되고, 생성되면 재생 중 곡에 바로 적용된다.
+                BackgroundTimelineGenerator.start(context, musicFiles)
 
                 val duration = System.currentTimeMillis() - startTime
 

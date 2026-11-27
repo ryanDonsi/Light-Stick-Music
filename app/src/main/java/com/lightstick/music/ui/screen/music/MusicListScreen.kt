@@ -37,6 +37,7 @@ fun MusicListScreen(
 ) {
     val musicList         by viewModel.musicList.collectAsState()
     val isMusicLoading    by viewModel.isMusicLoading.collectAsState()
+    val autoTimeline      by viewModel.autoTimelineProgress.collectAsState()
     val nowPlaying        by viewModel.nowPlaying.collectAsState()
     val isAutoModeEnabled by viewModel.isAutoModeEnabled.collectAsState()
     // 전송마다 목록 전체가 재구성되지 않도록 State 로만 받고, 재생 중인 카드 안에서만 읽는다(C1)
@@ -90,6 +91,16 @@ fun MusicListScreen(
                         .padding(horizontal = 16.dp, vertical = if (embedded) 12.dp else 24.dp),
                     verticalArrangement = Arrangement.Top
                 ) {
+                    // 자동 연출(타임라인) 백그라운드 생성 진행 표시 — 끝나면 사라진다
+                    if (autoTimeline.running && autoTimeline.total > 0) {
+                        Text(
+                            text     = "자동 연출 준비 중 ${autoTimeline.processed}/${autoTimeline.total}",
+                            style    = MaterialTheme.typography.labelMedium,
+                            color    = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+
                     if (musicList.isEmpty() && isMusicLoading) {
                         Box(
                             modifier         = Modifier.fillMaxSize(),

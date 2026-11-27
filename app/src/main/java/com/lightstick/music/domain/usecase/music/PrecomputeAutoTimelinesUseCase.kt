@@ -70,6 +70,10 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
     suspend operator fun invoke(
         context: Context,
         musicFiles: List<File>,
+        /** 동시 처리 수 상한. 실제 값은 이 값과 기기 힙 기준 값 중 작은 쪽 */
+        maxParallel: Int = PARALLEL_COUNT,
+        /** 곡 하나가 끝날 때마다(성공 여부와 함께) 호출 — 재생 중인 곡이면 바로 적용하기 위함 */
+        onFileDone: (file: File, created: Boolean) -> Unit = { _, _ -> },
         onProgress: (processed: Int, total: Int, currentFileName: String) -> Unit
     ) {
         val version = AutoTimelineConfig.VERSION
@@ -111,7 +115,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         val created   = AtomicInteger(0)
         val failed    = AtomicInteger(0)
 
-        val parallel  = parallelCountFor(context)
+        val parallel  = minOf(parallelCountFor(context), maxParallel.coerceAtLeast(1))
         Log.d(TAG, "parallel=$parallel")
         val semaphore = Semaphore(parallel)
 
@@ -125,9 +129,11 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                         val musicId = MusicIdCache.getOrNull(file)
                         if (musicId == null) {
                             failed.incrementAndGet()
+                            onFileDone(file, false)
                             return@withPermit
                         }
 
+                        var ok = false
                         try {
                             val (frames, sections) = if (generator is AutoTimelineGeneratorWithSections) {
                                 generator.generateWithSections(file.absolutePath, musicId, paletteSize)
@@ -144,6 +150,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                                     sectionStorage?.save(context, musicId, sections)
                                 }
                                 created.incrementAndGet()
+                                ok = true
                             }
                         } catch (t: Throwable) {
                             failed.incrementAndGet()
@@ -152,6 +159,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                             // 각 파일 처리 완료 후 즉시 GC: V3의 메모리 누수 방지
                             Runtime.getRuntime().gc()
                         }
+                        onFileDone(file, ok)
                     }
                 }
             }.awaitAll()
