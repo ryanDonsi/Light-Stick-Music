@@ -9,6 +9,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.lightstick.music.core.util.TimeFormatter
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
+import com.lightstick.music.domain.music.BackgroundTimelineGenerator.FileState
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
 
@@ -42,8 +47,12 @@ fun MusicListItemCard(
     isPlaying: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    latestTransmission: () -> BleTransmissionEvent? = { null }
+    latestTransmission: () -> BleTransmissionEvent? = { null },
+    /** 자동 연출 생성 상태. 이 카드의 상태가 바뀔 때만 다시 그리도록 lambda 로 받는다 */
+    autoGenState: () -> FileState? = { null }
 ) {
+    val genState by remember(musicItem.filePath) { derivedStateOf(autoGenState) }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -148,14 +157,23 @@ fun MusicListItemCard(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Text(
-                    text     = musicItem.artist,
-                    style    = MaterialTheme.typography.bodyMedium,
-                    fontSize = 13.sp,
-                    color    = MaterialTheme.customColors.onSurface.copy(alpha = 0.7f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                // 가수 줄 높이(20sp)보다 낮은 16dp 배지라 붙거나 사라져도 줄 높이가 그대로다.
+                // 가수명은 배지에 자리를 내주고 줄임표로 잘린다(시작 위치는 고정)
+                Row(
+                    verticalAlignment     = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text     = musicItem.artist,
+                        style    = MaterialTheme.typography.bodyMedium,
+                        fontSize = 13.sp,
+                        color    = MaterialTheme.customColors.onSurface.copy(alpha = 0.7f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    genState?.let { AutoGenBadge(it) }
+                }
             }
 
             Spacer(modifier = Modifier.width(16.dp))
@@ -184,3 +202,36 @@ fun MusicListItemCard(
         }
     }
 }
+
+/**
+ * 가수 줄 옆 자동 연출 상태 배지. 두 문구 중 긴 쪽 폭을 항상 차지해,
+ * 대기 → 생성 중으로 바뀔 때 배지 폭이 달라지지 않는다.
+ */
+@Composable
+private fun AutoGenBadge(state: FileState) {
+    val generating = state == FileState.Generating
+    val colors = MaterialTheme.customColors
+    Surface(
+        shape    = RoundedCornerShape(4.dp),
+        color    = if (generating) colors.primary.copy(alpha = 0.25f) else colors.onSurface.copy(alpha = 0.10f),
+        modifier = Modifier.height(16.dp)
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier         = Modifier.padding(horizontal = 4.dp)
+        ) {
+            val style = MaterialTheme.customTextStyles.badgeSmall
+            // 폭 고정용(보이지 않음)
+            Text(text = WAIT_LABEL, style = style, maxLines = 1, modifier = Modifier.alpha(0f))
+            Text(
+                text     = if (generating) GEN_LABEL else WAIT_LABEL,
+                style    = style,
+                maxLines = 1,
+                color    = if (generating) colors.onSurface else colors.textTertiary
+            )
+        }
+    }
+}
+
+private const val GEN_LABEL = "이펙트 생성 중"
+private const val WAIT_LABEL = "이펙트 생성 대기 중"

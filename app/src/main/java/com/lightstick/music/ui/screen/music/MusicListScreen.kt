@@ -37,7 +37,9 @@ fun MusicListScreen(
 ) {
     val musicList         by viewModel.musicList.collectAsState()
     val isMusicLoading    by viewModel.isMusicLoading.collectAsState()
-    val autoTimeline      by viewModel.autoTimelineProgress.collectAsState()
+    // 카드별 배지는 State 로 넘겨 해당 카드 안에서만 읽는다(진행 갱신마다 목록 전체가 재구성되지 않게)
+    val autoTimelineState = viewModel.autoTimelineProgress.collectAsState()
+    val autoTimeline      by autoTimelineState
     val nowPlaying        by viewModel.nowPlaying.collectAsState()
     val isAutoModeEnabled by viewModel.isAutoModeEnabled.collectAsState()
     // 전송마다 목록 전체가 재구성되지 않도록 State 로만 받고, 재생 중인 카드 안에서만 읽는다(C1)
@@ -130,7 +132,8 @@ fun MusicListScreen(
                                     musicItem          = item,
                                     isPlaying          = isPlaying,
                                     onClick            = { viewModel.playMusic(item) },
-                                    latestTransmission = { if (isPlaying) latestTransmissionState.value else null }
+                                    latestTransmission = { if (isPlaying) latestTransmissionState.value else null },
+                                    autoGenState       = { autoTimelineState.value.stateOf(item.filePath) }
                                 )
                             }
                         }

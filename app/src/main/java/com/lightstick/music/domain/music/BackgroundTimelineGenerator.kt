@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -37,8 +38,26 @@ object BackgroundTimelineGenerator {
         val running: Boolean = false,
         val processed: Int = 0,
         val total: Int = 0,
-        val currentName: String = ""
-    )
+        val currentName: String = "",
+        /** 아직 차례가 오지 않은 곡의 절대 경로 */
+        val waiting: Set<String> = emptySet(),
+        /** 지금 만들고 있는 곡의 절대 경로 */
+        val active: Set<String> = emptySet()
+    ) {
+        /** [path] 곡의 상태. 생성 대상이 아니거나 끝났으면 null */
+        fun stateOf(path: String): FileState? =
+            when (path) {
+                in active  -> FileState.Generating
+                in waiting -> FileState.Waiting
+                else       -> null
+            }
+    }
+
+    /** 곡 하나의 생성 상태 (목록 카드 표시용) */
+    sealed interface FileState {
+        data object Waiting : FileState
+        data object Generating : FileState
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -64,17 +83,30 @@ object BackgroundTimelineGenerator {
                     context     = appContext,
                     musicFiles  = musicFiles,
                     maxParallel = MAX_PARALLEL,
+                    onQueue     = { files ->
+                        _progress.update { it.copy(waiting = files.mapTo(HashSet()) { f -> f.absolutePath }) }
+                    },
+                    onFileStart = { file ->
+                        val path = file.absolutePath
+                        _progress.update { it.copy(waiting = it.waiting - path, active = it.active + path) }
+                    },
                     onFileDone  = { file, created ->
-                        if (created) _completed.tryEmit(file.absolutePath)
+                        val path = file.absolutePath
+                        _progress.update { it.copy(waiting = it.waiting - path, active = it.active - path) }
+                        if (created) _completed.tryEmit(path)
                     },
                     onProgress  = { processed, total, name ->
-                        _progress.value = Progress(running = true, processed, total, name)
+                        _progress.update {
+                            it.copy(running = true, processed = processed, total = total, currentName = name)
+                        }
                     }
                 )
             } catch (t: Throwable) {
                 Log.e(TAG, "generation failed: ${t.message}")
             } finally {
-                _progress.value = _progress.value.copy(running = false, currentName = "")
+                _progress.update {
+                    it.copy(running = false, currentName = "", waiting = emptySet(), active = emptySet())
+                }
             }
         }
     }

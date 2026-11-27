@@ -74,6 +74,10 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         maxParallel: Int = PARALLEL_COUNT,
         /** 곡 하나가 끝날 때마다(성공 여부와 함께) 호출 — 재생 중인 곡이면 바로 적용하기 위함 */
         onFileDone: (file: File, created: Boolean) -> Unit = { _, _ -> },
+        /** 실제로 만들 곡 목록이 정해지면 한 번 호출 (이미 있는 곡은 빠진 목록) */
+        onQueue: (files: List<File>) -> Unit = {},
+        /** 곡 하나의 생성을 시작할 때 호출 */
+        onFileStart: (file: File) -> Unit = {},
         onProgress: (processed: Int, total: Int, currentFileName: String) -> Unit
     ) {
         val version = AutoTimelineConfig.VERSION
@@ -107,6 +111,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         }
 
         val total     = filesToProcess.size
+        onQueue(filesToProcess)
         onProgress(0, total, "")  // 정확한 total을 UI에 즉시 전달
 
         if (filesToProcess.isEmpty()) return
@@ -125,6 +130,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                     semaphore.withPermit {
                         val p = processed.incrementAndGet()
                         onProgress(p, total, file.nameWithoutExtension)
+                        onFileStart(file)
 
                         val musicId = MusicIdCache.getOrNull(file)
                         if (musicId == null) {
