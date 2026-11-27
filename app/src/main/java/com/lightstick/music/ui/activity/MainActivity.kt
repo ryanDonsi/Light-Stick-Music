@@ -104,10 +104,34 @@ import com.lightstick.music.ui.screen.game.GameScreen
 @AndroidEntryPoint
 @UnstableApi
 class MainActivity : ComponentActivity() {
+    companion object {
+        /** 알림 → 특정 화면으로 이동할 때 쓰는 extra 키 (값: "music") */
+        const val EXTRA_NAVIGATE_TO = "navigateTo"
+    }
+
     private val deviceViewModel: DeviceViewModel by viewModels()
     private val musicViewModel: MusicViewModel by viewModels()
     private val effectViewModel: EffectViewModel by viewModels()
     private val gameViewModel: GameViewModel by viewModels()
+
+    /**
+     * 알림 등에서 들어온 화면 이동 요청. 앱이 떠 있을 때(singleTop) 들어온 intent 는 onNewIntent 로만 오므로
+     * 처음 intent 와 이후 intent 를 모두 여기로 모은다. 같은 화면을 다시 요청해도 반응하도록 순번을 붙인다.
+     */
+    private var navigateRequest by mutableStateOf<Pair<String, Long>?>(null)
+    private var navigateRequestSeq = 0L
+
+    private fun consumeNavigateExtra(intent: Intent?) {
+        val target = intent?.getStringExtra(EXTRA_NAVIGATE_TO) ?: return
+        intent.removeExtra(EXTRA_NAVIGATE_TO) // 화면 회전 등으로 재생성될 때 다시 이동하지 않도록
+        navigateRequest = target to ++navigateRequestSeq
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeNavigateExtra(intent)
+    }
 
     /** setContent{} 안에서 rememberToastState()로 채워짐. Compose 밖(런처 콜백)에서 토스트를 띄우기 위한 참조. */
     private var toastState: ToastState? = null
@@ -156,6 +180,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyDeviceOrientation()
+        consumeNavigateExtra(intent)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
@@ -220,10 +245,10 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                val navigateTo = intent?.getStringExtra("navigateTo")
+                val navRequest = navigateRequest
 
-                LaunchedEffect(navigateTo) {
-                    if (navigateTo == "music") {
+                LaunchedEffect(navRequest) {
+                    if (navRequest?.first == "music") {
                         navController.navigate("music") {
                             popUpTo(0)
                             launchSingleTop = true

@@ -161,7 +161,7 @@ class MusicEffectService : Service() {
     @UnstableApi
     private fun createContentIntent(): PendingIntent {
         val intent = Intent(this, MainActivity::class.java).apply {
-            putExtra("navigateTo", "music")
+            putExtra(MainActivity.EXTRA_NAVIGATE_TO, "music")
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         return PendingIntent.getActivity(
