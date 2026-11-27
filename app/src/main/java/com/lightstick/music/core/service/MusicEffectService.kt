@@ -44,6 +44,8 @@ class MusicEffectService : Service() {
         const val ACTION_NEXT = "ACTION_NEXT"
         const val ACTION_PREV = "ACTION_PREV"
         const val ACTION_SEEK = "ACTION_SEEK"
+        const val ACTION_PLAY = "ACTION_PLAY"
+        const val ACTION_PAUSE = "ACTION_PAUSE"
 
         /** 서비스가 살아 있는지 — 살아 있으면 알림 갱신은 startService 로 보낸다 ([ServiceController]) */
         @Volatile var isRunning: Boolean = false
@@ -193,8 +195,9 @@ class MusicEffectService : Service() {
 
     private fun setupMediaSessionCallback() {
         mediaSession.setCallback(object : MediaSession.Callback() {
-            override fun onPlay() { sendActionToReceiver(ACTION_PLAY_PAUSE) }
-            override fun onPause() { sendActionToReceiver(ACTION_PLAY_PAUSE) }
+            // 토글이 아니라 각각 재생/일시정지 — 재생 중 헤드셋이 PLAY 를 보내면 멈추던 문제 방지
+            override fun onPlay() { sendActionToReceiver(ACTION_PLAY) }
+            override fun onPause() { sendActionToReceiver(ACTION_PAUSE) }
             override fun onSkipToNext() { sendActionToReceiver(ACTION_NEXT) }
             override fun onSkipToPrevious() { sendActionToReceiver(ACTION_PREV) }
             override fun onSeekTo(pos: Long) {

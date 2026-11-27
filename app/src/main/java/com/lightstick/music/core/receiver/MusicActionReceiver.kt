@@ -11,6 +11,8 @@ class MusicActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val command = when (intent.action) {
             MusicEffectService.Companion.ACTION_PLAY_PAUSE -> MusicPlayerCommandBus.Command.TogglePlay
+            MusicEffectService.Companion.ACTION_PLAY -> MusicPlayerCommandBus.Command.Play
+            MusicEffectService.Companion.ACTION_PAUSE -> MusicPlayerCommandBus.Command.Pause
             MusicEffectService.Companion.ACTION_NEXT -> MusicPlayerCommandBus.Command.Next
             MusicEffectService.Companion.ACTION_PREV -> MusicPlayerCommandBus.Command.Previous
             MusicEffectService.Companion.ACTION_SEEK -> {

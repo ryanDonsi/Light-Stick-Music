@@ -199,6 +199,8 @@ class MusicViewModel @Inject constructor(
             MusicPlayerCommandBus.commands.collect { command ->
                 when (command) {
                     is MusicPlayerCommandBus.Command.TogglePlay -> togglePlayPause()
+                    is MusicPlayerCommandBus.Command.Play       -> if (!player.isPlaying) togglePlayPause()
+                    is MusicPlayerCommandBus.Command.Pause      -> if (player.isPlaying) togglePlayPause()
                     is MusicPlayerCommandBus.Command.Next       -> playNext()
                     is MusicPlayerCommandBus.Command.Previous   -> playPrevious()
                     is MusicPlayerCommandBus.Command.SeekTo     -> seekTo(command.position)
