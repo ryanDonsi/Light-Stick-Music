@@ -2,6 +2,7 @@ package com.lightstick.music.domain.music.beatdetector
 
 import android.media.MediaCodec
 import android.media.MediaExtractor
+import android.media.AudioFormat
 import android.media.MediaFormat
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.domain.music.AutoTimelineConfig
@@ -217,11 +218,14 @@ object BeatDetectorRouter {
             }
             extractor.selectTrack(trackIndex)
             val mime         = format.getString(MediaFormat.KEY_MIME)!!
-            val sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-            val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-            val hopSamples   = (sampleRate.toLong() * hopMs / 1000L).toInt().coerceAtLeast(1)
-            val maxPcmSamp   = if (collectPcm) (sampleRate * MAX_PCM_SECS).toInt() else 0
-            val stepBytes    = channelCount * 2
+            // 아래 값들은 디코더 출력 포맷이 바뀌면(INFO_OUTPUT_FORMAT_CHANGED) 다시 계산한다.
+            // 예: HE-AAC(SBR)는 컨테이너가 22.05kHz/1ch여도 디코더가 44.1kHz/2ch로 낸다.
+            var sampleRate   = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            var channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            var isFloatPcm   = false
+            var hopSamples   = (sampleRate.toLong() * hopMs / 1000L).toInt().coerceAtLeast(1)
+            var maxPcmSamp   = if (collectPcm) (sampleRate * MAX_PCM_SECS).toInt() else 0
+            var stepBytes    = channelCount * 2
 
             // Pre-allocate PCM as primitive FloatArray to avoid boxing overhead (4 bytes vs 16 bytes per sample)
             val durationUs   = if (collectPcm && format.containsKey(MediaFormat.KEY_DURATION))
@@ -230,7 +234,7 @@ object BeatDetectorRouter {
                 if (durationUs > 0) (sampleRate * durationUs / 1_000_000L).toInt().coerceAtMost(maxPcmSamp)
                 else maxPcmSamp
             } else 0
-            val pcmArray     = if (collectPcm) FloatArray(estPcmSamp) else null
+            var pcmArray     = if (collectPcm) FloatArray(estPcmSamp) else null
             var pcmPos       = 0
 
             codec = MediaCodec.createDecoderByType(mime)
@@ -275,12 +279,25 @@ object BeatDetectorRouter {
                             var i = 0
                             while (i + stepBytes <= outSize) {
                                 var monoSum = 0f
-                                for (c in 0 until channelCount) {
-                                    val lo = bytes[i + c * 2].toInt() and 0xFF
-                                    val hi = bytes[i + c * 2 + 1].toInt()
-                                    monoSum += (hi shl 8 or lo).toShort().toFloat()
+                                val mono: Float
+                                if (isFloatPcm) {
+                                    for (c in 0 until channelCount) {
+                                        val o = i + c * 4
+                                        val bits = (bytes[o].toInt() and 0xFF) or
+                                            ((bytes[o + 1].toInt() and 0xFF) shl 8) or
+                                            ((bytes[o + 2].toInt() and 0xFF) shl 16) or
+                                            (bytes[o + 3].toInt() shl 24)
+                                        monoSum += Float.fromBits(bits)
+                                    }
+                                    mono = monoSum / channelCount
+                                } else {
+                                    for (c in 0 until channelCount) {
+                                        val lo = bytes[i + c * 2].toInt() and 0xFF
+                                        val hi = bytes[i + c * 2 + 1].toInt()
+                                        monoSum += (hi shl 8 or lo).toShort().toFloat()
+                                    }
+                                    mono = monoSum / channelCount / 32768f
                                 }
-                                val mono = monoSum / channelCount / 32768f
                                 if (pcmArray != null && pcmPos < pcmArray.size) pcmArray[pcmPos++] = mono
                                 lowZ   += LOW_ALPHA     * (mono - lowZ)
                                 midLP1 += MID_LP1_ALPHA * (mono - midLP1)
@@ -303,7 +320,35 @@ object BeatDetectorRouter {
                         codec.releaseOutputBuffer(outIdx, false)
                         if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) sawOutputEOS = true
                     }
-                    outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
+                    outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        val out = codec.outputFormat
+                        val newRate = if (out.containsKey(MediaFormat.KEY_SAMPLE_RATE))
+                            out.getInteger(MediaFormat.KEY_SAMPLE_RATE) else sampleRate
+                        val newCh = if (out.containsKey(MediaFormat.KEY_CHANNEL_COUNT))
+                            out.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else channelCount
+                        val encoding = if (out.containsKey(MediaFormat.KEY_PCM_ENCODING))
+                            out.getInteger(MediaFormat.KEY_PCM_ENCODING) else AudioFormat.ENCODING_PCM_16BIT
+                        isFloatPcm = encoding == AudioFormat.ENCODING_PCM_FLOAT
+                        if (!isFloatPcm && encoding != AudioFormat.ENCODING_PCM_16BIT) {
+                            Log.w(TAG, "unsupported PCM encoding=$encoding → 16bit로 해석")
+                        }
+                        if (newRate != sampleRate || newCh != channelCount) {
+                            Log.d(TAG, "output format changed: ${sampleRate}Hz/${channelCount}ch → ${newRate}Hz/${newCh}ch")
+                        }
+                        if (newRate != sampleRate) {
+                            sampleRate = newRate
+                            hopSamples = (sampleRate.toLong() * hopMs / 1000L).toInt().coerceAtLeast(1)
+                            if (collectPcm && pcmPos == 0) {
+                                maxPcmSamp = (sampleRate * MAX_PCM_SECS).toInt()
+                                val est = if (durationUs > 0)
+                                    (sampleRate * durationUs / 1_000_000L).toInt().coerceAtMost(maxPcmSamp)
+                                else maxPcmSamp
+                                pcmArray = FloatArray(est)
+                            }
+                        }
+                        channelCount = newCh.coerceAtLeast(1)
+                        stepBytes = channelCount * (if (isFloatPcm) 4 else 2)
+                    }
                 }
             }
             codec.stop(); codec.release(); extractor.release()
