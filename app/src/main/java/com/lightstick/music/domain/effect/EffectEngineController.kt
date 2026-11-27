@@ -45,6 +45,19 @@ object EffectEngineController {
      */
     fun isEffectActive(): Boolean = isTimelineLoaded || isManualEffectActive
 
+    /**
+     * 단발 이펙트(sendEffect) 전송마다 바꾸는 effectIndex(byte[17]).
+     * 응원봉은 직전과 20바이트가 똑같은 프레임을 버리므로, 같은 이펙트를 다시 보낼 때
+     * (duration 으로 꺼진 뒤 재실행 포함) 반드시 값이 달라야 한다. SDK 는 sendEffect 에서 이 값을
+     * 바꿔 주지 않는다(LSEffectPayload 문서). 1..255 를 돌고 0 은 건너뛴다.
+     */
+    private val effectIndexSeq = java.util.concurrent.atomic.AtomicInteger(0)
+
+    private fun withNextEffectIndex(payload: LSEffectPayload): LSEffectPayload {
+        val next = effectIndexSeq.updateAndGet { (it % 255) + 1 }
+        return payload.copy(effectIndex = next)
+    }
+
     fun sendEffect(
         context: Context,
         payload: LSEffectPayload,
@@ -65,12 +78,14 @@ object EffectEngineController {
             if (devices.isEmpty()) {
                 return false
             }
+            // 모든 기기에 같은 index 로 보낸다(전송 1회 = index 1개)
+            val stamped = withNextEffectIndex(payload)
 
             var success = false
 
             devices.forEach { device ->
                 try {
-                    device.sendEffect(payload)
+                    device.sendEffect(stamped)
 
                     val transmissionEvent = BleTransmissionEvent(
                         source = source,
@@ -127,7 +142,7 @@ object EffectEngineController {
                 return false
             }
 
-            target.sendEffect(payload)
+            target.sendEffect(withNextEffectIndex(payload))
 
             val transmissionEvent = BleTransmissionEvent(
                 source = source,
