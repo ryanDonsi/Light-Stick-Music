@@ -2,10 +2,10 @@ package com.lightstick.music.domain.usecase.music
 
 import android.content.Context
 import com.lightstick.music.core.constants.AppConstants
-import com.lightstick.efx.MusicId
 import com.lightstick.music.core.util.Log
 import com.lightstick.music.domain.music.AutoTimelineConfig
 import com.lightstick.music.domain.music.AutoTimelineStorage
+import com.lightstick.music.domain.music.MusicIdCache
 import com.lightstick.music.domain.music.AutoTimelineGenerator
 import com.lightstick.music.domain.music.AutoTimelineGeneratorBeat
 import com.lightstick.music.domain.music.AutoTimelineGeneratorWithSections
@@ -81,7 +81,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
             musicFiles
         } else {
             musicFiles.filter { file ->
-                val musicId = runCatching { MusicId.fromFile(file) }.getOrNull()
+                val musicId = MusicIdCache.getOrNull(file)
                     ?: return@filter true  // musicId 실패 시 처리 목록에 포함(→ failed 처리)
                 !storage.exists(context, musicId)
             }
@@ -105,7 +105,7 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                         val p = processed.incrementAndGet()
                         onProgress(p, total, file.nameWithoutExtension)
 
-                        val musicId = runCatching { MusicId.fromFile(file) }.getOrNull()
+                        val musicId = MusicIdCache.getOrNull(file)
                         if (musicId == null) {
                             failed.incrementAndGet()
                             return@withPermit

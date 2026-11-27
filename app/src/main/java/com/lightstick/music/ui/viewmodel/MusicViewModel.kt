@@ -29,12 +29,12 @@ import com.lightstick.music.domain.music.sectiondetector.meta.SectionMeta
 import com.lightstick.music.domain.music.sectiondetector.meta.SectionMetaStorage
 import com.lightstick.music.domain.music.FftAudioProcessor
 import com.lightstick.music.domain.music.MusicEffectManager
+import com.lightstick.music.domain.music.MusicIdCache
 import com.lightstick.music.domain.music.createFftPlayer
 import com.lightstick.music.domain.usecase.music.HandleSeekUseCase
 import com.lightstick.music.domain.usecase.music.LoadEfxUseCase
 import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
 import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
-import com.lightstick.efx.MusicId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -351,7 +351,7 @@ class MusicViewModel @Inject constructor(
         if (MusicEffectManager.hasEffectFor(musicFile)) {
             loadEfxUseCase(context, musicFile)
         } else {
-            val musicId = MusicId.fromFile(musicFile)
+            val musicId = MusicIdCache.get(musicFile)
             val ver     = AutoTimelineConfig.VERSION
             val storage = AutoTimelineStorage(version = ver)
             val frames  = storage.load(context, musicId)
@@ -371,7 +371,7 @@ class MusicViewModel @Inject constructor(
         _currentPosition.value = 0
 
         val musicFile = File(item.filePath)
-        val musicId   = MusicId.fromFile(musicFile)
+        val musicId   = MusicIdCache.get(musicFile)
         val ver       = AutoTimelineConfig.VERSION
 
         if (_isAutoModeEnabled.value) {

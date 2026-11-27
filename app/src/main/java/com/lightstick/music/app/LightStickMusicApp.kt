@@ -49,6 +49,7 @@ class LightStickMusicApp : Application() {
         super.onCreate()
 
         try {
+            com.lightstick.music.domain.music.MusicIdCache.init(this)
             initializeSDK()
             initializePreferences()
             com.lightstick.music.core.sync.DeviceDisconnectSync.register(this)

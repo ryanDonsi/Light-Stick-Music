@@ -104,7 +104,7 @@ object MusicEffectManager {
 
     fun hasEffectFor(musicFile: File): Boolean {
         return try {
-            val musicId = MusicId.fromFile(musicFile)
+            val musicId = MusicIdCache.get(musicFile)
             val found = effectFileMap.containsKey(musicId)
             if (found) {
                 Log.d(TAG, "hasEffectFor: HIT  ${musicFile.name} → musicId=$musicId")
@@ -136,7 +136,7 @@ object MusicEffectManager {
      */
     fun loadEffects(musicFile: File): List<EfxEntry>? {
         return try {
-            val musicId = MusicId.fromFile(musicFile)
+            val musicId = MusicIdCache.get(musicFile)
             loadEffectsByMusicId(musicId)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load effects: ${e.message}")
