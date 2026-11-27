@@ -44,6 +44,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,6 +62,9 @@ class MusicViewModel @Inject constructor(
 
     companion object {
         private const val TAG = AppConstants.Feature.VM_MUSIC
+
+        /** 화면용 위치 갱신 주기 = 50ms × 4 = 200ms */
+        private const val UI_POSITION_EVERY_TICKS = 4
     }
 
     private val context get() = getApplication<Application>().applicationContext
@@ -127,6 +131,7 @@ class MusicViewModel @Inject constructor(
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
+            if (state == Player.STATE_READY) publishPosition()
             if (state == Player.STATE_ENDED) playNext()
         }
 
@@ -616,21 +621,38 @@ class MusicViewModel @Inject constructor(
         updateNotificationProgress()
     }
 
+    /** C.TIME_UNSET(음수) 등 준비 전 값은 0으로 */
+    private fun safeDurationMs(): Int = player.duration.let { if (it < 0) 0 else it.toInt() }
+
+    private fun publishPosition() {
+        _currentPosition.value = player.currentPosition.toInt()
+        _duration.value        = safeDurationMs()
+    }
+
+    /**
+     * 재생 중에만 돈다. BLE 위치 동기화는 [AppConstants.POSITION_MONITOR_INTERVAL_MS](50ms)마다,
+     * 화면용 위치/길이 StateFlow 는 [UI_POSITION_EVERY_TICKS] 틱(200ms)마다 갱신한다.
+     * 일시정지/정지 상태에서는 마지막 값을 한 번 반영하고 멈춘다.
+     */
     @SuppressLint("MissingPermission")
-    private fun monitorPosition() {
-        viewModelScope.launch {
+    private suspend fun monitorPosition() {
+        _isPlaying.collectLatest { playing ->
+            publishPosition()
+            if (!playing) return@collectLatest
+
+            var tick = 0
             while (true) {
-                val current  = player.currentPosition.toInt()
-                val duration = player.duration.toInt()
-                _currentPosition.value = current
-                _duration.value        = duration
+                val current = player.currentPosition
 
                 if (player.isPlaying && _isAutoModeEnabled.value) {
-                    try { updatePlaybackPositionUseCase(context, current.toLong()) }
+                    try { updatePlaybackPositionUseCase(context, current) }
                     catch (e: Exception) {
                         Log.e(TAG, "updatePlaybackPosition() failed: ${e.message}")
                     }
                 }
+
+                if (tick % UI_POSITION_EVERY_TICKS == 0) publishPosition()
+                tick++
 
                 delay(AppConstants.POSITION_MONITOR_INTERVAL_MS)
             }
