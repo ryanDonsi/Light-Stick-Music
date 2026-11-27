@@ -21,10 +21,14 @@ object MusicEffectManager {
 
     private val effectFileMap = ConcurrentHashMap<Int, File>()
 
+    /** 마지막으로 읽은 SAF 폴더 내용(이름·크기·수정 시각) — 그대로면 다시 복사/파싱하지 않는다. */
+    @Volatile private var lastSafSignature: String? = null
+
     /**
      *  SAF 기반 초기화 (권장)
      *  SAF URI가 없는 경우(자동 설정된 파일 경로) File 기반으로 폴백
      */
+    @Synchronized
     fun initializeFromSAF(context: Context) {
         val dirUri = EffectPathPreferences.getSavedDirectoryUri(context)
         Log.d(TAG, "initializeFromSAF: SAF URI = $dirUri")
@@ -41,10 +45,20 @@ object MusicEffectManager {
             return
         }
 
-        effectFileMap.clear()
-
         val effectFiles = EffectPathPreferences.listEffectFiles(context)
         Log.d(TAG, "initializeFromSAF: SAF found ${effectFiles.size} EFX file(s)")
+
+        val signature = dirUri.toString() + "\n" + effectFiles
+            .map { "${it.name}|${it.length()}|${it.lastModified()}" }
+            .sorted()
+            .joinToString("\n")
+        if (signature == lastSafSignature && effectFileMap.values.all { it.exists() }) {
+            Log.d(TAG, "initializeFromSAF: unchanged → skip (${effectFileMap.size} in map)")
+            return
+        }
+
+        effectFileMap.clear()
+        lastSafSignature = null
 
         if (effectFiles.isEmpty()) {
             Log.w(TAG, "initializeFromSAF: no EFX files in SAF directory ($dirUri)")
@@ -69,6 +83,7 @@ object MusicEffectManager {
             }
         }
 
+        lastSafSignature = signature
         Log.i(TAG, "initializeFromSAF: done — ${effectFileMap.size} EFX file(s) in map")
     }
 

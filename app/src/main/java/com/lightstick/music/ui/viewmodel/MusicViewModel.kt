@@ -157,7 +157,6 @@ class MusicViewModel @Inject constructor(
     }
 
     init {
-        initializeEffects()
         EffectEngineController.reset()
 
         _isAutoModeEnabled.value      = AutoModePreferences.isAutoModeEnabled(getApplication())
@@ -187,7 +186,11 @@ class MusicViewModel @Inject constructor(
             }
         }
 
-        loadCachedMusicOrScan()
+        // EFX 폴더 읽기(SAF 조회·복사·파싱)는 IO에서 끝낸 뒤 목록을 만든다 — hasEffect 판정이 EFX 맵에 의존
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { initializeEffects() }
+            loadMusic()
+        }
 
         player.addListener(playerListener)
     }
@@ -196,12 +199,6 @@ class MusicViewModel @Inject constructor(
         Log.d(TAG, "initializeEffects: start (thread=${Thread.currentThread().name})")
         MusicEffectManager.initializeFromSAF(context)
         Log.d(TAG, "initializeEffects: done — ${MusicEffectManager.getLoadedEffectCount()} EFX loaded")
-    }
-
-    private fun loadCachedMusicOrScan() {
-        viewModelScope.launch {
-            loadMusic()
-        }
     }
 
     fun loadMusic() {
