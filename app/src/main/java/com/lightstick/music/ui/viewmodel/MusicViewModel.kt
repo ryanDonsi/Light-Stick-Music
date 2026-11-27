@@ -107,6 +107,11 @@ class MusicViewModel @Inject constructor(
     private val _musicList = MutableStateFlow<List<MusicItem>>(emptyList())
     val musicList: StateFlow<List<MusicItem>> = _musicList.asStateFlow()
 
+    /** 음악 목록 스캔 중 여부 — 목록이 비어 있을 때 "음악 파일이 없습니다" 대신 로딩 표시용 */
+    // init 에서 첫 스캔이 곧 시작되므로 권한이 있으면 로딩 상태로 시작한다
+    private val _isMusicLoading = MutableStateFlow(PermissionManager.hasStoragePermission(application))
+    val isMusicLoading: StateFlow<Boolean> = _isMusicLoading.asStateFlow()
+
     private val _nowPlaying = MutableStateFlow<MusicItem?>(null)
     val nowPlaying: StateFlow<MusicItem?> = _nowPlaying.asStateFlow()
 
@@ -263,6 +268,7 @@ class MusicViewModel @Inject constructor(
     fun loadMusic(force: Boolean = false) {
         if (!PermissionManager.hasStoragePermission(context)) {
             Log.w(TAG, "loadMusic skipped: no storage permission")
+            _isMusicLoading.value = false
             return
         }
         loadMusicJob?.cancel()
@@ -270,9 +276,11 @@ class MusicViewModel @Inject constructor(
             val scanKey = withContext(Dispatchers.IO) { currentScanKey() }
             if (!force && scanKey != null && scanKey == lastScanKey && _musicList.value.isNotEmpty()) {
                 Log.d(TAG, "loadMusic: MediaStore/EFX 변화 없음 → 스캔 생략")
+                _isMusicLoading.value = false
                 return@launch
             }
-            val musicItems = withContext(Dispatchers.IO) {
+            _isMusicLoading.value = true
+            val musicItems = try { withContext(Dispatchers.IO) {
                 val resolver    = context.contentResolver
                 val allowedDirs = FileHelper.allowedMusicDirs()
                 val items       = mutableListOf<MusicItem>()
@@ -324,6 +332,8 @@ class MusicViewModel @Inject constructor(
                 }
 
                 items
+            } } finally {
+                _isMusicLoading.value = false
             }
 
             _musicList.value = musicItems

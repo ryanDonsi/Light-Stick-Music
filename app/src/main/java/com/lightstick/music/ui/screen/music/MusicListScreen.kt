@@ -36,6 +36,7 @@ fun MusicListScreen(
     embedded: Boolean = false
 ) {
     val musicList         by viewModel.musicList.collectAsState()
+    val isMusicLoading    by viewModel.isMusicLoading.collectAsState()
     val nowPlaying        by viewModel.nowPlaying.collectAsState()
     val isAutoModeEnabled by viewModel.isAutoModeEnabled.collectAsState()
     val latestTransmission by viewModel.latestTransmission.collectAsState()
@@ -88,7 +89,14 @@ fun MusicListScreen(
                         .padding(horizontal = 16.dp, vertical = if (embedded) 12.dp else 24.dp),
                     verticalArrangement = Arrangement.Top
                 ) {
-                    if (musicList.isEmpty()) {
+                    if (musicList.isEmpty() && isMusicLoading) {
+                        Box(
+                            modifier         = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = Secondary)
+                        }
+                    } else if (musicList.isEmpty()) {
                         Box(
                             modifier         = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
@@ -104,7 +112,7 @@ fun MusicListScreen(
                             modifier            = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(musicList) { item ->
+                            items(musicList, key = { it.filePath }) { item ->
                                 val isPlaying = nowPlaying?.filePath == item.filePath
                                 MusicListItemCard(
                                     musicItem          = item,
