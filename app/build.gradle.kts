@@ -21,7 +21,6 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        multiDexEnabled = true
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -53,7 +52,6 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
-        viewBinding = true
     }
 
     composeOptions {
@@ -89,7 +87,6 @@ dependencies {
     implementation(libs.androidx.activity)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.constraintlayout)
-    implementation(libs.androidx.multidex)
 
     // ✅ Splash Screen (추가)
     implementation(libs.androidx.core.splashscreen)
@@ -127,10 +124,6 @@ dependencies {
     // JTransForms
     implementation(libs.jtransforms)
 
-    // TarsosDSP
-    implementation(libs.tarsosdsp.core)
-    implementation(libs.tarsosdsp.jvm)
-
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
@@ -144,13 +137,6 @@ dependencies {
     implementation(libs.media3.common)
     implementation(libs.media3.ui)
     implementation(libs.media3.ui.compose)
-
-    // Glide
-    implementation(libs.glide)
-    ksp(libs.glide.compiler)
-
-    // Blur (Glide Transformation)
-    implementation(libs.glide.transformations)
 
     implementation(files("libs/lightstick-sdk-2.200.0.aar"))
 
