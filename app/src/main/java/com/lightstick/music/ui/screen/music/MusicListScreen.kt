@@ -39,7 +39,8 @@ fun MusicListScreen(
     val isMusicLoading    by viewModel.isMusicLoading.collectAsState()
     val nowPlaying        by viewModel.nowPlaying.collectAsState()
     val isAutoModeEnabled by viewModel.isAutoModeEnabled.collectAsState()
-    val latestTransmission by viewModel.latestTransmission.collectAsState()
+    // 전송마다 목록 전체가 재구성되지 않도록 State 로만 받고, 재생 중인 카드 안에서만 읽는다(C1)
+    val latestTransmissionState = viewModel.latestTransmission.collectAsState()
 
     val toastState = rememberToastState()
 
@@ -118,7 +119,7 @@ fun MusicListScreen(
                                     musicItem          = item,
                                     isPlaying          = isPlaying,
                                     onClick            = { viewModel.playMusic(item) },
-                                    latestTransmission = if (isPlaying) latestTransmission else null
+                                    latestTransmission = { if (isPlaying) latestTransmissionState.value else null }
                                 )
                             }
                         }

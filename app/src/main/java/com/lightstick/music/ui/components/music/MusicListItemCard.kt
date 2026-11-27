@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.sp
 import com.lightstick.music.core.util.TimeFormatter
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
-import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
 
@@ -43,7 +42,7 @@ fun MusicListItemCard(
     isPlaying: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    latestTransmission: BleTransmissionEvent? = null
+    latestTransmission: () -> BleTransmissionEvent? = { null }
 ) {
     Box(
         modifier = modifier
@@ -98,17 +97,13 @@ fun MusicListItemCard(
                     }
                 }
 
-                val isEffectActive = latestTransmission?.source == TransmissionSource.EFX_EFFECT
-                        || latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT
-                if (isEffectActive) {
-                    EffectOverlayBadge(
-                        transmission   = latestTransmission,
-                        modifier       = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(2.dp),
-                        maxLabelLength = 2
-                    )
-                }
+                EffectOverlayBadgeSlot(
+                    transmission   = latestTransmission,
+                    modifier       = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(2.dp),
+                    maxLabelLength = 2
+                )
             }
 
             Spacer(modifier = Modifier.width(16.dp))

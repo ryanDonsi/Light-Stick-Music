@@ -40,10 +40,11 @@ fun MusicControlScreen(
 ) {
     val nowPlaying              by viewModel.nowPlaying.collectAsState()
     val isPlaying               by viewModel.isPlaying.collectAsState()
-    val currentPosition         by viewModel.currentPosition.collectAsState()
+    // 위치·전송은 자주 바뀌므로 State 객체로만 받아 두고, 실제 읽기는 시크바·배지 안에서 한다(C1)
+    val currentPositionState    = viewModel.currentPosition.collectAsState()
     val duration                by viewModel.duration.collectAsState()
     val isAutoModeEnabled       by viewModel.isAutoModeEnabled.collectAsState()
-    val latestTransmission      by viewModel.latestTransmission.collectAsState()
+    val latestTransmissionState = viewModel.latestTransmission.collectAsState()
     val currentSections         by viewModel.currentSections.collectAsState()
     val currentColorFamily      by viewModel.currentColorFamily.collectAsState()
     val isSectionOverlayEnabled by viewModel.isSectionOverlayEnabled.collectAsState()
@@ -98,14 +99,14 @@ fun MusicControlScreen(
                         MusicPlayerCard(
                             musicItem        = nowPlaying,
                             isPlaying        = isPlaying,
-                            currentPosition  = currentPosition.toLong(),
+                            currentPosition  = { currentPositionState.value.toLong() },
                             duration         = duration.toLong(),
                             onPrevClick      = { viewModel.playPrevious() },
                             onPlayPauseClick = { viewModel.togglePlayPause() },
                             onNextClick      = { viewModel.playNext() },
                             onSeekTo         = { position -> viewModel.seekTo(position) },
                             modifier         = if (embedded) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
-                            latestTransmission      = latestTransmission,
+                            latestTransmission      = { latestTransmissionState.value },
                             sections                = currentSections,
                             isSectionOverlayEnabled = isSectionOverlayEnabled,
                             colorFamily             = currentColorFamily,

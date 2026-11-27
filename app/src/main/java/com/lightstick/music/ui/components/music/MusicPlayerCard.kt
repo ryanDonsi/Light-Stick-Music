@@ -27,7 +27,6 @@ import coil.compose.AsyncImage
 import com.lightstick.music.R
 import com.lightstick.music.data.model.MusicItem
 import com.lightstick.music.domain.ble.BleTransmissionEvent
-import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.music.domain.music.sectiondetector.meta.SectionMeta
 import com.lightstick.music.ui.theme.customColors
 import com.lightstick.music.ui.theme.customTextStyles
@@ -45,14 +44,16 @@ import com.lightstick.music.ui.theme.customTextStyles
 fun MusicPlayerCard(
     musicItem: MusicItem?,
     isPlaying: Boolean,
-    currentPosition: Long,
+    /** 재생 위치(ms). 자주 바뀌므로 람다로 받아 시크바·섹션 막대에서만 읽는다. */
+    currentPosition: () -> Long,
     duration: Long,
     onPrevClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier,
-    latestTransmission: BleTransmissionEvent? = null,
+    /** 최근 BLE 전송. 자주 바뀌므로 람다로 받아 배지에서만 읽는다. */
+    latestTransmission: () -> BleTransmissionEvent? = { null },
     sections: List<SectionMeta>? = null,
     isSectionOverlayEnabled: Boolean = false,
     colorFamily: String? = null,
@@ -190,9 +191,9 @@ fun MusicPlayerCard(
 @Composable
 private fun AlbumArt(
     musicItem: MusicItem,
-    currentPosition: Long,
+    currentPosition: () -> Long,
     duration: Long,
-    latestTransmission: BleTransmissionEvent?,
+    latestTransmission: () -> BleTransmissionEvent?,
     sections: List<SectionMeta>?,
     isSectionOverlayEnabled: Boolean,
     colorFamily: String?,
@@ -214,16 +215,12 @@ private fun AlbumArt(
                 .clip(RoundedCornerShape(20.dp))
         )
 
-        val isEffectActive = latestTransmission?.source == TransmissionSource.EFX_EFFECT
-                || latestTransmission?.source == TransmissionSource.TIMELINE_EFFECT
-        if (isEffectActive) {
-            EffectOverlayBadge(
-                transmission = latestTransmission,
-                modifier     = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp)
-            )
-        }
+        EffectOverlayBadgeSlot(
+            transmission = latestTransmission,
+            modifier     = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+        )
 
         if (isSectionOverlayEnabled && !sections.isNullOrEmpty()) {
             SectionInfoOverlay(
@@ -245,7 +242,7 @@ private fun TrackInfoAndControls(
     musicItem: MusicItem,
     hasMusic: Boolean,
     isPlaying: Boolean,
-    currentPosition: Long,
+    currentPosition: () -> Long,
     duration: Long,
     onPrevClick: () -> Unit,
     onPlayPauseClick: () -> Unit,

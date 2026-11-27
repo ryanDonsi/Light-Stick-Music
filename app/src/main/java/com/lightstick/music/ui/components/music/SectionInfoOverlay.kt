@@ -28,6 +28,24 @@ import com.lightstick.music.domain.music.sectiondetector.meta.SectionMeta
  *  type, changeStrength, beatMs, beatConfidence,
  *  energy(avg/peak), lowRatio, midRatio, onsetDensity, periodicity
  */
+/** 재생 위치를 람다로 받아 이 안에서만 읽는다(위치 변화로 앨범 영역 전체가 재구성되지 않게). */
+@Composable
+fun SectionInfoOverlay(
+    sections: List<SectionMeta>,
+    currentPositionMs: () -> Long,
+    durationMs: Long,
+    modifier: Modifier = Modifier,
+    colorFamily: String? = null
+) {
+    SectionInfoOverlay(
+        sections          = sections,
+        currentPositionMs = currentPositionMs(),
+        durationMs        = durationMs,
+        modifier          = modifier,
+        colorFamily       = colorFamily
+    )
+}
+
 @Composable
 fun SectionInfoOverlay(
     sections: List<SectionMeta>,

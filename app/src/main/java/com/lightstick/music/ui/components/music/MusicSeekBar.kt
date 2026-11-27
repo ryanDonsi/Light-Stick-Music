@@ -30,6 +30,24 @@ import com.lightstick.music.ui.theme.customTextStyles
  * @param duration        전체 재생 시간 (ms)
  * @param onSeekTo        탭/드래그 완료 위치에 해당하는 재생 위치(ms)를 전달하는 콜백
  */
+/**
+ * 재생 위치를 람다로 받는 형태. 위치는 이 안에서만 읽어, 위치가 바뀌어도 시크바만 다시 그린다.
+ */
+@Composable
+fun MusicSeekBar(
+    currentPosition: () -> Long,
+    duration: Long,
+    onSeekTo: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    MusicSeekBar(
+        currentPosition = currentPosition(),
+        duration        = duration,
+        onSeekTo        = onSeekTo,
+        modifier        = modifier
+    )
+}
+
 @Composable
 fun MusicSeekBar(
     currentPosition: Long,

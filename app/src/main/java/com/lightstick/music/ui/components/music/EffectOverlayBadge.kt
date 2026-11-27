@@ -8,6 +8,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -15,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lightstick.music.core.util.toComposeColor
 import com.lightstick.music.domain.ble.BleTransmissionEvent
+import com.lightstick.music.domain.ble.TransmissionSource
 import com.lightstick.types.EffectType
 
 private fun effectTypeName(effectType: EffectType?): String = when (effectType) {
@@ -41,8 +45,56 @@ fun EffectOverlayBadge(
     modifier: Modifier = Modifier,
     maxLabelLength: Int? = null
 ) {
-    val dotColor  = transmission.color?.toComposeColor() ?: Color.White
-    val labelText = effectTypeName(transmission.effectType).let { name ->
+    EffectOverlayBadge(
+        effectType     = transmission.effectType,
+        color          = transmission.color,
+        modifier       = modifier,
+        maxLabelLength = maxLabelLength
+    )
+}
+
+/** 배지가 실제로 보여 주는 값. 전송 이벤트는 매번 새 객체(시각 포함)라 이 값으로 바뀜 여부를 판단한다. */
+private data class BadgeContent(val effectType: EffectType?, val color: com.lightstick.types.Color?)
+
+/**
+ * 최근 전송을 람다로 받아 이 안에서만 읽는다. EFX/타임라인 이펙트일 때만 그리고,
+ * 이펙트 종류나 색이 바뀔 때만 다시 그린다(전송이 잦아도 상위 화면은 재구성되지 않음).
+ */
+@Composable
+fun EffectOverlayBadgeSlot(
+    transmission: () -> BleTransmissionEvent?,
+    modifier: Modifier = Modifier,
+    maxLabelLength: Int? = null
+) {
+    val content by remember(transmission) {
+        derivedStateOf {
+            transmission()
+                ?.takeIf {
+                    it.source == TransmissionSource.EFX_EFFECT ||
+                        it.source == TransmissionSource.TIMELINE_EFFECT
+                }
+                ?.let { BadgeContent(it.effectType, it.color) }
+        }
+    }
+    content?.let {
+        EffectOverlayBadge(
+            effectType     = it.effectType,
+            color          = it.color,
+            modifier       = modifier,
+            maxLabelLength = maxLabelLength
+        )
+    }
+}
+
+@Composable
+fun EffectOverlayBadge(
+    effectType: EffectType?,
+    color: com.lightstick.types.Color?,
+    modifier: Modifier = Modifier,
+    maxLabelLength: Int? = null
+) {
+    val dotColor  = color?.toComposeColor() ?: Color.White
+    val labelText = effectTypeName(effectType).let { name ->
         if (maxLabelLength != null && name.length > maxLabelLength)
             name.take(maxLabelLength)
         else name
