@@ -4,6 +4,7 @@ import com.lightstick.music.core.constants.AppConstants
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * BLE 전송 모니터
@@ -13,8 +14,6 @@ import kotlinx.coroutines.flow.asStateFlow
  * 주요 기능:
  * - 전송 이벤트 실시간 기록
  * - 최신 전송 상태 StateFlow로 제공
- * - 전송 히스토리 관리 (최근 100개)
- * - 소스별 전송 통계
  *
  * 사용 예시:
  * ```
@@ -43,15 +42,8 @@ object BleTransmissionMonitor {
     private val _latestTransmission = MutableStateFlow<BleTransmissionEvent?>(null)
     val latestTransmission: StateFlow<BleTransmissionEvent?> = _latestTransmission.asStateFlow()
 
-    /** 전송 히스토리 (최근 100개) */
-    private val _transmissionHistory = MutableStateFlow<List<BleTransmissionEvent>>(emptyList())
-    val transmissionHistory: StateFlow<List<BleTransmissionEvent>> = _transmissionHistory.asStateFlow()
-
-    /** 소스별 전송 카운트 */
-    private val transmissionCounts = mutableMapOf<TransmissionSource, Int>()
-
-    /** 디바이스별 마지막 전송 시각 */
-    private val lastTransmissionByDevice = mutableMapOf<String, Long>()
+    // 예전에 있던 전송 히스토리(최근 100개)·소스별 통계는 앱 어디에서도 읽지 않아 제거했다.
+    // 전송마다 리스트 전체를 복사하고, 오디오/메인 스레드가 동기화 없는 맵을 함께 고치던 비용이 있었다.
 
     /**
      * BLE 전송 이벤트 기록
@@ -59,37 +51,22 @@ object BleTransmissionMonitor {
      * **우선순위 규칙**:
      * - MANUAL_EFFECT > EFX_EFFECT = TIMELINE_EFFECT > FFT_EFFECT
      * - 마지막 전달된 이펙트가 항상 화면에 연출됨
+     * - 같은 기기에 500ms 안에 더 낮은 우선순위 전송이 오면 화면 표시는 바꾸지 않는다
+     *
+     * 여러 스레드(오디오 렌더·메인)에서 불리므로 비교와 교체를 [MutableStateFlow.update]로 원자적으로 한다.
      *
      * @param event 전송 이벤트
      */
     fun recordTransmission(event: BleTransmissionEvent) {
-        val currentLatest = _latestTransmission.value
-
-        if (currentLatest != null) {
-            if (currentLatest.deviceMac == event.deviceMac) {
-                val timeSinceLast = event.timestamp - currentLatest.timestamp
-
-                val currentPriority = getSourcePriority(currentLatest.source)
-                val newPriority = getSourcePriority(event.source)
-
-                if (newPriority < currentPriority && timeSinceLast < 500) {
-                    val updated = (_transmissionHistory.value + event)
-                        .takeLast(AppConstants.MAX_TRANSMISSION_HISTORY)
-                    _transmissionHistory.value = updated
-
-                    return
+        _latestTransmission.update { current ->
+            if (current != null && current.deviceMac == event.deviceMac) {
+                val timeSinceLast = event.timestamp - current.timestamp
+                if (getSourcePriority(event.source) < getSourcePriority(current.source) && timeSinceLast < 500) {
+                    return@update current
                 }
             }
+            event
         }
-
-        _latestTransmission.value = event
-
-        val updated = (_transmissionHistory.value + event)
-            .takeLast(AppConstants.MAX_TRANSMISSION_HISTORY)
-        _transmissionHistory.value = updated
-
-        transmissionCounts[event.source] = (transmissionCounts[event.source] ?: 0) + 1
-        lastTransmissionByDevice[event.deviceMac] = event.timestamp
     }
 
     /**
@@ -106,138 +83,8 @@ object BleTransmissionMonitor {
         }
     }
 
-    /**
-     * 히스토리 초기화
-     */
-    fun clearHistory() {
-        _transmissionHistory.value = emptyList()
-        _latestTransmission.value = null
-    }
-
-    /**
-     * 통계 초기화
-     */
-    fun clearStatistics() {
-        transmissionCounts.clear()
-        lastTransmissionByDevice.clear()
-    }
-
-    /**
-     * 모든 데이터 초기화
-     */
+    /** 최신 전송 표시 초기화 */
     fun reset() {
-        clearHistory()
-        clearStatistics()
-    }
-
-    /**
-     * 특정 소스의 전송 횟수 조회
-     *
-     * @param source 전송 소스
-     * @return 전송 횟수
-     */
-    fun getTransmissionCount(source: TransmissionSource): Int {
-        return transmissionCounts[source] ?: 0
-    }
-
-    /**
-     * 모든 소스의 전송 횟수 조회
-     *
-     * @return 소스별 전송 횟수 맵
-     */
-    fun getAllTransmissionCounts(): Map<TransmissionSource, Int> {
-        return transmissionCounts.toMap()
-    }
-
-    /**
-     * 총 전송 횟수 조회
-     *
-     * @return 총 전송 횟수
-     */
-    fun getTotalTransmissionCount(): Int {
-        return transmissionCounts.values.sum()
-    }
-
-    /**
-     * 특정 디바이스의 마지막 전송 시각 조회
-     *
-     * @param deviceMac 디바이스 MAC 주소
-     * @return 마지막 전송 시각 (밀리초) 또는 null
-     */
-    fun getLastTransmissionTime(deviceMac: String): Long? {
-        return lastTransmissionByDevice[deviceMac]
-    }
-
-    /**
-     * 특정 소스의 전송 히스토리 조회
-     *
-     * @param source 전송 소스
-     * @param limit 최대 개수 (기본: 20)
-     * @return 해당 소스의 전송 히스토리
-     */
-    fun getHistoryBySource(
-        source: TransmissionSource,
-        limit: Int = 20
-    ): List<BleTransmissionEvent> {
-        return _transmissionHistory.value
-            .filter { it.source == source }
-            .takeLast(limit)
-    }
-
-    /**
-     * 특정 디바이스의 전송 히스토리 조회
-     *
-     * @param deviceMac 디바이스 MAC 주소
-     * @param limit 최대 개수 (기본: 20)
-     * @return 해당 디바이스의 전송 히스토리
-     */
-    fun getHistoryByDevice(
-        deviceMac: String,
-        limit: Int = 20
-    ): List<BleTransmissionEvent> {
-        return _transmissionHistory.value
-            .filter { it.deviceMac == deviceMac }
-            .takeLast(limit)
-    }
-
-    /**
-     * 특정 시간 이후의 전송 히스토리 조회
-     *
-     * @param afterTimestamp 기준 시각 (밀리초)
-     * @return 해당 시각 이후의 전송 히스토리
-     */
-    fun getHistoryAfter(afterTimestamp: Long): List<BleTransmissionEvent> {
-        return _transmissionHistory.value
-            .filter { it.timestamp > afterTimestamp }
-    }
-
-    /**
-     * 특정 이펙트 타입의 전송 히스토리 조회
-     *
-     * @param effectType 이펙트 타입
-     * @param limit 최대 개수 (기본: 20)
-     * @return 해당 이펙트 타입의 전송 히스토리
-     */
-    fun getHistoryByEffectType(
-        effectType: com.lightstick.types.EffectType,
-        limit: Int = 20
-    ): List<BleTransmissionEvent> {
-        return _transmissionHistory.value
-            .filter { it.effectType == effectType }
-            .takeLast(limit)
-    }
-
-    /**
-     * 디버그 정보 출력
-     */
-    fun printDebugInfo() {
-    }
-
-    /**
-     * 최근 N개 전송 이벤트 출력
-     *
-     * @param count 출력할 개수 (기본: 10)
-     */
-    fun printRecentTransmissions(count: Int = 10) {
+        _latestTransmission.value = null
     }
 }
