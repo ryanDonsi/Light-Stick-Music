@@ -63,24 +63,15 @@
             android:launchMode="singleTop">
         </activity>
 
-        <!-- Media play Foreground Service -->
+        <!-- 음악 재생 서비스 (Media3 MediaSessionService): 알림·잠금화면·헤드셋 조작, 재생 중 포그라운드 유지 -->
         <service
-            android:name=".core.service.MusicEffectService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback|connectedDevice" />
-
-        <!-- Music Control Receiver -->
-        <receiver
-            android:name=".core.receiver.MusicActionReceiver"
-            android:enabled="true"
-            android:exported="false">
+            android:name=".core.service.PlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback|connectedDevice">
             <intent-filter>
-                <action android:name="ACTION_PLAY_PAUSE" />
-                <action android:name="ACTION_NEXT" />
-                <action android:name="ACTION_PREV" />
+                <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
-        </receiver>
+        </service>
 
         <!--
           Event Notification Listener(통화/문자 감지 + 주기적 자동 재연결)는 debug 빌드 전용.

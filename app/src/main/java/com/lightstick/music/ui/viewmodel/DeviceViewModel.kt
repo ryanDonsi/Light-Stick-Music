@@ -1139,26 +1139,9 @@ class DeviceViewModel @Inject constructor(
         batteryMonitoringJobs.values.forEach { it.cancel() }
         batteryMonitoringJobs.clear()
 
-        if (PermissionManager.hasBluetoothConnectPermission(context)) {
-            val handler = Handler(Looper.getMainLooper())
-            connectedDevices.values.toList().forEach { device ->
-                val disconnectNow = {
-                    try {
-                        disconnectDeviceUseCase(context, device)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "   Error disconnecting ${device.mac}: ${e.message}")
-                    }
-                }
-                // 앱 종료 시 공연 모드를 켠 기기는 SHOW_EXIT를 먼저 보내고, 전송이 나간 뒤에 끊는다.
-                // (viewModelScope는 이미 취소되었으므로 Handler로 지연한다)
-                if (sendShowExitIfNeeded(device)) {
-                    handler.postDelayed({ disconnectNow() }, SHOW_EXIT_DISCONNECT_DELAY_MS)
-                } else {
-                    disconnectNow()
-                }
-            }
-        }
-
+        // 기기 연결은 사용자가 직접 끊을 때까지 유지한다(2026-11-27 결정, B1).
+        // 예전에는 Activity 가 끝나면 여기서 모든 기기에 SHOW_EXIT 후 연결을 끊었다.
+        // 연결은 SDK 가 계속 갖고 있고, 화면이 다시 열리면 init 에서 SDK 연결 상태를 다시 읽어 온다.
         connectedDevices.clear()
     }
 }
