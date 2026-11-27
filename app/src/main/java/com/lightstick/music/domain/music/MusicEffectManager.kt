@@ -173,9 +173,9 @@ object MusicEffectManager {
             val musicId = MusicIdCache.get(musicFile)
             val found = effectFileMap.containsKey(musicId)
             if (found) {
-                Log.d(TAG, "hasEffectFor: HIT  ${musicFile.name} → musicId=$musicId")
+                Log.d(TAG) { "hasEffectFor: HIT  ${musicFile.name} → musicId=$musicId" }
             } else {
-                Log.d(TAG, "hasEffectFor: MISS ${musicFile.name} → musicId=$musicId, map keys=${effectFileMap.keys.toList()}")
+                Log.d(TAG) { "hasEffectFor: MISS ${musicFile.name} → musicId=$musicId, map keys=${effectFileMap.keys.toList()}" }
             }
             found
         } catch (e: Exception) {

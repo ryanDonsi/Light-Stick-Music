@@ -31,7 +31,8 @@ object Log {
      * 해당 TAG 의 로그 출력 여부 확인
      * LOG_ENABLED = true 이고 LOG_ENABLED_FEATURES 에 포함된 경우만 허용
      */
-    private fun isLoggable(tag: String): Boolean {
+    @PublishedApi
+    internal fun isLoggable(tag: String): Boolean {
         return BuildConfig.DEBUG && AppConstants.LOG_ENABLED && tag in AppConstants.LOG_ENABLED_FEATURES
     }
 
@@ -47,6 +48,18 @@ object Log {
             return AndroidLog.v(tag, msg, tr)
         }
         return 0
+    }
+
+    /**
+     * 지연 생성 버전: 로그가 꺼져 있으면 [msg] 람다를 실행하지 않아 문자열을 만들지 않는다.
+     * 자주 호출되는 경로(재생 위치 동기화, 곡 스캔 등)에서 사용한다.
+     */
+    inline fun d(tag: String, msg: () -> String) {
+        if (isLoggable(tag)) AndroidLog.d(tag, msg())
+    }
+
+    inline fun w(tag: String, msg: () -> String) {
+        if (isLoggable(tag)) AndroidLog.w(tag, msg())
     }
 
     fun d(tag: String, msg: String): Int {

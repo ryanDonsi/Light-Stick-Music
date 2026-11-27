@@ -548,7 +548,7 @@ object EffectEngineController {
                 Log.d(TAG, "[firmware] raw frame[$currentEffectIndex] bytes=${bytes?.joinToString(",") { "%02X".format(it) }}")
             }
 
-            Log.d(TAG, "[record] effectIndex=${currentEffectIndex} posMs=${currentPositionMs}ms t=${currentEntry.timestampMs}ms")
+            Log.d(TAG) { "[record] effectIndex=${currentEffectIndex} posMs=${currentPositionMs}ms t=${currentEntry.timestampMs}ms" }
             lastRecordedEffectIndex = currentEffectIndex
             val currentEffect = timeline[currentEffectIndex]
 

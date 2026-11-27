@@ -50,3 +50,14 @@
 # JTransforms 의존 라이브러리(JLargeArrays)가 참조하는 JVM 내부 클래스 (Android 에 없음)
 -dontwarn sun.misc.**
 -dontwarn pl.edu.icm.jlargearrays.**
+
+# ---------------------------------------------------------------------
+# 앱 로그 유틸: 릴리즈에서는 출력하지 않으므로 호출 자체를 제거해 인자 문자열 생성 비용도 없앤다
+# ---------------------------------------------------------------------
+-assumenosideeffects class com.lightstick.music.core.util.Log {
+    public int v(...);
+    public int d(...);
+    public int i(...);
+    public int w(...);
+    public int e(...);
+}
