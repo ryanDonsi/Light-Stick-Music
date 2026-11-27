@@ -478,7 +478,8 @@ class MusicViewModel @Inject constructor(
     }
 
     private fun startPlayback(item: MusicItem) {
-        ServiceController.startMusicEffectService(
+        // 서비스가 이미 떠 있으면(알림의 다음 곡 등 백그라운드 호출 포함) 알림 갱신만 한다
+        ServiceController.updateNotificationProgress(
             context   = context,
             musicItem = item,
             isPlaying = true,

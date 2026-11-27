@@ -44,13 +44,25 @@ class MusicEffectService : Service() {
         const val ACTION_NEXT = "ACTION_NEXT"
         const val ACTION_PREV = "ACTION_PREV"
         const val ACTION_SEEK = "ACTION_SEEK"
+
+        /** 서비스가 살아 있는지 — 살아 있으면 알림 갱신은 startService 로 보낸다 ([ServiceController]) */
+        @Volatile var isRunning: Boolean = false
+            private set
+
+        /** 알림 큰 아이콘 최대 크기(px) — 원본 앨범아트를 그대로 디코드하지 않는다 */
+        private const val LARGE_ICON_MAX_PX = 256
     }
+
+    private var isForeground = false
+    private var cachedArtPath: String? = null
+    private var cachedArtBitmap: Bitmap? = null
 
     private lateinit var mediaSession: MediaSession
     private var lastIsPlaying: Boolean = true
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         mediaSession = MediaSession(this, "MusicSession")
         setupMediaSessionCallback()
         createNotificationChannel()
@@ -74,7 +86,14 @@ class MusicEffectService : Service() {
         updatePlaybackState(lastIsPlaying, position)
 
         val notification = buildNotification(musicItem, lastIsPlaying)
-        startForeground(NOTIFICATION_ID, notification)
+        if (isForeground) {
+            // 이미 포그라운드면 알림만 갱신 (startForeground 재호출 불필요)
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                .notify(NOTIFICATION_ID, notification)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+            isForeground = true
+        }
         return START_STICKY
     }
 
@@ -103,9 +122,8 @@ class MusicEffectService : Service() {
 
     @UnstableApi
     private fun buildNotification(musicItem: MusicItem, isPlaying: Boolean): Notification {
-        val albumBitmap: Bitmap = musicItem.albumArtPath?.let { path ->
-            try { BitmapFactory.decodeFile(path) } catch (_: Exception) { null }
-        } ?: getBitmapFromDrawable(this, R.drawable.ic_music_note)
+        val albumBitmap: Bitmap = loadAlbumArt(musicItem.albumArtPath)
+            ?: getBitmapFromDrawable(this, R.drawable.ic_music_note)
 
         val playPauseIconRes =
             if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
@@ -204,7 +222,29 @@ class MusicEffectService : Service() {
             .createNotificationChannel(channel)
     }
 
+    /** 같은 곡이면 캐시를 쓰고, 새 곡이면 알림 아이콘 크기로 줄여서 디코드한다 */
+    private fun loadAlbumArt(path: String?): Bitmap? {
+        if (path == null) return null
+        if (path == cachedArtPath) return cachedArtBitmap
+        val bitmap = try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, bounds)
+            var sample = 1
+            while (bounds.outWidth / (sample * 2) >= LARGE_ICON_MAX_PX &&
+                bounds.outHeight / (sample * 2) >= LARGE_ICON_MAX_PX
+            ) sample *= 2
+            BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
+        } catch (_: Exception) {
+            null
+        }
+        cachedArtPath = path
+        cachedArtBitmap = bitmap
+        return bitmap
+    }
+
     override fun onDestroy() {
+        isRunning = false
+        isForeground = false
         super.onDestroy()
         mediaSession.release()
     }
