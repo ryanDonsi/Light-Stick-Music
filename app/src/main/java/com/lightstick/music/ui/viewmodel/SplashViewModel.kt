@@ -27,7 +27,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
+
+/** MediaScanner 콜백 대기 상한 */
+private const val MEDIA_SCAN_TIMEOUT_MS = 10_000L
 
 @HiltViewModel
 class SplashViewModel @Inject constructor(
@@ -150,7 +154,7 @@ class SplashViewModel @Inject constructor(
      * 0단계: 파일시스템 직접 탐색 후 MediaStore 강제 인덱싱
      * - MediaStore 자동 스캔이 누락한 파일을 초기화 시점에 한 번 등록
      */
-    private suspend fun triggerMediaStoreScan() = withContext(Dispatchers.IO) {
+    private suspend fun triggerMediaStoreScan(): Unit = withContext(Dispatchers.IO) {
         val scanDirs = FileHelper.allowedMusicDirs().map { File(it) }.filter { it.exists() }
 
         val audioFiles = scanDirs
@@ -165,18 +169,22 @@ class SplashViewModel @Inject constructor(
 
         if (audioFiles.isEmpty()) return@withContext
 
-        suspendCancellableCoroutine { cont ->
+        // 콜백이 하나라도 오지 않으면 스플래시가 멈추던 문제 → 시간 제한 후 그대로 진행
+        val finished = withTimeoutOrNull(MEDIA_SCAN_TIMEOUT_MS) {
+        suspendCancellableCoroutine<Unit> { cont ->
             val remaining = AtomicInteger(audioFiles.size)
             MediaScannerConnection.scanFile(
                 context,
                 audioFiles.toTypedArray(),
                 null
             ) { _, _ ->
-                if (remaining.decrementAndGet() == 0) {
+                if (remaining.decrementAndGet() == 0 && cont.isActive) {
                     cont.resumeWith(Result.success(Unit))
                 }
             }
         }
+        }
+        if (finished == null) Log.w("InitVM", "MediaScanner timeout (${MEDIA_SCAN_TIMEOUT_MS}ms) — 계속 진행")
     }
 
     /**
