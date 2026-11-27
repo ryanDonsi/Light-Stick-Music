@@ -272,7 +272,9 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.navigationBarsPadding(),
                                     selectedRoute = currentRoute,
                                     onNavigate = { route ->
-                                        if (!isAnyOtaInProgress) {
+                                        if (isAnyOtaInProgress) {
+                                            toast.show("펌웨어 업데이트 중에는 이동할 수 없어요.")
+                                        } else {
                                             navController.navigate(route) {
                                                 popUpTo("effect") {
                                                     inclusive = false
@@ -714,6 +716,9 @@ private fun NavGraphBuilder.popupOrScreen(
     }
 }
 
+/** 화면 전환 페이드 시간. 디자인 확인 후 조정 예정(예전 700ms). */
+private const val NAV_FADE_MS = 250
+
 @OptIn(UnstableApi::class)
 @Composable
 fun AppNavigation(
@@ -741,11 +746,11 @@ fun AppNavigation(
         navController = navController,
         startDestination = "effect",
         modifier = navModifier,
-        // 기본 전환(페이드 700ms)을 폰에서는 그대로 두고, 태블릿 팝업은 자체 펼침 애니메이션을 쓰므로 끈다
-        enterTransition = if (tablet) ({ EnterTransition.None }) else ({ fadeIn(animationSpec = tween(700)) }),
-        exitTransition = if (tablet) ({ ExitTransition.None }) else ({ fadeOut(animationSpec = tween(700)) }),
-        popEnterTransition = if (tablet) ({ EnterTransition.None }) else ({ fadeIn(animationSpec = tween(700)) }),
-        popExitTransition = if (tablet) ({ ExitTransition.None }) else ({ fadeOut(animationSpec = tween(700)) })
+        // 폰은 페이드 전환(예전 700ms → NAV_FADE_MS), 태블릿 팝업은 자체 펼침 애니메이션을 쓰므로 끈다
+        enterTransition = if (tablet) ({ EnterTransition.None }) else ({ fadeIn(animationSpec = tween(NAV_FADE_MS)) }),
+        exitTransition = if (tablet) ({ ExitTransition.None }) else ({ fadeOut(animationSpec = tween(NAV_FADE_MS)) }),
+        popEnterTransition = if (tablet) ({ EnterTransition.None }) else ({ fadeIn(animationSpec = tween(NAV_FADE_MS)) }),
+        popExitTransition = if (tablet) ({ ExitTransition.None }) else ({ fadeOut(animationSpec = tween(NAV_FADE_MS)) })
     ) {
         composable("music") {
             if (tablet) {
