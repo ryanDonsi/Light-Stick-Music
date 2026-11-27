@@ -31,7 +31,9 @@ import com.lightstick.music.domain.music.FftAudioProcessor
 import com.lightstick.music.domain.music.MusicEffectManager
 import com.lightstick.music.domain.music.MusicIdCache
 import com.lightstick.music.domain.music.createFftPlayer
+import com.lightstick.music.domain.usecase.device.ObserveDeviceStatesUseCase
 import com.lightstick.music.domain.usecase.music.HandleSeekUseCase
+import com.lightstick.device.ConnectionState
 import com.lightstick.music.domain.usecase.music.LoadEfxUseCase
 import com.lightstick.music.domain.usecase.music.ProcessFFTUseCase
 import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
@@ -65,6 +67,9 @@ class MusicViewModel @Inject constructor(
 
         /** 화면용 위치 갱신 주기 = 50ms × 4 = 200ms */
         private const val UI_POSITION_EVERY_TICKS = 4
+
+        /** 새 기기 연결 후 타임라인 동기화까지 대기 (연결 애니메이션 1.2초 + 여유) */
+        private const val NEW_DEVICE_SYNC_DELAY_MS = 1_500L
     }
 
     private val context get() = getApplication<Application>().applicationContext
@@ -194,6 +199,13 @@ class MusicViewModel @Inject constructor(
         }
 
         viewModelScope.launch { monitorPosition() }
+
+        // 곡 재생 중 새로 연결된 기기에도 현재 타임라인을 실어 준다
+        viewModelScope.launch {
+            ObserveDeviceStatesUseCase.observeDeviceStateEvents().collect { event ->
+                if (event.state is ConnectionState.Connected) syncTimelineToNewDevice(event.mac)
+            }
+        }
 
         viewModelScope.launch {
             MusicPlayerCommandBus.commands.collect { command ->
@@ -565,6 +577,20 @@ class MusicViewModel @Inject constructor(
             Log.d(TAG, "Resume: sync position at $currentPos")
         } catch (e: Exception) {
             Log.e(TAG, "Resume position update failed: ${e.message}")
+        }
+    }
+
+    private fun syncTimelineToNewDevice(mac: String) {
+        if (!_isAutoModeEnabled.value || _nowPlaying.value == null) return
+        viewModelScope.launch {
+            // 연결 직후 연결 애니메이션(약 1.25초, 같은 기기에 playTimeline→stopTimeline)이 끝난 뒤 보낸다
+            delay(NEW_DEVICE_SYNC_DELAY_MS)
+            if (_nowPlaying.value == null) return@launch
+            val pos = player.currentPosition
+            val playing = player.isPlaying
+            withContext(Dispatchers.IO) {
+                EffectEngineController.syncTimelineToDevice(context, mac, pos, playing)
+            }
         }
     }
 

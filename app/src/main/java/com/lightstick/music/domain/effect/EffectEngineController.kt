@@ -369,6 +369,29 @@ object EffectEngineController {
         return sendEffect(context, payload.copy(duration = 0), TransmissionSource.TIMELINE_EFFECT)
     }
 
+    /**
+     * 곡 재생 중 새로 연결된 기기에 현재 타임라인을 실어 다른 기기와 맞춘다.
+     * 예전에는 타임라인을 로드한 시점에 연결돼 있던 기기에만 보냈다.
+     * @return 보냈으면 true
+     */
+    fun syncTimelineToDevice(context: Context, mac: String, positionMs: Long, playing: Boolean): Boolean {
+        if (!isTimelineLoaded) return false
+        val timeline = cachedTimeline
+        if (timeline.isEmpty()) return false
+        val device = resolveAllDevices(context).find { it.mac == mac } ?: return false
+        return try {
+            val frames = timeline.map { it.timestampMs to it.payload.toByteArray() }
+            device.playTimeline(frames)
+            device.updatePlaybackPosition(positionMs)
+            if (!playing) device.pauseTimeline()
+            Log.d(TAG, "[sync] 새 연결 기기 $mac 에 타임라인 ${frames.size}개 전송 (pos=$positionMs, playing=$playing)")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "syncTimelineToDevice failed $mac: ${e.message}")
+            false
+        }
+    }
+
     fun pauseEffects(context: Context) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
         resolveAllDevices(context).forEach {
