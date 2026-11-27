@@ -3,7 +3,6 @@ package com.lightstick.music.ui.viewmodel
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
-import com.lightstick.music.core.util.FirmwareVersionParser
 import com.lightstick.music.core.util.Log
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -62,6 +61,17 @@ class DeviceViewModel @Inject constructor(
 
         /** SHOW_EXIT(Write With Response)가 나간 뒤 연결을 끊기까지 기다리는 시간 — 바로 끊으면 쓰기가 취소될 수 있다 */
         private const val SHOW_EXIT_DISCONNECT_DELAY_MS = 300L
+
+        /** 이보다 작은 파일은 펌웨어로 보지 않는다 */
+        private const val OTA_MIN_FILE_BYTES = 1_024
+        /** 확인 화면에서 배터리 경고를 띄우는 기준(%) */
+        private const val OTA_LOW_BATTERY_PERCENT = 30
+        /** 전송 완료 후 재연결을 시도하기 전 대기. 펌웨어 측 재부팅 시간이 정해지면 맞출 것 */
+        private const val OTA_REBOOT_WAIT_MS = 5_000L
+        /** 재부팅 후 재연결을 기다리는 최대 시간 */
+        private const val OTA_RECONNECT_TIMEOUT_MS = 35_000L
+        /** 재연결 재시도 간격 — ConnectDeviceUseCase 시간 제한(30초)과 겹치지 않게 */
+        private const val OTA_RECONNECT_RETRY_MS = 31_000L
     }
 
     private val _devices = MutableStateFlow<List<Device>>(emptyList())
@@ -108,26 +118,17 @@ class DeviceViewModel @Inject constructor(
     @Suppress("unused")
     val otaInProgress: StateFlow<Map<String, Boolean>> = _otaInProgress.asStateFlow()
 
-    /**
-     * 파일 선택 후 버전 비교 결과
-     * - null: 체크 결과 없음
-     * - 비어있지 않으면 UI에서 다이얼로그 표시 후 [clearOtaVersionCheck] 호출
-     */
-    data class OtaVersionCheck(
-        val fileVersion: String,
-        val deviceVersion: String,
-        val isUpdateAvailable: Boolean
-    )
+    /** OTA 진행 화면 상태 (MAC → [OtaUi]). init 의 수집기보다 먼저 초기화되도록 위에 둔다. */
+    private val _otaUi = MutableStateFlow<Map<String, OtaUi>>(emptyMap())
+    val otaUi: StateFlow<Map<String, OtaUi>> = _otaUi.asStateFlow()
 
-    private val _otaVersionCheck = MutableStateFlow<OtaVersionCheck?>(null)
-    val otaVersionCheck: StateFlow<OtaVersionCheck?> = _otaVersionCheck.asStateFlow()
+    /** 확인 대기 중인 펌웨어 (MAC → 바이트). 다시 시도할 때도 재사용한다. */
+    private val pendingOtaFirmware = mutableMapOf<String, ByteArray>()
+    private val otaRebootJobs = mutableMapOf<String, Job>()
 
     /** 이번 행사의 전체 그룹 개수 (1~20) — GroupAssignDialog에서 사용, GroupPreferences에 영속화 */
     private val _groupCount = MutableStateFlow(GroupPreferences.getGroupCount(context))
     val groupCount: StateFlow<Int> = _groupCount.asStateFlow()
-
-    /** 버전 확인 후 사용자 승인 시 전달할 펌웨어 바이트 임시 보관 */
-    private var pendingOtaFirmware: ByteArray? = null
 
     /** 스캔 Job 추적 */
     private var scanJob: Job? = null
@@ -358,6 +359,10 @@ class DeviceViewModel @Inject constructor(
             _otaInProgress.value -= mac
             _otaProgress.value   -= mac
         }
+        // 전송 중 연결이 끊기면 결과를 실패로 보여 준다(재부팅 대기·결과 화면은 그대로 둔다)
+        (_otaUi.value[mac] as? OtaUi.Transferring)?.let {
+            setOtaUi(mac, OtaUi.Failed(it.deviceName, "업데이트 중 연결이 끊겼어요. 응원봉을 켜고 다시 연결한 뒤 시도해 주세요.", canRetry = false))
+        }
     }
 
     /**
@@ -579,104 +584,252 @@ class DeviceViewModel @Inject constructor(
     }
 
     /**
-     * 파일 선택 → 버전 비교 → otaVersionCheck StateFlow 업데이트
+     * OTA 진행 화면 상태 (기기 MAC 기준).
      *
-     * 흐름:
-     *  1. URI에서 파일 바이트 읽기 (IO 스레드)
-     *  2. 바이너리에서 버전 파싱 — 실패 시 현재 디바이스 버전의 minor +1 시뮬레이션
-     *  3. 디바이스 현재 버전과 비교
-     *  4. [otaVersionCheck] 에 결과 저장 → UI에서 다이얼로그 결정
-     *
-     * [TODO] 최종 구현 시 서버 API에서 버전 + 다운로드 URL 조회로 대체
+     * 펌웨어 버전 정보가 아직 없어, 사용자가 고른 파일로 무조건 업데이트한다.
+     * 그래서 "최신 버전/새 버전" 판정 대신 파일 정보를 보여 주고 확인을 받는다.
+     * 흐름: 파일 선택 → [Confirm] → [Transferring] → [Rebooting] → [Success] / [Failed]
+     */
+    sealed class OtaUi {
+        abstract val deviceName: String
+
+        data class FileError(override val deviceName: String, val message: String) : OtaUi()
+
+        data class Confirm(
+            override val deviceName: String,
+            val currentVersion: String?,
+            val fileName: String,
+            val sizeBytes: Int,
+            val modifiedAtMs: Long?,
+            /** 확장자가 .bin 이 아니면 경고만 한다 */
+            val unusualExtension: Boolean,
+            /** 배터리가 [OTA_LOW_BATTERY_PERCENT] 미만이면 경고 */
+            val lowBattery: Boolean
+        ) : OtaUi()
+
+        data class Transferring(
+            override val deviceName: String,
+            val percent: Int,
+            /** 최근 진행 속도로 추정한 남은 시간(초). 추정 전이면 null */
+            val etaSeconds: Int?
+        ) : OtaUi()
+
+        data class Rebooting(override val deviceName: String) : OtaUi()
+
+        data class Success(
+            override val deviceName: String,
+            /** 재연결 후 다시 읽은 버전. 재연결하지 못했으면 null */
+            val version: String?,
+            val reconnected: Boolean
+        ) : OtaUi()
+
+        data class Failed(
+            override val deviceName: String,
+            val message: String,
+            val canRetry: Boolean
+        ) : OtaUi()
+    }
+
+    private fun setOtaUi(mac: String, ui: OtaUi?) {
+        _otaUi.value = if (ui == null) _otaUi.value - mac else _otaUi.value + (mac to ui)
+    }
+
+    private fun displayName(device: Device): String = device.name ?: "Unknown Device"
+
+    /**
+     * 펌웨어 파일 선택 결과 처리: 읽기 + 간단한 검사 → [OtaUi.Confirm] 또는 [OtaUi.FileError].
+     * [TODO] 서버에서 버전을 받게 되면 Confirm 에 "새 버전"을 추가한다.
      */
     @SuppressLint("MissingPermission")
-    fun checkFirmwareVersion(context: Context, device: Device, firmwareUri: Uri) {
+    fun selectFirmwareFile(context: Context, device: Device, firmwareUri: Uri) {
+        val name = displayName(device)
         viewModelScope.launch {
             try {
-                val firmware = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(firmwareUri)?.use { it.readBytes() }
-                } ?: run {
-                    Log.e(TAG, "OTA: Cannot open firmware file")
+                val (bytes, meta) = withContext(Dispatchers.IO) {
+                    val data = context.contentResolver.openInputStream(firmwareUri)?.use { it.readBytes() }
+                    data to readFileMeta(context, firmwareUri)
+                }
+                if (bytes == null) {
+                    setOtaUi(device.mac, OtaUi.FileError(name, "파일을 열 수 없어요. 다른 파일을 선택해 주세요."))
                     return@launch
                 }
-
-                val deviceVersion = _deviceDetails.value[device.mac]
-                    ?.deviceInfo?.firmwareRevision.orEmpty().trim()
-
-                // Telink 바이너리는 버전 정보가 신뢰할 수 없으므로 항상 시뮬레이션 버전(minor+1) 사용
-                val parsedVersion = FirmwareVersionParser.parseFromBytes(firmware)
-                val baseVersion = deviceVersion.ifEmpty { "0.0.0" }
-                val fileVersion = FirmwareVersionParser.simulateTestVersion(baseVersion)
-
-                Log.i(TAG, "OTA version check: device=$deviceVersion, file=$fileVersion, parsed=$parsedVersion")
-                val isUpdateAvailable = FirmwareVersionParser.isNewerVersion(fileVersion, deviceVersion)
-
-                pendingOtaFirmware = firmware
-                _otaVersionCheck.value = OtaVersionCheck(fileVersion, deviceVersion, isUpdateAvailable)
-
+                if (bytes.size < OTA_MIN_FILE_BYTES) {
+                    setOtaUi(device.mac, OtaUi.FileError(name, "펌웨어 파일이 아닌 것 같아요 (크기 ${bytes.size}B)."))
+                    return@launch
+                }
+                pendingOtaFirmware[device.mac] = bytes
+                val detail = _deviceDetails.value[device.mac]
+                setOtaUi(
+                    device.mac,
+                    OtaUi.Confirm(
+                        deviceName       = name,
+                        currentVersion   = detail?.deviceInfo?.firmwareRevision?.trim()?.ifEmpty { null },
+                        fileName         = meta.first ?: "펌웨어 파일",
+                        sizeBytes        = bytes.size,
+                        modifiedAtMs     = meta.second,
+                        unusualExtension = meta.first?.endsWith(".bin", ignoreCase = true) == false,
+                        lowBattery       = (detail?.batteryLevel ?: 100) < OTA_LOW_BATTERY_PERCENT
+                    )
+                )
             } catch (e: Exception) {
-                Log.e(TAG, "OTA version check error: ${e.message}", e)
+                Log.e(TAG, "OTA file read error: ${e.message}", e)
+                setOtaUi(device.mac, OtaUi.FileError(name, "파일을 읽지 못했어요. 다른 파일을 선택해 주세요."))
             }
         }
     }
 
-    /**
-     * 사용자가 업데이트 확인 → [pendingOtaFirmware] 로 OTA 시작
-     */
+    /** 파일 이름, 수정 시각(ms). SAF 문서에 없으면 null */
+    private fun readFileMeta(context: Context, uri: Uri): Pair<String?, Long?> = try {
+        context.contentResolver.query(
+            uri,
+            arrayOf(
+                android.provider.OpenableColumns.DISPLAY_NAME,
+                android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED
+            ),
+            null, null, null
+        )?.use { c ->
+            if (!c.moveToFirst()) return@use null to null
+            val nameIdx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            val modIdx  = c.getColumnIndex(android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            val n = if (nameIdx >= 0) c.getString(nameIdx) else null
+            val m = if (modIdx >= 0 && !c.isNull(modIdx)) c.getLong(modIdx) else null
+            n to m
+        } ?: (null to null)
+    } catch (e: Exception) {
+        null to null
+    }
+
+    /** 확인 화면에서 "업데이트 시작" (실패 후 "다시 시도"도 같은 파일로) */
     @SuppressLint("MissingPermission")
-    fun startPendingOta(device: Device) {
-        val firmware = pendingOtaFirmware ?: run {
+    fun confirmOta(device: Device) {
+        val firmware = pendingOtaFirmware[device.mac] ?: run {
             Log.e(TAG, "OTA: 대기 중인 펌웨어 없음")
+            setOtaUi(device.mac, OtaUi.FileError(displayName(device), "파일을 다시 선택해 주세요."))
             return
         }
-        pendingOtaFirmware = null
         startOtaFromBytes(device, firmware)
     }
 
-    /** 버전 체크 결과 초기화 (pendingOtaFirmware는 startPendingOta/abortOta에서만 해제) */
-    fun clearOtaVersionCheck() {
-        _otaVersionCheck.value = null
+    /** 결과·오류 화면을 닫는다 */
+    fun dismissOta(mac: String) {
+        if (_otaInProgress.value[mac] == true) return // 진행 중에는 닫지 않는다
+        otaRebootJobs.remove(mac)?.cancel()
+        pendingOtaFirmware.remove(mac)
+        setOtaUi(mac, null)
     }
 
     /** 펌웨어 ByteArray로 OTA 진행 */
     @SuppressLint("MissingPermission")
     private fun startOtaFromBytes(device: Device, firmware: ByteArray) {
+        val name = displayName(device)
         viewModelScope.launch {
             try {
                 _otaInProgress.value += (device.mac to true)
                 _otaProgress.value   += (device.mac to 0)
+                setOtaUi(device.mac, OtaUi.Transferring(name, 0, null))
 
                 Log.i(TAG, "OTA start: ${device.mac}, size=${firmware.size}B")
+                val startedAt = android.os.SystemClock.elapsedRealtime()
                 val ok = device.startOta(
                     firmware   = firmware,
                     onProgress = { percent ->
                         _otaProgress.value += (device.mac to percent)
                         if (percent % 10 == 0) Log.i(TAG, "OTA progress: $percent% [${device.mac}]")
+                        // 남은 시간: 지금까지 평균 속도 기준, 5% 이상 진행된 뒤부터 표시
+                        val elapsed = android.os.SystemClock.elapsedRealtime() - startedAt
+                        val eta = if (percent in 5..99) ((elapsed * (100 - percent) / percent) / 1000).toInt() else null
+                        if (_otaUi.value[device.mac] is OtaUi.Transferring) {
+                            setOtaUi(device.mac, OtaUi.Transferring(name, percent, eta))
+                        }
                     },
                     onResult   = { result ->
                         _otaInProgress.value += (device.mac to false)
                         result
-                            .onSuccess { Log.i(TAG, "OTA success: ${device.mac}") }
-                            .onFailure { Log.e(TAG, "OTA failed: ${it.message}") }
+                            .onSuccess {
+                                Log.i(TAG, "OTA success: ${device.mac}")
+                                pendingOtaFirmware.remove(device.mac)
+                                awaitRebootAndReconnect(device)
+                            }
+                            .onFailure {
+                                Log.e(TAG, "OTA failed: ${it.message}")
+                                // 중지(abort)로 이미 결과를 표시했으면 덮어쓰지 않는다
+                                if (_otaUi.value[device.mac] is OtaUi.Transferring) {
+                                    setOtaUi(device.mac, OtaUi.Failed(name, otaFailureMessage(it), canRetry = true))
+                                }
+                            }
                     }
                 )
                 if (!ok) {
                     _otaInProgress.value += (device.mac to false)
                     Log.e(TAG, "OTA submit failed: ${device.mac}")
+                    setOtaUi(device.mac, OtaUi.Failed(name, "응원봉이 업데이트를 시작하지 못했어요.", canRetry = true))
                 }
 
             } catch (e: Exception) {
                 _otaInProgress.value += (device.mac to false)
                 Log.e(TAG, "OTA error: ${e.message}", e)
+                setOtaUi(device.mac, OtaUi.Failed(name, otaFailureMessage(e), canRetry = true))
             }
         }
     }
 
+    private fun otaFailureMessage(t: Throwable): String {
+        val msg = t.message.orEmpty().lowercase()
+        return when {
+            "disconnect" in msg || "connection" in msg || "gatt" in msg ->
+                "업데이트 중 연결이 끊겼어요. 응원봉을 가까이 두고 다시 시도해 주세요."
+            "reject" in msg || "denied" in msg || "invalid" in msg ->
+                "응원봉이 이 파일을 받지 않았어요. 파일이 맞는지 확인해 주세요."
+            else -> "업데이트에 실패했어요. 다시 시도해 주세요."
+        }
+    }
+
+    /**
+     * 전송 완료 후 응원봉이 재부팅하는 동안 기다렸다가 다시 연결해 버전을 읽는다.
+     * 재부팅 시간은 펌웨어 측 값이 아직 없어 [OTA_REBOOT_WAIT_MS] / [OTA_RECONNECT_TIMEOUT_MS] 기본값을 쓴다.
+     */
+    private fun awaitRebootAndReconnect(device: Device) {
+        val name = displayName(device)
+        setOtaUi(device.mac, OtaUi.Rebooting(name))
+        otaRebootJobs.remove(device.mac)?.cancel()
+        otaRebootJobs[device.mac] = viewModelScope.launch {
+            delay(OTA_REBOOT_WAIT_MS)
+            val deadline = android.os.SystemClock.elapsedRealtime() + OTA_RECONNECT_TIMEOUT_MS
+            var lastAttemptAt = 0L
+            while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                if (_connectionStates.value[device.mac] == true) break
+                val now = android.os.SystemClock.elapsedRealtime()
+                // 연결 시도가 겹치지 않도록 일정 간격으로만 다시 시도한다
+                if (now - lastAttemptAt >= OTA_RECONNECT_RETRY_MS) {
+                    lastAttemptAt = now
+                    connect(context, device)
+                }
+                delay(1_000L)
+            }
+            val reconnected = _connectionStates.value[device.mac] == true
+            if (reconnected) delay(1_500L) // DIS 읽기 대기
+            val version = _deviceDetails.value[device.mac]?.deviceInfo?.firmwareRevision?.trim()?.ifEmpty { null }
+            setOtaUi(device.mac, OtaUi.Success(name, if (reconnected) version else null, reconnected))
+        }
+    }
+
+    /**
+     * OTA 중지. 사용자 결정(2026-11-27): 중지하면 응원봉이 꺼진다. UI 에서 확인을 받은 뒤 호출한다.
+     */
     @SuppressLint("MissingPermission")
     fun abortOta(device: Device) {
         device.abortOta()
         _otaInProgress.value -= device.mac
         _otaProgress.value   -= device.mac
+        pendingOtaFirmware.remove(device.mac)
+        setOtaUi(
+            device.mac,
+            OtaUi.Failed(
+                displayName(device),
+                "업데이트를 중지했어요. 응원봉이 꺼졌으니 다시 켜서 연결한 뒤 업데이트해 주세요.",
+                canRetry = false
+            )
+        )
         Log.i(TAG, "OTA aborted: ${device.mac}")
     }
 

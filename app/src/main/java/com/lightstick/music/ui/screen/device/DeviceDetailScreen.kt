@@ -249,7 +249,7 @@ fun DeviceDetailScreen(
                                 description = if (isOtaInProgress)
                                     "펌웨어 업데이트 중 ($otaProgress%)"
                                 else
-                                    "펌웨어 업데이트를 진행",
+                                    "펌웨어 파일을 골라 업데이트",
                                 modifier = Modifier.weight(1f)
                             )
                             CustomChip(

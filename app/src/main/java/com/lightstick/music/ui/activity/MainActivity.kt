@@ -94,8 +94,7 @@ import com.lightstick.music.ui.components.device.DisconnectConfirmDialog
 import com.lightstick.music.ui.components.device.EffectFolderGuideDialog
 import com.lightstick.music.ui.components.device.FindEffectConfirmDialog
 import com.lightstick.music.ui.components.device.GroupAssignDialog
-import com.lightstick.music.ui.components.device.OtaUpdateConfirmDialog
-import com.lightstick.music.ui.components.device.OtaVersionInfoDialog
+import com.lightstick.music.ui.components.device.OtaFlowDialog
 import com.lightstick.music.ui.components.device.ReconnectConfirmDialog
 import com.lightstick.music.ui.components.device.SystemOffConfirmDialog
 import com.lightstick.music.ui.screen.device.DeviceDetailScreen
@@ -476,21 +475,33 @@ private fun DeviceDetailPane(
     val device = devices.find { it.mac == deviceMac }
     val deviceDetail = deviceDetails[deviceMac]
 
+    // OTA 결과·재부팅 대기 화면은 응원봉이 재부팅·꺼짐으로 연결이 끊겨도 닫지 않는다
+    val otaUiMap by deviceViewModel.otaUi.collectAsState()
+    val otaUi = otaUiMap[deviceMac]
+
     if (device == null) {
-        LaunchedEffect(Unit) {
-            onClose()
+        if (otaUi != null) {
+            OtaFlowDialog(
+                state             = otaUi,
+                onConfirm         = {},
+                onAbort           = {},
+                onPickAnotherFile = { deviceViewModel.dismissOta(deviceMac) },
+                onClose           = { deviceViewModel.dismissOta(deviceMac) }
+            )
+        } else {
+            LaunchedEffect(Unit) {
+                onClose()
+            }
         }
         return
     }
 
     val isConnected = connectionStates[deviceMac] == true
-    LaunchedEffect(isConnected) {
-        if (!isConnected) {
+    LaunchedEffect(isConnected, otaUi == null) {
+        if (!isConnected && otaUi == null) {
             onClose()
         }
     }
-
-    val otaVersionCheck by deviceViewModel.otaVersionCheck.collectAsState()
 
     // TODO: 최종 구현 시 서버 API로 최신 버전 조회 + 다운로드 URL 수신으로 대체
     val otaFilePicker = rememberLauncherForActivityResult(
@@ -505,13 +516,11 @@ private fun DeviceDetailPane(
             }
         }
     ) { uri ->
-        uri?.let { deviceViewModel.checkFirmwareVersion(context, device, it) }
+        uri?.let { deviceViewModel.selectFirmwareFile(context, device, it) }
     }
 
     var showDisconnectDialog by remember { mutableStateOf(false) }
     var showDeviceInfoDialog by remember { mutableStateOf(false) }
-    var showOtaUpdateDialog by remember { mutableStateOf(false) }
-    var showOtaLatestDialog by remember { mutableStateOf(false) }
     var showFindDialog by remember { mutableStateOf(false) }
     var showSystemOffDialog by remember { mutableStateOf(false) }
     var showControlUnsupportedDialog by remember { mutableStateOf(false) }
@@ -520,21 +529,6 @@ private fun DeviceDetailPane(
         runCatching { device.supportsControl() }.getOrDefault(false)
     var showGroupAssignDialog by remember { mutableStateOf(false) }
 
-    var otaDialogCurrentVersion by remember { mutableStateOf("") }
-    var otaDialogNewVersion by remember { mutableStateOf("") }
-
-    LaunchedEffect(otaVersionCheck) {
-        otaVersionCheck?.let { check ->
-            otaDialogCurrentVersion = check.deviceVersion
-            otaDialogNewVersion     = check.fileVersion
-            if (check.isUpdateAvailable) {
-                showOtaUpdateDialog = true
-            } else {
-                showOtaLatestDialog = true
-            }
-            deviceViewModel.clearOtaVersionCheck()
-        }
-    }
 
     val callEventEnabled = deviceDetail?.callEventEnabled
         ?: DevicePreferences.getCallEventEnabled(deviceMac)
@@ -550,7 +544,15 @@ private fun DeviceDetailPane(
     val isOtaInProgress  = otaInProgressMap[deviceMac] == true
     val otaProgress      = otaProgressMap[deviceMac] ?: 0
 
-    BackHandler(enabled = isOtaInProgress) { /* OTA 진행 중 뒤로가기 차단 */ }
+    // OTA 진행 중 뒤로가기 차단 — 진행 대화상자가 떠 있어 보통은 여기까지 오지 않는다
+    BackHandler(enabled = isOtaInProgress) { }
+
+    // 전송 중에는 화면이 꺼지지 않게 한다
+    val view = androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(isOtaInProgress) {
+        view.keepScreenOn = isOtaInProgress
+        onDispose { view.keepScreenOn = false }
+    }
 
     DeviceDetailScreen(
         deviceName = device.name ?: "Unknown Device",
@@ -666,28 +668,18 @@ private fun DeviceDetailPane(
         )
     }
 
-    // TODO: 최종 구현 — 서버 API에서 버전 + 다운로드 URL 조회, 확인 시 파일 다운로드 후 startPendingOta()
-    if (showOtaUpdateDialog) {
-        OtaUpdateConfirmDialog(
-            deviceName     = device.name ?: "Unknown Device",
-            currentVersion = otaDialogCurrentVersion,
-            newVersion     = otaDialogNewVersion,
-            onDismiss = {
-                showOtaUpdateDialog = false
-                deviceViewModel.clearOtaVersionCheck()
+    // OTA: 파일 확인 → 진행 → 재부팅 대기 → 결과 (버전 정보가 없어 선택한 파일로 무조건 진행)
+    // TODO: 서버에서 버전을 받게 되면 확인 단계에 "새 버전"을 추가
+    otaUi?.let { state ->
+        OtaFlowDialog(
+            state             = state,
+            onConfirm         = { deviceViewModel.confirmOta(device) },
+            onAbort           = { deviceViewModel.abortOta(device) },
+            onPickAnotherFile = {
+                deviceViewModel.dismissOta(deviceMac)
+                otaFilePicker.launch(arrayOf("application/octet-stream", "*/*"))
             },
-            onConfirm = {
-                showOtaUpdateDialog = false
-                deviceViewModel.startPendingOta(device)
-            }
-        )
-    }
-
-    if (showOtaLatestDialog) {
-        OtaVersionInfoDialog(
-            deviceName = device.name ?: "Unknown Device",
-            version    = deviceDetail?.deviceInfo?.firmwareRevision ?: "Unknown",
-            onDismiss  = { showOtaLatestDialog = false }
+            onClose           = { deviceViewModel.dismissOta(deviceMac) }
         )
     }
 

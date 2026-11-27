@@ -247,58 +247,6 @@ fun SystemOffConfirmDialog(
 }
 
 /**
- * 6-1. 최신버전 다이얼로그
- *
- * Figma: "기기의 이름(버전)은 업데이트를 진행하시겠습니까?"
- * - subtitle만, content 없음
- * - 1버튼: "확인"
- */
-@Composable
-fun OtaVersionInfoDialog(
-    deviceName: String,
-    version: String,
-    onDismiss: () -> Unit
-) {
-    BaseDialog(
-        title = null,
-        subtitle = "$deviceName($version)은\n최신 버전입니다.",
-        onDismiss = onDismiss,
-        confirmText = "확인",
-        scrollable = false,
-        content = null
-    )
-}
-
-/**
- * 6-2. OTA 업데이트 확인 다이얼로그
- *
- * 현재 버전과 새 버전을 함께 표시
- * - subtitle만, content 없음
- * - 2버튼: "취소" / "확인"
- *
- * TODO: 최종 구현 시 서버 API에서 최신 버전 조회 후 currentVersion / newVersion 설정
- */
-@Composable
-fun OtaUpdateConfirmDialog(
-    deviceName: String,
-    currentVersion: String,
-    newVersion: String,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
-) {
-    BaseDialog(
-        title = null,
-        subtitle = "$deviceName\n현재 버전: $currentVersion → 새 버전: $newVersion\n업데이트를 진행하시겠습니까?",
-        onDismiss = onDismiss,
-        onConfirm = onConfirm,
-        confirmText = "확인",
-        dismissText = "취소",
-        scrollable = false,
-        content = null
-    )
-}
-
-/**
  * 이펙트 폴더 미설정 안내 다이얼로그
  *
  * 앱 최초 실행 또는 SAF 폴더 미설정 상태일 때 표시
