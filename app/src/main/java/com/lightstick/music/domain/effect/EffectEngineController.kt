@@ -161,29 +161,35 @@ object EffectEngineController {
             return null
         }
 
-        val device = resolveTarget(context) ?: run {
+        // 연결된 기기 전체에 보낸다(B6). 예전에는 첫 기기 하나에만 갔다.
+        val devices = resolveAllDevices(context)
+        if (devices.isEmpty()) {
             Log.w(TAG, "No target device")
             return null
         }
 
-        return try {
-            device.playEffects(frames)
-            device
-        } catch (e: Exception) {
-            Log.e(TAG, "Play frames error: ${e.message}")
-            null
+        var first: Device? = null
+        devices.forEach { device ->
+            try {
+                device.playEffects(frames)
+                if (first == null) first = device
+            } catch (e: Exception) {
+                Log.e(TAG, "Play frames error [${device.mac}]: ${e.message}")
+            }
         }
+        return first
     }
 
-    /** [playFrames]로 재생 중인 캔드 시퀀스를 즉시 중단(같은 대상 기기의 playEffects만 정지). */
+    /** [playFrames]로 재생 중인 캔드 시퀀스를 즉시 중단(연결된 모든 기기의 playEffects 정지). */
     fun stopPlayFrames(context: Context) {
         if (!PermissionManager.hasBluetoothConnectPermission(context)) return
 
-        val device = resolveTarget(context) ?: return
-        try {
-            device.stopEffects()
-        } catch (e: Exception) {
-            Log.e(TAG, "Stop play frames error: ${e.message}")
+        resolveAllDevices(context).forEach { device ->
+            try {
+                device.stopEffects()
+            } catch (e: Exception) {
+                Log.e(TAG, "Stop play frames error [${device.mac}]: ${e.message}")
+            }
         }
     }
 
@@ -193,30 +199,36 @@ object EffectEngineController {
             return false
         }
 
-        val device = resolveTarget(context) ?: run {
+        if (OtaState.isAnyInProgress.value) return false
+
+        // 연결된 기기 전체에 보낸다(B6). 예전에는 첫 기기 하나에만 갔다.
+        val devices = resolveAllDevices(context)
+        if (devices.isEmpty()) {
             Log.w(TAG, "No target device")
             return false
         }
 
-        return try {
-            device.sendColor(color, transit)
-
-            val transmissionEvent = BleTransmissionEvent(
-                source = source,
-                deviceMac = device.mac,
-                effectType = null,
-                payload = LSEffectPayload.Effects.on(color, transit = transit),
-                color = color,
-                transit = transit,
-                metadata = mapOf("type" to "color")
-            )
-            BleTransmissionMonitor.recordTransmission(transmissionEvent)
-
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Send color error: ${e.message}")
-            false
+        var success = false
+        devices.forEach { device ->
+            try {
+                device.sendColor(color, transit)
+                BleTransmissionMonitor.recordTransmission(
+                    BleTransmissionEvent(
+                        source = source,
+                        deviceMac = device.mac,
+                        effectType = null,
+                        payload = LSEffectPayload.Effects.on(color, transit = transit),
+                        color = color,
+                        transit = transit,
+                        metadata = mapOf("type" to "color")
+                    )
+                )
+                success = true
+            } catch (e: Exception) {
+                Log.e(TAG, "Send color error [${device.mac}]: ${e.message}")
+            }
         }
+        return success
     }
 
     /** 자동 타임라인(frames) 로드 — 연결된 모든 기기에 전송 */
@@ -489,33 +501,6 @@ object EffectEngineController {
 
     fun getLoadedEffectCount(): Int = cachedTimeline.size
 
-    private fun resolveTarget(context: Context): Device? {
-        if (!PermissionManager.hasBluetoothConnectPermission(context)) return null
-
-        return try {
-            val addr = targetAddress
-
-            if (addr != null && targetDevice != null && targetDevice?.isConnected() == true) {
-                return targetDevice
-            }
-
-            if (addr != null) {
-                val devices = LSBluetooth.connectedDevices()
-                targetDevice = devices.find { it.mac == addr && it.isConnected() }
-                if (targetDevice != null) return targetDevice
-            }
-
-            val first = LSBluetooth.connectedDevices().firstOrNull()
-            if (first != null) {
-                targetDevice = first
-                targetAddress = first.mac
-            }
-            targetDevice
-        } catch (t: Throwable) {
-            Log.e(TAG, "resolveTarget() failed: ${t.message}")
-            null
-        }
-    }
 
     @Synchronized
     private fun recordCurrentTimelineEffect(deviceMac: String, currentPositionMs: Long) {
