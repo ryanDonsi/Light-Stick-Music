@@ -9,10 +9,31 @@
 
 # ---------------------------------------------------------------------
 # LightStick SDK: AAR 에 consumer rules 가 없고 BLE(GATT) 쪽에서 리플렉션을 사용하므로
-# 전체 유지. (SDK 가 consumer rules 를 제공하게 되면 범위를 줄일 것)
+# SDK 패키지는 전체 유지. (SDK 가 consumer rules 를 제공하게 되면 범위를 줄일 것)
+#
+# 예전에는 com.lightstick.** 로 지정해 앱 패키지(com.lightstick.music)까지 통째로 유지돼
+# 앱 코드 축소·난독화가 거의 되지 않았다(D1). SDK 2.200.0 AAR 의 패키지만 나열한다.
+# SDK 에 새 최상위 패키지가 생기면 여기에 추가해야 한다.
 # ---------------------------------------------------------------------
--keep class com.lightstick.** { *; }
--keep interface com.lightstick.** { *; }
+-keep class com.lightstick.* { *; }
+-keep interface com.lightstick.* { *; }
+-keep class com.lightstick.config.** { *; }
+-keep class com.lightstick.control.** { *; }
+-keep class com.lightstick.device.** { *; }
+-keep class com.lightstick.efx.** { *; }
+-keep class com.lightstick.game.** { *; }
+-keep class com.lightstick.internal.** { *; }
+-keep class com.lightstick.ota.** { *; }
+-keep class com.lightstick.types.** { *; }
+-keep interface com.lightstick.config.** { *; }
+-keep interface com.lightstick.control.** { *; }
+-keep interface com.lightstick.device.** { *; }
+-keep interface com.lightstick.efx.** { *; }
+-keep interface com.lightstick.game.** { *; }
+-keep interface com.lightstick.internal.** { *; }
+-keep interface com.lightstick.ota.** { *; }
+-keep interface com.lightstick.types.** { *; }
+-dontwarn com.lightstick.samples.**
 
 # ---------------------------------------------------------------------
 # 영속 저장된 enum 이름을 valueOf()/name 으로 복원하므로 앱 enum 은 이름 유지
