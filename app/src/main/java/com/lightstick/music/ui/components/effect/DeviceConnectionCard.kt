@@ -393,7 +393,9 @@ private fun calculateEffectColorFromTransmission(
     lastColorRef: MutableState<Color>,
     currentDisplayedColorRef: MutableState<Color>
 ): EffectColorData? {
-    val lastAnimationKeyRef = remember { mutableStateOf<String?>(null) }
+    // 컴포지션 중에 읽고 쓰는 값이라 Compose State 가 아닌 일반 홀더로 둔다.
+    // (State 로 두면 컴포지션 중 쓰기가 같은 컴포지션의 읽기를 무효화해 재구성을 다시 일으킨다)
+    val lastAnimationKeyRef = remember { AnimationKeyHolder() }
 
     // 전송된 payload 의 SPF(1프레임 길이, ms)를 따라간다. SPF 100(기본)이면 period·transit 1단위 = 100ms
     val frameMs = transmission.payload.spf.coerceAtLeast(1).toFloat()
@@ -755,8 +757,6 @@ private fun animateOnEffect(
         if (randomColor) rememberRandomHueColor(alpha = progress)
         else hsvLerp(fixedStartColor, targetColor, progress)
 
-    LaunchedEffect(animationKey, (progress * 10).toInt()) {
-    }
 
     val gradientColor =
         if (iconColor.isBlack()) null else lerp(iconColor, backgroundColor, 0.2f)
@@ -804,8 +804,6 @@ private fun animateOffEffect(
     val progress = animatable.value
     val iconColor = hsvLerp(fixedStartColor, Color.Black, progress)
 
-    LaunchedEffect(animationKey, (progress * 10).toInt()) {
-    }
 
     val gradientColor =
         if (iconColor.isBlack()) null else lerp(iconColor, backgroundColor, 0.2f)
@@ -906,8 +904,6 @@ private fun animateBreathEffect(
         label = "breathProgress_$animationKey"
     )
 
-    LaunchedEffect(animationKey, (progress * 10).toInt()) {
-    }
 
     LaunchedEffect(progress) {
         if (progress >= 0.99f && isFirstCycle.value) {
@@ -1115,3 +1111,8 @@ private fun RoundedIconBox(
  * 이펙트 카드를 눌러 미리보는 경우처럼 payload 가 없을 때는 이 기본값을 쓴다.
  */
 private const val UI_TIME_UNIT_MS = 100f
+
+/** 마지막으로 시작한 애니메이션 키. 재구성을 일으키지 않도록 Compose State 가 아니다. */
+private class AnimationKeyHolder {
+    var value: String? = null
+}
