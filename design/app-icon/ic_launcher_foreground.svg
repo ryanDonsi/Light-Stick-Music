@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108">
+<defs>
+<linearGradient id="ring" x1="30" y1="30" x2="78" y2="78" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#A774FF"/><stop offset="0.6" stop-color="#C98BFF"/><stop offset="1" stop-color="#FFD46F"/></linearGradient>
+<linearGradient id="bar" x1="0" y1="44" x2="0" y2="66" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFD46F"/><stop offset="1" stop-color="#A774FF"/></linearGradient>
+</defs>
+<!-- glow (wide translucent) -->
+<path d="M75 45 A23 23 0 1 0 77 56 L61 56" fill="none" stroke="#A774FF" stroke-opacity="0.28" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M75 45 A23 23 0 1 0 77 56 L61 56" fill="none" stroke="url(#ring)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M75 45 A23 23 0 1 0 77 56 L61 56" fill="none" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<g stroke="url(#bar)" stroke-width="4" stroke-linecap="round">
+<line x1="40" y1="50" x2="40" y2="60"/><line x1="46.5" y1="45" x2="46.5" y2="65"/><line x1="53" y1="49" x2="53" y2="61"/>
+</g>
+</svg>
