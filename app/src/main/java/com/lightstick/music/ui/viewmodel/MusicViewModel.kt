@@ -40,6 +40,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -201,12 +202,43 @@ class MusicViewModel @Inject constructor(
         Log.d(TAG, "initializeEffects: done — ${MusicEffectManager.getLoadedEffectCount()} EFX loaded")
     }
 
-    fun loadMusic() {
+    /** 곡별 메타데이터 캐시 (경로 → 크기·수정 시각이 같으면 MediaMetadataRetriever 생략) */
+    private data class CachedMeta(
+        val size: Long,
+        val modified: Long,
+        val albumArtPath: String?,
+        val duration: Long
+    )
+    private val metaCache = java.util.concurrent.ConcurrentHashMap<String, CachedMeta>()
+
+    /** 마지막 스캔 시점의 MediaStore 세대 + EFX 맵 버전. 같으면 onResume 재스캔을 건너뛴다. */
+    private var lastScanKey: String? = null
+    private var loadMusicJob: Job? = null
+
+    private fun currentScanKey(): String? = try {
+        val volumes = MediaStore.getExternalVolumeNames(context).sorted().joinToString(",") { volume ->
+            "$volume=${MediaStore.getVersion(context, volume)}/${MediaStore.getGeneration(context, volume)}"
+        }
+        "$volumes:${MusicEffectManager.mapVersion}"
+    } catch (e: Exception) {
+        null // 판단 불가 → 매번 스캔(기존 동작)
+    }
+
+    /**
+     * @param force true 면 MediaStore/EFX 변화가 없어도 다시 스캔한다.
+     */
+    fun loadMusic(force: Boolean = false) {
         if (!PermissionManager.hasStoragePermission(context)) {
             Log.w(TAG, "loadMusic skipped: no storage permission")
             return
         }
-        viewModelScope.launch {
+        loadMusicJob?.cancel()
+        loadMusicJob = viewModelScope.launch {
+            val scanKey = withContext(Dispatchers.IO) { currentScanKey() }
+            if (!force && scanKey != null && scanKey == lastScanKey && _musicList.value.isNotEmpty()) {
+                Log.d(TAG, "loadMusic: MediaStore/EFX 변화 없음 → 스캔 생략")
+                return@launch
+            }
             val musicItems = withContext(Dispatchers.IO) {
                 val resolver    = context.contentResolver
                 val allowedDirs = FileHelper.allowedMusicDirs()
@@ -244,6 +276,7 @@ class MusicViewModel @Inject constructor(
 
                 // 파일시스템 직접 탐색 (mp4) — MediaStore 분류와 무관하게 확실히 수집
                 allowedDirs.map { File(it) }.filter { it.exists() }.forEach { dir ->
+                    ensureActive()
                     dir.walkTopDown()
                         .onEnter { !FileHelper.isRecordingsPath(it.absolutePath) }
                         .filter { it.isFile && it.extension.lowercase() == "mp4" }
@@ -261,6 +294,7 @@ class MusicViewModel @Inject constructor(
             }
 
             _musicList.value = musicItems
+            lastScanKey = scanKey
             Log.d(TAG, "loadMusic: done — ${musicItems.count { it.hasEffect }}/${musicItems.size} songs have EFX")
 
             // 재생 중인 곡의 hasEffect도 함께 갱신
@@ -298,6 +332,22 @@ class MusicViewModel @Inject constructor(
             false
         }
 
+        val size = file.length()
+        val modified = file.lastModified()
+        metaCache[path]?.takeIf { it.size == size && it.modified == modified }?.let { cached ->
+            items.add(
+                MusicItem(
+                    title        = title,
+                    artist       = artist,
+                    filePath     = path,
+                    albumArtPath = cached.albumArtPath,
+                    hasEffect    = hasEffect,
+                    duration     = cached.duration
+                )
+            )
+            return
+        }
+
         val retriever = MediaMetadataRetriever()
         var art: String? = null
         var duration = 0L
@@ -316,6 +366,7 @@ class MusicViewModel @Inject constructor(
         } finally {
             retriever.release()
         }
+        metaCache[path] = CachedMeta(size, modified, art, duration)
 
         items.add(
             MusicItem(

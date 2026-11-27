@@ -129,7 +129,12 @@ object MusicEffectManager {
     private fun replaceMap(fresh: Map<Int, File>) {
         effectFileMap.keys.retainAll(fresh.keys)
         effectFileMap.putAll(fresh)
+        mapVersion++
     }
+
+    /** EFX 맵이 바뀔 때마다 증가 — 음악 목록이 hasEffect 를 다시 계산해야 하는지 판단용 */
+    @Volatile var mapVersion: Int = 0
+        private set
 
     /**
      * SAF 문서를 filesDir/efx 로 복사한다. cacheDir 은 시스템이 앱 실행 중에도 비울 수 있어
