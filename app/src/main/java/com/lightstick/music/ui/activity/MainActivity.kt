@@ -423,7 +423,13 @@ private fun DeviceDetailPane(
     navController: NavHostController,
     deviceViewModel: DeviceViewModel,
     /** 상세 화면을 닫는 동작 — 폰: 이전 화면으로, 태블릿: 옆 패널만 닫기 */
-    onClose: () -> Unit = { navController.popBackStack() },
+    onClose: () -> Unit = {
+        // 연결 해제 시 닫기 요청이 연달아 두 번 올 수 있다(연결 상태 변경 + 기기 목록에서 제거).
+        // 이미 상세 화면을 벗어난 상태면 무시해서 디바이스 설정(스캔) 화면에 머물게 한다.
+        if (navController.currentDestination?.route?.startsWith("deviceDetail") == true) {
+            navController.popBackStack()
+        }
+    },
     showTopBar: Boolean = true
 ) {
     val context = LocalContext.current
