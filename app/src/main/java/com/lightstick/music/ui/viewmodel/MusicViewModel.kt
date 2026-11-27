@@ -527,6 +527,12 @@ class MusicViewModel @Inject constructor(
     }
 
     fun togglePlayPause() {
+        // 곡을 고르기 전(미디어 항목 없음)에는 아무 동작도 하지 않는다.
+        // 예전에는 isPlaying 만 true 가 되어 재생 중으로 잘못 표시됐다.
+        if (player.mediaItemCount == 0) {
+            Log.d(TAG, "togglePlayPause ignored: no track selected")
+            return
+        }
         if (player.isPlaying) {
             player.pause()
             _isPlaying.value = false
