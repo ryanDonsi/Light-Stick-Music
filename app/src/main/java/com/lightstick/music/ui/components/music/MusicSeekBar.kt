@@ -22,7 +22,7 @@ import com.lightstick.music.ui.theme.customTextStyles
  * 음악 재생 Seek Bar
  *
  * 현재/전체 재생 시간 텍스트와 [CommonProgressBar]를 함께 제공하며,
- * 탭/드래그 제스처로 재생 위치를 변경할 수 있는 16dp 터치 영역을 포함.
+ * 탭/드래그 제스처로 재생 위치를 변경할 수 있는 32dp 터치 영역을 포함.
  * 드래그 중에는 프로그레스 바와 현재 시간 텍스트가 실시간으로 갱신되고,
  * 포인터 업 시점에 [onSeekTo]가 호출되어 실제 재생 위치가 확정된다.
  *
@@ -42,6 +42,10 @@ fun MusicSeekBar(
     else 0f
 
     var dragProgress by remember { mutableStateOf<Float?>(null) }
+    // 제스처 블록은 한 번만 만들고 최신 값은 여기서 읽는다.
+    // 예전에는 pointerInput(duration) 이라 길이가 바뀌면(곡 준비 완료 등) 드래그 중 제스처가 재시작됐다.
+    val latestDuration by rememberUpdatedState(duration)
+    val latestOnSeekTo by rememberUpdatedState(onSeekTo)
     val displayProgress = dragProgress ?: baseProgress
     val displayMs = if (dragProgress != null) (duration * dragProgress!!).toLong() else currentPosition
 
@@ -69,13 +73,12 @@ fun MusicSeekBar(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
+        // 터치 영역 32dp(예전 16dp). 위 여백 8dp 를 터치 영역 안으로 흡수해 화면 높이 증가는 8dp 로 줄였다.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(16.dp)
-                .pointerInput(duration) {
+                .height(32.dp)
+                .pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(pass = PointerEventPass.Main)
                         val startPercent = (down.position.x / size.width).coerceIn(0f, 1f)
@@ -86,8 +89,9 @@ fun MusicSeekBar(
                             dragProgress = (change.position.x / size.width).coerceIn(0f, 1f)
                         }
 
-                        if (duration > 0) {
-                            onSeekTo((duration * (dragProgress ?: startPercent)).toLong())
+                        val d = latestDuration
+                        if (d > 0) {
+                            latestOnSeekTo((d * (dragProgress ?: startPercent)).toLong())
                         }
                         dragProgress = null
                     }
