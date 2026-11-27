@@ -369,13 +369,25 @@ object EffectEngineController {
         loadedEffectSource = null
         cachedTimeline = emptyList()
         lastRecordedEffectIndex = -1
+        lastFftColor = null
         try { LSBluetooth.connectedDevices().forEach { it.stopTimeline() } } catch (_: Exception) {}
         targetDevice = null
     }
 
+    // FFT 색상 전송 제한: SDK 명령 간격보다 자주 보내면 큐가 차서 다른 명령이 밀리거나 버려진다
+    private const val FFT_MIN_COLOR_DELTA = 6
+    @Volatile private var lastFftSentAt = 0L
+    @Volatile private var lastFftColor: Color? = null
+
+    private fun fftMinIntervalMs(): Long =
+        runCatching { LSBluetooth.getCommandIntervalMs() }.getOrDefault(50L).coerceAtLeast(50L)
+
     /** FFT는 Timeline이 없을 때만 전송 */
     fun processFFT(context: Context, band: FrequencyBand) {
         if (isTimelineLoaded) return
+
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastFftSentAt < fftMinIntervalMs()) return
 
         val total = (band.bass + band.mid + band.treble).let { if (it <= 0f) 1e-6f else it }
 
@@ -385,7 +397,18 @@ object EffectEngineController {
             b = ((band.treble / total) * 255f).toInt().coerceIn(0, 255)
         )
 
-        sendColor(context, color, transit = 5, source = TransmissionSource.FFT_EFFECT)
+        // 직전에 보낸 색과 거의 같으면 생략
+        val last = lastFftColor
+        if (last != null &&
+            kotlin.math.abs(last.r - color.r) < FFT_MIN_COLOR_DELTA &&
+            kotlin.math.abs(last.g - color.g) < FFT_MIN_COLOR_DELTA &&
+            kotlin.math.abs(last.b - color.b) < FFT_MIN_COLOR_DELTA
+        ) return
+
+        if (sendColor(context, color, transit = 5, source = TransmissionSource.FFT_EFFECT)) {
+            lastFftSentAt = now
+            lastFftColor = color
+        }
     }
 
     /**
