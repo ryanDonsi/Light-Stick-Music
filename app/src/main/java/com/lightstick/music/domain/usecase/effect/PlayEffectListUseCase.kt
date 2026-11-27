@@ -66,10 +66,13 @@ class PlayEffectListUseCase @Inject constructor() {
 
             val job = coroutineScope.launch {
                 try {
+                    // 첫 회차는 위에서 이미 보냈다 — 예전에는 여기서 한 번 더 보내 시작 시 두 번 전송됐다
+                    var firstRound = true
                     while (isActive) {
                         val startTime = System.currentTimeMillis()
 
-                        EffectEngineController.playFrames(context, frames)
+                        if (!firstRound) EffectEngineController.playFrames(context, frames)
+                        firstRound = false
 
                         launch {
                             recordEffectListPlayback(device.mac, frames, startTime)
@@ -227,7 +230,8 @@ class PlayEffectListUseCase @Inject constructor() {
                 recordFrame(deviceMac, timestamp, frameBytes, 0)
             }
 
-            while (true) {
+            // 마지막 프레임을 기록하면 끝낸다 — 예전에는 끝나지 않아 반복 회차마다 기록 코루틴이 쌓였다
+            while (lastRecordedIndex < sortedFrames.size - 1) {
                 delay(AppConstants.TRANSMISSION_MONITOR_UPDATE_INTERVAL_MS)
 
                 val elapsed = System.currentTimeMillis() - startTime
