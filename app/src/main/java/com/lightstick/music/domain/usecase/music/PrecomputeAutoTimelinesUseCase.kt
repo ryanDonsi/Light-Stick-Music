@@ -41,9 +41,24 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         private const val TEST_FORCE_REGENERATE = false
 
         /**
-         * 동시 처리할 파일 수. MediaCodec 인스턴스 수와 CPU 부하를 고려해 3으로 고정.
+         * 동시 처리할 최대 파일 수. MediaCodec 인스턴스 수와 CPU 부하를 고려한 상한.
+         * 실제 값은 [parallelCountFor]로 기기 힙 크기에 맞춰 줄인다.
          */
         private const val PARALLEL_COUNT = 3
+
+        /**
+         * 곡 하나 분석에 PCM 만으로 최대 약 106MB(10분, 44.1kHz 모노 float)를 쓴다.
+         * 힙이 작은 기기에서 3곡을 동시에 돌리면 OOM 이 날 수 있어 힙 크기로 병렬 수를 정한다.
+         */
+        private fun parallelCountFor(context: Context): Int {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+            val heapMb = am?.memoryClass ?: 256  // largeHeap 미사용이므로 memoryClass 기준
+            return when {
+                heapMb < 256 -> 1
+                heapMb < 512 -> 2
+                else         -> PARALLEL_COUNT
+            }
+        }
     }
 
     /**
@@ -96,7 +111,9 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
         val created   = AtomicInteger(0)
         val failed    = AtomicInteger(0)
 
-        val semaphore = Semaphore(PARALLEL_COUNT)
+        val parallel  = parallelCountFor(context)
+        Log.d(TAG, "parallel=$parallel")
+        val semaphore = Semaphore(parallel)
 
         coroutineScope {
             filesToProcess.map { file ->

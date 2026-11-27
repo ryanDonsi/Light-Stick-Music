@@ -245,6 +245,7 @@ object BeatDetectorRouter {
             var winPos = 0
 
             val bufferInfo = MediaCodec.BufferInfo()
+            var bytes = ByteArray(0)  // 출력 버퍼 복사용 — 버퍼마다 새로 만들지 않고 재사용
             var sawInputEOS = false; var sawOutputEOS = false
 
             while (!sawOutputEOS) {
@@ -268,9 +269,11 @@ object BeatDetectorRouter {
                         val buf = codec.getOutputBuffer(outIdx)
                         if (buf != null && bufferInfo.size > 0) {
                             buf.position(bufferInfo.offset); buf.limit(bufferInfo.offset + bufferInfo.size)
-                            val bytes = ByteArray(bufferInfo.size); buf.get(bytes)
+                            val outSize = bufferInfo.size
+                            if (bytes.size < outSize) bytes = ByteArray(outSize)
+                            buf.get(bytes, 0, outSize)
                             var i = 0
-                            while (i + stepBytes <= bytes.size) {
+                            while (i + stepBytes <= outSize) {
                                 var monoSum = 0f
                                 for (c in 0 until channelCount) {
                                     val lo = bytes[i + c * 2].toInt() and 0xFF
