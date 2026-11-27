@@ -1,10 +1,65 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- GLOWSYNC 로고를 Safe Zone 내에 맞게 축소 -->
-    <!-- Safe Zone: 66dp, 로고: 60dp x 20dp (3:1 비율 유지) -->
-    <item
-        android:width="60dp"
-        android:height="20dp"
-        android:gravity="center"
-        android:drawable="@drawable/logo_glowsync" />
-</layer-list>
+<!-- GLOWSYNC 런처 아이콘 전경: 네온 G + 이퀄라이저 (108dp 캔버스, Safe Zone 66dp 안에 배치) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 네온 번짐 (넓고 반투명) -->
+    <path
+        android:pathData="M75,45 A23,23 0 1,0 77,56 L61,56"
+        android:strokeColor="#A774FF"
+        android:strokeAlpha="0.28"
+        android:strokeWidth="12"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- G 본체 (보라 → 골드) -->
+    <path
+        android:pathData="M75,45 A23,23 0 1,0 77,56 L61,56"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="30"
+                android:startY="30"
+                android:endX="78"
+                android:endY="78">
+                <item android:offset="0" android:color="#FFA774FF" />
+                <item android:offset="0.6" android:color="#FFC98BFF" />
+                <item android:offset="1" android:color="#FFFFD46F" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 네온 심지 (흰 선) -->
+    <path
+        android:pathData="M75,45 A23,23 0 1,0 77,56 L61,56"
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.85"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- 이퀄라이저 막대 (골드 → 보라) -->
+    <path
+        android:pathData="M40,50 L40,60 M46.5,45 L46.5,65 M53,49 L53,61"
+        android:strokeWidth="4"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="44"
+                android:endX="0"
+                android:endY="66">
+                <item android:offset="0" android:color="#FFFFD46F" />
+                <item android:offset="1" android:color="#FFA774FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>
