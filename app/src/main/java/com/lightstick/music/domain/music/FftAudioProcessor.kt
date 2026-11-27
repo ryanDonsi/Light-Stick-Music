@@ -9,16 +9,25 @@ import org.jtransforms.fft.FloatFFT_1D
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
+/**
+ * 재생 중인 PCM 을 그대로 통과시키면서 저/중/고음 에너지를 계산한다.
+ *
+ * 오디오 렌더 스레드에서 호출되므로 버퍼마다 새 배열을 만들지 않고 재사용한다.
+ * [shouldAnalyze] 가 false 면(자동 모드 꺼짐, 타임라인 재생 중 등) FFT 자체를 건너뛴다.
+ */
 @UnstableApi
 class FftAudioProcessor(
+    private val shouldAnalyze: () -> Boolean = { true },
     private val onFftAnalyzed: (FrequencyBand) -> Unit
 ) : BaseAudioProcessor() {
 
     private var sampleRate: Int = 44100
 
-    // FFT 인스턴스 캐싱: 동일한 사이즈면 재사용
+    // FFT 인스턴스/작업 버퍼 캐싱: 동일한 사이즈면 재사용
     private var cachedFftSize: Int = -1
     private var cachedFft: FloatFFT_1D? = null
+    private var samples: ShortArray = ShortArray(0)
+    private var fftInput: FloatArray = FloatArray(0)
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         return if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) {
@@ -33,28 +42,33 @@ class FftAudioProcessor(
         val size = inputBuffer.remaining()
         if (size == 0) return
 
-        val shortBuffer = inputBuffer.order(ByteOrder.nativeOrder()).asShortBuffer()
-        val samples = ShortArray(shortBuffer.remaining())
-        shortBuffer.get(samples)
+        if (shouldAnalyze()) analyze(inputBuffer)
 
-        val n = samples.size
-        if (n == 0) {
-            val output = replaceOutputBuffer(size)
-            output.put(inputBuffer)
-            output.flip()
-            return
-        }
+        // PCM 그대로 패스스루 (다음 AudioSink로 넘김)
+        val output = replaceOutputBuffer(size)
+        output.put(inputBuffer)
+        output.flip()
+    }
 
-        // PCM → Float 변환
-        val floatSamples = FloatArray(n) { samples[it] / 32768f }
+    private fun analyze(inputBuffer: ByteBuffer) {
+        // duplicate(): 원본 버퍼의 position 을 건드리지 않고 읽는다
+        val shortBuffer = inputBuffer.duplicate().order(ByteOrder.nativeOrder()).asShortBuffer()
+        val n = shortBuffer.remaining()
+        if (n == 0) return
+
+        if (samples.size < n) samples = ShortArray(n)
+        shortBuffer.get(samples, 0, n)
 
         // FFT 복소수 배열 준비 (realForwardFull: [re0, im0, re1, im1, ...])
-        val fftInput = FloatArray(n * 2) { 0f }
-        for (i in floatSamples.indices) fftInput[i * 2] = floatSamples[i]
+        if (fftInput.size != n * 2) fftInput = FloatArray(n * 2)
+        val fftInput = fftInput
+        for (i in 0 until n) {
+            fftInput[i * 2] = samples[i] / 32768f
+            fftInput[i * 2 + 1] = 0f
+        }
 
         // 캐시된 FFT 인스턴스 재사용 (사이즈 변경 시에만 재생성)
         if (n != cachedFftSize) {
-            cachedFft = null // 이전 인스턴스 GC 허용 후 새 인스턴스 생성
             cachedFft = FloatFFT_1D(n.toLong())
             cachedFftSize = n
         }
@@ -89,10 +103,5 @@ class FftAudioProcessor(
         val treble = bandPower(4000f, 16000f) // 고음
 
         onFftAnalyzed(FrequencyBand(bass, mid, treble))
-
-        // 나머지 PCM 그대로 패스스루 (다음 AudioSink로 넘김)
-        val output = replaceOutputBuffer(size)
-        output.put(inputBuffer)
-        output.flip()
     }
 }

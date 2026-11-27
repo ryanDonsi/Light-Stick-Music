@@ -68,15 +68,29 @@ class MusicViewModel @Inject constructor(
     private val _isAutoModeEnabled = MutableStateFlow(true)
     val isAutoModeEnabled: StateFlow<Boolean> = _isAutoModeEnabled.asStateFlow()
 
-    val audioProcessor = FftAudioProcessor { band ->
-        val canSendFft =
-            _isAutoModeEnabled.value &&
-                    PermissionManager.hasBluetoothConnectPermission(context) &&
-                    !EffectEngineController.isTimelineActive()
-        if (canSendFft) {
-            try { processFFTUseCase(context, band) }
-            catch (e: Exception) { Log.e(TAG, "FFT effect send failed: ${e.message}") }
+    // 권한 확인은 시스템 호출이라 오디오 버퍼마다 하지 않고 1초 동안 결과를 재사용한다
+    @Volatile private var btPermissionCheckedAt = 0L
+    @Volatile private var btPermissionGranted = false
+
+    private fun hasBtPermissionCached(): Boolean {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - btPermissionCheckedAt > 1_000L) {
+            btPermissionGranted = PermissionManager.hasBluetoothConnectPermission(context)
+            btPermissionCheckedAt = now
         }
+        return btPermissionGranted
+    }
+
+    val audioProcessor = FftAudioProcessor(
+        // FFT 색상을 보낼 상황이 아니면 FFT 계산 자체를 건너뛴다
+        shouldAnalyze = {
+            _isAutoModeEnabled.value &&
+                !EffectEngineController.isTimelineActive() &&
+                hasBtPermissionCached()
+        }
+    ) { band ->
+        try { processFFTUseCase(context, band) }
+        catch (e: Exception) { Log.e(TAG, "FFT effect send failed: ${e.message}") }
     }
 
     val player = createFftPlayer(context, audioProcessor)
