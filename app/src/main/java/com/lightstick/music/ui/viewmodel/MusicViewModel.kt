@@ -719,6 +719,9 @@ class MusicViewModel @Inject constructor(
         player.removeListener(playerListener)
         MusicPlaybackState.reset()
         player.release()
+        // 플레이어가 해제되면 알림 버튼을 받을 곳이 없으므로 알림(포그라운드 서비스)도 내린다.
+        // (플레이어를 서비스로 옮기는 구조 변경은 B1 — 별도 작업)
+        ServiceController.stopMusicEffectService(context)
         super.onCleared()
     }
 }
