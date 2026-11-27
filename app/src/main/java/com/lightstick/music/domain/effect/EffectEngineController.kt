@@ -24,6 +24,9 @@ object EffectEngineController {
 
     private const val TAG = AppConstants.Feature.EFFECT_ENGINE
 
+    /** 펌웨어/타임라인 진단 로그(50ms 주기로 문자열 생성). 디버깅할 때만 true. */
+    private const val DIAGNOSTIC_LOGS = false
+
     @Volatile private var targetDevice: Device? = null
     @Volatile private var targetAddress: String? = null
     @Volatile private var isTimelineLoaded: Boolean = false
@@ -266,7 +269,7 @@ object EffectEngineController {
                 return
             }
 
-            cachedTimeline = loadedEffects
+            cachedTimeline = loadedEffects.sortedBy { it.timestampMs }
             lastRecordedEffectIndex = -1
 
             val frames = loadedEffects.map { entry -> entry.timestampMs to entry.payload.toByteArray() }
@@ -289,7 +292,7 @@ object EffectEngineController {
         try {
             devices.forEach { it.updatePlaybackPosition(currentPositionMs) }
             recordCurrentTimelineEffect(devices.first().mac, currentPositionMs)
-            logNextFrameGap(currentPositionMs)
+            if (DIAGNOSTIC_LOGS) logNextFrameGap(currentPositionMs)
         } catch (e: Exception) {
             Log.e(TAG, "Update playback failed: ${e.message}")
         }
@@ -302,7 +305,8 @@ object EffectEngineController {
     // 언제 전송하는지는 앱에서 관측할 수 없어서(closed SDK), 이건 "몇 ms 뒤에 프레임이
     // 예정돼 있다"는 타임라인 데이터 자체만 보여준다.
     private fun logNextFrameGap(currentPositionMs: Long) {
-        val next = cachedTimeline.firstOrNull { it.timestampMs >= currentPositionMs }
+        val timeline = cachedTimeline
+        val next = timeline.getOrNull(indexAtOrBefore(timeline, currentPositionMs - 1) + 1)
         if (next == null) {
             Log.d(TAG, "[gap-check] posMs=$currentPositionMs 이후 예정 프레임 없음 (타임라인 끝)")
         } else {
@@ -330,8 +334,25 @@ object EffectEngineController {
      * - SDK 타임라인 전송은 프레임의 duration을 항상 0(다음 프레임까지 유지)으로 덮어쓰므로
      *   duration 만료 판단은 하지 않는다. 재전송 때도 같은 규칙을 맞춘다([resendActiveEffectBeforeResume]).
      */
-    fun activeTimelineEffectAt(positionMs: Long): LSEffectPayload? =
-        cachedTimeline.lastOrNull { it.timestampMs <= positionMs }?.payload
+    fun activeTimelineEffectAt(positionMs: Long): LSEffectPayload? {
+        val timeline = cachedTimeline
+        return timeline.getOrNull(indexAtOrBefore(timeline, positionMs))?.payload
+    }
+
+    /**
+     * timestampMs 오름차순 [timeline] 에서 timestampMs <= [positionMs] 인 마지막 인덱스(없으면 -1).
+     * 50ms마다 불리므로 선형 탐색 대신 이진 탐색.
+     */
+    private fun indexAtOrBefore(timeline: List<EfxEntry>, positionMs: Long): Int {
+        var lo = 0
+        var hi = timeline.size - 1
+        var ans = -1
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            if (timeline[mid].timestampMs <= positionMs) { ans = mid; lo = mid + 1 } else hi = mid - 1
+        }
+        return ans
+    }
 
     /**
      * 재개 직전에 호출한다. 현재 위치에 해당하는 이펙트가 있으면 새로 전송하고, 없으면 아무것도 하지 않는다.
@@ -475,7 +496,8 @@ object EffectEngineController {
 
     @Synchronized
     private fun recordCurrentTimelineEffect(deviceMac: String, currentPositionMs: Long) {
-        if (cachedTimeline.isEmpty()) return
+        val timeline = cachedTimeline
+        if (timeline.isEmpty()) return
 
         try {
             val latestTransmission = BleTransmissionMonitor.latestTransmission.value
@@ -484,27 +506,27 @@ object EffectEngineController {
                 if (latestTransmission.source == TransmissionSource.PAYLOAD_EFFECT && dt < 500) return
             }
 
-            val currentEffectIndex = cachedTimeline.indexOfLast { it.timestampMs <= currentPositionMs }
+            val currentEffectIndex = indexAtOrBefore(timeline, currentPositionMs)
             if (currentEffectIndex < 0) return
             if (currentEffectIndex == lastRecordedEffectIndex) return
 
             // 인덱스가 2 이상 건너뛰면 경고 (SDK가 중간 프레임을 스킵했을 가능성)
             val skipped = currentEffectIndex - lastRecordedEffectIndex - 1
-            if (lastRecordedEffectIndex >= 0 && skipped > 0) {
+            if (DIAGNOSTIC_LOGS && lastRecordedEffectIndex >= 0 && skipped > 0) {
                 Log.w(TAG, "[record] effectIndex 건너뜀: ${lastRecordedEffectIndex} → ${currentEffectIndex} (${skipped}개 스킵) posMs=${currentPositionMs}ms")
                 for (si in (lastRecordedEffectIndex + 1) until currentEffectIndex) {
-                    val skippedEntry = cachedTimeline[si]
+                    val skippedEntry = timeline[si]
                     val p = skippedEntry.payload
                     Log.w(TAG, "[record]   스킵된 frame[$si] t=${skippedEntry.timestampMs}ms type=${p.effectType} color=${p.color}")
                 }
             }
 
-            val currentEntry = cachedTimeline[currentEffectIndex]
+            val currentEntry = timeline[currentEffectIndex]
             val currentPayload = currentEntry.payload
 
             // [firmware] 이전 프레임과의 간격 및 연속 동일 color 패턴 감지
-            if (lastRecordedEffectIndex >= 0) {
-                val prevEntry = cachedTimeline[lastRecordedEffectIndex]
+            if (DIAGNOSTIC_LOGS && lastRecordedEffectIndex >= 0) {
+                val prevEntry = timeline[lastRecordedEffectIndex]
                 val intervalMs = currentEntry.timestampMs - prevEntry.timestampMs
                 val prevColor = prevEntry.payload.color
                 val currColor = currentPayload.color
@@ -521,14 +543,14 @@ object EffectEngineController {
             }
 
             // [firmware] raw bytes 로그 (frame index 3-5 집중 확인 — SDK effectIndex 필드는 Mode 용도, 기본값=1)
-            if (currentEffectIndex in 3..5) {
+            if (DIAGNOSTIC_LOGS && currentEffectIndex in 3..5) {
                 val bytes = runCatching { currentEntry.payload.toByteArray() }.getOrNull()
                 Log.d(TAG, "[firmware] raw frame[$currentEffectIndex] bytes=${bytes?.joinToString(",") { "%02X".format(it) }}")
             }
 
             Log.d(TAG, "[record] effectIndex=${currentEffectIndex} posMs=${currentPositionMs}ms t=${currentEntry.timestampMs}ms")
             lastRecordedEffectIndex = currentEffectIndex
-            val currentEffect = cachedTimeline[currentEffectIndex]
+            val currentEffect = timeline[currentEffectIndex]
 
             val source = loadedEffectSource ?: TransmissionSource.TIMELINE_EFFECT
             val transmissionEvent = BleTransmissionEvent(
