@@ -2,6 +2,7 @@ package com.lightstick.music.domain.music
 
 import android.content.Context
 import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import com.lightstick.music.core.util.Log
 import com.lightstick.efx.Efx
 import com.lightstick.efx.EfxEntry
@@ -57,25 +58,27 @@ object MusicEffectManager {
             return
         }
 
-        effectFileMap.clear()
         lastSafSignature = null
 
         if (effectFiles.isEmpty()) {
+            effectFileMap.clear()
             Log.w(TAG, "initializeFromSAF: no EFX files in SAF directory ($dirUri)")
             return
         }
 
+        // 새 맵을 다 만든 뒤 한 번에 바꾼다 — 읽는 도중 다른 스레드(loadMusic)가 빈 맵을 보지 않게
+        val fresh = HashMap<Int, File>()
         effectFiles.forEach { docFile ->
             try {
-                val tempFile = EffectPathPreferences.copyToTempFile(context, docFile)
+                val tempFile = copyToLocal(context, docFile)
                 if (tempFile == null) {
-                    Log.w(TAG, "initializeFromSAF: copyToTempFile failed for ${docFile.name}")
+                    Log.w(TAG, "initializeFromSAF: copy failed for ${docFile.name}")
                     return@forEach
                 }
 
                 val efx = Efx.Companion.read(tempFile)
                 val musicId = efx.header.musicId
-                effectFileMap[musicId] = tempFile
+                fresh[musicId] = tempFile
                 Log.d(TAG, "initializeFromSAF: loaded ${docFile.name} → musicId=$musicId (0x${musicId.toUInt().toString(16)})")
 
             } catch (e: Exception) {
@@ -83,7 +86,12 @@ object MusicEffectManager {
             }
         }
 
+        replaceMap(fresh)
         lastSafSignature = signature
+
+        // SAF 폴더에서 지워진 EFX 의 로컬 사본 정리
+        val keep = effectFiles.mapNotNull { it.name }.toSet()
+        File(context.filesDir, "efx").listFiles()?.forEach { if (it.name !in keep) it.delete() }
         Log.i(TAG, "initializeFromSAF: done — ${effectFileMap.size} EFX file(s) in map")
     }
 
@@ -98,7 +106,7 @@ object MusicEffectManager {
             return
         }
 
-        effectFileMap.clear()
+        val fresh = HashMap<Int, File>()
 
         val listed = effectDir.listFiles { file -> file.extension.equals("efx", ignoreCase = true) }
         Log.d(TAG, "initialize(File): listFiles result = ${listed?.size ?: "null (permission denied?)"}")
@@ -107,14 +115,52 @@ object MusicEffectManager {
             try {
                 val efx = Efx.Companion.read(efxFile)
                 val musicId = efx.header.musicId
-                effectFileMap[musicId] = efxFile
+                fresh[musicId] = efxFile
                 Log.d(TAG, "initialize(File): loaded ${efxFile.name} → musicId=$musicId (0x${musicId.toUInt().toString(16)})")
             } catch (e: Exception) {
                 Log.e(TAG, "initialize(File): failed to read ${efxFile.name}: ${e.message}")
             }
         }
 
+        replaceMap(fresh)
         Log.i(TAG, "initialize(File): done — ${effectFileMap.size} EFX file(s) in map")
+    }
+
+    private fun replaceMap(fresh: Map<Int, File>) {
+        effectFileMap.keys.retainAll(fresh.keys)
+        effectFileMap.putAll(fresh)
+    }
+
+    /**
+     * SAF 문서를 filesDir/efx 로 복사한다. cacheDir 은 시스템이 앱 실행 중에도 비울 수 있어
+     * 그 경우 EFX 가 조용히 빠지므로 filesDir 를 쓴다. 크기·수정 시각이 같으면 다시 복사하지 않는다.
+     */
+    private fun copyToLocal(context: Context, docFile: DocumentFile): File? {
+        val name = docFile.name ?: return null
+        val dir = File(context.filesDir, "efx").apply { mkdirs() }
+        val target = File(dir, name)
+        val srcModified = docFile.lastModified()
+        if (target.exists() && target.length() == docFile.length() &&
+            srcModified > 0 && target.lastModified() == srcModified
+        ) return target
+
+        return try {
+            val tmp = File(dir, "$name.part")
+            val ok = context.contentResolver.openInputStream(docFile.uri)?.use { input ->
+                tmp.outputStream().use { output -> input.copyTo(output) }
+                true
+            } ?: false
+            if (!ok) return null
+            if (!tmp.renameTo(target)) {
+                target.delete()
+                if (!tmp.renameTo(target)) return null
+            }
+            if (srcModified > 0) target.setLastModified(srcModified)
+            target
+        } catch (e: Exception) {
+            Log.e(TAG, "copyToLocal failed for $name: ${e.message}")
+            null
+        }
     }
 
     fun hasEffectFor(musicFile: File): Boolean {
