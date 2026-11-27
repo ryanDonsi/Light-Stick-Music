@@ -461,7 +461,10 @@ class PlaybackEngine @Inject constructor(
             val musicId = MusicIdCache.get(musicFile)
             val ver     = AutoTimelineConfig.VERSION
             val storage = AutoTimelineStorage(version = ver)
+            val existed = storage.exists(context, musicId)
             val frames  = storage.load(context, musicId)
+            // 깨진 파일이었다면 load 가 지웠다 → 이번엔 FFT 로 재생하고 백그라운드에서 다시 만든다
+            if (existed && frames == null) requestTimelineRegeneration()
 
             if (!frames.isNullOrEmpty()) {
                 EffectEngineController.loadTimelineFromFrames(context, frames)
@@ -469,6 +472,12 @@ class PlaybackEngine @Inject constructor(
                 Log.w(TAG, "자동 타임라인 없음 (v=$ver) → FFT 폴백")
             }
         }
+    }
+
+    /** 깨진 자동 연출 파일을 지운 뒤 다시 만들게 한다(이미 생성 중이면 다음 실행 때 만들어진다) */
+    private fun requestTimelineRegeneration() {
+        val files = _musicList.value.map { File(it.filePath) }
+        if (files.isNotEmpty()) BackgroundTimelineGenerator.start(context, files)
     }
 
     private suspend fun onAutoTimelineGenerated(path: String) {
@@ -518,7 +527,10 @@ class PlaybackEngine @Inject constructor(
                 _currentColorFamily.value = null
                 return@launch
             }
-            val sections = SectionMetaStorage(ver).load(context, musicId)
+            val sectionStorage = SectionMetaStorage(ver)
+            val existed  = sectionStorage.exists(context, musicId)
+            val sections = sectionStorage.load(context, musicId)
+            if (existed && sections == null) requestTimelineRegeneration()
             _currentSections.value = sections
             // colorFamily는 SectionMeta에 들어있지 않다 — 팔레트 관련 값은 전부
             // EffectMatchingEngine이 관리하므로, musicStyle이 있으면 여기서 직접 물어본다

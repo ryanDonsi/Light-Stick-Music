@@ -10,6 +10,7 @@ import java.util.concurrent.TimeUnit
  *
  * 파일 이름은 곡 내용 해시(musicId) 기준이라, 곡 파일이 지워져도 남는다. 같은 파일을 다시 넣으면
  * 그대로 재사용되므로 바로 지우지 않고 유예 기간을 둔다.
+ * - 쓰다가 종료돼 남은 .tmp 파일: 바로 삭제
  * - 현재 버전([AutoTimelineConfig.VERSION])이 아닌 파일: 바로 삭제
  * - 지금 목록에 있는 곡의 파일: 수정 시각을 지금으로 갱신해 "마지막으로 목록에 있던 때"로 쓴다
  * - 목록에 없는 곡의 파일: 마지막으로 목록에 있던 때로부터 [RETENTION_DAYS] 일이 지나면 삭제
@@ -39,6 +40,11 @@ object AutoTimelineCleanup {
         var expired = 0
         dir.listFiles()?.forEach { f ->
             if (!f.isFile) return@forEach
+            // 쓰다가 종료돼 남은 임시 파일 (정리는 생성이 끝난 뒤에만 돌므로 쓰는 중인 파일은 없다)
+            if (f.name.endsWith(SafeFileWriter.TMP_SUFFIX)) {
+                f.delete()
+                return@forEach
+            }
             val m = NAME.matchEntire(f.name) ?: return@forEach   // 모르는 파일은 건드리지 않는다
             val id = m.groupValues[2].toIntOrNull() ?: return@forEach
             val ver = m.groupValues[3].toIntOrNull() ?: return@forEach

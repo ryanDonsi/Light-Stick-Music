@@ -106,7 +106,8 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
             musicFiles.filter { file ->
                 val musicId = MusicIdCache.getOrNull(file)
                     ?: return@filter true  // musicId 실패 시 처리 목록에 포함(→ failed 처리)
-                !storage.exists(context, musicId)
+                !storage.exists(context, musicId) ||
+                    (sectionStorage != null && !sectionStorage.exists(context, musicId))
             }
         }
 
@@ -151,10 +152,11 @@ class PrecomputeAutoTimelinesUseCase @Inject constructor() {
                                 failed.incrementAndGet()
                                 Log.w(TAG, "empty frames -> skip save file=${file.name} musicId=$musicId")
                             } else {
+                                // 구간 정보를 먼저, 타임라인을 나중에 쓴다. "생성 완료"는 두 파일이 다 있는 것으로
+                                // 판단하므로, 그 사이에 종료돼도 다음 실행 때 다시 만든다.
+                                // 구간이 비어도 빈 파일을 남겨 "구간 없음"과 "아직 안 만듦"을 구분한다.
+                                sectionStorage?.save(context, musicId, sections)
                                 storage.save(context, musicId, frames)
-                                if (sections.isNotEmpty()) {
-                                    sectionStorage?.save(context, musicId, sections)
-                                }
                                 created.incrementAndGet()
                                 ok = true
                             }

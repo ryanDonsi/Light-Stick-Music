@@ -1,11 +1,12 @@
 package com.lightstick.music.domain.music
 
 import android.content.Context
+import com.lightstick.music.core.util.Log
+import java.io.BufferedInputStream
+import java.io.IOException
 import java.io.DataInputStream
-import java.io.DataOutputStream
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 
 /**
  * Auto Timeline 저장소
@@ -19,6 +20,13 @@ import java.io.FileOutputStream
 class AutoTimelineStorage(
     private val version: Int = 1
 ) {
+    companion object {
+        private const val TAG = "AutoTimelineStorage"
+        /** 깨진 파일의 엉터리 개수로 큰 배열을 만들지 않게 하는 상한 */
+        private const val MAX_FRAMES = 1_000_000
+        private const val MAX_PAYLOAD = 64 * 1024
+    }
+
     private fun dir(context: Context): File =
         File(context.filesDir, "auto_timelines").apply { mkdirs() }
 
@@ -27,9 +35,9 @@ class AutoTimelineStorage(
 
     fun exists(context: Context, musicId: Int): Boolean = file(context, musicId).exists()
 
+    /** 임시 파일에 다 쓴 뒤 이름을 바꾼다 — 강제 종료돼도 반쯤 쓴 파일이 남지 않는다 */
     fun save(context: Context, musicId: Int, frames: List<Pair<Long, ByteArray>>) {
-        val f = file(context, musicId)
-        DataOutputStream(FileOutputStream(f)).use { out ->
+        SafeFileWriter.write(file(context, musicId)) { out ->
             out.writeInt(version)
             out.writeInt(frames.size)
             frames.forEach { (t, payload) ->
@@ -40,25 +48,37 @@ class AutoTimelineStorage(
         }
     }
 
+    /**
+     * 없으면 null. 읽다가 실패하면(예전 버전에서 쓰다 만 파일 등) 그 파일을 지우고 null 을 돌려준다.
+     * 지워진 곡은 다음 자동 연출 생성 때 다시 만들어진다.
+     */
     fun load(context: Context, musicId: Int): List<Pair<Long, ByteArray>>? {
         val f = file(context, musicId)
         if (!f.exists()) return null
 
-        return DataInputStream(FileInputStream(f)).use { input ->
-            val v = input.readInt()
-            if (v != version) return@use null
+        return try {
+            DataInputStream(BufferedInputStream(FileInputStream(f))).use { input ->
+                val v = input.readInt()
+                if (v != version) return@use null
 
-            val count = input.readInt()
-            val frames = ArrayList<Pair<Long, ByteArray>>(count)
+                val count = input.readInt()
+                if (count < 0 || count > MAX_FRAMES) throw IOException("bad frame count $count")
+                val frames = ArrayList<Pair<Long, ByteArray>>(count)
 
-            repeat(count) {
-                val t = input.readLong()
-                val len = input.readInt()
-                val payload = ByteArray(len)
-                input.readFully(payload)
-                frames.add(t to payload)
+                repeat(count) {
+                    val t = input.readLong()
+                    val len = input.readInt()
+                    if (len < 0 || len > MAX_PAYLOAD) throw IOException("bad payload size $len")
+                    val payload = ByteArray(len)
+                    input.readFully(payload)
+                    frames.add(t to payload)
+                }
+                frames
             }
-            frames
+        } catch (t: Throwable) {
+            Log.w(TAG, "corrupt timeline ${f.name} → delete (${t.message})")
+            runCatching { f.delete() }
+            null
         }
     }
 

@@ -4,10 +4,11 @@ import android.content.Context
 import com.lightstick.music.domain.music.genredetector.GenreDetector
 import com.lightstick.music.domain.music.sectiondetector.SectionDetector
 import java.io.DataInputStream
-import java.io.DataOutputStream
+import java.io.BufferedInputStream
+import java.io.IOException
+import com.lightstick.music.domain.music.SafeFileWriter
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 
 /**
  * SectionMeta 바이너리 저장소.
@@ -49,7 +50,8 @@ class SectionMetaStorage(private val version: Int) {
     fun save(context: Context, musicId: Int, sections: List<SectionMeta>) {
         val f = file(context, musicId)
         try {
-            DataOutputStream(FileOutputStream(f)).use { out ->
+            // 임시 파일에 다 쓴 뒤 이름을 바꾼다 — 강제 종료돼도 반쯤 쓴 파일이 남지 않는다
+            SafeFileWriter.write(f) { out ->
                 out.writeInt(version)
                 out.writeInt(sections.firstOrNull()?.musicStyle?.ordinal ?: -1)
                 out.writeInt(sections.size)
@@ -81,7 +83,7 @@ class SectionMetaStorage(private val version: Int) {
         if (!f.exists()) return null
 
         return try {
-            DataInputStream(FileInputStream(f)).use { input ->
+            DataInputStream(BufferedInputStream(FileInputStream(f))).use { input ->
                 val v = input.readInt()
                 if (v != version) return@use null
 
@@ -90,6 +92,7 @@ class SectionMetaStorage(private val version: Int) {
                 val songStyle         = musicStyles.getOrNull(musicStyleOrdinal)
 
                 val count = input.readInt()
+                if (count < 0 || count > 100_000) throw IOException("bad section count $count")
                 val sections = ArrayList<SectionMeta>(count)
 
                 val sectionTypes     = SectionDetector.SectionType.values()
@@ -110,6 +113,7 @@ class SectionMetaStorage(private val version: Int) {
                     val onsetDensity    = input.readFloat()
                     val periodicity     = input.readFloat()
                     val beatCount       = input.readInt()
+                    if (beatCount < 0 || beatCount > 1_000_000) throw IOException("bad beat count $beatCount")
                     val beatTimesMs     = LongArray(beatCount) { input.readLong() }.toList()
 
                     sections.add(
@@ -135,6 +139,8 @@ class SectionMetaStorage(private val version: Int) {
                 sections
             }
         } catch (t: Throwable) {
+            // 깨진 파일은 지운다(다음 생성 때 다시 만들어진다)
+            runCatching { f.delete() }
             null
         }
     }
