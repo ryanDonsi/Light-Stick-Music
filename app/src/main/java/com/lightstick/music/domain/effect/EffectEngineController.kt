@@ -425,45 +425,43 @@ object EffectEngineController {
         loadedEffectSource = null
         cachedTimeline = emptyList()
         lastRecordedEffectIndex = -1
-        lastFftColor = null
+        lastFftLevel = -1
+        synchronized(fftMeter) { fftMeter.reset() }
         try { LSBluetooth.connectedDevices().forEach { it.stopTimeline() } } catch (_: Exception) {}
         targetDevice = null
     }
 
-    // FFT 색상 전송 제한: SDK 명령 간격보다 자주 보내면 큐가 차서 다른 명령이 밀리거나 버려진다
-    private const val FFT_MIN_COLOR_DELTA = 6
+    // FFT 연출: 에너지를 이퀄라이저처럼 OFF + 7단계 색으로 바꿔 일정 간격으로 보낸다([FftLevelMeter]).
+    // 예전에는 저/중/고음 비율을 그대로 RGB 로 써서 색이 거의 섞인 흰색에 가까웠고, transit 5(약 0.5초)로
+    // 천천히 바뀌어 음악에 반응하는 느낌이 약했다.
+    /** 단계 색 전송 간격 하한(ms). SDK 명령 간격보다 짧으면 그 값을 쓴다 */
+    private const val FFT_EQ_SEND_INTERVAL_MS = 80L
+    /** 단계 색 전환 시간 (transit 단위, 1 = 약 100ms). 0 이면 즉시 바뀌어 깜빡임처럼 보일 수 있다 */
+    private const val FFT_EQ_TRANSIT = 1
+
+    private val fftMeter = FftLevelMeter()
     @Volatile private var lastFftSentAt = 0L
-    @Volatile private var lastFftColor: Color? = null
+    @Volatile private var lastFftLevel = -1
 
     private fun fftMinIntervalMs(): Long =
-        runCatching { LSBluetooth.getCommandIntervalMs() }.getOrDefault(50L).coerceAtLeast(50L)
+        runCatching { LSBluetooth.getCommandIntervalMs() }.getOrDefault(50L)
+            .coerceAtLeast(FFT_EQ_SEND_INTERVAL_MS)
 
     /** FFT는 Timeline이 없을 때만 전송 */
     fun processFFT(context: Context, band: FrequencyBand) {
         if (isTimelineLoaded) return
 
         val now = android.os.SystemClock.elapsedRealtime()
+        // 단계 계산은 FFT 창마다(약 46ms) 해서 감쇠·피크 홀드가 매끄럽게 움직이게 하고, 전송만 간격을 둔다
+        val level = synchronized(fftMeter) { fftMeter.update(band, now) }
+
         if (now - lastFftSentAt < fftMinIntervalMs()) return
+        if (level == lastFftLevel) return // 같은 단계면 다시 보내지 않는다
 
-        val total = (band.bass + band.mid + band.treble).let { if (it <= 0f) 1e-6f else it }
-
-        val color = Color(
-            r = ((band.bass / total) * 255f).toInt().coerceIn(0, 255),
-            g = ((band.mid / total) * 255f).toInt().coerceIn(0, 255),
-            b = ((band.treble / total) * 255f).toInt().coerceIn(0, 255)
-        )
-
-        // 직전에 보낸 색과 거의 같으면 생략
-        val last = lastFftColor
-        if (last != null &&
-            kotlin.math.abs(last.r - color.r) < FFT_MIN_COLOR_DELTA &&
-            kotlin.math.abs(last.g - color.g) < FFT_MIN_COLOR_DELTA &&
-            kotlin.math.abs(last.b - color.b) < FFT_MIN_COLOR_DELTA
-        ) return
-
-        if (sendColor(context, color, transit = 5, source = TransmissionSource.FFT_EFFECT)) {
+        val color = fftMeter.colorFor(level)
+        if (sendColor(context, color, transit = FFT_EQ_TRANSIT, source = TransmissionSource.FFT_EFFECT)) {
             lastFftSentAt = now
-            lastFftColor = color
+            lastFftLevel = level
         }
     }
 
