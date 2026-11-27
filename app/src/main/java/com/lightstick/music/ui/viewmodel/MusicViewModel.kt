@@ -90,6 +90,21 @@ class MusicViewModel @Inject constructor(
         return btPermissionGranted
     }
 
+    /**
+     * UseCase 는 예외를 던지지 않고 Result 로 실패를 돌려준다. 예전에는 호출부가 try/catch 만 하고
+     * Result 를 버려 실패가 아무 데도 남지 않았다(B15). 같은 실패가 반복되면(50ms 위치 동기화 등)
+     * 로그가 넘치지 않도록 메시지가 바뀔 때만 남긴다.
+     */
+    @Volatile private var lastFailureLog: String? = null
+
+    private fun <T> Result<T>.logFailure(what: String): Result<T> = onFailure { e ->
+        val msg = "$what failed: ${e.message}"
+        if (msg != lastFailureLog) {
+            lastFailureLog = msg
+            Log.w(TAG, msg)
+        }
+    }
+
     val audioProcessor = FftAudioProcessor(
         // FFT 색상을 보낼 상황이 아니면 FFT 계산 자체를 건너뛴다
         shouldAnalyze = {
@@ -98,8 +113,7 @@ class MusicViewModel @Inject constructor(
                 hasBtPermissionCached()
         }
     ) { band ->
-        try { processFFTUseCase(context, band) }
-        catch (e: Exception) { Log.e(TAG, "FFT effect send failed: ${e.message}") }
+        processFFTUseCase(context, band).logFailure("FFT effect send")
     }
 
     val player = createFftPlayer(context, audioProcessor)
@@ -442,7 +456,7 @@ class MusicViewModel @Inject constructor(
         EffectEngineController.reset()
 
         if (MusicEffectManager.hasEffectFor(musicFile)) {
-            loadEfxUseCase(context, musicFile)
+            loadEfxUseCase(context, musicFile).logFailure("EFX load")
         } else {
             val musicId = MusicIdCache.get(musicFile)
             val ver     = AutoTimelineConfig.VERSION
@@ -516,11 +530,7 @@ class MusicViewModel @Inject constructor(
         player.prepare()
 
         if (_isAutoModeEnabled.value) {
-            try {
-                updatePlaybackPositionUseCase(context, 0L)
-            } catch (e: Exception) {
-                Log.e(TAG, "Initial sync failed: ${e.message}")
-            }
+            updatePlaybackPositionUseCase(context, 0L).logFailure("Initial sync")
         }
 
         player.play()
@@ -581,19 +591,13 @@ class MusicViewModel @Inject constructor(
         // 전화 중단 후 재개 등 상황에서 이펙트 재동기화
         // 1. 현재 위치로 Seek 실행 (Timeline 인덱스 초기화)
         val currentPos = player.currentPosition
-        try {
-            handleSeekUseCase(context, currentPos)
-            Log.d(TAG, "Resume: seek to $currentPos")
-        } catch (e: Exception) {
-            Log.e(TAG, "Resume position sync failed: ${e.message}")
-        }
+        handleSeekUseCase(context, currentPos)
+            .onSuccess { Log.d(TAG, "Resume: seek to $currentPos") }
+            .logFailure("Resume position sync")
         // 2. 즉시 위치 업데이트 (타임라인을 현재 위치로 강제 동기화)
-        try {
-            updatePlaybackPositionUseCase(context, currentPos)
-            Log.d(TAG, "Resume: sync position at $currentPos")
-        } catch (e: Exception) {
-            Log.e(TAG, "Resume position update failed: ${e.message}")
-        }
+        updatePlaybackPositionUseCase(context, currentPos)
+            .onSuccess { Log.d(TAG, "Resume: sync position at $currentPos") }
+            .logFailure("Resume position update")
     }
 
     private fun syncTimelineToNewDevice(mac: String) {
@@ -632,11 +636,7 @@ class MusicViewModel @Inject constructor(
                     loadTimelineForCurrentTrack(musicFile)
 
                     val currentPos = player.currentPosition
-                    try {
-                        updatePlaybackPositionUseCase(context, currentPos)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "AUTO ON sync failed: ${e.message}")
-                    }
+                    updatePlaybackPositionUseCase(context, currentPos).logFailure("AUTO ON sync")
                 }
             }
         }
@@ -686,8 +686,7 @@ class MusicViewModel @Inject constructor(
         _currentPosition.value = position.toInt()
 
         if (_isAutoModeEnabled.value) {
-            try { handleSeekUseCase(context, position) }
-            catch (e: Exception) { Log.e(TAG, "handleSeek() failed: ${e.message}") }
+            handleSeekUseCase(context, position).logFailure("handleSeek()")
         }
 
         updateNotificationProgress()
@@ -717,10 +716,7 @@ class MusicViewModel @Inject constructor(
                 val current = player.currentPosition
 
                 if (player.isPlaying && _isAutoModeEnabled.value) {
-                    try { updatePlaybackPositionUseCase(context, current) }
-                    catch (e: Exception) {
-                        Log.e(TAG, "updatePlaybackPosition() failed: ${e.message}")
-                    }
+                    updatePlaybackPositionUseCase(context, current).logFailure("updatePlaybackPosition()")
                 }
 
                 if (tick % UI_POSITION_EVERY_TICKS == 0) publishPosition()
