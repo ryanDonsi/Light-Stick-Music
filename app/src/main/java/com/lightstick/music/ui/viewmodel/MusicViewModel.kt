@@ -38,6 +38,7 @@ import com.lightstick.music.domain.usecase.music.UpdatePlaybackPositionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -345,7 +346,8 @@ class MusicViewModel @Inject constructor(
     // 자동모드용 타임라인을 musicFile 기준으로 (재)로드한다. playMusic()/toggleAutoMode()/
     // togglePlayPause() 재개 경로에서 공용으로 쓴다 — 셋 다 "이 곡의 자동 타임라인을 디바이스에
     // 새로 실어야 한다"는 같은 필요에서 나온 호출이라 로직을 하나로 모았다.
-    private fun loadTimelineForCurrentTrack(musicFile: File) {
+    // 파일 해시·EFX 파싱·타임라인 파일 읽기가 들어 있어 IO 스레드에서 실행한다.
+    private suspend fun loadTimelineForCurrentTrack(musicFile: File): Unit = withContext(Dispatchers.IO) {
         EffectEngineController.reset()
 
         if (MusicEffectManager.hasEffectFor(musicFile)) {
@@ -364,24 +366,39 @@ class MusicViewModel @Inject constructor(
         }
     }
 
+    private var playJob: Job? = null
+
     fun playMusic(item: MusicItem) {
         _nowPlaying.value      = item
         _isPlaying.value       = true
         _duration.value        = 0
         _currentPosition.value = 0
 
-        val musicFile = File(item.filePath)
-        val musicId   = MusicIdCache.get(musicFile)
-        val ver       = AutoTimelineConfig.VERSION
+        playJob?.cancel()
+        playJob = viewModelScope.launch {
+            val musicFile = File(item.filePath)
 
-        if (_isAutoModeEnabled.value) {
-            loadTimelineForCurrentTrack(musicFile)
-        } else {
-            EffectEngineController.reset()
+            // 타임라인 로드(해시·파일 읽기)는 IO에서 끝낸 뒤 재생을 시작한다 — 메인 스레드 블로킹 방지
+            if (_isAutoModeEnabled.value) {
+                loadTimelineForCurrentTrack(musicFile)
+            } else {
+                withContext(Dispatchers.IO) { EffectEngineController.reset() }
+            }
+
+            loadSectionMeta(musicFile)
+            startPlayback(item)
         }
+    }
 
-        // 섹션 메타 비동기 로드 (오버레이용)
+    // 섹션 메타 비동기 로드 (오버레이용)
+    private fun loadSectionMeta(musicFile: File) {
         viewModelScope.launch(Dispatchers.IO) {
+            val ver      = AutoTimelineConfig.VERSION
+            val musicId  = MusicIdCache.getOrNull(musicFile) ?: run {
+                _currentSections.value = null
+                _currentColorFamily.value = null
+                return@launch
+            }
             val sections = SectionMetaStorage(ver).load(context, musicId)
             _currentSections.value = sections
             // colorFamily는 SectionMeta에 들어있지 않다 — 팔레트 관련 값은 전부
@@ -391,7 +408,9 @@ class MusicViewModel @Inject constructor(
                 EffectMatchingEngineRouter.createEngine().buildPalette(musicId, it).colorFamily
             }
         }
+    }
 
+    private fun startPlayback(item: MusicItem) {
         ServiceController.startMusicEffectService(
             context   = context,
             musicItem = item,
@@ -442,6 +461,10 @@ class MusicViewModel @Inject constructor(
      * (playerListener의 AUDIO_FOCUS_LOSS reason, playWhenReady=true) 모두 동일하게 필요하다.
      */
     private fun resyncEffectsOnResume() {
+        viewModelScope.launch { resyncEffectsOnResumeInternal() }
+    }
+
+    private suspend fun resyncEffectsOnResumeInternal() {
         // SDK 업데이트(pendingResyncAfterManualEffect 도입) 이후로는 sendEffect()가
         // 로드된 타임라인을 보존한 채 전송만 억제하고, resumeTimeline() 호출 시 SDK가
         // 내부적으로 현재 프레임을 자동 재전송하므로 앱에서 별도 재동기화가 불필요하다.
@@ -492,14 +515,16 @@ class MusicViewModel @Inject constructor(
         } else {
             val currentMusic = _nowPlaying.value
             if (currentMusic != null) {
-                val musicFile = File(currentMusic.filePath)
-                loadTimelineForCurrentTrack(musicFile)
+                viewModelScope.launch {
+                    val musicFile = File(currentMusic.filePath)
+                    loadTimelineForCurrentTrack(musicFile)
 
-                val currentPos = _currentPosition.value.toLong()
-                try {
-                    updatePlaybackPositionUseCase(context, currentPos)
-                } catch (e: Exception) {
-                    Log.e(TAG, "AUTO ON sync failed: ${e.message}")
+                    val currentPos = player.currentPosition
+                    try {
+                        updatePlaybackPositionUseCase(context, currentPos)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "AUTO ON sync failed: ${e.message}")
+                    }
                 }
             }
         }
